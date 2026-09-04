@@ -64,6 +64,29 @@ describe("checkTheme", () => {
     };
     expect(checkTheme(coloured).some((p) => p.includes("colour"))).toBe(true);
   });
+  test("enforces phase and verb requiredness and length limits", () => {
+    const missing = structuredClone(AIRPORT) as unknown as Record<
+      string,
+      unknown
+    >;
+    delete missing.phases;
+    delete missing.verbs;
+    const problems = checkTheme(missing);
+    expect(problems.some((p) => p.startsWith("phases:"))).toBe(true);
+    expect(problems.some((p) => p.startsWith("verbs:"))).toBe(true);
+
+    const long = structuredClone(AIRPORT);
+    long.phases.fixing = "go around and try it again";
+    const overflow = checkTheme(long);
+    expect(
+      overflow.some((p) => p.includes("phases.fixing") && p.includes("14")),
+    ).toBe(true);
+  });
+  test("does not crash on non-object input", () => {
+    expect(checkTheme(null)).toEqual(["a theme is a JSON object"]);
+    expect(checkTheme("nope")).toEqual(["a theme is a JSON object"]);
+    expect(checkTheme([1, 2])).toEqual(["a theme is a JSON object"]);
+  });
 });
 
 describe("labelFor", () => {
@@ -110,6 +133,25 @@ describe("loadTheme", () => {
       /airport[\s\S]*police/,
     );
   });
+  test("the built-in listing includes plain as well as airport", () => {
+    const home = configHome();
+    expect(() => loadTheme("nope", { XDG_CONFIG_HOME: home })).toThrow(
+      /airport.*plain|plain.*airport/,
+    );
+  });
+  test("rejects a name that would escape the themes directory", () => {
+    const home = configHome();
+    expect(() =>
+      loadTheme("../../etc/passwd", { XDG_CONFIG_HOME: home }),
+    ).toThrow(/name/);
+  });
+  test("a malformed JSON file names its own path", () => {
+    const home = configHome();
+    writeFileSync(join(home, "tower", "themes", "broken.json"), "{ not json");
+    expect(() => loadTheme("broken", { XDG_CONFIG_HOME: home })).toThrow(
+      /broken\.json.*not valid JSON/,
+    );
+  });
 });
 
 describe("scaffoldTheme", () => {
@@ -127,6 +169,12 @@ describe("scaffoldTheme", () => {
     expect(() => scaffoldTheme("fire", { XDG_CONFIG_HOME: home })).toThrow(
       /exists/,
     );
+  });
+  test("rejects a name that would escape the themes directory", () => {
+    const home = configHome();
+    expect(() =>
+      scaffoldTheme("../../etc/passwd", { XDG_CONFIG_HOME: home }),
+    ).toThrow(/name/);
   });
 });
 

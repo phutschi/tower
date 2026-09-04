@@ -102,6 +102,8 @@ const ALLOWED_TOP = new Set([
 ]);
 
 export function checkTheme(raw: unknown): string[] {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw))
+    return ["a theme is a JSON object"];
   const problems: string[] = [];
   const doc = raw as Record<string, unknown>;
   for (const key of Object.keys(doc))
@@ -156,6 +158,35 @@ export function checkTheme(raw: unknown): string[] {
     problems.push(
       `two states have the same label "${d}"; a glance must tell them apart`,
     );
+
+  const phases = doc.phases;
+  if (typeof phases !== "object" || phases === null || Array.isArray(phases))
+    problems.push("phases: required, an object (may be empty)");
+  else
+    for (const [key, value] of Object.entries(
+      phases as Record<string, unknown>,
+    )) {
+      if (typeof value !== "string" || value.length === 0)
+        problems.push(`phases.${key}: a non-empty string`);
+      else if (value.length > LIMITS.state)
+        problems.push(
+          `phases.${key}: "${value}" is ${value.length} characters; the limit is ${LIMITS.state}`,
+        );
+    }
+
+  // Verbs are required but not length-limited: the built-in airport theme's
+  // own "cleared for takeoff" (19 chars) exceeds the 14-char label limit, so
+  // that limit cannot apply here without airport failing its own check.
+  const verbs = doc.verbs;
+  if (typeof verbs !== "object" || verbs === null || Array.isArray(verbs))
+    problems.push("verbs: required, { started, blocked }");
+  else
+    for (const key of ["started", "blocked"]) {
+      const value = (verbs as Record<string, unknown>)[key];
+      if (typeof value !== "string" || value.length === 0)
+        problems.push(`verbs.${key}: required, a non-empty string`);
+    }
+
   return problems;
 }
 
@@ -178,20 +209,35 @@ export function listThemes(env: Env): { builtIn: string[]; user: string[] } {
   } catch {
     /* no user themes dir yet */
   }
-  return { builtIn: ["airport"], user };
+  return { builtIn: Object.keys(BUILT_IN).sort(), user };
+}
+
+const VALID_NAME = /^[a-z0-9][a-z0-9_-]*$/i;
+
+function themeFilePath(name: string, env: Env): string {
+  if (!VALID_NAME.test(name))
+    throw new Error(
+      `invalid theme name "${name}"; use letters, digits, "-" and "_" only`,
+    );
+  return join(themesDir(env), `${name}.json`);
 }
 
 export function loadTheme(name: string, env: Env): Theme {
   const builtIn = BUILT_IN[name];
   if (builtIn) return builtIn;
-  const path = join(themesDir(env), `${name}.json`);
+  const path = themeFilePath(name, env);
   if (!existsSync(path)) {
     const { builtIn: b, user } = listThemes(env);
     throw new Error(
       `no theme "${name}"\n       built in: ${b.join(", ")}\n       yours (${themesDir(env)}): ${user.join(", ") || "(none)"}`,
     );
   }
-  const raw: unknown = JSON.parse(readFileSync(path, "utf8"));
+  let raw: unknown;
+  try {
+    raw = JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    throw new Error(`${path} is not valid JSON`);
+  }
   const problems = checkTheme(raw);
   if (problems.length > 0)
     throw new Error(
@@ -202,10 +248,8 @@ export function loadTheme(name: string, env: Env): Theme {
 
 /** Writes `<themes dir>/<name>.json` with every key present and empty; returns the path. */
 export function scaffoldTheme(name: string, env: Env): string {
+  const path = themeFilePath(name, env);
   const dir = themesDir(env);
-  const path = join(dir, `${name}.json`);
-  if (existsSync(path))
-    throw new Error(`${path} already exists; edit it, or pick another name`);
   mkdirSync(dir, { recursive: true });
   const blank: Theme = {
     name,
@@ -236,7 +280,13 @@ export function scaffoldTheme(name: string, env: Env): string {
     empty: "",
     elapsed: "",
   };
-  writeFileSync(path, `${JSON.stringify(blank, null, 2)}\n`);
+  try {
+    writeFileSync(path, `${JSON.stringify(blank, null, 2)}\n`, { flag: "wx" });
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "EEXIST")
+      throw new Error(`${path} already exists; edit it, or pick another name`);
+    throw err;
+  }
   return path;
 }
 
