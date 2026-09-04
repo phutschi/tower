@@ -18,13 +18,16 @@ export function expandIds(spec: string): string[] {
     .filter(Boolean)) {
     const range = INT_RANGE.exec(token);
     if (range) {
-      const lo = Number(range[1]);
-      const hi = Number(range[2]);
+      const loText = range[1] ?? "";
+      const hiText = range[2] ?? "";
+      const lo = Number(loText);
+      const hi = Number(hiText);
       if (hi < lo) throw new Error(`range "${token}" runs backwards`);
-      for (let n = lo; n <= hi; n++) out.push(String(n));
+      const width = Math.max(loText.length, hiText.length);
+      for (let n = lo; n <= hi; n++) out.push(String(n).padStart(width, "0"));
       continue;
     }
-    if (token.includes("-") && /^[A-Za-z]+-[A-Za-z]+$/.test(token))
+    if (/^[A-Za-z]+-[A-Za-z]+$/.test(token))
       throw new Error(`range "${token}" must be integer to integer, like 7-9`);
     if (!isValidId(token))
       throw new Error(
@@ -45,24 +48,21 @@ export function sortByPlan(
   );
 }
 
-function distance(a: string, b: string): number {
-  const rows = Array.from({ length: a.length + 1 }, (_, i) => [
-    i,
-    ...new Array<number>(b.length).fill(0),
-  ]);
-  for (let j = 0; j <= b.length; j++) (rows[0] as number[])[j] = j;
-  for (let i = 1; i <= a.length; i++)
+/** Levenshtein edit distance, computed with two rolling rows. */
+function levenshtein(a: string, b: string): number {
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const row = [i, ...new Array<number>(b.length).fill(0)];
     for (let j = 1; j <= b.length; j++) {
       const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-      const row = rows[i] as number[];
-      const prev = rows[i - 1] as number[];
-      row[j] = Math.min(
-        (row[j - 1] as number) + 1,
-        (prev[j] as number) + 1,
-        (prev[j - 1] as number) + cost,
-      );
+      const left = row[j - 1] ?? 0;
+      const up = prev[j] ?? 0;
+      const diag = prev[j - 1] ?? 0;
+      row[j] = Math.min(left + 1, up + 1, diag + cost);
     }
-  return (rows[a.length] as number[])[b.length] as number;
+    prev = row;
+  }
+  return prev[b.length] ?? 0;
 }
 
 /** The closest existing id, when it is close enough to be a typo. */
@@ -70,9 +70,10 @@ export function nearestId(
   id: string,
   ids: readonly string[],
 ): string | undefined {
+  if (!id) return undefined;
   let best: { id: string; d: number } | undefined;
   for (const candidate of ids) {
-    const d = distance(id.toLowerCase(), candidate.toLowerCase());
+    const d = levenshtein(id.toLowerCase(), candidate.toLowerCase());
     if (!best || d < best.d) best = { id: candidate, d };
   }
   if (!best) return undefined;
