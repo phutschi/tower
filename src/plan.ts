@@ -8,10 +8,11 @@
  * YAML library would be the project's first dependency that is not Ink.
  */
 import type { TaskDef } from "./types.ts";
-import { isValidId } from "./ids.ts";
+import { ID_PATTERN, isValidId } from "./ids.ts";
 
-const TASK_HEADING =
-  /^###\s+Task\s+([A-Za-z0-9][A-Za-z0-9._-]*)\s*:\s*(.+?)\s*$/;
+const TASK_HEADING = new RegExp(
+  `^###\\s+Task\\s+(${ID_PATTERN.source.slice(1, -1)})\\s*:\\s*(.+?)\\s*$`,
+);
 const TASK_CONVENTION = "### Task <id>: <title>";
 
 export interface ParsedPlan {
@@ -42,16 +43,17 @@ const stripBackticks = (text: string) => text.replaceAll("`", "");
 export function parsePlan(markdown: string): ParsedPlan {
   const { fields, body } = frontmatter(markdown);
   const h1 = /^#\s+(.+?)\s*$/m.exec(body)?.[1];
-  const title = h1 ?? fields.project ?? "untitled";
+  const title = stripBackticks(h1 ?? fields.project ?? "untitled");
   const tasks: TaskDef[] = [];
   const seen = new Set<string>();
   for (const line of body.split("\n")) {
     const match = TASK_HEADING.exec(line);
-    if (!match) continue;
-    const id = match[1] as string;
+    const id = match?.[1];
+    const rawTitle = match?.[2];
+    if (id === undefined || rawTitle === undefined) continue;
     if (seen.has(id)) throw new Error(`duplicate task id "${id}" in the plan`);
     seen.add(id);
-    tasks.push({ id, title: stripBackticks(match[2] as string), area: "" });
+    tasks.push({ id, title: stripBackticks(rawTitle), area: "" });
   }
   if (tasks.length === 0)
     throw new Error(
@@ -82,7 +84,8 @@ export function sectionOf(
 export function parseTsv(text: string): TaskDef[] {
   const tasks: TaskDef[] = [];
   text.split("\n").forEach((line, index) => {
-    if (!line.trim() || line.startsWith("#")) return;
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) return;
     const [id = "", title = "", area = ""] = line
       .split("\t")
       .map((cell) => cell.trim());

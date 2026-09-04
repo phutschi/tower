@@ -78,9 +78,18 @@ describe("parsePlan", () => {
     );
   });
 
-  test("falls back to the project key, then to 'untitled', for the title", () => {
+  test("falls back to the project key for the title", () => {
     expect(parsePlan("---\nproject: X\n---\n### Task 1: A\n").title).toBe("X");
+  });
+
+  test("falls back to 'untitled' for the title", () => {
     expect(parsePlan("### Task 1: A\n").title).toBe("untitled");
+  });
+
+  test("strips backticks from the H1 title, same as task titles", () => {
+    expect(parsePlan("# `widgets` plan\n### Task 1: A\n").title).toBe(
+      "widgets plan",
+    );
   });
 });
 
@@ -92,6 +101,10 @@ describe("sectionOf", () => {
   });
   test("is undefined when the heading is absent", () => {
     expect(sectionOf(PLAN, "Nope")).toBeUndefined();
+  });
+  test("a ### heading inside the section does not end it", () => {
+    const text = "## Notes\n\nline one\n### not a stop\nline two\n## Next\n";
+    expect(sectionOf(text, "Notes")).toBe("line one\n### not a stop\nline two");
   });
 });
 
@@ -112,5 +125,10 @@ describe("parseTsv", () => {
   });
   test("no tasks at all is an error", () => {
     expect(() => parseTsv("# just a comment\n\n")).toThrow(/no tasks found/);
+  });
+  test("an indented comment line is still recognised as a comment", () => {
+    expect(parseTsv("  # indented comment\n1\tA\n")).toEqual([
+      { id: "1", title: "A", area: "" },
+    ]);
   });
 });
