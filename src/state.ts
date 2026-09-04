@@ -99,6 +99,9 @@ export function fold(
   const unknown: string[] = [];
   let unreadable = 0;
   let closed: State["closed"] = null;
+  // Named firstEventAt in the public contract, but only a *report* sets it:
+  // assign/note/close mark planning or narration, not work starting, so they
+  // must not move the run's "elapsed since work began" clock.
   let firstEventAt: string | null = null;
 
   for (const line of lines) {
@@ -121,17 +124,27 @@ export function fold(
         continue;
       }
       firstEventAt ??= event.ts;
+      // status/phase/note/updatedAt: last report always wins, whole value.
       task.status = event.status;
       task.phase = event.phase;
       task.note = event.note;
       task.updatedAt = event.ts;
+      // model: sticky across empty reports (a status-only report with no
+      // --model must not blank the board), and split into "who is on it
+      // now" vs. "who last did the work" so a reviewer's model doesn't
+      // overwrite the implementer's credit.
       if (event.model) {
         task.model = event.model;
         if (event.status === "in_progress" || event.status === "done")
           task.implementer = event.model;
       }
+      // startedAt: first in_progress only, never overwritten by a later one
+      // (a "go around" restarts phase, not the clock).
       if (event.status === "in_progress" && task.startedAt === null)
         task.startedAt = event.ts;
+      // commit: sticky once set, so a later regressive report (e.g. a
+      // reopened task going back to in_progress) doesn't erase which sha
+      // landed.
       if (event.status === "done" && event.commit) task.commit = event.commit;
       transcript.push({ ts: event.ts, event });
     } else if (event.kind === "assign") {
@@ -153,11 +166,18 @@ export function fold(
   const ACTIVE: readonly Status[] = ["in_progress", "reviewing"];
   const threshold = options.staleMinutes * 60_000;
   for (const task of tasks.values()) {
-    task.stale =
-      closed === null &&
-      ACTIVE.includes(task.status) &&
-      task.updatedAt !== null &&
-      options.now.getTime() - Date.parse(task.updatedAt) > threshold;
+    if (
+      closed !== null ||
+      !ACTIVE.includes(task.status) ||
+      task.updatedAt === null
+    ) {
+      task.stale = false;
+      continue;
+    }
+    const elapsed = options.now.getTime() - Date.parse(task.updatedAt);
+    // An unparseable ts (Date.parse -> NaN) must not silently read as "not
+    // stale" — that is the one failure mode staleness exists to catch.
+    task.stale = Number.isNaN(elapsed) || elapsed > threshold;
   }
 
   const list = [...tasks.values()];
