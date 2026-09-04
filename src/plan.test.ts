@@ -107,4 +107,10 @@ describe("parseTsv", () => {
   test("an invalid id names the line", () => {
     expect(() => parseTsv("a b\tX\n")).toThrow(/line 1/);
   });
+  test("a missing title names the line and the task id", () => {
+    expect(() => parseTsv("1\n")).toThrow(/line 1.*task 1/);
+  });
+  test("no tasks at all is an error", () => {
+    expect(() => parseTsv("# just a comment\n\n")).toThrow(/no tasks found/);
+  });
 });

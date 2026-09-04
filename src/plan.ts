@@ -88,7 +88,12 @@ export function parseTsv(text: string): TaskDef[] {
       .map((cell) => cell.trim());
     if (!isValidId(id))
       throw new Error(`line ${index + 1}: "${id}" is not a valid task id`);
+    if (!title) throw new Error(`line ${index + 1}: task ${id} has no title`);
     tasks.push({ id, title, area });
   });
+  if (tasks.length === 0)
+    throw new Error(
+      "no tasks found; expected lines of id<TAB>title[<TAB>area]",
+    );
   return tasks;
 }
