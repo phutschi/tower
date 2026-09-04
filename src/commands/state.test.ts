@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
+import { appendEvent } from "../events.ts";
 import { main } from "../main.ts";
+import { eventsPath } from "../run.ts";
 import { seededRun } from "../testing.ts";
 
 describe("tower state --json", () => {
@@ -39,5 +41,22 @@ describe("tower wait", () => {
     const { io } = seededRun();
     expect(await main(["wait", "--timeout", "0.05"], io)).toBe(3);
     expect(io.out.join("")).toBe("");
+  });
+
+  test("exits 0 and prints the attention lines when something already needs a human", async () => {
+    const { runDir, io } = seededRun();
+    appendEvent(eventsPath(runDir), {
+      v: 1,
+      kind: "report",
+      ts: io.now().toISOString(),
+      task: "1",
+      status: "blocked",
+      phase: "",
+      model: "",
+      note: "needs the test DB created",
+      commit: "",
+    });
+    expect(await main(["wait", "--timeout", "5"], io)).toBe(0);
+    expect(io.out.join("")).toContain("needs the test DB created");
   });
 });

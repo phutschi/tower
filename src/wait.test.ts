@@ -10,7 +10,50 @@ const NOW = new Date("2026-09-04T20:00:00.000Z");
 const at = (min: number) => new Date(NOW.getTime() + min * 60_000);
 
 describe("attentionLines", () => {
-  test("blocked, stale, complete, closed — literal and column-aligned", () => {
+  test("a stale task with an unparseable timestamp prints no NaN", () => {
+    const { runDir } = seededRun();
+    appendEvent(eventsPath(runDir), {
+      v: 1,
+      kind: "report",
+      ts: "not-a-date",
+      task: "1",
+      status: "in_progress",
+      phase: "",
+      model: "m",
+      note: "",
+      commit: "",
+    });
+    const state = fold(
+      readRun(runDir),
+      readEvents(eventsPath(runDir), 0).lines,
+      { now: at(12), staleMinutes: 10 },
+    );
+    for (const line of attentionLines(state, at(12)))
+      expect(line).not.toContain("NaN");
+  });
+
+  test("a blocked note has no trailing whitespace when empty", () => {
+    const { runDir } = seededRun();
+    appendEvent(eventsPath(runDir), {
+      v: 1,
+      kind: "report",
+      ts: at(0).toISOString(),
+      task: "1",
+      status: "blocked",
+      phase: "",
+      model: "",
+      note: "",
+      commit: "",
+    });
+    const state = fold(
+      readRun(runDir),
+      readEvents(eventsPath(runDir), 0).lines,
+      { now: at(12), staleMinutes: 10 },
+    );
+    expect(attentionLines(state, at(12))[0]).not.toMatch(/\s$/);
+  });
+
+  test("blocked and stale lines are literal and column-aligned", () => {
     const { runDir } = seededRun();
     appendEvent(eventsPath(runDir), {
       v: 1,
@@ -69,6 +112,20 @@ describe("waitFor", () => {
     });
     expect(result.exit).toBe(0);
     expect(result.lines[0]).toStartWith("blocked");
+  });
+
+  test("does not overshoot the timeout by a full poll interval", async () => {
+    const { runDir } = seededRun();
+    const start = Date.now();
+    await waitFor({
+      runDir,
+      timeoutMs: 50,
+      staleMinutes: 10,
+      now: () => NOW,
+      // no pollMs override: the default poll (2000ms) must not be waited
+      // out in full when the timeout is much shorter.
+    });
+    expect(Date.now() - start).toBeLessThan(500);
   });
 
   test("returns 3 with no lines on a quiet timeout", async () => {
