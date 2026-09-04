@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 import { realIo } from "./io.ts";
 import { main } from "./main.ts";
 
