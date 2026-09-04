@@ -13,6 +13,8 @@ import { appendFileSync, readFileSync, statSync } from "node:fs";
 import type { Event } from "./types.ts";
 import { isStatus } from "./types.ts";
 
+export const NOTE_MAX_CHARS = 500;
+
 export function appendEvent(path: string, event: Event): void {
   appendFileSync(path, `${JSON.stringify(event)}\n`, { flag: "a" });
 }
