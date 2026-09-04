@@ -46,10 +46,9 @@ auth-1	Voice notes
 
 Piped on stdin: `cat tasks.tsv | tower init`.
 
-Neither a markdown plan nor a TSV/stdin source carries a title on its own
-account for a TSV — pass `--title "<text>"` to name the run; it defaults to
-"untitled" otherwise. `--title` also overrides a markdown plan's own title
-when given.
+A TSV or stdin source has no title of its own — pass `--title "<text>"` to
+name the run; it defaults to "untitled" otherwise. `--title` also overrides a
+markdown plan's own title when given.
 
 ## Ids
 

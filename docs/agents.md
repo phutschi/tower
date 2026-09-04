@@ -6,9 +6,10 @@ working _on_ tower read [AGENTS.md](../AGENTS.md) instead.)
 ## Executors need no skill
 
 `tower brief <lane>` prints everything an executor has to know: its tasks, the
-three commands, the plan's conventions section, the model roles, and the two
-standing rules. Paste it into the agent as its instructions. It is generated
-from the run, so it cannot drift from what tower accepts.
+three commands, the plan's conventions section, the model roles, and the
+standing rules (never push, never open a pull request, commit after every
+task). Paste it into the agent as its instructions. It is generated from the
+run, so it cannot drift from what tower accepts.
 
 ```sh
 tower brief A > /tmp/brief-A.md

@@ -43,8 +43,9 @@ Where: `$XDG_STATE_HOME/tower/runs/<repo>-<branch>-<yyyymmdd-hhmm>/`
 ```
 
 - `planPath` is `null` when tasks came from a TSV or stdin.
-- `models` is a free map of role → model. The three roles above are the
-  defaults when none is given.
+- `models` is a free map of role → model. `implementer`, `spec-reviewer` and
+  `quality-reviewer` are the three default _role names_ when `--model` is
+  never given; each starts out empty until a model is assigned to it.
 - `tasks` is in plan order. Everything tower shows is in plan order.
 - Lane assignments are **not** here; they are events.
 
@@ -86,7 +87,7 @@ worth seeing. What the fold derives:
 - **stale** — `in_progress` or `reviewing` with no report for longer than the
   stale threshold (default 10 min; `--stale`, or `stale` in the config file).
   `pending`, `done` and `blocked` are never stale.
-- **complete** — every task is `done`.
+- **complete** — the run has at least one task and every task is `done`.
 - **closed** — a `close` event exists. A closed run has no attention.
 - **attention** — not closed, and something is blocked or stale.
 

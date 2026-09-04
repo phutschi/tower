@@ -18,3 +18,6 @@ All notable changes to this project are documented here. The format follows
 - `state --json` and `wait --timeout`, the two commands for scripts.
 - Themes as JSON with `theme rules|new|check|preview`.
 - The orchestrator skill (`skills/run/SKILL.md`), experimental.
+
+[Unreleased]: https://github.com/phutschi/tower/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/phutschi/tower/releases/tag/v0.1.0

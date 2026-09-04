@@ -53,7 +53,7 @@ Scripts ask tower instead of polling:
 
 ```sh
 tower state --json           # the folded state; literal, versioned
-tower wait --timeout 300     # exit 0 with the reasons when something needs a human, 3 when quiet
+tower wait --timeout 300     # exit 0 with the reasons on attention, completion, or close; 3 when quiet
 ```
 
 ## The screen
@@ -62,7 +62,7 @@ tower wait --timeout 300     # exit 0 with the reasons when something needs a hu
  TOWER ─────────────────────────── ACME · feature/widgets
 
  INFORMATION CHARLIE · 21:47 · 2h35m since first departure
- ███████████████████▒▒▒▒▒▒▒  14 of 21 landed · 2 airborne · 1 holding short
+ ███████████████████▒▒▒▒▒▒▒  12 of 21 landed · 1 airborne · 1 holding short
 
  RUNWAY A  ▸ 14  sonnet-5        RUNWAY B  ⚠ 12
 
@@ -72,12 +72,12 @@ tower wait --timeout 300     # exit 0 with the reasons when something needs a hu
   ▸ 14      The onDirectMessage handler   A   sonnet-5        34m · go around · NORDO 12m
   ⚠ 12      Voice notes                   B   holding short: needs the test DB
   ○ 15      notifyTelegram                A
-  … 5 more on the ground
+  … 6 more on the ground
 
  TRANSCRIPT
   21:33:02  ACME 12   squawk 7700 · needs the test DB created
+  21:35:02  ACME 14   go around · spec review: missing null guard
   21:40:11  RUNWAY A  merged lane B at task 8
-  21:44:02  ACME 14   go around · spec review: missing null guard
 
  [q] close the tower
 ```
@@ -109,8 +109,8 @@ on the same run without being told where it is.
 
 tower knows nothing about how you run agents. The executor brief is plain
 text; the [orchestrator skill](skills/run/SKILL.md) is in the open Agent
-Skills format. Documented for Claude Code, Codex, Cursor and Gemini CLI;
-exercised so far with Claude Code. Recipes for running lanes with
+Skills format, which Claude Code, Codex, Cursor, Gemini CLI and others can
+load. Exercised so far with Claude Code. Recipes for running lanes with
 [herdr](docs/recipes/herdr.md) and with [tmux](docs/recipes/tmux.md).
 
 Claude Code users can install the skill directly:

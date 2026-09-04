@@ -1,5 +1,9 @@
 # Themes
 
+The rules below are the literal text of `tower theme rules` (`THEME_RULES` in
+`src/theme.ts`), kept here verbatim so they're readable without running the
+CLI. If you change one, change the other in the same commit.
+
 tower theme rules — how to author a theme
 
 A theme is a JSON file at <XDG_CONFIG_HOME>/tower/themes/<name>.json. It is a
