@@ -251,30 +251,58 @@ export function boardRows(
       tone: "warn",
     });
 
-  if (rows.length <= height) return rows;
+  return windowBoard(rows, height, theme);
+}
 
-  // Window: keep the first row that needs eyes (blocked, then active) visible.
+/**
+ * Window a board down to `height` rows, keeping the first row that needs
+ * eyes (blocked, then active) visible whenever there is room for it. Always
+ * returns at most `height` rows.
+ */
+function windowBoard(rows: Row[], height: number, theme: Theme): Row[] {
+  if (height <= 0) return [];
+  if (rows.length <= height) return rows;
   const anchor = Math.max(
     0,
     rows.findIndex((r) => r.tone === "blocked" || r.tone === "active"),
   );
-  const body = Math.max(1, height - 1); // one line for the "… N more" marker
-  const start = Math.max(0, Math.min(anchor - 1, rows.length - body));
-  const out: Row[] = [];
-  if (start > 0) out.push({ text: `… ${start} above`, tone: "muted" });
-  const shown = rows.slice(start, start + body - (start > 0 ? 1 : 0));
-  out.push(...shown);
-  const below = rows.length - (start + shown.length);
-  if (below > 0) {
+
+  if (height === 1)
+    return [rows[anchor] ?? { text: `… ${rows.length} more`, tone: "muted" }];
+
+  const more = (start: number, shown: Row[]): Row[] => {
+    const below = rows.length - (start + shown.length);
+    if (below <= 0) return [];
     const rest = rows.slice(start + shown.length);
     const allPending = rest.every((r) => r.tone === "pending");
-    out.push({
-      text: allPending
-        ? `… ${below} more ${theme.states.pending}`
-        : `… ${below} more`,
-      tone: "muted",
-    });
+    return [
+      {
+        text: allPending
+          ? `… ${below} more ${theme.states.pending}`
+          : `… ${below} more`,
+        tone: "muted",
+      },
+    ];
+  };
+
+  if (height === 2) {
+    // No room for an "above" marker; prioritise keeping the anchor visible.
+    const start = Math.max(0, Math.min(anchor, rows.length - 1));
+    const shown = rows.slice(start, start + 1);
+    return [...shown, ...more(start, shown)];
   }
+
+  let body = height - 1;
+  let start = Math.max(0, Math.min(anchor, rows.length - body));
+  if (start > 0) {
+    body = height - 2;
+    start = Math.max(0, Math.min(anchor, rows.length - body));
+  }
+  const shown = rows.slice(start, start + body);
+  const out: Row[] = [];
+  if (start > 0) out.push({ text: `… ${start} above`, tone: "muted" });
+  out.push(...shown);
+  out.push(...more(start, shown));
   return out;
 }
 
@@ -347,5 +375,5 @@ export function transcriptRows(
     }
     rows.push({ text: fit(text.trimEnd(), columns), tone });
   }
-  return rows.slice(-height);
+  return height <= 0 ? [] : rows.slice(-height);
 }

@@ -118,6 +118,16 @@ describe("boardRows", () => {
     expect(rows.at(-2)).toBe("⚠ unknown flight 99");
     expect(rows.at(-1)).toBe("⚠ 1 unreadable line");
   });
+  test("never exceeds the given height, even at extreme small heights", () => {
+    for (const height of [0, 1, 2, 3]) {
+      const rows = boardRows(state, AIRPORT, 100, height, opts);
+      expect(rows.length).toBeLessThanOrEqual(height);
+    }
+  });
+  test("keeps the row that needs eyes visible even at height 1", () => {
+    const rows = texts(boardRows(state, AIRPORT, 100, 1, opts));
+    expect(rows[0]?.startsWith("⚠ 12")).toBe(true);
+  });
 });
 
 describe("transcriptRows", () => {
@@ -144,6 +154,9 @@ describe("transcriptRows", () => {
   });
   test("keeps only the last `height` rows", () => {
     expect(transcriptRows(state, AIRPORT, 100, 3, opts)).toHaveLength(3);
+  });
+  test("a height of 0 shows nothing rather than everything", () => {
+    expect(transcriptRows(state, AIRPORT, 100, 0, opts)).toHaveLength(0);
   });
   test("assign and close have the operator's voice", () => {
     const rows = texts(
