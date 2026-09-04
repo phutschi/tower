@@ -6,12 +6,20 @@
  */
 import type { Io } from "./io.ts";
 import { UsageError } from "./io.ts";
+import { assignCommand, closeCommand, initCommand } from "./commands/init.ts";
 import { blockCommand, noteCommand, taskCommand } from "./commands/task.ts";
 
 export const USAGE = `tower — a control tower for long-running agent implementation runs
 
   tower [--run <dir>] [--theme <name>] [--plain] [--stale <minutes>]
                                     the console; watch the run until you press q
+
+  orchestrator
+    tower init --plan <plan.md> [--lane A=1-4,6]... [--theme <name>]
+               [--model <role>=<model>]... [--callsign <X>] [--run <dir>] [--force]
+    tower init --tasks <tasks.tsv> ...        (or pipe a TSV on stdin)
+    tower assign <lane> <ids>                 record which tasks a lane owns
+    tower close ["<note>"]                    declare the run finished
 
   executors
     tower task <id> <status> [phase] [note] --model <model>
@@ -27,6 +35,9 @@ const COMMANDS: Record<string, () => Promise<Command>> = {
   task: async () => taskCommand,
   block: async () => blockCommand,
   note: async () => noteCommand,
+  init: async () => initCommand,
+  assign: async () => assignCommand,
+  close: async () => closeCommand,
 };
 
 export async function main(argv: string[], io: Io): Promise<number> {
