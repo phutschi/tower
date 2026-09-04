@@ -41,8 +41,11 @@ describe("appendEvent", () => {
 });
 
 describe("parseEvent", () => {
-  test("accepts every kind", () => {
+  test("accepts a report", () => {
     expect(parseEvent(JSON.stringify(report))).toEqual(report);
+  });
+
+  test("accepts a note", () => {
     const note: Event = {
       v: 1,
       kind: "note",
@@ -52,6 +55,9 @@ describe("parseEvent", () => {
       lane: "A",
     };
     expect(parseEvent(JSON.stringify(note))).toEqual(note);
+  });
+
+  test("accepts an assign", () => {
     const assign: Event = {
       v: 1,
       kind: "assign",
@@ -60,14 +66,26 @@ describe("parseEvent", () => {
       tasks: ["5", "7"],
     };
     expect(parseEvent(JSON.stringify(assign))).toEqual(assign);
+  });
+
+  test("accepts a close", () => {
     const close: Event = { v: 1, kind: "close", ts: "t", text: "" };
     expect(parseEvent(JSON.stringify(close))).toEqual(close);
   });
 
-  test("returns null for a torn line, a non-object, an unknown kind, a bad status", () => {
+  test("returns null for a torn line", () => {
     expect(parseEvent('{"v":1,"kind":"rep')).toBeNull();
+  });
+
+  test("returns null for a non-object", () => {
     expect(parseEvent("42")).toBeNull();
+  });
+
+  test("returns null for an unknown kind", () => {
     expect(parseEvent('{"v":1,"kind":"party","ts":"t"}')).toBeNull();
+  });
+
+  test("returns null for a bad status", () => {
     expect(
       parseEvent(JSON.stringify({ ...report, status: "flying" })),
     ).toBeNull();
@@ -112,5 +130,12 @@ describe("readEvents", () => {
     appendEvent(path, report);
     const { lines } = readEvents(path, 10_000);
     expect(lines).toHaveLength(1);
+  });
+
+  test("re-reading from the returned offset with no new writes yields nothing", () => {
+    const path = join(dir(), "events.ndjson");
+    appendEvent(path, report);
+    const { offset } = readEvents(path, 0);
+    expect(readEvents(path, offset).lines).toHaveLength(0);
   });
 });
