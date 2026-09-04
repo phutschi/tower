@@ -73,16 +73,20 @@ export function validateLanes(
   lanes: Record<string, string[]>,
   tasks: readonly TaskDef[],
 ): void {
-  const ids = tasks.map((t) => t.id);
+  const ids = new Set(tasks.map((t) => t.id));
   const owner = new Map<string, string>();
   for (const [lane, members] of Object.entries(lanes)) {
+    const seenInLane = new Set<string>();
     for (const id of members) {
-      if (!ids.includes(id)) {
-        const near = nearestId(id, ids);
+      if (!ids.has(id)) {
+        const near = nearestId(id, [...ids]);
         throw new Error(
           `lane ${lane}: "${id}" is not a task${near ? ` — did you mean ${near}?` : ""}`,
         );
       }
+      if (seenInLane.has(id))
+        throw new Error(`lane ${lane}: task ${id} is listed twice`);
+      seenInLane.add(id);
       const prior = owner.get(id);
       if (prior && prior !== lane)
         throw new Error(`task ${id} is assigned to both ${prior} and ${lane}`);
@@ -125,8 +129,19 @@ export function initRun(options: InitOptions): RunFile {
 }
 
 export function readRun(runDir: string): RunFile {
-  const text = readFileSync(join(runDir, RUN_FILE), "utf8");
-  const raw: unknown = JSON.parse(text);
+  const path = join(runDir, RUN_FILE);
+  let text: string;
+  try {
+    text = readFileSync(path, "utf8");
+  } catch (err) {
+    throw new Error(`could not read ${path}: ${(err as Error).message}`);
+  }
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    throw new Error(`${path} is not valid JSON`);
+  }
   if (
     typeof raw !== "object" ||
     raw === null ||
@@ -171,7 +186,8 @@ export function clearPointer(commonDir: string): void {
   try {
     writeFileSync(join(commonDir, POINTER_FILE), "");
   } catch {
-    /* no pointer to clear */
+    // The pointer's directory is gone or unwritable; there is nothing left
+    // to point at either way, so closing still succeeds.
   }
 }
 

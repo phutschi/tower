@@ -1,4 +1,4 @@
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
@@ -6,10 +6,12 @@ import { describe, expect, test } from "bun:test";
 import { readEvents } from "./events.ts";
 import {
   callsignOf,
+  clearPointer,
   closeRun,
   defaultRunDir,
   initRun,
   isClosed,
+  readPointer,
   readRun,
   resolveRun,
   writePointer,
@@ -63,6 +65,33 @@ describe("initRun", () => {
     expect(readRun(runDir)).toEqual(run);
     const { lines } = readEvents(join(runDir, "events.ndjson"), 0);
     expect(lines.map((l) => l.event?.kind)).toEqual(["assign", "assign"]);
+    const assigns = lines.map((l) =>
+      l.event?.kind === "assign"
+        ? { lane: l.event.lane, tasks: l.event.tasks }
+        : null,
+    );
+    expect(assigns).toEqual([
+      { lane: "A", tasks: ["1", "2"] },
+      { lane: "B", tasks: ["auth-1"] },
+    ]);
+  });
+
+  test("rejects the same id listed twice within one lane", () => {
+    expect(() =>
+      initRun({
+        runDir: join(tmp("tower-run-"), "r"),
+        plan: "P",
+        planPath: null,
+        repo: "acme",
+        branch: "main",
+        callsign: "ACME",
+        theme: "airport",
+        models: {},
+        tasks,
+        lanes: { A: ["1", "1"] },
+        now: NOW,
+      }),
+    ).toThrow(/twice/);
   });
 
   test("rejects a lane naming an id that is not a task, suggesting the nearest", () => {
@@ -99,6 +128,29 @@ describe("initRun", () => {
         now: NOW,
       }),
     ).toThrow(/both A and B/);
+  });
+});
+
+describe("readRun", () => {
+  test("a missing run.json names the path, not a raw ENOENT", () => {
+    const runDir = tmp("tower-run-missing-");
+    expect(() => readRun(runDir)).toThrow(/run\.json/);
+  });
+
+  test("a corrupt run.json names the path, not a raw JSON error", () => {
+    const runDir = tmp("tower-run-corrupt-");
+    writeFileSync(join(runDir, "run.json"), "{ not json");
+    expect(() => readRun(runDir)).toThrow(/run\.json/);
+  });
+});
+
+describe("clearPointer", () => {
+  test("clears a pointer so readPointer no longer returns it", () => {
+    const common = tmp("tower-common-");
+    writePointer(common, "/somewhere");
+    expect(readPointer(common)).toBe("/somewhere");
+    clearPointer(common);
+    expect(readPointer(common)).toBeUndefined();
   });
 });
 
