@@ -25,6 +25,7 @@ export class UsageError extends Error {
     public readonly exit: number = 1,
   ) {
     super(message);
+    this.name = "UsageError";
   }
 }
 

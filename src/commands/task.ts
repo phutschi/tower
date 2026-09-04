@@ -29,7 +29,7 @@ function loadState(runDir: string, io: Io): State {
   });
 }
 
-function requireNote(note: string): void {
+function checkNoteLength(note: string): void {
   if (note.length > NOTE_MAX_CHARS)
     throw new UsageError(
       `note is ${note.length} characters; the limit is ${NOTE_MAX_CHARS}`,
@@ -51,13 +51,18 @@ export async function taskCommand(argv: string[], io: Io): Promise<number> {
     options: { model: { type: "string" }, run: { type: "string" } },
     allowPositionals: true,
   });
-  const [id, status, phase = "", note = ""] = positionals;
+  const [id, status, phase = "", note = "", ...extra] = positionals;
   if (!id || !status) throw new UsageError(TASK_USAGE);
+  if (extra.length > 0)
+    throw new UsageError(
+      `too many arguments; quote the note as one argument\n       ${TASK_USAGE}`,
+    );
   if (!isStatus(status))
     throw new UsageError(
       `unknown status "${status}"\n       valid: ${STATUSES.join(", ")}`,
     );
-  const runDir = locateRun(io, values.run);
+  const git = gitInfo(io.cwd);
+  const runDir = locateRun(io, values.run, git);
   const state = loadState(runDir, io);
   requireTask(state, id);
   if ((status === "in_progress" || status === "reviewing") && !values.model)
@@ -68,7 +73,7 @@ export async function taskCommand(argv: string[], io: Io): Promise<number> {
     throw new UsageError(
       `blocked needs a note saying what you need:\n       tower block ${id} "<what you need>"`,
     );
-  requireNote(note);
+  checkNoteLength(note);
   const event: ReportEvent = {
     v: 1,
     kind: "report",
@@ -78,7 +83,7 @@ export async function taskCommand(argv: string[], io: Io): Promise<number> {
     phase,
     model: values.model ?? "",
     note,
-    commit: gitInfo(io.cwd).commit ?? "",
+    commit: git.commit ?? "",
   };
   appendEvent(eventsPath(runDir), event);
   io.stdout(
@@ -119,7 +124,7 @@ export async function noteCommand(argv: string[], io: Io): Promise<number> {
     );
   if (values.task && values.lane)
     throw new UsageError("a note speaks as a task or as a lane, not both");
-  requireNote(text);
+  checkNoteLength(text);
   const runDir = locateRun(io, values.run);
   const state = loadState(runDir, io);
   if (values.task) requireTask(state, values.task);

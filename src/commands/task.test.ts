@@ -41,6 +41,16 @@ describe("tower task", () => {
     expect(events(runDir)).toHaveLength(before);
   });
 
+  test("an unquoted note is refused rather than silently truncated to its first word", async () => {
+    const { runDir, io } = seededRun();
+    const before = events(runDir).length;
+    expect(
+      await main(["task", "1", "done", "committed", "my", "note", "here"], io),
+    ).toBe(1);
+    expect(io.err.join("")).toContain("quote");
+    expect(events(runDir)).toHaveLength(before);
+  });
+
   test("an unknown id suggests the nearest", async () => {
     const { io } = seededRun();
     expect(await main(["task", "auth1", "done"], io)).toBe(1);
@@ -60,7 +70,7 @@ describe("tower task", () => {
     ).toBe(0);
   });
 
-  test("done does not require --model and records the sha when cwd is a repo", async () => {
+  test("done does not require --model", async () => {
     const { runDir, io } = seededRun();
     expect(
       await main(["task", "1", "done", "committed", "feat: shortcuts"], io),
@@ -70,8 +80,35 @@ describe("tower task", () => {
       status: "done",
       phase: "committed",
       note: "feat: shortcuts",
-      commit: "",
     });
+  });
+
+  test("commit is empty when cwd is not a git repository", async () => {
+    const { runDir, io } = seededRun();
+    await main(["task", "1", "done"], io);
+    expect(events(runDir).at(-1)).toMatchObject({ commit: "" });
+  });
+
+  test("records the sha when cwd is a git repository", async () => {
+    const { runDir, io } = seededRun();
+    const { execFileSync } = await import("node:child_process");
+    const git = (...args: string[]) =>
+      execFileSync("git", args, {
+        cwd: io.cwd,
+        stdio: "pipe",
+        env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null" },
+      });
+    git("init", "-b", "main");
+    git("config", "user.email", "someone@example.com");
+    git("config", "user.name", "rex");
+    const { writeFileSync } = await import("node:fs");
+    writeFileSync(join(io.cwd, "a"), "a");
+    git("add", "a");
+    git("commit", "-m", "one");
+    await main(["task", "1", "done"], io);
+    const commit = (events(runDir).at(-1) as { commit?: string } | undefined)
+      ?.commit;
+    expect(commit).toMatch(/^[0-9a-f]{7,}$/);
   });
 
   test("blocked via task requires a note", async () => {
