@@ -1,0 +1,32 @@
+{
+  "name": "airport",
+  "title": "TOWER",
+  "operator": "TOWER",
+  "unit": "RUNWAY",
+  "flight": "flight",
+  "broadcast": "INFORMATION",
+  "board": "DEPARTURES",
+  "transcript": "TRANSCRIPT",
+  "states": {
+    "pending": "on the ground",
+    "in_progress": "airborne",
+    "reviewing": "on approach",
+    "done": "landed",
+    "blocked": "holding short",
+    "stale": "NORDO",
+    "closed": "field closed"
+  },
+  "phases": {
+    "implementing": "airborne",
+    "spec-review": "on approach",
+    "quality-review": "on final",
+    "fixing": "go around",
+    "committed": "landed"
+  },
+  "verbs": {
+    "started": "cleared for takeoff",
+    "blocked": "squawk 7700"
+  },
+  "empty": "the field is quiet",
+  "elapsed": "since first departure"
+}

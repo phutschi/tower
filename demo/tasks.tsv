@@ -1,0 +1,6 @@
+1	The shared prompt shortcuts	packages/core
+2	The gate	apps/server
+3	The command parser	apps/server
+4	The paragraph splitter	apps/server
+5	Voice notes	apps/server
+6	The surface hint	apps/server
