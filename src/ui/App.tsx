@@ -23,6 +23,9 @@ const COLOR: Record<Tone, string | undefined> = {
 };
 
 export const MIN_COLUMNS = 60;
+// The layout's own floor: 3 header + 5 blanks/headings + 1 footer + the
+// smallest board (3) and transcript (3) it will ever collapse to.
+export const MIN_ROWS = 15;
 
 function Line({ row }: { row: Row }) {
   const color = COLOR[row.tone];
@@ -68,6 +71,12 @@ export function App({ state, theme, options, size }: AppProps) {
     return (
       <Text color="yellow">
         widen the terminal to at least {MIN_COLUMNS} columns
+      </Text>
+    );
+  if (dims.rows < MIN_ROWS)
+    return (
+      <Text color="yellow">
+        make the terminal taller — at least {MIN_ROWS} rows
       </Text>
     );
 

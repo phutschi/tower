@@ -36,4 +36,16 @@ describe("App", () => {
     );
     expect(lastFrame()).toContain("at least 60 columns");
   });
+
+  test("asks to be made taller under the minimum row count", () => {
+    const { lastFrame } = render(
+      createElement(App, {
+        state: demoState(),
+        theme: AIRPORT,
+        options: { now: DEMO_NOW, clock: utcClock },
+        size: { columns: 100, rows: 8 },
+      }),
+    );
+    expect(lastFrame()).toContain("taller");
+  });
 });

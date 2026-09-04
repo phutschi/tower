@@ -3,6 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 
+import { UsageError } from "./io.ts";
+
 import { readEvents } from "./events.ts";
 import {
   callsignOf,
@@ -137,16 +139,10 @@ describe("readRun", () => {
     expect(() => readRun(runDir)).toThrow(/run\.json/);
   });
 
-  test("a corrupt run.json names the path, not a raw JSON error", () => {
+  test("a corrupt run.json names the path and throws a UsageError, so main reports it cleanly instead of crashing", () => {
     const runDir = tmp("tower-run-corrupt-");
     writeFileSync(join(runDir, "run.json"), "{ not json");
     expect(() => readRun(runDir)).toThrow(/run\.json/);
-  });
-
-  test("a corrupt run.json throws a UsageError, so main reports it cleanly instead of crashing", async () => {
-    const { UsageError } = await import("./io.ts");
-    const runDir = tmp("tower-run-corrupt-");
-    writeFileSync(join(runDir, "run.json"), "{ nope");
     expect(() => readRun(runDir)).toThrow(UsageError);
   });
 });

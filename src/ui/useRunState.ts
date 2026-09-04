@@ -5,7 +5,7 @@
  * read that restarted (the file shrank) replaces what we had.
  */
 import { watch } from "node:fs";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import type { ParsedLine } from "../events.ts";
 import type { State } from "../state.ts";
@@ -30,6 +30,13 @@ export function useRunState(options: RunStateOptions): State {
       staleMinutes,
     }),
   );
+  // now/run read through a ref, not the effect's dependency array: `now` is
+  // a fresh closure on every render for some callers, and `fold`'s own
+  // return value is always a new object, so depending on either would
+  // restart the watcher (and drop accumulated `lines`) every single poll —
+  // an infinite subscribe/unsubscribe loop rather than a periodic refresh.
+  const latest = useRef({ run, now });
+  latest.current = { run, now };
   useEffect(() => {
     const path = eventsPath(runDir);
     let lines: ParsedLine[] = [];
@@ -39,7 +46,12 @@ export function useRunState(options: RunStateOptions): State {
       if (result.restarted) lines = result.lines;
       else if (result.lines.length > 0) lines = [...lines, ...result.lines];
       offset = result.offset;
-      setState(fold(run, lines, { now: now(), staleMinutes }));
+      setState(
+        fold(latest.current.run, lines, {
+          now: latest.current.now(),
+          staleMinutes,
+        }),
+      );
     };
     refresh();
     let watcher: ReturnType<typeof watch> | undefined;
@@ -53,6 +65,6 @@ export function useRunState(options: RunStateOptions): State {
       watcher?.close();
       clearInterval(timer);
     };
-  }, [runDir, run, staleMinutes, now, pollMs]);
+  }, [runDir, staleMinutes, pollMs]);
   return state;
 }

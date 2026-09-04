@@ -85,6 +85,11 @@ export async function consoleCommand(argv: string[], io: Io): Promise<number> {
   process.stdout.write(ENTER_ALT);
   const restore = () => process.stdout.write(LEAVE_ALT);
   process.once("exit", restore);
+  // "exit" alone doesn't fire for a terminating signal (a killed pane, a
+  // closed SSH session), which would otherwise strand the shell in the
+  // alternate screen with the cursor hidden.
+  process.once("SIGTERM", restore);
+  process.once("SIGHUP", restore);
   try {
     const app = render(
       createElement(Live, { runDir, run, theme, stale, now: io.now }),
@@ -93,6 +98,8 @@ export async function consoleCommand(argv: string[], io: Io): Promise<number> {
     await app.waitUntilExit();
   } finally {
     process.off("exit", restore);
+    process.off("SIGTERM", restore);
+    process.off("SIGHUP", restore);
     restore();
   }
   return 0;
