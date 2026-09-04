@@ -40,13 +40,32 @@ function frontmatter(markdown: string): {
 
 const stripBackticks = (text: string) => text.replaceAll("`", "");
 
+const FENCE = /^\s*```/;
+
+/** Lines outside fenced code blocks: a heading-like line inside a ```
+ * sample (this plan's own task-writing instructions, say) must not be
+ * mistaken for a real heading. */
+function unfencedLines(body: string): string[] {
+  const out: string[] = [];
+  let fenced = false;
+  for (const line of body.split("\n")) {
+    if (FENCE.test(line)) {
+      fenced = !fenced;
+      continue;
+    }
+    if (!fenced) out.push(line);
+  }
+  return out;
+}
+
 export function parsePlan(markdown: string): ParsedPlan {
   const { fields, body } = frontmatter(markdown);
-  const h1 = /^#\s+(.+?)\s*$/m.exec(body)?.[1];
+  const unfenced = unfencedLines(body);
+  const h1 = /^#\s+(.+?)\s*$/m.exec(unfenced.join("\n"))?.[1];
   const title = stripBackticks(h1 ?? fields.project ?? "untitled");
   const tasks: TaskDef[] = [];
   const seen = new Set<string>();
-  for (const line of body.split("\n")) {
+  for (const line of unfenced) {
     const match = TASK_HEADING.exec(line);
     const id = match?.[1];
     const rawTitle = match?.[2];

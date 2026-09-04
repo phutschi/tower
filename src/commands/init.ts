@@ -81,6 +81,7 @@ export async function initCommand(argv: string[], io: Io): Promise<number> {
     options: {
       plan: { type: "string" },
       tasks: { type: "string" },
+      title: { type: "string" },
       lane: { type: "string", multiple: true, default: [] },
       model: { type: "string", multiple: true, default: [] },
       theme: { type: "string" },
@@ -134,6 +135,7 @@ export async function initCommand(argv: string[], io: Io): Promise<number> {
     }
   }
 
+  if (values.title) title = values.title;
   repo ??= git.repo;
   branch ??= git.branch;
   if (!repo || !branch)

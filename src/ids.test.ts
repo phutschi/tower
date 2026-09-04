@@ -30,6 +30,20 @@ describe("expandIds", () => {
   test("a zero-padded range preserves width rather than silently dropping it", () => {
     expect(expandIds("07-09")).toEqual(["07", "08", "09"]);
   });
+  test("a range crossing a digit boundary is not zero-padded to the wider bound", () => {
+    expect(expandIds("2-11")).toEqual([
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "7",
+      "8",
+      "9",
+      "10",
+      "11",
+    ]);
+  });
   test("rejects an invalid token by name", () => {
     expect(() => expandIds("1,a b")).toThrow(/"a b"/);
   });

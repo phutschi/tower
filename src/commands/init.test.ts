@@ -193,6 +193,54 @@ describe("tower init", () => {
     expect(readRun(runDir).tasks).toHaveLength(2);
   });
 
+  test("--title names the run when the source has no title, e.g. TSV or stdin", async () => {
+    const cwd = gitRepo();
+    writeFileSync(join(cwd, "a"), "a");
+    execFileSync(
+      "git",
+      [
+        "-c",
+        "user.email=someone@example.com",
+        "-c",
+        "user.name=rex",
+        "add",
+        "a",
+      ],
+      { cwd },
+    );
+    execFileSync(
+      "git",
+      [
+        "-c",
+        "user.email=someone@example.com",
+        "-c",
+        "user.name=rex",
+        "commit",
+        "-m",
+        "one",
+      ],
+      { cwd, stdio: "pipe" },
+    );
+    const io = fakeIo({
+      cwd,
+      env: { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "s-")) },
+      stdinText: () => "1\tA\n2\tB\n",
+    });
+    expect(await main(["init", "--title", "Widgets Rollout"], io)).toBe(0);
+    const runDir = /run dir: (.+)/.exec(io.out.join(""))?.[1]?.trim() as string;
+    expect(readRun(runDir).plan).toBe("Widgets Rollout");
+  });
+
+  test("--title overrides a plan's own title too", async () => {
+    const io = fakeIo({
+      cwd: gitRepo(),
+      env: { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "s-")) },
+    });
+    await main(["init", "--plan", planFile(), "--title", "Custom Title"], io);
+    const runDir = /run dir: (.+)/.exec(io.out.join(""))?.[1]?.trim() as string;
+    expect(readRun(runDir).plan).toBe("Custom Title");
+  });
+
   test("with nothing to read from, it explains the three sources", async () => {
     const io = fakeIo({ cwd: gitRepo() });
     expect(await main(["init"], io)).toBe(1);

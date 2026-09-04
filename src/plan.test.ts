@@ -66,6 +66,20 @@ describe("parsePlan", () => {
     ).toHaveLength(2);
   });
 
+  test("a task heading inside a fenced code block is not mistaken for a real task", () => {
+    const plan = parsePlan(
+      "# P\n### Task 1: Real\n```\n### Task 1: Fake, inside a code sample\n```\n",
+    );
+    expect(plan.tasks).toEqual([{ id: "1", title: "Real", area: "" }]);
+  });
+
+  test("an H1 inside a fenced code block does not become the title", () => {
+    const plan = parsePlan(
+      "```\n# Not the title\n```\n# The Real Title\n### Task 1: A\n",
+    );
+    expect(plan.title).toBe("The Real Title");
+  });
+
   test("no tasks is an error naming the convention", () => {
     expect(() => parsePlan("# P\n\nnothing here\n")).toThrow(
       /### Task <id>: <title>/,

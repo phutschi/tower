@@ -18,7 +18,7 @@ export const USAGE = `tower — a control tower for long-running agent implement
   orchestrator
     tower init --plan <plan.md> [--lane A=1-4,6]... [--theme <name>]
                [--model <role>=<model>]... [--callsign <X>] [--run <dir>] [--force]
-    tower init --tasks <tasks.tsv> ...        (or pipe a TSV on stdin)
+    tower init --tasks <tasks.tsv> [--title <text>] ...  (or pipe a TSV on stdin)
     tower assign <lane> <ids>                 record which tasks a lane owns
     tower close ["<note>"]                    declare the run finished
 

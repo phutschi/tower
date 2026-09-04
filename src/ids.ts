@@ -23,7 +23,11 @@ export function expandIds(spec: string): string[] {
       const lo = Number(loText);
       const hi = Number(hiText);
       if (hi < lo) throw new Error(`range "${token}" runs backwards`);
-      const width = Math.max(loText.length, hiText.length);
+      // Zero-pad only when both bounds are already written at the same
+      // width (07-09): that is genuine zero-padding to preserve. A range
+      // that crosses a digit boundary (2-11) has no shared width to
+      // preserve, and padding it would invent leading zeros nobody wrote.
+      const width = loText.length === hiText.length ? loText.length : 0;
       for (let n = lo; n <= hi; n++) out.push(String(n).padStart(width, "0"));
       continue;
     }
