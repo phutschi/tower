@@ -1,0 +1,11 @@
+{
+  "name": "phutschi-tower",
+  "owner": { "name": "Philipp Wruck" },
+  "plugins": [
+    {
+      "name": "tower",
+      "source": ".",
+      "description": "Orchestrate a multi-task implementation plan with agent lanes reporting into tower."
+    }
+  ]
+}
