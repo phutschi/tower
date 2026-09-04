@@ -5,14 +5,11 @@
 import { parseArgs } from "node:util";
 
 import type { Io } from "../io.ts";
-import { readEvents } from "../events.ts";
 import { UsageError } from "../io.ts";
 import { configPath, readConfig } from "../paths.ts";
-import { eventsPath, readRun } from "../run.ts";
-import { fold } from "../state.ts";
 import { DEFAULT_STALE_MINUTES } from "../types.ts";
 import { waitFor } from "../wait.ts";
-import { locateRun } from "./locate.ts";
+import { loadState, locateRun } from "./locate.ts";
 
 export function staleMinutes(io: Io, flag: string | undefined): number {
   if (flag !== undefined) {
@@ -36,11 +33,7 @@ export async function stateCommand(argv: string[], io: Io): Promise<number> {
     },
   });
   const runDir = locateRun(io, values.run);
-  const run = readRun(runDir);
-  const state = fold(run, readEvents(eventsPath(runDir), 0).lines, {
-    now: io.now(),
-    staleMinutes: staleMinutes(io, values.stale),
-  });
+  const state = loadState(runDir, io, staleMinutes(io, values.stale));
   if (values.json) {
     io.stdout(`${JSON.stringify({ v: 1, runDir, ...state }, null, 2)}\n`);
     return 0;

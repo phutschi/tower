@@ -8,26 +8,16 @@ import { parseArgs } from "node:util";
 import type { Io } from "../io.ts";
 import type { NoteEvent, ReportEvent } from "../types.ts";
 import type { State } from "../state.ts";
-import { appendEvent, NOTE_MAX_CHARS, readEvents } from "../events.ts";
+import { appendEvent, NOTE_MAX_CHARS } from "../events.ts";
 import { gitInfo } from "../git.ts";
 import { nearestId } from "../ids.ts";
 import { UsageError } from "../io.ts";
-import { eventsPath, readRun } from "../run.ts";
-import { fold } from "../state.ts";
-import { DEFAULT_STALE_MINUTES, isStatus, STATUSES } from "../types.ts";
-import { locateRun } from "./locate.ts";
+import { eventsPath } from "../run.ts";
+import { isStatus, STATUSES } from "../types.ts";
+import { loadState, locateRun } from "./locate.ts";
 
 const TASK_USAGE =
   "usage: tower task <id> <status> [phase] [note] --model <model>";
-
-function loadState(runDir: string, io: Io): State {
-  const run = readRun(runDir);
-  const { lines } = readEvents(eventsPath(runDir), 0);
-  return fold(run, lines, {
-    now: io.now(),
-    staleMinutes: DEFAULT_STALE_MINUTES,
-  });
-}
 
 function checkNoteLength(note: string): void {
   if (note.length > NOTE_MAX_CHARS)

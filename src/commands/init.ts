@@ -9,7 +9,7 @@ import { parseArgs } from "node:util";
 
 import type { Io } from "../io.ts";
 import type { TaskDef } from "../types.ts";
-import { appendEvent, readEvents } from "../events.ts";
+import { appendEvent } from "../events.ts";
 import { gitInfo } from "../git.ts";
 import { expandIds } from "../ids.ts";
 import { UsageError } from "../io.ts";
@@ -29,9 +29,8 @@ import {
   validateLanes,
   writePointer,
 } from "../run.ts";
-import { fold } from "../state.ts";
-import { DEFAULT_MODELS, DEFAULT_STALE_MINUTES } from "../types.ts";
-import { locateRun } from "./locate.ts";
+import { DEFAULT_MODELS } from "../types.ts";
+import { loadState, locateRun } from "./locate.ts";
 
 const SOURCES =
   "tasks come from one of: --plan <plan.md>, --tasks <tasks.tsv>, or a TSV on stdin";
@@ -243,10 +242,7 @@ export async function closeCommand(argv: string[], io: Io): Promise<number> {
   closeRun(runDir, text, io.now());
   if (git.commonDir && readPointer(git.commonDir) === runDir)
     clearPointer(git.commonDir);
-  const state = fold(readRun(runDir), readEvents(eventsPath(runDir), 0).lines, {
-    now: io.now(),
-    staleMinutes: DEFAULT_STALE_MINUTES,
-  });
+  const state = loadState(runDir, io);
   io.stdout(
     `closed: ${state.summary.done} of ${state.summary.total} tasks done${text ? ` · ${text}` : ""}\n`,
   );
