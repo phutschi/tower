@@ -8,11 +8,12 @@
  * entire concurrency story; there is no lock because none is needed. (It does
  * not hold on NFS. The README says so.)
  */
-import { appendFileSync, readFileSync, statSync } from "node:fs";
+import { appendFileSync, readFileSync } from "node:fs";
 
 import type { Event } from "./types.ts";
 import { isStatus } from "./types.ts";
 
+/** Enforced by the callers that write a note (the `tower note` command), not here. */
 export const NOTE_MAX_CHARS = 500;
 
 export function appendEvent(path: string, event: Event): void {
@@ -104,15 +105,18 @@ export interface ReadResult {
 }
 
 export function readEvents(path: string, fromOffset: number): ReadResult {
-  let size: number;
+  // One read gives both the bytes and the size they were read at, so a
+  // concurrent append between a stat and a read can never make `offset`
+  // claim bytes this call did not actually see.
+  let buffer: Buffer;
   try {
-    size = statSync(path).size;
+    buffer = readFileSync(path);
   } catch {
     return { lines: [], offset: 0 };
   }
+  const size = buffer.length;
   // A smaller file than we last saw was truncated or rotated: start over.
   const start = fromOffset > size ? 0 : fromOffset;
-  const buffer = readFileSync(path);
   const text = buffer.subarray(start).toString("utf8");
   const lines = text
     .split("\n")
