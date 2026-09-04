@@ -45,10 +45,12 @@ export async function briefCommand(argv: string[], io: Io): Promise<number> {
       );
     }
   }
+  let text: string;
   try {
-    io.stdout(composeBrief(state, lane, conventions, heading));
+    text = composeBrief(state, lane, conventions, heading);
   } catch (error) {
     throw new UsageError((error as Error).message);
   }
+  io.stdout(text);
   return 0;
 }

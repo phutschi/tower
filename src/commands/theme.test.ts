@@ -19,22 +19,34 @@ describe("tower theme", () => {
     expect(i.out.join("")).toContain("A theme renames");
   });
 
-  test("new scaffolds; check lists what is missing; once filled, check passes and preview renders", async () => {
+  test("new scaffolds a theme file and tells you what to do next", async () => {
     const i = io();
     expect(await main(["theme", "new", "police"], i)).toBe(0);
-    const path = /(\S+police\.json)/.exec(i.out.join(""))?.[1] as string;
+    expect(i.out.join("")).toMatch(/\S+police\.json/);
+    expect(i.out.join("")).toContain("tower theme check police");
+  });
+
+  test("check on a blank scaffold lists what is missing", async () => {
+    const i = io();
+    await main(["theme", "new", "police"], i);
     const check = fakeIo({ env: i.env });
     expect(await main(["theme", "check", "police"], check)).toBe(1);
     expect(check.err.join("")).toContain("states.pending");
-    // `pending` itself is exercised above via the raw-scaffold assertion;
+  });
+
+  test("once every key is filled, check passes and preview renders the customized label", async () => {
+    const i = io();
+    await main(["theme", "new", "police"], i);
+    const path = /(\S+police\.json)/.exec(i.out.join(""))?.[1] as string;
+    // `pending` is exercised by the previous test's raw-scaffold assertion;
     // `blocked` is used here because — unlike `pending` — its label is
     // always printed on a blocked task's own row (see rows.ts's taskRow),
     // so it is provable through the rendered preview, which is the point
-    // of this half of the test.
+    // of this test.
     writeFileSync(
       path,
       JSON.stringify({
-        ...structuredClone(AIRPORT),
+        ...AIRPORT,
         name: "police",
         states: { ...AIRPORT.states, blocked: "at the station" },
       }),
@@ -54,7 +66,7 @@ describe("tower theme", () => {
     writeFileSync(
       path,
       JSON.stringify({
-        ...structuredClone(AIRPORT),
+        ...AIRPORT,
         name: "odd",
         verbs: { started: "wheels up", blocked: "squawk 7700" },
       }),

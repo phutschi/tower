@@ -46,9 +46,11 @@ export function composeBrief(
     `# Brief for lane ${lane} — ${state.run.plan}`,
     "",
     `You are lane ${lane} on \`${state.run.repo}\`, branch \`${state.run.branch}\`.`,
-    state.run.planPath
-      ? `The plan is at ${state.run.planPath}. Read your tasks there in full before starting.`
-      : "",
+    ...(state.run.planPath
+      ? [
+          `The plan is at ${state.run.planPath}. Read your tasks there in full before starting.`,
+        ]
+      : []),
     "",
     "## Your tasks, in order",
     "",

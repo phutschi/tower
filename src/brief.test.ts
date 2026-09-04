@@ -77,4 +77,18 @@ describe("composeBrief", () => {
       "(the plan has no conventions section)",
     );
   });
+  test("with no planPath, no stray blank line is left where the plan location would be", () => {
+    const noPlanPath = fold(
+      { ...run, planPath: null },
+      [
+        {
+          raw: "",
+          event: { v: 1, kind: "assign", ts: "t", lane: "A", tasks: ["1"] },
+        },
+      ],
+      { now: new Date(), staleMinutes: 10 },
+    );
+    const brief = composeBrief(noPlanPath, "A", undefined);
+    expect(brief).not.toContain("\n\n\n");
+  });
 });

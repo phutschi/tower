@@ -8,7 +8,7 @@ import { parseArgs } from "node:util";
 import type { Io } from "../io.ts";
 import type { Theme } from "../theme.ts";
 import { UsageError } from "../io.ts";
-import { checkTheme, loadTheme, scaffoldTheme, THEME_RULES } from "../theme.ts";
+import { loadTheme, scaffoldTheme, THEME_RULES } from "../theme.ts";
 import { demoState, DEMO_NOW } from "../ui/demo.ts";
 import { utcClock } from "../ui/rows.ts";
 import { renderSnapshot } from "../ui/snapshot.ts";
@@ -59,7 +59,11 @@ export async function themeCommand(argv: string[], io: Io): Promise<number> {
         io.stderr(`tower: ${(error as Error).message}\n`);
         return 1;
       }
-      const problems = checkTheme(theme);
+      // Structural problems (missing/duplicate/over-length keys) are already
+      // caught by loadTheme, which runs checkTheme and throws before this
+      // point is reached; everything below is the preview-coverage check on
+      // top of that (rule 7 — every label must actually show up).
+      const problems: string[] = [];
       // Case-insensitive: the closed banner is rendered upper-cased (spec's
       // "FIELD CLOSED" banner) while the theme stores the label lower-case,
       // so an exact-case search would always flag `states.closed`.
