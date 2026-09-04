@@ -7,6 +7,7 @@
 import type { Io } from "./io.ts";
 import { UsageError } from "./io.ts";
 import { assignCommand, closeCommand, initCommand } from "./commands/init.ts";
+import { stateCommand, waitCommand } from "./commands/state.ts";
 import { blockCommand, noteCommand, taskCommand } from "./commands/task.ts";
 
 export const USAGE = `tower — a control tower for long-running agent implementation runs
@@ -20,6 +21,10 @@ export const USAGE = `tower — a control tower for long-running agent implement
     tower init --tasks <tasks.tsv> ...        (or pipe a TSV on stdin)
     tower assign <lane> <ids>                 record which tasks a lane owns
     tower close ["<note>"]                    declare the run finished
+
+  scripts
+    tower state --json
+    tower wait --timeout <seconds>            exit 0 when something needs a human, 3 when quiet
 
   executors
     tower task <id> <status> [phase] [note] --model <model>
@@ -38,6 +43,8 @@ const COMMANDS: Record<string, () => Promise<Command>> = {
   init: async () => initCommand,
   assign: async () => assignCommand,
   close: async () => closeCommand,
+  state: async () => stateCommand,
+  wait: async () => waitCommand,
 };
 
 export async function main(argv: string[], io: Io): Promise<number> {
