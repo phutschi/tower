@@ -45,11 +45,12 @@ export async function stateCommand(argv: string[], io: Io): Promise<number> {
     io.stdout(`${JSON.stringify({ v: 1, runDir, ...state }, null, 2)}\n`);
     return 0;
   }
-  // The plain-text board needs the theme table (Task 12) and the non-TTY
-  // snapshot renderer (Task 13); until those land, --json is the only form.
-  throw new UsageError(
-    "tower state without --json needs the console, which arrives in a later task; use --json for now",
+  const { renderSnapshot } = await import("../ui/snapshot.ts");
+  const { loadTheme } = await import("../theme.ts");
+  io.stdout(
+    `${renderSnapshot(state, loadTheme("plain", io.env), io.columns, io.now()).join("\n")}\n`,
   );
+  return 0;
 }
 
 export async function waitCommand(argv: string[], io: Io): Promise<number> {

@@ -20,14 +20,11 @@ describe("tower state --json", () => {
     expect(doc.lanes).toEqual({ A: ["1", "2"], B: ["auth-1"] });
   });
 
-  // Depends on the theme table (Task 12) and the non-TTY snapshot renderer
-  // (Task 13), owned by lane B; turn this on once those are merged.
-  test.todo(
-    "without --json it prints the same as the non-TTY snapshot would (one literal board)",
-    () => {
-      throw new Error("wire up once theme.ts and ui/snapshot.ts exist");
-    },
-  );
+  test("without --json it prints the same as the non-TTY snapshot would (one literal board)", async () => {
+    const { io } = seededRun();
+    expect(await main(["state"], io)).toBe(0);
+    expect(io.out.join("")).toContain("ACME");
+  });
 });
 
 describe("tower wait", () => {
