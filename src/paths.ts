@@ -9,10 +9,14 @@ import { join } from "node:path";
 
 export type Env = Record<string, string | undefined>;
 
+// The XDG spec requires an empty (or non-absolute) value to be treated as unset.
+const xdgValue = (value: string | undefined) =>
+  value && value.startsWith("/") ? value : undefined;
+
 const stateHome = (env: Env, home: string) =>
-  env.XDG_STATE_HOME ?? join(home, ".local", "state");
+  xdgValue(env.XDG_STATE_HOME) ?? join(home, ".local", "state");
 const configHome = (env: Env, home: string) =>
-  env.XDG_CONFIG_HOME ?? join(home, ".config");
+  xdgValue(env.XDG_CONFIG_HOME) ?? join(home, ".config");
 
 export const runsDir = (env: Env = process.env, home = homedir()) =>
   join(stateHome(env, home), "tower", "runs");
@@ -34,15 +38,22 @@ export function readConfig(path: string): {
   let text: string;
   try {
     text = readFileSync(path, "utf8");
-  } catch {
-    return { config: {} };
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return { config: {} };
+    return {
+      config: {},
+      problem: `${path} could not be read: ${(err as Error).message}`,
+    };
   }
-  let raw: Record<string, unknown>;
+  let parsed: unknown;
   try {
-    raw = JSON.parse(text) as Record<string, unknown>;
+    parsed = JSON.parse(text);
   } catch {
     return { config: {}, problem: `${path} is not valid JSON` };
   }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed))
+    return { config: {}, problem: `${path} must contain a JSON object` };
+  const raw = parsed as Record<string, unknown>;
   const config: UserConfig = {};
   if (raw.defaultTheme !== undefined) {
     if (typeof raw.defaultTheme !== "string")
