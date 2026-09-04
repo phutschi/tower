@@ -1,0 +1,64 @@
+{
+  "name": "@phutschi/tower",
+  "version": "0.1.0",
+  "description": "A control tower for long-running agent implementation runs — watch a crew of coding agents work, from one terminal pane.",
+  "license": "MIT",
+  "author": "Philipp Wruck <phutschi@users.noreply.github.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/phutschi/tower.git"
+  },
+  "homepage": "https://github.com/phutschi/tower#readme",
+  "bugs": "https://github.com/phutschi/tower/issues",
+  "keywords": [
+    "agents",
+    "cli",
+    "tui",
+    "dashboard",
+    "orchestration",
+    "ink",
+    "claude-code",
+    "codex",
+    "cursor"
+  ],
+  "type": "module",
+  "bin": {
+    "tower": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "themes",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "bun run src/cli.ts",
+    "build": "bun build src/cli.ts --outdir dist --target node --format esm --splitting --packages external --banner '#!/usr/bin/env node'",
+    "postbuild": "chmod +x dist/cli.js",
+    "compile": "./scripts/compile.sh",
+    "format": "prettier --check .",
+    "format:fix": "prettier --write .",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "check": "bun run format && bun run lint && bun run typecheck && bun run test",
+    "prepublishOnly": "bun run check && bun run build"
+  },
+  "dependencies": {
+    "ink": "^7.1.1",
+    "react": "^19.2.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.0.0",
+    "@types/bun": "^1.3.0",
+    "@types/react": "^19.2.0",
+    "eslint": "^9.0.0",
+    "ink-testing-library": "^4.0.0",
+    "prettier": "^3.0.0",
+    "typescript": "^5.9.0",
+    "typescript-eslint": "^8.0.0"
+  }
+}
