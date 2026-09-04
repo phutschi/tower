@@ -115,9 +115,17 @@ export async function initCommand(argv: string[], io: Io): Promise<number> {
       throw new UsageError(`${planPath}: ${(error as Error).message}`);
     }
   } else {
-    const source = values.tasks
-      ? readFileSync(resolve(io.cwd, values.tasks), "utf8")
-      : io.stdinText();
+    let source: string | undefined;
+    if (values.tasks) {
+      const tasksPath = resolve(io.cwd, values.tasks);
+      try {
+        source = readFileSync(tasksPath, "utf8");
+      } catch {
+        throw new UsageError(`cannot read tasks file ${tasksPath}`);
+      }
+    } else {
+      source = io.stdinText();
+    }
     if (source === undefined) throw new UsageError(SOURCES);
     try {
       tasks = parseTsv(source);
@@ -130,7 +138,9 @@ export async function initCommand(argv: string[], io: Io): Promise<number> {
   branch ??= git.branch;
   if (!repo || !branch)
     throw new UsageError(
-      "the plan has no repo/branch frontmatter and this is not a git checkout — run init from the repository",
+      values.plan
+        ? "the plan has no repo/branch frontmatter and this is not a git checkout — run init from the repository"
+        : "the repo/branch could not be determined; this is not a git checkout — run init from the repository",
     );
 
   const lanes = parseLanes(values.lane, tasks);
@@ -170,7 +180,15 @@ export async function initCommand(argv: string[], io: Io): Promise<number> {
       `cannot create run dir ${runDir}: ${(error as Error).message}`,
     );
   }
-  if (git.commonDir) writePointer(git.commonDir, runDir);
+  if (git.commonDir) {
+    try {
+      writePointer(git.commonDir, runDir);
+    } catch (error) {
+      io.stderr(
+        `tower: run created, but could not record it as the current run: ${(error as Error).message}\n       point at it explicitly with --run ${runDir}\n`,
+      );
+    }
+  }
 
   io.stdout(
     `${title}\n${tasks.length} tasks, ${Object.keys(lanes).length} lanes, theme ${theme}\nrun dir: ${runDir}\n`,
@@ -215,12 +233,12 @@ export async function closeCommand(argv: string[], io: Io): Promise<number> {
     options: { run: { type: "string" } },
     allowPositionals: true,
   });
-  const runDir = locateRun(io, values.run);
+  const git = gitInfo(io.cwd);
+  const runDir = locateRun(io, values.run, git);
   if (isClosed(runDir))
     throw new UsageError(`this run is already closed: ${runDir}`);
   const text = positionals.join(" ").trim();
   closeRun(runDir, text, io.now());
-  const git = gitInfo(io.cwd);
   if (git.commonDir && readPointer(git.commonDir) === runDir)
     clearPointer(git.commonDir);
   const state = fold(readRun(runDir), readEvents(eventsPath(runDir), 0).lines, {

@@ -68,12 +68,50 @@ describe("tower init", () => {
     expect(printed).toContain("3 tasks");
   });
 
-  test("models come from --model, then the config file, then the three default roles", async () => {
-    const cwd = gitRepo();
-    const config = mkdtempSync(join(tmpdir(), "tower-config-"));
-    writeFileSync(join(config, "tower.json"), "");
+  test("with no --model and no config, models default to the three empty roles", async () => {
     const io = fakeIo({
-      cwd,
+      cwd: gitRepo(),
+      env: { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "s-")) },
+    });
+    await main(["init", "--plan", planFile()], io);
+    const runDir = /run dir: (.+)/.exec(io.out.join(""))?.[1]?.trim() as string;
+    expect(readRun(runDir).models).toEqual({
+      implementer: "",
+      "spec-reviewer": "",
+      "quality-reviewer": "",
+    });
+  });
+
+  test("models come from the config file when no --model is given", async () => {
+    const { mkdirSync } = await import("node:fs");
+    const config = mkdtempSync(join(tmpdir(), "tower-config-"));
+    mkdirSync(join(config, "tower"), { recursive: true });
+    writeFileSync(
+      join(config, "tower", "config.json"),
+      JSON.stringify({ models: { implementer: "from-config" } }),
+    );
+    const io = fakeIo({
+      cwd: gitRepo(),
+      env: {
+        XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "s-")),
+        XDG_CONFIG_HOME: config,
+      },
+    });
+    await main(["init", "--plan", planFile()], io);
+    const runDir = /run dir: (.+)/.exec(io.out.join(""))?.[1]?.trim() as string;
+    expect(readRun(runDir).models).toEqual({ implementer: "from-config" });
+  });
+
+  test("a --model flag overrides the config file", async () => {
+    const { mkdirSync } = await import("node:fs");
+    const config = mkdtempSync(join(tmpdir(), "tower-config-"));
+    mkdirSync(join(config, "tower"), { recursive: true });
+    writeFileSync(
+      join(config, "tower", "config.json"),
+      JSON.stringify({ models: { implementer: "from-config" } }),
+    );
+    const io = fakeIo({
+      cwd: gitRepo(),
       env: {
         XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "s-")),
         XDG_CONFIG_HOME: config,
@@ -84,14 +122,10 @@ describe("tower init", () => {
       io,
     );
     const runDir = /run dir: (.+)/.exec(io.out.join(""))?.[1]?.trim() as string;
-    expect(readRun(runDir).models).toEqual({
-      implementer: "sonnet-5[1m]",
-      "spec-reviewer": "",
-      "quality-reviewer": "",
-    });
+    expect(readRun(runDir).models).toEqual({ implementer: "sonnet-5[1m]" });
   });
 
-  test("refuses over an open run and says how to close it; --force overrides", async () => {
+  test("refuses over an open run and says how to close it", async () => {
     const cwd = gitRepo();
     const env = { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "s-")) };
     const first = fakeIo({ cwd, env });
@@ -103,6 +137,13 @@ describe("tower init", () => {
     });
     expect(await main(["init", "--plan", planFile()], second)).toBe(1);
     expect(second.err.join("")).toContain("tower close");
+  });
+
+  test("--force overrides the open-run refusal", async () => {
+    const cwd = gitRepo();
+    const env = { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "s-")) };
+    const first = fakeIo({ cwd, env });
+    await main(["init", "--plan", planFile()], first);
     const forced = fakeIo({
       cwd,
       env,
@@ -160,10 +201,24 @@ describe("tower init", () => {
     expect(io.err.join("")).toContain("stdin");
   });
 
+  test("a TSV source outside a git checkout gets a message that doesn't blame a nonexistent plan", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "tower-nogit-"));
+    const io = fakeIo({ cwd: dir, stdinText: () => "1\tA\n" });
+    expect(await main(["init"], io)).toBe(1);
+    expect(io.err.join("")).not.toContain("plan");
+    expect(io.err.join("")).toContain("repo");
+  });
+
   test("a missing plan file is named", async () => {
     const io = fakeIo({ cwd: gitRepo() });
     expect(await main(["init", "--plan", "/nope/plan.md"], io)).toBe(1);
     expect(io.err.join("")).toContain("/nope/plan.md");
+  });
+
+  test("a missing --tasks file is named, not a raw crash", async () => {
+    const io = fakeIo({ cwd: gitRepo() });
+    expect(await main(["init", "--tasks", "/nope/tasks.tsv"], io)).toBe(1);
+    expect(io.err.join("")).toContain("/nope/tasks.tsv");
   });
 
   test("a lane naming a non-task fails before anything is written", async () => {
@@ -184,6 +239,20 @@ describe("tower init", () => {
       await main(["init", "--plan", planFile(), "--run", "/proc/nope/run"], io),
     ).toBe(1);
     expect(io.err.join("")).toContain("/proc/nope/run");
+  });
+
+  test("a run is still created and reported even when the pointer cannot be written", async () => {
+    const { chmodSync } = await import("node:fs");
+    const cwd = gitRepo();
+    const state = mkdtempSync(join(tmpdir(), "s-"));
+    const io = fakeIo({ cwd, env: { XDG_STATE_HOME: state } });
+    chmodSync(join(cwd, ".git"), 0o555);
+    try {
+      expect(await main(["init", "--plan", planFile()], io)).toBe(0);
+      expect(io.out.join("")).toContain("run dir:");
+    } finally {
+      chmodSync(join(cwd, ".git"), 0o755);
+    }
   });
 });
 
