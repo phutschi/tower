@@ -17,6 +17,7 @@ import { join } from "node:path";
 import type { AssignEvent, RunFile, TaskDef } from "./types.ts";
 import { appendEvent, readEvents } from "./events.ts";
 import { nearestId } from "./ids.ts";
+import { UsageError } from "./io.ts";
 
 export const RUN_FILE = "run.json";
 export const EVENTS_FILE = "events.ndjson";
@@ -134,20 +135,20 @@ export function readRun(runDir: string): RunFile {
   try {
     text = readFileSync(path, "utf8");
   } catch (err) {
-    throw new Error(`could not read ${path}: ${(err as Error).message}`);
+    throw new UsageError(`could not read ${path}: ${(err as Error).message}`);
   }
   let raw: unknown;
   try {
     raw = JSON.parse(text);
   } catch {
-    throw new Error(`${path} is not valid JSON`);
+    throw new UsageError(`${path} is not valid JSON`);
   }
   if (
     typeof raw !== "object" ||
     raw === null ||
     (raw as { v?: unknown }).v !== 1
   )
-    throw new Error(
+    throw new UsageError(
       `${join(runDir, RUN_FILE)} is not a tower run file (expected "v": 1)`,
     );
   return raw as RunFile;

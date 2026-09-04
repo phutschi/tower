@@ -102,6 +102,8 @@ export interface ReadResult {
   lines: ParsedLine[];
   /** Byte offset after the last complete or torn line read. */
   offset: number;
+  /** True when `fromOffset` was past the end: the file shrank and this read is from byte zero. */
+  restarted: boolean;
 }
 
 export function readEvents(path: string, fromOffset: number): ReadResult {
@@ -112,15 +114,16 @@ export function readEvents(path: string, fromOffset: number): ReadResult {
   try {
     buffer = readFileSync(path);
   } catch {
-    return { lines: [], offset: 0 };
+    return { lines: [], offset: 0, restarted: false };
   }
   const size = buffer.length;
   // A smaller file than we last saw was truncated or rotated: start over.
-  const start = fromOffset > size ? 0 : fromOffset;
+  const restarted = fromOffset > size;
+  const start = restarted ? 0 : fromOffset;
   const text = buffer.subarray(start).toString("utf8");
   const lines = text
     .split("\n")
     .filter((line) => line.length > 0)
     .map((raw) => ({ raw, event: parseEvent(raw) }));
-  return { lines, offset: size };
+  return { lines, offset: size, restarted };
 }

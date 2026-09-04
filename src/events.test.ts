@@ -107,6 +107,7 @@ describe("readEvents", () => {
     const second = readEvents(path, first.offset);
     expect(second.lines).toHaveLength(1);
     expect(second.lines[0]?.event?.kind).toBe("report");
+    expect(second.restarted).toBe(false);
   });
 
   test("keeps a torn last line as unreadable rather than throwing", () => {
@@ -128,8 +129,9 @@ describe("readEvents", () => {
   test("an offset past the end means the file shrank: read from zero", () => {
     const path = join(dir(), "events.ndjson");
     appendEvent(path, report);
-    const { lines } = readEvents(path, 10_000);
+    const { lines, restarted } = readEvents(path, 10_000);
     expect(lines).toHaveLength(1);
+    expect(restarted).toBe(true);
   });
 
   test("re-reading from the returned offset with no new writes yields nothing", () => {

@@ -142,6 +142,13 @@ describe("readRun", () => {
     writeFileSync(join(runDir, "run.json"), "{ not json");
     expect(() => readRun(runDir)).toThrow(/run\.json/);
   });
+
+  test("a corrupt run.json throws a UsageError, so main reports it cleanly instead of crashing", async () => {
+    const { UsageError } = await import("./io.ts");
+    const runDir = tmp("tower-run-corrupt-");
+    writeFileSync(join(runDir, "run.json"), "{ nope");
+    expect(() => readRun(runDir)).toThrow(UsageError);
+  });
 });
 
 describe("clearPointer", () => {
