@@ -24,6 +24,9 @@ component you can leave running for six hours without worrying about it.
 npm install -g @phutschi/tower      # Node ≥ 22 or Bun
 ```
 
+> Not on npm yet — publishing is pending. Until then, use a release binary,
+> or clone and run `bun run dev`.
+
 Or download a standalone binary for macOS or Linux from the
 [releases](https://github.com/phutschi/tower/releases) — no runtime needed.
 
