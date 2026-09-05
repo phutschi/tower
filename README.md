@@ -2,6 +2,8 @@
 
 A control tower for long-running agent implementation runs.
 
+![tower watching a run](demo.gif)
+
 You hand a multi-task plan to two or three coding-agent lanes and they work for
 hours. `tower` is the pane you leave open: which task each lane is on, what
 phase it is in, which model is flying it, what landed, what is stuck — from an
