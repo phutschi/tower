@@ -92,4 +92,4 @@ export const DEFAULT_MODELS: Record<string, string> = {
   "quality-reviewer": "",
 };
 
-export const DEFAULT_STALE_MINUTES = 10;
+export const DEFAULT_STALE_MINUTES = 30;

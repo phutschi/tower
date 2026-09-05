@@ -85,7 +85,7 @@ report wins. tower shows a regressive report (a landed task reporting
 worth seeing. What the fold derives:
 
 - **stale** — `in_progress` or `reviewing` with no report for longer than the
-  stale threshold (default 10 min; `--stale`, or `stale` in the config file).
+  stale threshold (default 30 min; `--stale`, or `stale` in the config file).
   `pending`, `done` and `blocked` are never stale.
 - **complete** — the run has at least one task and every task is `done`.
 - **closed** — a `close` event exists. A closed run has no attention.
