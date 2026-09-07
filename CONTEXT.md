@@ -15,7 +15,7 @@ _Avoid_: session, job, dashboard, project
 
 **Plan**:
 The document that lists the tasks, in order. Where it came from is not tower's
-concern.
+concern. A run may have none; its tasks then all come from adds.
 _Avoid_: spec, ticket, backlog
 
 **Task**:
@@ -77,7 +77,8 @@ The record is the truth; everything else is derived from it.
 _Avoid_: log, status file, journal, database
 
 **Event**:
-One line of the record. Four kinds: a report, a note, an assignment, a close.
+One line of the record. Seven kinds: a report, a note, an assignment, a
+close, an add, a change, a remove.
 _Avoid_: message, entry, update
 
 **Report**:
@@ -94,6 +95,19 @@ _Avoid_: comment, message, log line, remark
 The declaration that a run is finished, whatever its tasks' statuses. A
 closed run needs no attention.
 _Avoid_: complete, finish, end, archive
+
+**Add**:
+The event that gives a run a task the plan did not have. A task's origin is
+either the plan or an add.
+_Avoid_: create, insert, new task
+
+**Change**:
+The event that edits a task's title, area, or position. Never its status.
+_Avoid_: edit, update, rename
+
+**Remove**:
+The event that takes a task off the board. Its history stays in the record.
+_Avoid_: delete, drop, cancel
 
 ### What the record says
 

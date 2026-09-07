@@ -21,6 +21,7 @@ const VALID_COMMANDS = [
   "block",
   "assign",
   "theme",
+  "add",
 ];
 
 test("has the open Agent Skills frontmatter", () => {

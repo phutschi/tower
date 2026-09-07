@@ -24,16 +24,12 @@ import {
   initRun,
   isClosed,
   readPointer,
-  readRun,
   RUN_FILE,
   validateLanes,
   writePointer,
 } from "../run.ts";
 import { DEFAULT_MODELS } from "../types.ts";
 import { loadState, locateRun } from "./locate.ts";
-
-const SOURCES =
-  "tasks come from one of: --plan <plan.md>, --tasks <tasks.tsv>, or a TSV on stdin";
 
 function parseLanes(
   specs: string[],
@@ -126,13 +122,24 @@ export async function initCommand(argv: string[], io: Io): Promise<number> {
     } else {
       source = io.stdinText();
     }
-    if (source === undefined) throw new UsageError(SOURCES);
-    try {
-      tasks = parseTsv(source);
-    } catch (error) {
-      throw new UsageError((error as Error).message);
+    if (source === undefined || source.trim() === "") {
+      // No plan, no TSV, nothing piped (a TTY reads undefined; a non-TTY
+      // with nothing written, as any non-interactive caller sees, reads an
+      // empty string): an ad hoc run. Tasks arrive with `tower add`.
+      tasks = [];
+    } else {
+      try {
+        tasks = parseTsv(source);
+      } catch (error) {
+        throw new UsageError((error as Error).message);
+      }
     }
   }
+
+  if (tasks.length === 0 && values.lane.length > 0)
+    throw new UsageError(
+      'no tasks to assign: this run has no plan yet\n       create it without --lane, then tower add "<title>" --lane <lane>',
+    );
 
   if (values.title) title = values.title;
   repo ??= git.repo;
@@ -209,11 +216,11 @@ export async function assignCommand(argv: string[], io: Io): Promise<number> {
       "usage: tower assign <lane> <ids>   e.g. tower assign B 5,7-9",
     );
   const runDir = locateRun(io, values.run);
-  const run = readRun(runDir);
+  const state = loadState(runDir, io);
   let ids: string[];
   try {
     ids = expandIds(spec);
-    validateLanes({ [lane]: ids }, run.tasks);
+    validateLanes({ [lane]: ids }, state.tasks);
   } catch (error) {
     throw new UsageError((error as Error).message);
   }

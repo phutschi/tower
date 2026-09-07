@@ -1,6 +1,6 @@
 ---
 name: run
-description: Run a multi-task implementation plan with agent lanes reporting into tower — init the run, brief each lane, wait for attention, close. Use when asked to orchestrate a plan with tower, or when a plan should be executed by several agents and watched from one console. Experimental in 0.1.0.
+description: Run a multi-task implementation plan with agent lanes reporting into tower — init the run, brief each lane, wait for attention, close. Use when asked to orchestrate a plan with tower, or when a plan should be executed by several agents and watched from one console. Experimental.
 ---
 
 # Orchestrating a run with tower
@@ -27,6 +27,18 @@ lane. `tower init` prints the run directory; note it.
 
 If `tower init` refuses because a run is already open, decide whether that run
 is truly over (`tower close`) before forcing.
+
+With no plan — the work is one prompt and the tasks will only exist once the
+executor derives them:
+
+```
+tower init
+tower add "<first task>" --lane A
+```
+
+then brief lane A. Tell the executor to `tower add` each further task it
+derives, before starting it. Tasks it adds land on the board without a
+restart.
 
 ## 2. Brief each lane
 
@@ -74,3 +86,4 @@ This frees the repository for the next run.
 - `tower note "<text>"` is your voice on the board: use it for merges,
   escalations, and decisions, so the transcript reads as a record.
 - If an executor runs bare `tower`, it gets a text snapshot; that is fine.
+- A task the plan missed is added with `tower add`, by whoever found it, before anyone starts it. Do not narrate it in a note instead.

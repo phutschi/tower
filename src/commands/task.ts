@@ -7,14 +7,12 @@ import { parseArgs } from "node:util";
 
 import type { Io } from "../io.ts";
 import type { NoteEvent, ReportEvent } from "../types.ts";
-import type { State } from "../state.ts";
 import { appendEvent, NOTE_MAX_CHARS } from "../events.ts";
 import { gitInfo } from "../git.ts";
-import { nearestId } from "../ids.ts";
 import { UsageError } from "../io.ts";
 import { eventsPath } from "../run.ts";
 import { isStatus, STATUSES } from "../types.ts";
-import { loadState, locateRun } from "./locate.ts";
+import { loadState, locateRun, requireTask } from "./locate.ts";
 
 const TASK_USAGE =
   "usage: tower task <id> <status> [phase] [note] --model <model>";
@@ -24,15 +22,6 @@ function checkNoteLength(note: string): void {
     throw new UsageError(
       `note is ${note.length} characters; the limit is ${NOTE_MAX_CHARS}`,
     );
-}
-
-function requireTask(state: State, id: string): void {
-  const ids = state.tasks.map((t) => t.id);
-  if (ids.includes(id)) return;
-  const near = nearestId(id, ids);
-  throw new UsageError(
-    `unknown task "${id}"${near ? ` — did you mean ${near}?` : ""}\n       tasks: ${ids.join(", ")}`,
-  );
 }
 
 export async function taskCommand(argv: string[], io: Io): Promise<number> {

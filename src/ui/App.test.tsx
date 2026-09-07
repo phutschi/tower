@@ -20,7 +20,7 @@ describe("App", () => {
     const frame = lastFrame() ?? "";
     expect(frame).toContain("DEPARTURES");
     expect(frame).toContain("✓ 11 landed");
-    expect(frame).toContain("squawk 7700");
+    expect(frame).toContain("holding short");
     expect(frame).toContain("[q] close the tower");
     expect(frame.split("\n").length).toBeLessThanOrEqual(30);
   });

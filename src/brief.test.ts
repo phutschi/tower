@@ -91,4 +91,57 @@ describe("composeBrief", () => {
     const brief = composeBrief(noPlanPath, "A", undefined);
     expect(brief).not.toContain("\n\n\n");
   });
+
+  test("teaches tower add and that the printed id is what to report against", () => {
+    expect(brief).toContain('tower add "<title>" --lane A');
+    expect(brief).toContain("prints the id");
+  });
+
+  test("the add paragraph names the lane it's addressed to", () => {
+    const briefB = composeBrief(state, "B", undefined);
+    expect(briefB).toContain('tower add "<title>" --lane B');
+    expect(briefB).not.toContain("--lane A");
+  });
+
+  test("lists a task added after init under the lane's tasks", () => {
+    const withAdded = fold(
+      run,
+      [
+        {
+          raw: "",
+          event: {
+            v: 1,
+            kind: "assign",
+            ts: "t",
+            lane: "A",
+            tasks: ["1", "2"],
+          },
+        },
+        {
+          raw: "",
+          event: {
+            v: 1,
+            kind: "add",
+            ts: "t",
+            task: { id: "3", title: "Late task", area: "" },
+            after: null,
+          },
+        },
+        {
+          raw: "",
+          event: {
+            v: 1,
+            kind: "assign",
+            ts: "t",
+            lane: "A",
+            tasks: ["1", "2", "3"],
+          },
+        },
+      ],
+      { now: new Date(), staleMinutes: 10 },
+    );
+    expect(composeBrief(withAdded, "A", undefined)).toContain(
+      "- 3 — Late task",
+    );
+  });
 });

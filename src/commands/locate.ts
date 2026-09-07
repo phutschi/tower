@@ -3,6 +3,7 @@ import type { Io } from "../io.ts";
 import type { State } from "../state.ts";
 import { readEvents } from "../events.ts";
 import { gitInfo } from "../git.ts";
+import { nearestId } from "../ids.ts";
 import { UsageError } from "../io.ts";
 import { eventsPath, readRun } from "../run.ts";
 import { fold } from "../state.ts";
@@ -38,4 +39,14 @@ export function loadState(
   const run = readRun(runDir);
   const { lines } = readEvents(eventsPath(runDir), 0);
   return fold(run, lines, { now: io.now(), staleMinutes });
+}
+
+/** Refuse an unknown task id, naming the correct form and, when close, the likely typo. */
+export function requireTask(state: State, id: string): void {
+  const ids = state.tasks.map((t) => t.id);
+  if (ids.includes(id)) return;
+  const near = nearestId(id, ids);
+  throw new UsageError(
+    `unknown task "${id}"${near ? ` — did you mean ${near}?` : ""}\n       tasks: ${ids.join(", ") || "(none)"}`,
+  );
 }

@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
+import type { ParsedLine } from "../events.ts";
+import { fold } from "../state.ts";
 import { AIRPORT, PLAIN } from "../theme.ts";
-import { demoState, DEMO_NOW } from "./demo.ts";
+import type { Event, RunFile } from "../types.ts";
+import { demoState, DEMO_NOW, DEMO_RUN } from "./demo.ts";
 import {
   boardRows,
   elapsed,
@@ -174,5 +177,87 @@ describe("transcriptRows", () => {
     expect(texts(transcriptRows(empty, AIRPORT, 100, 5, opts))).toEqual([
       "the field is quiet",
     ]);
+  });
+
+  test("add, change and remove read as tower's voice in the transcript", () => {
+    const run: RunFile = {
+      ...DEMO_RUN,
+      tasks: [{ id: "1", title: "A", area: "" }],
+    };
+    const ev = (event: Event): ParsedLine => ({ raw: "", event });
+    const state = fold(
+      run,
+      [
+        ev({
+          v: 1,
+          kind: "add",
+          ts: "2026-09-04T20:00:00.000Z",
+          task: { id: "2", title: "Wire the webhook", area: "" },
+          after: null,
+        }),
+        ev({
+          v: 1,
+          kind: "change",
+          ts: "2026-09-04T20:01:00.000Z",
+          task: "2",
+          title: "Wire it",
+          area: null,
+          after: null,
+        }),
+        ev({
+          v: 1,
+          kind: "change",
+          ts: "2026-09-04T20:01:30.000Z",
+          task: "2",
+          title: null,
+          area: null,
+          after: "99",
+        }),
+        ev({ v: 1, kind: "remove", ts: "2026-09-04T20:02:00.000Z", task: "2" }),
+      ],
+      { now: new Date("2026-09-04T20:05:00.000Z"), staleMinutes: 30 },
+    );
+    const text = transcriptRows(state, AIRPORT, 100, 10, {
+      now: new Date("2026-09-04T20:05:00.000Z"),
+      clock: utcClock,
+    })
+      .map((r) => r.text)
+      .join("\n");
+    expect(text).toContain("added ACME 2 · Wire the webhook");
+    expect(text).toContain("changed ACME 2 · title");
+    expect(text).toContain("⚠ unknown after 99");
+    expect(text).toContain("removed ACME 2");
+  });
+
+  test("an unknown-task change or remove names the id, not just 'unknown flight'", () => {
+    const run: RunFile = {
+      ...DEMO_RUN,
+      tasks: [{ id: "1", title: "A", area: "" }],
+    };
+    const ev = (event: Event): ParsedLine => ({ raw: "", event });
+    const state = fold(
+      run,
+      [
+        ev({
+          v: 1,
+          kind: "change",
+          ts: "2026-09-04T20:00:00.000Z",
+          task: "9",
+          title: "x",
+          area: null,
+          after: null,
+        }),
+        ev({ v: 1, kind: "remove", ts: "2026-09-04T20:00:01.000Z", task: "9" }),
+      ],
+      { now: new Date("2026-09-04T20:05:00.000Z"), staleMinutes: 30 },
+    );
+    const text = transcriptRows(state, AIRPORT, 100, 10, {
+      now: new Date("2026-09-04T20:05:00.000Z"),
+      clock: utcClock,
+    })
+      .map((r) => r.text)
+      .join("\n");
+    expect(text).toContain("⚠ unknown flight 9");
+    expect(text).not.toContain("unknown flight \n");
   });
 });

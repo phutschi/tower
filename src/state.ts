@@ -6,14 +6,15 @@
  * Rules that matter:
  *  - order is file order. Timestamps are for display; three shells in three
  *    worktrees do not share a clock.
- *  - the fold never invents a task. A report for an id the plan does not
- *    have is kept in the transcript, flagged, and counted — not a new row.
+ *  - the fold never invents a task from a report; only an `add` creates one.
+ *    A report for an id the plan does not have is kept in the transcript,
+ *    flagged, and counted — not a new row.
  *  - last report wins, and both stay in the transcript, so a task that went
  *    backwards is visible rather than rewritten.
  *  - stale applies to in_progress and reviewing only. blocked is already
  *    flagged; pending and done have nothing to hear from.
  */
-import type { Event, RunFile, Status } from "./types.ts";
+import type { Event, RunFile, Status, TaskDef } from "./types.ts";
 import type { ParsedLine } from "./events.ts";
 
 export interface TaskState {
@@ -32,12 +33,14 @@ export interface TaskState {
   startedAt: string | null;
   updatedAt: string | null;
   stale: boolean;
+  /** Whether the plan defined this task or the run added it. */
+  origin: "plan" | "added";
 }
 
 export interface TranscriptEntry {
   ts: string;
   event: Event | null;
-  problem?: "unreadable" | "unknown-task";
+  problem?: "unreadable" | "unknown-task" | "unknown-after";
   raw?: string;
 }
 
@@ -62,6 +65,8 @@ export interface State {
   firstEventAt: string | null;
   summary: Summary;
   attention: boolean;
+  /** The id `tower add` picks when none is given: one above the largest integer id ever seen. */
+  nextId: string;
 }
 
 export interface FoldOptions {
@@ -74,35 +79,68 @@ export function fold(
   lines: readonly ParsedLine[],
   options: FoldOptions,
 ): State {
-  const tasks = new Map<string, TaskState>(
-    run.tasks.map((t) => [
-      t.id,
-      {
-        id: t.id,
-        title: t.title,
-        area: t.area,
-        lane: null,
-        status: "pending",
-        phase: "",
-        note: "",
-        model: "",
-        implementer: "",
-        commit: "",
-        startedAt: null,
-        updatedAt: null,
-        stale: false,
-      },
-    ]),
+  const blank = (t: TaskDef, origin: TaskState["origin"]): TaskState => ({
+    id: t.id,
+    title: t.title,
+    area: t.area,
+    lane: null,
+    status: "pending",
+    phase: "",
+    note: "",
+    model: "",
+    implementer: "",
+    commit: "",
+    startedAt: null,
+    updatedAt: null,
+    stale: false,
+    origin,
+  });
+
+  // `order` is the board: ids in plan order, then adds. `known` keeps every
+  // task ever defined, removed ones included, so a re-add restores history.
+  // `removed` is the set of ids currently off the board.
+  const order: string[] = run.tasks.map((t) => t.id);
+  const known = new Map<string, TaskState>(
+    run.tasks.map((t) => [t.id, blank(t, "plan")]),
   );
+  const removed = new Set<string>();
+  let maxInt = 0;
+  const seeId = (id: string) => {
+    if (/^\d+$/.test(id)) maxInt = Math.max(maxInt, Number(id));
+  };
+  for (const id of order) seeId(id);
+
+  const onBoard = (id: string) => known.has(id) && !removed.has(id);
+
+  /** Move `id` to right after `after` (or the end when null). Returns false when `after` is unknown. */
+  const place = (id: string, after: string | null): boolean => {
+    const at = order.indexOf(id);
+    if (at !== -1) order.splice(at, 1);
+    if (after === null || after === id) {
+      order.push(id);
+      return after === null;
+    }
+    const anchor = order.indexOf(after);
+    if (anchor === -1 || !onBoard(after)) {
+      order.push(id);
+      return false;
+    }
+    order.splice(anchor + 1, 0, id);
+    return true;
+  };
 
   const transcript: TranscriptEntry[] = [];
   const unknown: string[] = [];
   let unreadable = 0;
   let closed: State["closed"] = null;
   // Named firstEventAt in the public contract, but only a *report* sets it:
-  // assign/note/close mark planning or narration, not work starting, so they
-  // must not move the run's "elapsed since work began" clock.
+  // assign/note/close/add/change/remove mark planning or narration, not
+  // work starting, so they must not move the "elapsed since work began" clock.
   let firstEventAt: string | null = null;
+  const flagUnknown = (id: string, event: Event) => {
+    if (!unknown.includes(id)) unknown.push(id);
+    transcript.push({ ts: event.ts, event, problem: "unknown-task" });
+  };
 
   for (const line of lines) {
     const event = line.event;
@@ -117,10 +155,9 @@ export function fold(
       continue;
     }
     if (event.kind === "report") {
-      const task = tasks.get(event.task);
+      const task = onBoard(event.task) ? known.get(event.task) : undefined;
       if (!task) {
-        if (!unknown.includes(event.task)) unknown.push(event.task);
-        transcript.push({ ts: event.ts, event, problem: "unknown-task" });
+        flagUnknown(event.task, event);
         continue;
       }
       firstEventAt ??= event.ts;
@@ -148,12 +185,54 @@ export function fold(
       if (event.status === "done" && event.commit) task.commit = event.commit;
       transcript.push({ ts: event.ts, event });
     } else if (event.kind === "assign") {
-      for (const task of tasks.values())
+      for (const task of known.values())
         if (task.lane === event.lane) task.lane = null;
       for (const id of event.tasks) {
-        const task = tasks.get(id);
-        if (task) task.lane = event.lane;
+        const task = known.get(id);
+        if (task && onBoard(id)) task.lane = event.lane;
       }
+      transcript.push({ ts: event.ts, event });
+    } else if (event.kind === "add") {
+      const id = event.task.id;
+      seeId(id);
+      const existing = known.get(id);
+      if (existing) {
+        // An add for a known id is a change (and a restore if it was removed).
+        existing.title = event.task.title;
+        existing.area = event.task.area;
+        removed.delete(id);
+      } else {
+        known.set(id, blank(event.task, "added"));
+      }
+      const placed = place(id, event.after);
+      transcript.push(
+        placed
+          ? { ts: event.ts, event }
+          : { ts: event.ts, event, problem: "unknown-after" },
+      );
+    } else if (event.kind === "change") {
+      const task = onBoard(event.task) ? known.get(event.task) : undefined;
+      if (!task) {
+        flagUnknown(event.task, event);
+        continue;
+      }
+      if (event.title !== null) task.title = event.title;
+      if (event.area !== null) task.area = event.area;
+      const placed =
+        event.after === null ? true : place(event.task, event.after);
+      transcript.push(
+        placed
+          ? { ts: event.ts, event }
+          : { ts: event.ts, event, problem: "unknown-after" },
+      );
+    } else if (event.kind === "remove") {
+      if (!onBoard(event.task)) {
+        flagUnknown(event.task, event);
+        continue;
+      }
+      removed.add(event.task);
+      const at = order.indexOf(event.task);
+      if (at !== -1) order.splice(at, 1);
       transcript.push({ ts: event.ts, event });
     } else if (event.kind === "close") {
       closed = { ts: event.ts, text: event.text };
@@ -163,9 +242,11 @@ export function fold(
     }
   }
 
+  const list = order.map((id) => known.get(id) as TaskState);
+
   const ACTIVE: readonly Status[] = ["in_progress", "reviewing"];
   const threshold = options.staleMinutes * 60_000;
-  for (const task of tasks.values()) {
+  for (const task of list) {
     if (
       closed !== null ||
       !ACTIVE.includes(task.status) ||
@@ -180,7 +261,6 @@ export function fold(
     task.stale = Number.isNaN(elapsed) || elapsed > threshold;
   }
 
-  const list = [...tasks.values()];
   const count = (status: Status) =>
     list.filter((t) => t.status === status).length;
   const summary: Summary = {
@@ -208,5 +288,6 @@ export function fold(
     firstEventAt,
     summary,
     attention: closed === null && (summary.blocked > 0 || summary.stale > 0),
+    nextId: String(maxInt + 1),
   };
 }

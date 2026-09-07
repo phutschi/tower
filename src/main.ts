@@ -11,6 +11,7 @@ import { stateCommand, waitCommand } from "./commands/state.ts";
 import { themeCommand } from "./commands/theme.ts";
 import { briefCommand } from "./commands/brief.ts";
 import { blockCommand, noteCommand, taskCommand } from "./commands/task.ts";
+import { addCommand, changeCommand, removeCommand } from "./commands/edit.ts";
 
 export const USAGE = `tower — a control tower for long-running agent implementation runs
 
@@ -18,12 +19,17 @@ export const USAGE = `tower — a control tower for long-running agent implement
                                     the console; watch the run until you press q
 
   orchestrator
-    tower init --plan <plan.md> [--lane A=1-4,6]... [--theme <name>]
+    tower init [--plan <plan.md> | --tasks <tasks.tsv> | TSV on stdin | nothing]
+               [--lane A=1-4,6]... [--title <text>] [--theme <name>]
                [--model <role>=<model>]... [--callsign <X>] [--run <dir>] [--force]
-    tower init --tasks <tasks.tsv> [--title <text>] ...  (or pipe a TSV on stdin)
     tower assign <lane> <ids>                 record which tasks a lane owns
     tower brief <lane> [--conventions-heading <heading>]
     tower close ["<note>"]                    declare the run finished
+
+  tasks (anyone; the run's word on top of the plan's)
+    tower add "<title>" [--id <id>] [--area <text>] [--after <id>] [--lane <lane>]
+    tower change <id> [--title <text>] [--area <text>] [--after <id>]
+    tower remove <id> [--force]
 
   scripts
     tower state --json
@@ -53,6 +59,9 @@ const COMMANDS: Record<string, () => Promise<Command>> = {
   wait: async () => waitCommand,
   theme: async () => themeCommand,
   brief: async () => briefCommand,
+  add: async () => addCommand,
+  change: async () => changeCommand,
+  remove: async () => removeCommand,
 };
 
 export async function main(argv: string[], io: Io): Promise<number> {

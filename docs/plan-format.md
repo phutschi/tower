@@ -1,6 +1,6 @@
 # Task sources
 
-`tower init` reads tasks from one of three places.
+`tower init` reads tasks from one of three places, or from none.
 
 ## A markdown plan (`--plan <file>`)
 
@@ -49,6 +49,16 @@ Piped on stdin: `cat tasks.tsv | tower init`.
 A TSV or stdin source has no title of its own — pass `--title "<text>"` to
 name the run; it defaults to "untitled" otherwise. `--title` also overrides a
 markdown plan's own title when given.
+
+## No source
+
+`tower init` alone creates a run with no tasks. Add them as they are known:
+
+    tower add "<title>" [--id <id>] [--area <text>] [--after <id>] [--lane <lane>]
+
+Without `--id`, the id is the next integer above every integer id the run
+has seen. Both kinds of run accept `tower add`, `tower change` and
+`tower remove` at any time; the console picks them up without a restart.
 
 ## Ids
 

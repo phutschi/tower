@@ -144,6 +144,23 @@ export const DEMO_EVENTS: ParsedLine[] = [
   rep(135, "99", "done", "committed", "opus"),
   { raw: '{"v":1,"kind":"re', event: null },
   rep(140, "15", "reviewing", "quality-review", "opus"),
+  line({
+    v: 1,
+    kind: "add",
+    ts: at(140),
+    task: { id: "22", title: "Retry the webhook", area: "" },
+    after: null,
+  }),
+  line({
+    v: 1,
+    kind: "change",
+    ts: at(141),
+    task: "22",
+    title: "Retry the outbound webhook",
+    area: null,
+    after: null,
+  }),
+  line({ v: 1, kind: "remove", ts: at(142), task: "21" }),
 ];
 
 export function demoState(options: { closed?: boolean } = {}): State {

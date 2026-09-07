@@ -1,6 +1,6 @@
 {
   "name": "@phutschi/tower",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A control tower for long-running agent implementation runs — watch a crew of coding agents work, from one terminal pane.",
   "license": "MIT",
   "author": "Philipp Wruck <phutschi@users.noreply.github.com>",
