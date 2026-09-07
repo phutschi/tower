@@ -161,17 +161,27 @@ export function fold(
         continue;
       }
       firstEventAt ??= event.ts;
+      // status/phase/note/updatedAt: last report always wins, whole value.
       task.status = event.status;
       task.phase = event.phase;
       task.note = event.note;
       task.updatedAt = event.ts;
+      // model: sticky across empty reports (a status-only report with no
+      // --model must not blank the board), and split into "who is on it
+      // now" vs. "who last did the work" so a reviewer's model doesn't
+      // overwrite the implementer's credit.
       if (event.model) {
         task.model = event.model;
         if (event.status === "in_progress" || event.status === "done")
           task.implementer = event.model;
       }
+      // startedAt: first in_progress only, never overwritten by a later one
+      // (a "go around" restarts phase, not the clock).
       if (event.status === "in_progress" && task.startedAt === null)
         task.startedAt = event.ts;
+      // commit: sticky once set, so a later regressive report (e.g. a
+      // reopened task going back to in_progress) doesn't erase which sha
+      // landed.
       if (event.status === "done" && event.commit) task.commit = event.commit;
       transcript.push({ ts: event.ts, event });
     } else if (event.kind === "assign") {
