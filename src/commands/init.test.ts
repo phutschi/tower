@@ -33,10 +33,25 @@ function planFile(): string {
   return path;
 }
 
-/** A git repository to run init in, so the pointer has a home. */
+/** A git repository to run init in, so the pointer has a home. HEAD needs a
+ * commit or `git rev-parse --abbrev-ref HEAD` cannot resolve a branch name. */
 function gitRepo(): string {
   const dir = mkdtempSync(join(tmpdir(), "tower-repo-"));
   execFileSync("git", ["init", "-b", "main"], { cwd: dir, stdio: "pipe" });
+  execFileSync(
+    "git",
+    [
+      "-c",
+      "user.name=tower",
+      "-c",
+      "user.email=tower@example.com",
+      "commit",
+      "--allow-empty",
+      "-m",
+      "start",
+    ],
+    { cwd: dir, stdio: "pipe" },
+  );
   return dir;
 }
 
@@ -241,12 +256,23 @@ describe("tower init", () => {
     expect(readRun(runDir).plan).toBe("Custom Title");
   });
 
-  test("with nothing to read from, it explains the three sources", async () => {
+  test("with no source, creates an empty run: 0 tasks, title untitled, planPath null", async () => {
     const io = fakeIo({ cwd: gitRepo() });
-    expect(await main(["init"], io)).toBe(1);
-    expect(io.err.join("")).toContain("--plan");
-    expect(io.err.join("")).toContain("--tasks");
-    expect(io.err.join("")).toContain("stdin");
+    expect(await main(["init"], io)).toBe(0);
+    const out = io.out.join("");
+    expect(out).toContain("0 tasks");
+    const runDir = /run dir: (.+)/.exec(out)?.[1]?.trim() as string;
+    const run = readRun(runDir);
+    expect(run.tasks).toEqual([]);
+    expect(run.plan).toBe("untitled");
+    expect(run.planPath).toBeNull();
+  });
+
+  test("with no source, --lane is refused because there is nothing to assign", async () => {
+    const io = fakeIo({ cwd: gitRepo() });
+    expect(await main(["init", "--lane", "A=1"], io)).toBe(1);
+    expect(io.err.join("")).toContain("no tasks to assign");
+    expect(io.err.join("")).toContain("tower add");
   });
 
   test("a TSV source outside a git checkout gets a message that doesn't blame a nonexistent plan", async () => {
@@ -321,6 +347,20 @@ describe("tower assign", () => {
     const { io } = seededRun();
     expect(await main(["assign", "B", "auth1"], io)).toBe(1);
     expect(io.err.join("")).toContain("auth-1");
+  });
+
+  test("can assign a task that was added after init", async () => {
+    const { runDir, io } = seededRun();
+    expect(await main(["add", "Late task"], io)).toBe(0);
+    expect(await main(["assign", "B", "auth-1,3"], io)).toBe(0);
+    const last = readEvents(join(runDir, "events.ndjson"), 0).lines.at(
+      -1,
+    )?.event;
+    expect(last).toMatchObject({
+      kind: "assign",
+      lane: "B",
+      tasks: ["auth-1", "3"],
+    });
   });
 });
 
