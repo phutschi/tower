@@ -6,7 +6,8 @@
  */
 import type { State } from "./state.ts";
 
-export const COMMAND_BLOCK = `Report every change of state with tower, from the repository root:
+export function commandBlock(lane: string): string {
+  return `Report every change of state with tower, from the repository root:
 
     tower task <id> <status> [phase] [note] --model <model>
     tower block <id> "<what you need>"
@@ -24,7 +25,12 @@ The order per task:
 
 --model is required on in_progress and reviewing. Pass \`--model none\` only if you truly do not track models.
 When you cannot proceed: tower block <id> "<exactly what you need>" — then stop and wait.
-tower refuses a malformed report and prints the correct form; fix it and report again.`;
+tower refuses a malformed report and prints the correct form; fix it and report again.
+
+When you discover a task the plan does not have, add it before you start it:
+    tower add "<title>" --lane ${lane}
+It prints the id on the first line; report against that id. Split a task the same way, then tower remove the original.`;
+}
 
 export function composeBrief(
   state: State,
@@ -62,7 +68,7 @@ export function composeBrief(
     "",
     "## Reporting",
     "",
-    COMMAND_BLOCK,
+    commandBlock(lane),
     "",
     `## ${conventionsHeading}`,
     "",
