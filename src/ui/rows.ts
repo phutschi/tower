@@ -369,6 +369,28 @@ export function transcriptRows(
     } else if (e.kind === "assign") {
       text = `${time}  ${who} ${theme.unit} ${e.lane} ← ${e.tasks.join(", ")}`;
       tone = "muted";
+    } else if (entry.problem === "unknown-after") {
+      const id =
+        e.kind === "add" ? e.task.id : e.kind === "change" ? e.task : "";
+      const after = e.kind === "add" || e.kind === "change" ? e.after : "";
+      text = `${time}  ${who} ${e.kind === "add" ? "added" : "changed"} ${state.run.callsign} ${id} · ⚠ unknown after ${after}`;
+      tone = "warn";
+    } else if (e.kind === "add") {
+      text = `${time}  ${who} added ${state.run.callsign} ${e.task.id} · ${e.task.title}`;
+      tone = "muted";
+    } else if (e.kind === "change") {
+      const what = [
+        e.title !== null ? "title" : "",
+        e.area !== null ? "area" : "",
+        e.after !== null ? `moved after ${e.after}` : "",
+      ]
+        .filter(Boolean)
+        .join(", ");
+      text = `${time}  ${who} changed ${state.run.callsign} ${e.task} · ${what}`;
+      tone = "muted";
+    } else if (e.kind === "remove") {
+      text = `${time}  ${who} removed ${state.run.callsign} ${e.task}`;
+      tone = "muted";
     } else {
       text = `${time}  ${who} ${theme.states.closed}${e.text ? ` · ${e.text}` : ""}`;
       tone = "warn";

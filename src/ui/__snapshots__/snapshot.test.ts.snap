@@ -18,14 +18,11 @@ DEPARTURES
  ○ 18        surface on the threads…  A   packages/api
  ○ 19        The show-threads toggle  A   apps/web
  ○ 20        The terminal tags rows   A   apps/tui
- ○ 21        Docs and the runbook     A   docs
+ ○ 22        Retry the outbound web…
  ⚠ unknown flight 99
  ⚠ 1 unreadable line
 
 TRANSCRIPT
- 20:33:00  ACME 11   landed  a1b2c10
- 21:12:00  ACME 13   landed  a91c2f0
- 21:13:00  ACME 14   cleared for takeoff · sonnet-5[1m]
  21:14:00  ACME 12   cleared for takeoff · opus
  21:22:00  ACME 14   on approach · sonnet
  21:23:00  ACME 14   go around · spec review: missing null …
@@ -34,7 +31,10 @@ TRANSCRIPT
  21:26:00  ACME 12   squawk 7700 · needs the test DB created
  21:27:00  ⚠ unknown flight 99
            ⚠ unreadable line
- 21:32:00  ACME 15   on final · opus"
+ 21:32:00  ACME 15   on final · opus
+ 21:32:00  TOWER     added ACME 22 · Retry the webhook
+ 21:33:00  TOWER     changed ACME 22 · title
+ 21:34:00  TOWER     removed ACME 21"
 `;
 
 exports[`the snapshot is the whole screen as text, at 60 and at 120 columns: snapshot-120 1`] = `
@@ -55,14 +55,11 @@ DEPARTURES
  ○ 18        surface on the threads route      A   packages/api
  ○ 19        The show-threads toggle           A   apps/web
  ○ 20        The terminal tags rows            A   apps/tui
- ○ 21        Docs and the runbook              A   docs
+ ○ 22        Retry the outbound webhook
  ⚠ unknown flight 99
  ⚠ 1 unreadable line
 
 TRANSCRIPT
- 20:33:00  ACME 11   landed  a1b2c10
- 21:12:00  ACME 13   landed  a91c2f0
- 21:13:00  ACME 14   cleared for takeoff · sonnet-5[1m]
  21:14:00  ACME 12   cleared for takeoff · opus
  21:22:00  ACME 14   on approach · sonnet
  21:23:00  ACME 14   go around · spec review: missing null guard
@@ -71,5 +68,8 @@ TRANSCRIPT
  21:26:00  ACME 12   squawk 7700 · needs the test DB created
  21:27:00  ⚠ unknown flight 99
            ⚠ unreadable line
- 21:32:00  ACME 15   on final · opus"
+ 21:32:00  ACME 15   on final · opus
+ 21:32:00  TOWER     added ACME 22 · Retry the webhook
+ 21:33:00  TOWER     changed ACME 22 · title
+ 21:34:00  TOWER     removed ACME 21"
 `;
