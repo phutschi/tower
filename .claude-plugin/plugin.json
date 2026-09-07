@@ -1,7 +1,7 @@
 {
   "name": "tower",
   "description": "Orchestrate a multi-task implementation plan with agent lanes reporting into tower.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": { "name": "Philipp Wruck" },
   "license": "MIT"
 }

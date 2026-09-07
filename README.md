@@ -68,6 +68,7 @@ tower init                                 # 0 tasks
 tower add "Wire the webhook" --lane A      # prints the id; report against it
 tower brief A                              # once lane A has a task
 tower change 1 --title "Wire the outbound webhook"
+tower add "A task we did not need" --lane A
 tower remove 2
 ```
 
@@ -148,7 +149,7 @@ then `/tower:run`.
 | `tower close [note]`                                  | declare the run finished                                            |
 | `tower add "<title>" [--lane <lane>]`                 | add a task the plan did not have                                    |
 | `tower change <id> --title\|--area\|--after`          | edit a task                                                         |
-| `tower remove <id> [--force]`                         | take a task off the board                                           |
+| `tower remove <id> [--force]`                         | take a task off the board (`--force` overrides an active task)      |
 | `tower task <id> <status> [phase] [note] --model <m>` | report                                                              |
 | `tower block <id> "<need>"`                           | report blocked                                                      |
 | `tower note [--task\|--lane] "<text>"`                | narrate                                                             |

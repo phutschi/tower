@@ -186,8 +186,8 @@ unparseable lines, counts them, and shows the count.
 `model` is whoever is on the task now.
 
 `origin` is `"plan"` or `"added"`. `nextId` is one above the largest
-plain-integer id the record has ever seen, removed ids included; it is what
-`tower add` picks when `--id` is not given.
+plain-integer id any plan task or `add` has ever used, removed ids included;
+it is what `tower add` picks when `--id` is not given.
 
 ## `tower wait --timeout <seconds>`
 
