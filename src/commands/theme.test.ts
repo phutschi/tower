@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
@@ -80,6 +80,29 @@ describe("tower theme", () => {
     const i = fakeIo();
     expect(await main(["theme", "preview", "airport"], i)).toBe(0);
     expect(i.out.join("")).toContain("NORDO");
+  });
+
+  test("the shipped example themes/examples/factory.json passes check and previews its own words", async () => {
+    // The example is not a built-in: it is read from the repo and installed
+    // into the temp themes dir the way a user would copy it, then checked
+    // through the real command so it can never drift out of the rules.
+    const example = readFileSync(
+      join(import.meta.dir, "../../themes/examples/factory.json"),
+      "utf8",
+    );
+    const i = io();
+    await main(["theme", "new", "factory"], i);
+    const path = /(\S+factory\.json)/.exec(i.out.join(""))?.[1] as string;
+    writeFileSync(path, example);
+    const check = fakeIo({ env: i.env });
+    expect(await main(["theme", "check", "factory"], check)).toBe(0);
+    expect(check.out.join("")).toContain("factory: ok");
+    const pv = fakeIo({ env: i.env });
+    expect(await main(["theme", "preview", "factory"], pv)).toBe(0);
+    const text = pv.out.join("");
+    expect(text).toContain("LINE A");
+    expect(text).toContain("rework");
+    expect(text).toContain("machine down");
   });
 
   test("an unknown subcommand names the four", async () => {
