@@ -127,6 +127,32 @@ describe("boardRows", () => {
       expect(rows.length).toBeLessThanOrEqual(height);
     }
   });
+  test("keeps every airborne row visible when the window is short, counting each hidden stretch", () => {
+    // The demo has 12 blocked and 14 + 15 active.
+    const rows = texts(boardRows(state, AIRPORT, 100, 6, opts));
+    expect(rows).toHaveLength(6);
+    expect(rows.some((r) => r.startsWith("⚠ 12"))).toBe(true);
+    expect(rows.some((r) => r.startsWith("▸ 14"))).toBe(true);
+    expect(rows.some((r) => r.startsWith("▸ 15"))).toBe(true);
+    expect(rows[0]).toBe("… 1 above");
+    expect(rows.at(-1)).toMatch(/^… \d+ more/);
+  });
+  test("pins an airborne row far below the anchor, with a marker for the gap", () => {
+    const s = demoState();
+    const far = s.tasks.find((t) => t.id === "20");
+    if (!far) throw new Error("demo lost task 20");
+    far.status = "in_progress";
+    far.phase = "implementing";
+    far.model = "haiku";
+    far.startedAt = new Date(DEMO_NOW.getTime() - 5 * 60_000).toISOString();
+    const rows = texts(boardRows(s, AIRPORT, 100, 8, opts));
+    expect(rows).toHaveLength(8);
+    for (const id of ["⚠ 12", "▸ 14", "▸ 15", "▸ 20"])
+      expect(rows.some((r) => r.startsWith(id))).toBe(true);
+    const gap = rows.indexOf(`… 4 more ${AIRPORT.states.pending}`);
+    expect(gap).toBeGreaterThan(rows.findIndex((r) => r.startsWith("▸ 15")));
+    expect(gap).toBeLessThan(rows.findIndex((r) => r.startsWith("▸ 20")));
+  });
   test("keeps the row that needs eyes visible even at height 1", () => {
     const rows = texts(boardRows(state, AIRPORT, 100, 1, opts));
     expect(rows[0]?.startsWith("⚠ 12")).toBe(true);

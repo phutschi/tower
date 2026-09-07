@@ -255,55 +255,71 @@ export function boardRows(
 }
 
 /**
- * Window a board down to `height` rows, keeping the first row that needs
- * eyes (blocked, then active) visible whenever there is room for it. Always
- * returns at most `height` rows.
+ * Window a board down to `height` rows. Every row that needs eyes (blocked,
+ * then active) stays visible whenever there is room for it, however far down
+ * the board it sits; the remaining room shows the rows around the first of
+ * them, and every hidden stretch is counted in a marker. Always returns at
+ * most `height` rows.
  */
 function windowBoard(rows: Row[], height: number, theme: Theme): Row[] {
   if (height <= 0) return [];
   if (rows.length <= height) return rows;
-  const anchor = Math.max(
-    0,
-    rows.findIndex((r) => r.tone === "blocked" || r.tone === "active"),
+  const eyes = rows.flatMap((r, i) =>
+    r.tone === "blocked" || r.tone === "active" ? [i] : [],
   );
+  const anchor = eyes[0] ?? 0;
 
   if (height === 1)
     return [rows[anchor] ?? { text: `… ${rows.length} more`, tone: "muted" }];
 
-  const more = (start: number, shown: Row[]): Row[] => {
-    const below = rows.length - (start + shown.length);
-    if (below <= 0) return [];
-    const rest = rows.slice(start + shown.length);
-    const allPending = rest.every((r) => r.tone === "pending");
-    return [
-      {
-        text: allPending
-          ? `… ${below} more ${theme.states.pending}`
-          : `… ${below} more`,
-        tone: "muted",
-      },
-    ];
+  const hidden = (from: number, to: number): Row => {
+    const count = to - from;
+    const allPending = rows.slice(from, to).every((r) => r.tone === "pending");
+    return {
+      text: allPending
+        ? `… ${count} more ${theme.states.pending}`
+        : `… ${count} more`,
+      tone: "muted",
+    };
   };
 
   if (height === 2) {
     // No room for an "above" marker; prioritise keeping the anchor visible.
     const start = Math.max(0, Math.min(anchor, rows.length - 1));
-    const shown = rows.slice(start, start + 1);
-    return [...shown, ...more(start, shown)];
+    return [rows[start] as Row, hidden(start + 1, rows.length)];
   }
 
-  let body = height - 1;
-  let start = Math.max(0, Math.min(anchor, rows.length - body));
-  if (start > 0) {
-    body = height - 2;
-    start = Math.max(0, Math.min(anchor, rows.length - body));
+  // Pick `size` rows: the pinned ones first, then the window around the
+  // anchor, and shrink `size` until the picks plus their markers fit.
+  const pick = (size: number): number[] => {
+    const chosen = new Set(eyes.slice(0, size));
+    const start = Math.max(0, Math.min(anchor, rows.length - size));
+    for (let i = start; i < rows.length && chosen.size < size; i++)
+      chosen.add(i);
+    return [...chosen].sort((a, b) => a - b);
+  };
+  const render = (chosen: number[]): Row[] => {
+    const out: Row[] = [];
+    let cursor = 0;
+    for (const i of chosen) {
+      if (i > cursor)
+        out.push(
+          cursor === 0
+            ? { text: `… ${i} above`, tone: "muted" }
+            : hidden(cursor, i),
+        );
+      out.push(rows[i] as Row);
+      cursor = i + 1;
+    }
+    if (cursor < rows.length) out.push(hidden(cursor, rows.length));
+    return out;
+  };
+
+  for (let size = height; size >= 1; size--) {
+    const out = render(pick(size));
+    if (out.length <= height) return out;
   }
-  const shown = rows.slice(start, start + body);
-  const out: Row[] = [];
-  if (start > 0) out.push({ text: `… ${start} above`, tone: "muted" });
-  out.push(...shown);
-  out.push(...more(start, shown));
-  return out;
+  return [rows[anchor] as Row];
 }
 
 function speaker(entry: TranscriptEntry, state: State, theme: Theme): string {
