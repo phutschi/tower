@@ -1,14 +1,7 @@
-## [0.1.0] — 2026-09-05
-
-tower's first run was its own build.
+## [0.2.0] — 2026-09-07
 
 ### Added
 
-- The console: a live Ink board of a run, with the airport vocabulary and
-  `--plain`.
-- The reporting CLI: `task`, `block`, `note`, refusing malformed reports with
-  the correct form.
-- `init` from a markdown plan, a TSV, or stdin; `assign`; `close`; `brief`.
-- `state --json` and `wait --timeout`, the two commands for scripts.
-- Themes as JSON with `theme rules|new|check|preview`.
-- The orchestrator skill (`skills/run/SKILL.md`), experimental.
+- On-the-fly tasks: `tower add`, `tower change`, `tower remove`, and the
+  three event kinds behind them. `tower init` with no plan creates an empty
+  run. `state --json` gains `origin` per task and `nextId`. (ADR 0007)

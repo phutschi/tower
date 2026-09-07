@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-09-07
+
 ### Added
 
 - On-the-fly tasks: `tower add`, `tower change`, `tower remove`, and the
@@ -27,5 +29,6 @@ tower's first run was its own build.
 - Themes as JSON with `theme rules|new|check|preview`.
 - The orchestrator skill (`skills/run/SKILL.md`), experimental.
 
-[Unreleased]: https://github.com/phutschi/tower/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/phutschi/tower/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/phutschi/tower/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/phutschi/tower/releases/tag/v0.1.0
