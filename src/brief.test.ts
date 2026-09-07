@@ -97,6 +97,12 @@ describe("composeBrief", () => {
     expect(brief).toContain("prints the id");
   });
 
+  test("the add paragraph names the lane it's addressed to", () => {
+    const briefB = composeBrief(state, "B", undefined);
+    expect(briefB).toContain('tower add "<title>" --lane B');
+    expect(briefB).not.toContain("--lane A");
+  });
+
   test("lists a task added after init under the lane's tasks", () => {
     const withAdded = fold(
       run,
