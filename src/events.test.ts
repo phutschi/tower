@@ -141,3 +141,62 @@ describe("readEvents", () => {
     expect(readEvents(path, offset).lines).toHaveLength(0);
   });
 });
+
+describe("parseEvent: add, change, remove", () => {
+  test("parses an add with a full task and an after id or null", () => {
+    expect(
+      parseEvent(
+        '{"v":1,"kind":"add","ts":"t","task":{"id":"12","title":"Wire the webhook","area":""},"after":"8"}',
+      ),
+    ).toEqual({
+      v: 1,
+      kind: "add",
+      ts: "t",
+      task: { id: "12", title: "Wire the webhook", area: "" },
+      after: "8",
+    });
+    expect(
+      parseEvent(
+        '{"v":1,"kind":"add","ts":"t","task":{"id":"12","title":"W","area":""},"after":null}',
+      ),
+    ).toMatchObject({ kind: "add", after: null });
+  });
+
+  test("an add with a malformed task is unreadable", () => {
+    expect(
+      parseEvent('{"v":1,"kind":"add","ts":"t","task":{"id":"12"},"after":null}'),
+    ).toBeNull();
+    expect(
+      parseEvent('{"v":1,"kind":"add","ts":"t","task":{"id":"bad id","title":"W","area":""},"after":null}'),
+    ).toBeNull();
+  });
+
+  test("parses a change where each field is a string or null", () => {
+    expect(
+      parseEvent(
+        '{"v":1,"kind":"change","ts":"t","task":"12","title":"New","area":null,"after":null}',
+      ),
+    ).toEqual({
+      v: 1,
+      kind: "change",
+      ts: "t",
+      task: "12",
+      title: "New",
+      area: null,
+      after: null,
+    });
+    expect(
+      parseEvent('{"v":1,"kind":"change","ts":"t","task":"12","title":3,"area":null,"after":null}'),
+    ).toBeNull();
+  });
+
+  test("parses a remove", () => {
+    expect(parseEvent('{"v":1,"kind":"remove","ts":"t","task":"12"}')).toEqual({
+      v: 1,
+      kind: "remove",
+      ts: "t",
+      task: "12",
+    });
+    expect(parseEvent('{"v":1,"kind":"remove","ts":"t"}')).toBeNull();
+  });
+});

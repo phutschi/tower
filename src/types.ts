@@ -84,7 +84,43 @@ export interface CloseEvent {
   text: string;
 }
 
-export type Event = ReportEvent | NoteEvent | AssignEvent | CloseEvent;
+/** A task that exists because the run said so, not the plan. */
+export interface AddEvent {
+  v: 1;
+  kind: "add";
+  ts: string;
+  task: TaskDef;
+  /** Insert after this id; null means at the end. */
+  after: string | null;
+}
+
+/** Edit a task's definition. A null field is untouched. */
+export interface ChangeEvent {
+  v: 1;
+  kind: "change";
+  ts: string;
+  task: string;
+  title: string | null;
+  area: string | null;
+  after: string | null;
+}
+
+/** Take a task off the board. Its history stays in the record. */
+export interface RemoveEvent {
+  v: 1;
+  kind: "remove";
+  ts: string;
+  task: string;
+}
+
+export type Event =
+  | ReportEvent
+  | NoteEvent
+  | AssignEvent
+  | CloseEvent
+  | AddEvent
+  | ChangeEvent
+  | RemoveEvent;
 
 export const DEFAULT_MODELS: Record<string, string> = {
   implementer: "",

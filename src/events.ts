@@ -10,8 +10,9 @@
  */
 import { appendFileSync, readFileSync } from "node:fs";
 
-import type { Event } from "./types.ts";
+import type { Event, TaskDef } from "./types.ts";
 import { isStatus } from "./types.ts";
+import { isValidId } from "./ids.ts";
 
 /** Enforced by the callers that write a note (the `tower note` command), not here. */
 export const NOTE_MAX_CHARS = 500;
@@ -29,6 +30,16 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
 const str = (value: unknown): value is string => typeof value === "string";
+
+const strOrNull = (value: unknown): value is string | null =>
+  value === null || typeof value === "string";
+
+const isTaskDef = (value: unknown): value is TaskDef =>
+  isRecord(value) &&
+  str(value.id) &&
+  isValidId(value.id) &&
+  str(value.title) &&
+  str(value.area);
 
 export function parseEvent(raw: string): Event | null {
   let value: unknown;
@@ -93,6 +104,35 @@ export function parseEvent(raw: string): Event | null {
     case "close":
       if (!str(value.text)) return null;
       return { v: 1, kind: "close", ts: value.ts, text: value.text };
+    case "add":
+      if (!isTaskDef(value.task) || !strOrNull(value.after)) return null;
+      return {
+        v: 1,
+        kind: "add",
+        ts: value.ts,
+        task: { id: value.task.id, title: value.task.title, area: value.task.area },
+        after: value.after,
+      };
+    case "change":
+      if (
+        !str(value.task) ||
+        !strOrNull(value.title) ||
+        !strOrNull(value.area) ||
+        !strOrNull(value.after)
+      )
+        return null;
+      return {
+        v: 1,
+        kind: "change",
+        ts: value.ts,
+        task: value.task,
+        title: value.title,
+        area: value.area,
+        after: value.after,
+      };
+    case "remove":
+      if (!str(value.task)) return null;
+      return { v: 1, kind: "remove", ts: value.ts, task: value.task };
     default:
       return null;
   }
