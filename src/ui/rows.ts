@@ -340,7 +340,11 @@ export function transcriptRows(
       text = `${time}  ⚠ unreadable line`;
       tone = "warn";
     } else if (entry.problem === "unknown-task") {
-      text = `${time}  ⚠ unknown ${theme.flight} ${e.kind === "report" ? e.task : ""}`;
+      const id =
+        e.kind === "report" || e.kind === "change" || e.kind === "remove"
+          ? e.task
+          : "";
+      text = `${time}  ⚠ unknown ${theme.flight} ${id}`;
       tone = "warn";
     } else if (e.kind === "report") {
       let what: string;

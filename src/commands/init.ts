@@ -122,8 +122,10 @@ export async function initCommand(argv: string[], io: Io): Promise<number> {
     } else {
       source = io.stdinText();
     }
-    if (source === undefined) {
-      // No plan, no TSV, nothing piped: an ad hoc run. Tasks arrive with `tower add`.
+    if (source === undefined || source.trim() === "") {
+      // No plan, no TSV, nothing piped (a TTY reads undefined; a non-TTY
+      // with nothing written, as any non-interactive caller sees, reads an
+      // empty string): an ad hoc run. Tasks arrive with `tower add`.
       tasks = [];
     } else {
       try {

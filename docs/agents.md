@@ -6,7 +6,7 @@ working _on_ tower read [AGENTS.md](../AGENTS.md) instead.)
 ## Executors need no skill
 
 `tower brief <lane>` prints everything an executor has to know: its tasks, the
-three commands, the plan's conventions section, the model roles, and the
+reporting commands, the plan's conventions section, the model roles, and the
 standing rules (never push, never open a pull request, commit after every
 task). Paste it into the agent as its instructions. It is generated from the
 run, so it cannot drift from what tower accepts.
@@ -21,11 +21,18 @@ The commands it teaches:
 tower task <id> <status> [phase] [note] --model <model>
 tower block <id> "<what you need>"
 tower note [--task <id> | --lane <lane>] "<text>"
+tower add "<title>" --lane <yours>
 ```
 
 Validation is the teaching mechanism. A wrong status, an unknown id, a missing
 `--model`, a `block` without a note — each exits 1 with the correct form on
 stderr and appends nothing. Agents fix themselves on the next call.
+
+An executor that discovers a task the plan does not have adds it before
+starting it — `tower add "<title>" --lane <yours>` prints the new id, and the
+executor reports against that. `tower change` and `tower remove` (anyone,
+any time) edit and retire tasks the same way; the console picks them up
+without a restart.
 
 If an agent runs bare `tower` in a tool call, it gets one text snapshot of the
 board and exit 0 — never a hung terminal app.

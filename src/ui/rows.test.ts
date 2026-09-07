@@ -228,4 +228,36 @@ describe("transcriptRows", () => {
     expect(text).toContain("⚠ unknown after 99");
     expect(text).toContain("removed ACME 2");
   });
+
+  test("an unknown-task change or remove names the id, not just 'unknown flight'", () => {
+    const run: RunFile = {
+      ...DEMO_RUN,
+      tasks: [{ id: "1", title: "A", area: "" }],
+    };
+    const ev = (event: Event): ParsedLine => ({ raw: "", event });
+    const state = fold(
+      run,
+      [
+        ev({
+          v: 1,
+          kind: "change",
+          ts: "2026-09-04T20:00:00.000Z",
+          task: "9",
+          title: "x",
+          area: null,
+          after: null,
+        }),
+        ev({ v: 1, kind: "remove", ts: "2026-09-04T20:00:01.000Z", task: "9" }),
+      ],
+      { now: new Date("2026-09-04T20:05:00.000Z"), staleMinutes: 30 },
+    );
+    const text = transcriptRows(state, AIRPORT, 100, 10, {
+      now: new Date("2026-09-04T20:05:00.000Z"),
+      clock: utcClock,
+    })
+      .map((r) => r.text)
+      .join("\n");
+    expect(text).toContain("⚠ unknown flight 9");
+    expect(text).not.toContain("unknown flight \n");
+  });
 });

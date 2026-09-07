@@ -268,6 +268,12 @@ describe("tower init", () => {
     expect(run.planPath).toBeNull();
   });
 
+  test("with no source and a non-TTY stdin that reads empty (the real caller in any non-interactive harness), still creates an empty run", async () => {
+    const io = fakeIo({ cwd: gitRepo(), stdinText: () => "" });
+    expect(await main(["init"], io)).toBe(0);
+    expect(io.out.join("")).toContain("0 tasks");
+  });
+
   test("with no source, --lane is refused because there is nothing to assign", async () => {
     const io = fakeIo({ cwd: gitRepo() });
     expect(await main(["init", "--lane", "A=1"], io)).toBe(1);

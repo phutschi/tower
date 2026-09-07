@@ -41,7 +41,9 @@ export function composeBrief(
   const mine = state.tasks.filter((t) => t.lane === lane);
   if (mine.length === 0)
     throw new Error(
-      `lane ${lane} has no tasks; assign some first: tower assign ${lane} <ids>`,
+      state.tasks.length === 0
+        ? `lane ${lane} has no tasks; this run has none yet: tower add "<title>" --lane ${lane}`
+        : `lane ${lane} has no tasks; assign some first: tower assign ${lane} <ids>`,
     );
   const others = state.tasks.filter((t) => t.lane !== lane && t.lane !== null);
   const roles = Object.entries(state.run.models).map(
