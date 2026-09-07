@@ -58,6 +58,29 @@ states{pending,in_progress,reviewing,done,blocked,stale,closed},
 phases{implementing,spec-review,quality-review,fixing,committed,…},
 verbs{started,blocked}, empty, elapsed.
 
+## A worked example
+
+[`themes/examples/factory.json`](../themes/examples/factory.json) is a second
+theme, kept next to `airport` so the rules above have something to contrast
+with. It is a factory floor: lanes are lines, a task is a job, the board is
+the work orders. The two hard slots from rule 2 are filled with real words —
+a review that bounced and must be redone is _rework_, and an active worker
+nobody has heard from is _machine down_. Blocked is _line stop_, the verb
+that gets you there is _andon pulled_, and the closed banner is _shift over_.
+
+It is an example, not a built-in. To use it, copy it into your themes
+directory and pick it:
+
+```sh
+mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/tower/themes"
+cp themes/examples/factory.json "${XDG_CONFIG_HOME:-$HOME/.config}/tower/themes/"
+tower theme check factory
+tower --theme factory
+```
+
+The test suite runs `tower theme check` against the example, so it cannot
+drift out of the rules.
+
 ## Why only one ships
 
 `airport` is the only built-in, by policy. User themes live in

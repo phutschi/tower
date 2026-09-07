@@ -1,0 +1,32 @@
+{
+  "name": "factory",
+  "title": "PLANT",
+  "operator": "FOREMAN",
+  "unit": "LINE",
+  "flight": "job",
+  "broadcast": "HANDOVER",
+  "board": "WORK ORDERS",
+  "transcript": "SHIFT LOG",
+  "states": {
+    "pending": "queued",
+    "in_progress": "on the line",
+    "reviewing": "at QC",
+    "done": "shipped",
+    "blocked": "line stop",
+    "stale": "machine down",
+    "closed": "shift over"
+  },
+  "phases": {
+    "implementing": "on the line",
+    "spec-review": "at QC",
+    "quality-review": "final QC",
+    "fixing": "rework",
+    "committed": "shipped"
+  },
+  "verbs": {
+    "started": "released",
+    "blocked": "andon pulled"
+  },
+  "empty": "line is clear",
+  "elapsed": "into the shift"
+}

@@ -101,7 +101,8 @@ tower remove 2
 The vocabulary is air traffic control because the pipeline genuinely is a
 flight: a task departs, is reviewed on approach, and either bounces (_go
 around_) or lands. A task nobody has heard from is _NORDO_. Prefer plain words?
-`tower --plain`. Prefer a different domain? See [themes](docs/themes.md).
+`tower --plain`. Prefer a different domain? See [themes](docs/themes.md); a
+worked example, a factory floor, ships in `themes/examples/`.
 
 ## How it works
 
