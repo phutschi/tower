@@ -110,7 +110,11 @@ export function parseEvent(raw: string): Event | null {
         v: 1,
         kind: "add",
         ts: value.ts,
-        task: { id: value.task.id, title: value.task.title, area: value.task.area },
+        task: {
+          id: value.task.id,
+          title: value.task.title,
+          area: value.task.area,
+        },
         after: value.after,
       };
     case "change":

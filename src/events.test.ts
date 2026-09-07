@@ -164,10 +164,14 @@ describe("parseEvent: add, change, remove", () => {
 
   test("an add with a malformed task is unreadable", () => {
     expect(
-      parseEvent('{"v":1,"kind":"add","ts":"t","task":{"id":"12"},"after":null}'),
+      parseEvent(
+        '{"v":1,"kind":"add","ts":"t","task":{"id":"12"},"after":null}',
+      ),
     ).toBeNull();
     expect(
-      parseEvent('{"v":1,"kind":"add","ts":"t","task":{"id":"bad id","title":"W","area":""},"after":null}'),
+      parseEvent(
+        '{"v":1,"kind":"add","ts":"t","task":{"id":"bad id","title":"W","area":""},"after":null}',
+      ),
     ).toBeNull();
   });
 
@@ -186,7 +190,9 @@ describe("parseEvent: add, change, remove", () => {
       after: null,
     });
     expect(
-      parseEvent('{"v":1,"kind":"change","ts":"t","task":"12","title":3,"area":null,"after":null}'),
+      parseEvent(
+        '{"v":1,"kind":"change","ts":"t","task":"12","title":3,"area":null,"after":null}',
+      ),
     ).toBeNull();
   });
 
