@@ -20,6 +20,7 @@ const COLOR: Record<Tone, string | undefined> = {
   pending: undefined,
   plain: undefined,
   warn: "yellow",
+  heading: undefined,
 };
 
 export const MIN_COLUMNS = 60;
@@ -32,7 +33,7 @@ function Line({ row }: { row: Row }) {
   return (
     <Text
       {...(color !== undefined ? { color } : {})}
-      bold={row.tone === "title"}
+      bold={row.tone === "title" || row.tone === "heading"}
       wrap="truncate"
     >
       {row.text}

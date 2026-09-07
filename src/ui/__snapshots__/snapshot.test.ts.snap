@@ -5,20 +5,22 @@ exports[`the snapshot is the whole screen as text, at 60 and at 120 columns: sna
 INFORMATION CHARLIE · 21:47 · 2h34m since first departure
 ███████████▒▒▒▒▒▒▒▒▒  12 of 21 landed · 2 airborne · 1 hold…
 
-RUNWAY A  ▸ 14  sonnet-5[1m]        RUNWAY B  ⚠ 12  opus
+RUNWAY A  ▸ 14  sonnet-5[1m]
+RUNWAY B  ⚠ 12  opus
 
 DEPARTURES
- ✓ 11 landed  (1 … 11)
+ AIRBORNE
  ⚠ 12        Voice n…  B   apps/server       holding short:…
- ✓ 13        The sur…  B   apps/server       opus          …
  ▸ 14        The onD…  A   apps/server       sonnet-5[1m]  …
  ▸ 15        notifyT…  A   apps/server       opus          …
+ ON THE GROUND
  ○ 16        POST /telegram/notify    A   apps/server
  ○ 17        Attach the channel to …  A   apps/server
  ○ 18        surface on the threads…  A   packages/api
  ○ 19        The show-threads toggle  A   apps/web
  ○ 20        The terminal tags rows   A   apps/tui
  ○ 22        Retry the outbound web…
+ ✓ 12 landed  (1 … 13)
  ⚠ unknown flight 99
  ⚠ 1 unreadable line
 
@@ -45,17 +47,18 @@ INFORMATION CHARLIE · 21:47 · 2h34m since first departure
 RUNWAY A  ▸ 14  sonnet-5[1m]        RUNWAY B  ⚠ 12  opus
 
 DEPARTURES
- ✓ 11 landed  (1 … 11)
+ AIRBORNE
  ⚠ 12        Voice notes                       B   apps/server       holding short: needs the test DB created
- ✓ 13        The surface hint                  B   apps/server       opus            a91c2f0
  ▸ 14        The onDirectMessage handler       A   apps/server       sonnet-5[1m]    34m · go around · NORDO 24m
  ▸ 15        notifyTelegram                    A   apps/server       opus            on final · NORDO 15m
+ ON THE GROUND
  ○ 16        POST /telegram/notify             A   apps/server
  ○ 17        Attach the channel to the agent   A   apps/server
  ○ 18        surface on the threads route      A   packages/api
  ○ 19        The show-threads toggle           A   apps/web
  ○ 20        The terminal tags rows            A   apps/tui
  ○ 22        Retry the outbound webhook
+ ✓ 12 landed  (1 … 13)
  ⚠ unknown flight 99
  ⚠ 1 unreadable line
 

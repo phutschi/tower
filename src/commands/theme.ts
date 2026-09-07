@@ -69,12 +69,6 @@ export async function themeCommand(argv: string[], io: Io): Promise<number> {
       // so an exact-case search would always flag `states.closed`.
       const text = preview(theme, io.columns).join("\n").toLowerCase();
       for (const [key, label] of Object.entries(theme.states)) {
-        // `pending` has no per-row text in the live board (spec's own screen
-        // example shows only the glyph, e.g. "○ 15  notifyTelegram"); its
-        // label only ever prints in a windowed board's "N more <pending>"
-        // collapse line, which the fixed-height demo preview cannot trigger.
-        // Coverage for it is therefore structural, not preview-provable.
-        if (key === "pending") continue;
         if (!text.includes(label.toLowerCase()))
           problems.push(
             `states.${key} "${label}" never appears in the preview`,

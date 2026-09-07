@@ -15,7 +15,8 @@ export type Tone =
   | "blocked"
   | "pending"
   | "plain"
-  | "warn";
+  | "warn"
+  | "heading";
 export interface Row {
   text: string;
   tone: Tone;
@@ -141,6 +142,12 @@ function minutesQuiet(task: TaskState, now: Date): number {
     : 0;
 }
 
+/**
+ * The runway strip: one cell per lane. When the cells do not fit one row they
+ * wrap into as few rows as needed, spread evenly (four lanes wrap as two and
+ * two, not three and one), with every cell padded to the same width so the
+ * unit labels line up in columns.
+ */
 export function laneRows(state: State, theme: Theme, columns: number): Row[] {
   const lanes = Object.keys(state.lanes).sort();
   if (lanes.length === 0) return [];
@@ -155,7 +162,20 @@ export function laneRows(state: State, theme: Theme, columns: number): Row[] {
     if (!current) return `${theme.unit} ${lane}  ✓`;
     return `${theme.unit} ${lane}  ${GLYPH[current.status]} ${current.id}${current.model ? `  ${current.model}` : ""}`;
   });
-  return [{ text: fit(cells.join("        "), columns), tone: "plain" }];
+  const gap = 8;
+  const cellW = Math.max(...cells.map((c) => c.length));
+  const perRowMax = Math.max(1, Math.floor((columns + gap) / (cellW + gap)));
+  const lines = Math.ceil(cells.length / perRowMax);
+  const perRow = Math.ceil(cells.length / lines);
+  const rows: Row[] = [];
+  for (let i = 0; i < cells.length; i += perRow) {
+    const chunk = cells.slice(i, i + perRow);
+    const text = chunk
+      .map((c, j) => (j < chunk.length - 1 ? c.padEnd(cellW) : c))
+      .join(" ".repeat(gap));
+    rows.push({ text: fit(text, columns), tone: "plain" });
+  }
+  return rows;
 }
 
 function taskRow(
@@ -218,7 +238,12 @@ function taskRow(
   };
 }
 
-/** The board: collapsed leading landed run, one row per other task, then the warnings. */
+/**
+ * The board: two sections — the flights that need eyes (blocked, then
+ * active, in board order) under the in_progress label, and the pending ones
+ * under the pending label — then one line for everything that landed, then
+ * the warnings.
+ */
 export function boardRows(
   state: State,
   theme: Theme,
@@ -227,99 +252,100 @@ export function boardRows(
   options: RowOptions,
 ): Row[] {
   const withArea = state.tasks.some((t) => t.area !== "");
-  const rows: Row[] = [];
-  let index = 0;
-  const lead = state.tasks.findIndex((t) => t.status !== "done");
-  const leadRun = lead === -1 ? state.tasks.length : lead;
-  if (leadRun >= 3) {
-    const first = state.tasks[0]?.id ?? "";
-    const last = state.tasks[leadRun - 1]?.id ?? "";
-    rows.push({
-      text: `✓ ${leadRun} ${theme.states.done}  (${first} … ${last})`,
-      tone: "done",
-    });
-    index = leadRun;
-  }
-  for (const task of state.tasks.slice(index))
-    rows.push(taskRow(task, theme, columns, withArea, options));
+  const row = (task: TaskState) =>
+    taskRow(task, theme, columns, withArea, options);
+  const running = state.tasks
+    .filter((t) => t.status !== "done" && t.status !== "pending")
+    .map(row);
+  const waiting = state.tasks.filter((t) => t.status === "pending").map(row);
+  const done = state.tasks.filter((t) => t.status === "done");
+  const first = done[0]?.id ?? "";
+  const last = done.at(-1)?.id ?? "";
+  const landed: Row | null =
+    done.length === 0
+      ? null
+      : {
+          text: `✓ ${done.length} ${theme.states.done}  (${done.length === 1 ? first : `${first} … ${last}`})`,
+          tone: "done",
+        };
 
+  const warnings: Row[] = [];
   for (const id of state.unknown)
-    rows.push({ text: `⚠ unknown ${theme.flight} ${id}`, tone: "warn" });
+    warnings.push({ text: `⚠ unknown ${theme.flight} ${id}`, tone: "warn" });
   if (state.unreadable > 0)
-    rows.push({
+    warnings.push({
       text: `⚠ ${state.unreadable} unreadable line${state.unreadable === 1 ? "" : "s"}`,
       tone: "warn",
     });
 
-  return windowBoard(rows, height, theme);
+  return windowBoard({ running, waiting, landed, warnings }, height, theme);
 }
 
-/**
- * Window a board down to `height` rows. Every row that needs eyes (blocked,
- * then active) stays visible whenever there is room for it, however far down
- * the board it sits; the remaining room shows the rows around the first of
- * them, and every hidden stretch is counted in a marker. Always returns at
- * most `height` rows.
- */
-function windowBoard(rows: Row[], height: number, theme: Theme): Row[] {
-  if (height <= 0) return [];
-  if (rows.length <= height) return rows;
-  const eyes = rows.flatMap((r, i) =>
-    r.tone === "blocked" || r.tone === "active" ? [i] : [],
-  );
-  const anchor = eyes[0] ?? 0;
+interface Board {
+  running: Row[];
+  waiting: Row[];
+  landed: Row | null;
+  warnings: Row[];
+}
 
-  if (height === 1)
-    return [rows[anchor] ?? { text: `… ${rows.length} more`, tone: "muted" }];
-
-  const hidden = (from: number, to: number): Row => {
-    const count = to - from;
-    const allPending = rows.slice(from, to).every((r) => r.tone === "pending");
-    return {
-      text: allPending
-        ? `… ${count} more ${theme.states.pending}`
-        : `… ${count} more`,
+/** The first `n` rows; when that hides some, the last shown row is their count. */
+function takeUpTo(rows: Row[], n: number, label: string): Row[] {
+  if (rows.length <= n) return rows;
+  if (n <= 0) return [];
+  const shown = rows.slice(0, n - 1);
+  return [
+    ...shown,
+    {
+      text: `… ${rows.length - shown.length} more${label ? ` ${label}` : ""}`,
       tone: "muted",
-    };
-  };
+    },
+  ];
+}
 
-  if (height === 2) {
-    // No room for an "above" marker; prioritise keeping the anchor visible.
-    const start = Math.max(0, Math.min(anchor, rows.length - 1));
-    return [rows[start] as Row, hidden(start + 1, rows.length)];
+const EMPTY_SECTION: Row = { text: "—", tone: "muted" };
+
+/**
+ * Lay the board out in `height` rows. Rows are handed out in this order:
+ * every running row, one waiting row (or the count), the warnings, the
+ * landed line, then the rest of the waiting rows. Always returns at most
+ * `height` rows.
+ */
+function windowBoard(board: Board, height: number, theme: Theme): Row[] {
+  if (height <= 0) return [];
+  const runBody = board.running.length ? board.running : [EMPTY_SECTION];
+  const waitBody = board.waiting.length ? board.waiting : [EMPTY_SECTION];
+
+  // Too short for two headings: just the rows that need eyes, and at a
+  // single row the first of them rather than their count.
+  if (height < 4) {
+    const rows = board.running.length ? board.running : board.waiting;
+    if (height === 1) return rows.slice(0, 1);
+    return takeUpTo(
+      rows,
+      height,
+      board.running.length ? "" : theme.states.pending,
+    );
   }
 
-  // Pick `size` rows: the pinned ones first, then the window around the
-  // anchor, and shrink `size` until the picks plus their markers fit.
-  const pick = (size: number): number[] => {
-    const chosen = new Set(eyes.slice(0, size));
-    const start = Math.max(0, Math.min(anchor, rows.length - size));
-    for (let i = start; i < rows.length && chosen.size < size; i++)
-      chosen.add(i);
-    return [...chosen].sort((a, b) => a - b);
-  };
-  const render = (chosen: number[]): Row[] => {
-    const out: Row[] = [];
-    let cursor = 0;
-    for (const i of chosen) {
-      if (i > cursor)
-        out.push(
-          cursor === 0
-            ? { text: `… ${i} above`, tone: "muted" }
-            : hidden(cursor, i),
-        );
-      out.push(rows[i] as Row);
-      cursor = i + 1;
-    }
-    if (cursor < rows.length) out.push(hidden(cursor, rows.length));
-    return out;
-  };
+  let left = height - 2;
+  const runN = Math.min(runBody.length, left - 1);
+  left -= runN;
+  let waitN = 1;
+  left -= 1;
+  const warnings = board.warnings.slice(0, left);
+  left -= warnings.length;
+  const landed = board.landed && left > 0 ? [board.landed] : [];
+  left -= landed.length;
+  waitN += Math.max(0, Math.min(left, waitBody.length - waitN));
 
-  for (let size = height; size >= 1; size--) {
-    const out = render(pick(size));
-    if (out.length <= height) return out;
-  }
-  return [rows[anchor] as Row];
+  return [
+    { text: theme.states.in_progress.toUpperCase(), tone: "heading" },
+    ...takeUpTo(runBody, runN, ""),
+    { text: theme.states.pending.toUpperCase(), tone: "heading" },
+    ...takeUpTo(waitBody, waitN, theme.states.pending),
+    ...landed,
+    ...warnings,
+  ];
 }
 
 function speaker(entry: TranscriptEntry, state: State, theme: Theme): string {

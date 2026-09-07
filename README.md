@@ -83,12 +83,13 @@ tower remove 2
  RUNWAY A  ▸ 14  sonnet-5        RUNWAY B  ⚠ 12
 
  DEPARTURES
-  ✓ 11 landed  (1 … 11)
-  ✓ 13      The surface hint              B   opus            a91c2f0
-  ▸ 14      The onDirectMessage handler   A   sonnet-5        34m · go around · NORDO 12m
+  AIRBORNE
   ⚠ 12      Voice notes                   B   holding short: needs the test DB
+  ▸ 14      The onDirectMessage handler   A   sonnet-5        34m · go around · NORDO 12m
+  ON THE GROUND
   ○ 15      notifyTelegram                A
   … 6 more on the ground
+  ✓ 12 landed  (1 … 13)
 
  TRANSCRIPT
   21:33:02  ACME 12   squawk 7700 · needs the test DB created

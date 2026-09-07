@@ -19,7 +19,9 @@ describe("App", () => {
     );
     const frame = lastFrame() ?? "";
     expect(frame).toContain("DEPARTURES");
-    expect(frame).toContain("✓ 11 landed");
+    expect(frame).toContain("AIRBORNE");
+    expect(frame).toContain("ON THE GROUND");
+    expect(frame).toContain("✓ 12 landed");
     expect(frame).toContain("holding short");
     expect(frame).toContain("[q] close the tower");
     expect(frame.split("\n").length).toBeLessThanOrEqual(30);
