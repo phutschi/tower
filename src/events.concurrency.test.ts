@@ -70,9 +70,15 @@ test("two lanes adding at the same moment both land; the fold keeps one task per
   );
   expect(codes.every((code) => code === 0)).toBe(true);
   const { lines } = readEvents(join(runDir, "events.ndjson"), 0);
-  expect(lines.filter((l) => l.event?.kind === "add")).toHaveLength(adds);
+  expect(lines.filter((line) => line.event?.kind === "add")).toHaveLength(adds);
+  // The uniqueness check below is structural (fold keys tasks by id in a
+  // Map), not a race detector. What this test actually exercises is the two
+  // things a race can break: appendEvent losing or corrupting a concurrent
+  // write (the length assertion above), and the fold surviving id collisions
+  // without throwing. Bounds are loose because which — or how many — of the
+  // `adds` fold into a single task is a real race outcome, not a bug.
   const state = fold(readRun(runDir), lines, {
-    now: new Date(),
+    now: new Date("2026-09-04T19:00:00.000Z"),
     staleMinutes: 30,
   });
   const ids = state.tasks.map((t) => t.id);
