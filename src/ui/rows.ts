@@ -178,60 +178,89 @@ export function laneRows(state: State, theme: Theme, columns: number): Row[] {
   return rows;
 }
 
-function taskRow(
-  task: TaskState,
+const ID_W = 8;
+const LANE_W = 2;
+const MODEL_W = 14;
+const AREA_W = 16;
+
+function tailFor(task: TaskState, theme: Theme, options: RowOptions): string {
+  if (task.status === "blocked") return `${theme.states.blocked}: ${task.note}`;
+  if (task.status === "done") return task.commit;
+  if (task.status === "pending") return "";
+  const since = task.startedAt
+    ? elapsed(options.now.getTime() - Date.parse(task.startedAt))
+    : "";
+  return [
+    since,
+    labelFor(theme, task.status, task.phase),
+    task.stale
+      ? `${theme.states.stale} ${minutesQuiet(task, options.now)}m`
+      : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+const hasModel = (task: TaskState) =>
+  task.status !== "blocked" && task.status !== "pending";
+
+/** One column layout shared by every row of a section, so the columns line up. */
+interface Layout {
+  titleW: number;
+  withArea: boolean;
+  withModel: boolean;
+}
+
+function layoutFor(
+  tasks: TaskState[],
   theme: Theme,
   columns: number,
   withArea: boolean,
   options: RowOptions,
-): Row {
-  const idW = 8;
-  const laneW = 2;
-  const modelW = 14;
-  const areaW = withArea ? 16 : 0;
-  let tail: string;
-  if (task.status === "blocked") tail = `${theme.states.blocked}: ${task.note}`;
-  else if (task.status === "done") tail = task.commit;
-  else if (task.status === "pending") tail = "";
-  else {
-    const since = task.startedAt
-      ? elapsed(options.now.getTime() - Date.parse(task.startedAt))
-      : "";
-    const label = labelFor(theme, task.status, task.phase);
-    tail = [
-      since,
-      label,
-      task.stale
-        ? `${theme.states.stale} ${minutesQuiet(task, options.now)}m`
-        : "",
-    ]
-      .filter(Boolean)
-      .join(" · ");
-  }
-  const showModel = task.status !== "blocked" && task.status !== "pending";
+): Layout {
+  const withModel = tasks.some(hasModel);
   const fixed =
     2 +
-    idW +
+    ID_W +
     2 +
-    laneW +
+    LANE_W +
     2 +
-    (showModel ? modelW + 2 : 0) +
-    (areaW ? areaW + 2 : 0);
-  const titleW = Math.max(
-    8,
-    Math.min(32, columns - fixed - Math.min(tail.length, 24) - 2),
+    (withModel ? MODEL_W + 2 : 0) +
+    (withArea ? AREA_W + 2 : 0);
+  // The tightest row sets the width: a wider title on one row would push
+  // that row's tail off the edge.
+  const longestTail = Math.max(
+    0,
+    ...tasks.map((t) => {
+      const tail = tailFor(t, theme, options).length;
+      const spare = withModel && !hasModel(t) ? MODEL_W + 2 : 0;
+      return Math.min(Math.max(0, tail - spare), 24);
+    }),
   );
+  const titleW = Math.max(8, Math.min(32, columns - fixed - longestTail - 2));
+  return { titleW, withArea, withModel };
+}
+
+function taskRow(
+  task: TaskState,
+  theme: Theme,
+  columns: number,
+  layout: Layout,
+  options: RowOptions,
+): Row {
   const cells = [
-    `${GLYPH[task.status]} ${pad(task.id, idW)}`,
-    pad(task.title, titleW),
-    pad(task.lane ?? "", laneW),
+    `${GLYPH[task.status]} ${pad(task.id, ID_W)}`,
+    pad(task.title, layout.titleW),
+    pad(task.lane ?? "", LANE_W),
   ];
-  if (areaW) cells.push(pad(task.area, areaW));
-  if (showModel)
+  if (layout.withArea) cells.push(pad(task.area, AREA_W));
+  // A row without a model (blocked) starts its tail in the model column, so
+  // the lane and area columns still line up with the rows that have one.
+  if (layout.withModel && hasModel(task))
     cells.push(
-      pad(task.status === "done" ? task.implementer : task.model, modelW),
+      pad(task.status === "done" ? task.implementer : task.model, MODEL_W),
     );
-  cells.push(tail);
+  cells.push(tailFor(task, theme, options));
   return {
     text: fit(cells.join("  ").trimEnd(), columns),
     tone: TONE[task.status],
@@ -252,12 +281,14 @@ export function boardRows(
   options: RowOptions,
 ): Row[] {
   const withArea = state.tasks.some((t) => t.area !== "");
-  const row = (task: TaskState) =>
-    taskRow(task, theme, columns, withArea, options);
-  const running = state.tasks
-    .filter((t) => t.status !== "done" && t.status !== "pending")
-    .map(row);
-  const waiting = state.tasks.filter((t) => t.status === "pending").map(row);
+  const section = (tasks: TaskState[]) => {
+    const layout = layoutFor(tasks, theme, columns, withArea, options);
+    return tasks.map((t) => taskRow(t, theme, columns, layout, options));
+  };
+  const running = section(
+    state.tasks.filter((t) => t.status !== "done" && t.status !== "pending"),
+  );
+  const waiting = section(state.tasks.filter((t) => t.status === "pending"));
   const done = state.tasks.filter((t) => t.status === "done");
   const first = done[0]?.id ?? "";
   const last = done.at(-1)?.id ?? "";

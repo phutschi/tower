@@ -153,6 +153,23 @@ describe("boardRows", () => {
       `… 6 more ${AIRPORT.states.pending}`,
     ]);
   });
+  test("rows in a section share one column layout, at every width", () => {
+    for (const columns of [60, 70, 100, 140]) {
+      const rows = texts(boardRows(state, AIRPORT, columns, 40, opts));
+      const air = rows.slice(1, rows.indexOf("ON THE GROUND"));
+      expect(air.length).toBe(3);
+      const laneCol = air.map((r) => r.search(/ {2}[AB] {2}/));
+      expect(new Set(laneCol).size).toBe(1);
+      const areaCol = air.map((r) => r.indexOf("apps/server"));
+      expect(new Set(areaCol).size).toBe(1);
+      const blocked = air.find((r) => r.startsWith("⚠ 12")) ?? "";
+      const active = air.find((r) => r.startsWith("▸ 14")) ?? "";
+      // The blocked row has no model; its note starts in the model column.
+      expect(blocked.indexOf("holding short")).toBe(
+        active.indexOf("sonnet-5[1m]"),
+      );
+    }
+  });
   test("never exceeds the width", () => {
     for (const row of texts(boardRows(state, AIRPORT, 60, 40, opts)))
       expect(row.length).toBeLessThanOrEqual(60);
