@@ -15,7 +15,8 @@ export type Tone =
   | "blocked"
   | "pending"
   | "plain"
-  | "warn";
+  | "warn"
+  | "heading";
 export interface Row {
   text: string;
   tone: Tone;
@@ -141,6 +142,12 @@ function minutesQuiet(task: TaskState, now: Date): number {
     : 0;
 }
 
+/**
+ * The runway strip: one cell per lane. When the cells do not fit one row they
+ * wrap into as few rows as needed, spread evenly (four lanes wrap as two and
+ * two, not three and one), with every cell padded to the same width so the
+ * unit labels line up in columns.
+ */
 export function laneRows(state: State, theme: Theme, columns: number): Row[] {
   const lanes = Object.keys(state.lanes).sort();
   if (lanes.length === 0) return [];
@@ -155,70 +162,117 @@ export function laneRows(state: State, theme: Theme, columns: number): Row[] {
     if (!current) return `${theme.unit} ${lane}  ✓`;
     return `${theme.unit} ${lane}  ${GLYPH[current.status]} ${current.id}${current.model ? `  ${current.model}` : ""}`;
   });
-  return [{ text: fit(cells.join("        "), columns), tone: "plain" }];
+  const gap = 8;
+  const cellW = Math.max(...cells.map((c) => c.length));
+  const perRowMax = Math.max(1, Math.floor((columns + gap) / (cellW + gap)));
+  const lines = Math.ceil(cells.length / perRowMax);
+  const perRow = Math.ceil(cells.length / lines);
+  const rows: Row[] = [];
+  for (let i = 0; i < cells.length; i += perRow) {
+    const chunk = cells.slice(i, i + perRow);
+    const text = chunk
+      .map((c, j) => (j < chunk.length - 1 ? c.padEnd(cellW) : c))
+      .join(" ".repeat(gap));
+    rows.push({ text: fit(text, columns), tone: "plain" });
+  }
+  return rows;
+}
+
+const ID_W = 8;
+const LANE_W = 2;
+const MODEL_W = 14;
+const AREA_W = 16;
+
+function tailFor(task: TaskState, theme: Theme, options: RowOptions): string {
+  if (task.status === "blocked") return `${theme.states.blocked}: ${task.note}`;
+  if (task.status === "done") return task.commit;
+  if (task.status === "pending") return "";
+  const since = task.startedAt
+    ? elapsed(options.now.getTime() - Date.parse(task.startedAt))
+    : "";
+  return [
+    since,
+    labelFor(theme, task.status, task.phase),
+    task.stale
+      ? `${theme.states.stale} ${minutesQuiet(task, options.now)}m`
+      : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+const hasModel = (task: TaskState) =>
+  task.status !== "blocked" && task.status !== "pending";
+
+/** One column layout shared by every row of a section, so the columns line up. */
+interface Layout {
+  titleW: number;
+  withArea: boolean;
+  withModel: boolean;
+}
+
+function layoutFor(
+  tasks: TaskState[],
+  theme: Theme,
+  columns: number,
+  withArea: boolean,
+  options: RowOptions,
+): Layout {
+  const withModel = tasks.some(hasModel);
+  const fixed =
+    2 +
+    ID_W +
+    2 +
+    LANE_W +
+    2 +
+    (withModel ? MODEL_W + 2 : 0) +
+    (withArea ? AREA_W + 2 : 0);
+  // The tightest row sets the width: a wider title on one row would push
+  // that row's tail off the edge.
+  const longestTail = Math.max(
+    0,
+    ...tasks.map((t) => {
+      const tail = tailFor(t, theme, options).length;
+      const spare = withModel && !hasModel(t) ? MODEL_W + 2 : 0;
+      return Math.min(Math.max(0, tail - spare), 24);
+    }),
+  );
+  const titleW = Math.max(8, Math.min(32, columns - fixed - longestTail - 2));
+  return { titleW, withArea, withModel };
 }
 
 function taskRow(
   task: TaskState,
   theme: Theme,
   columns: number,
-  withArea: boolean,
+  layout: Layout,
   options: RowOptions,
 ): Row {
-  const idW = 8;
-  const laneW = 2;
-  const modelW = 14;
-  const areaW = withArea ? 16 : 0;
-  let tail: string;
-  if (task.status === "blocked") tail = `${theme.states.blocked}: ${task.note}`;
-  else if (task.status === "done") tail = task.commit;
-  else if (task.status === "pending") tail = "";
-  else {
-    const since = task.startedAt
-      ? elapsed(options.now.getTime() - Date.parse(task.startedAt))
-      : "";
-    const label = labelFor(theme, task.status, task.phase);
-    tail = [
-      since,
-      label,
-      task.stale
-        ? `${theme.states.stale} ${minutesQuiet(task, options.now)}m`
-        : "",
-    ]
-      .filter(Boolean)
-      .join(" · ");
-  }
-  const showModel = task.status !== "blocked" && task.status !== "pending";
-  const fixed =
-    2 +
-    idW +
-    2 +
-    laneW +
-    2 +
-    (showModel ? modelW + 2 : 0) +
-    (areaW ? areaW + 2 : 0);
-  const titleW = Math.max(
-    8,
-    Math.min(32, columns - fixed - Math.min(tail.length, 24) - 2),
-  );
   const cells = [
-    `${GLYPH[task.status]} ${pad(task.id, idW)}`,
-    pad(task.title, titleW),
-    pad(task.lane ?? "", laneW),
+    `${GLYPH[task.status]} ${pad(task.id, ID_W)}`,
+    pad(task.title, layout.titleW),
+    pad(task.lane ?? "", LANE_W),
   ];
-  if (areaW) cells.push(pad(task.area, areaW));
-  if (showModel)
+  if (layout.withArea) cells.push(pad(task.area, AREA_W));
+  // A row without a model (blocked) starts its tail in the model column, so
+  // the lane and area columns still line up with the rows that have one.
+  if (layout.withModel && hasModel(task))
     cells.push(
-      pad(task.status === "done" ? task.implementer : task.model, modelW),
+      pad(task.status === "done" ? task.implementer : task.model, MODEL_W),
     );
-  cells.push(tail);
+  cells.push(tailFor(task, theme, options));
   return {
     text: fit(cells.join("  ").trimEnd(), columns),
     tone: TONE[task.status],
   };
 }
 
-/** The board: collapsed leading landed run, one row per other task, then the warnings. */
+/**
+ * The board: two sections — the flights that need eyes (blocked, then
+ * active, in board order) under the in_progress label, and the pending ones
+ * under the pending label — then one line for everything that landed, then
+ * the warnings.
+ */
 export function boardRows(
   state: State,
   theme: Theme,
@@ -227,83 +281,102 @@ export function boardRows(
   options: RowOptions,
 ): Row[] {
   const withArea = state.tasks.some((t) => t.area !== "");
-  const rows: Row[] = [];
-  let index = 0;
-  const lead = state.tasks.findIndex((t) => t.status !== "done");
-  const leadRun = lead === -1 ? state.tasks.length : lead;
-  if (leadRun >= 3) {
-    const first = state.tasks[0]?.id ?? "";
-    const last = state.tasks[leadRun - 1]?.id ?? "";
-    rows.push({
-      text: `✓ ${leadRun} ${theme.states.done}  (${first} … ${last})`,
-      tone: "done",
-    });
-    index = leadRun;
-  }
-  for (const task of state.tasks.slice(index))
-    rows.push(taskRow(task, theme, columns, withArea, options));
+  const section = (tasks: TaskState[]) => {
+    const layout = layoutFor(tasks, theme, columns, withArea, options);
+    return tasks.map((t) => taskRow(t, theme, columns, layout, options));
+  };
+  const running = section(
+    state.tasks.filter((t) => t.status !== "done" && t.status !== "pending"),
+  );
+  const waiting = section(state.tasks.filter((t) => t.status === "pending"));
+  const done = state.tasks.filter((t) => t.status === "done");
+  const first = done[0]?.id ?? "";
+  const last = done.at(-1)?.id ?? "";
+  const landed: Row | null =
+    done.length === 0
+      ? null
+      : {
+          text: `✓ ${done.length} ${theme.states.done}  (${done.length === 1 ? first : `${first} … ${last}`})`,
+          tone: "done",
+        };
 
+  const warnings: Row[] = [];
   for (const id of state.unknown)
-    rows.push({ text: `⚠ unknown ${theme.flight} ${id}`, tone: "warn" });
+    warnings.push({ text: `⚠ unknown ${theme.flight} ${id}`, tone: "warn" });
   if (state.unreadable > 0)
-    rows.push({
+    warnings.push({
       text: `⚠ ${state.unreadable} unreadable line${state.unreadable === 1 ? "" : "s"}`,
       tone: "warn",
     });
 
-  return windowBoard(rows, height, theme);
+  return windowBoard({ running, waiting, landed, warnings }, height, theme);
 }
 
+interface Board {
+  running: Row[];
+  waiting: Row[];
+  landed: Row | null;
+  warnings: Row[];
+}
+
+/** The first `n` rows; when that hides some, the last shown row is their count. */
+function takeUpTo(rows: Row[], n: number, label: string): Row[] {
+  if (rows.length <= n) return rows;
+  if (n <= 0) return [];
+  const shown = rows.slice(0, n - 1);
+  return [
+    ...shown,
+    {
+      text: `… ${rows.length - shown.length} more${label ? ` ${label}` : ""}`,
+      tone: "muted",
+    },
+  ];
+}
+
+const EMPTY_SECTION: Row = { text: "—", tone: "muted" };
+
 /**
- * Window a board down to `height` rows, keeping the first row that needs
- * eyes (blocked, then active) visible whenever there is room for it. Always
- * returns at most `height` rows.
+ * Lay the board out in `height` rows. Rows are handed out in this order:
+ * every running row, one waiting row (or the count), the warnings, the
+ * landed line, then the rest of the waiting rows. Always returns at most
+ * `height` rows.
  */
-function windowBoard(rows: Row[], height: number, theme: Theme): Row[] {
+function windowBoard(board: Board, height: number, theme: Theme): Row[] {
   if (height <= 0) return [];
-  if (rows.length <= height) return rows;
-  const anchor = Math.max(
-    0,
-    rows.findIndex((r) => r.tone === "blocked" || r.tone === "active"),
-  );
+  const runBody = board.running.length ? board.running : [EMPTY_SECTION];
+  const waitBody = board.waiting.length ? board.waiting : [EMPTY_SECTION];
 
-  if (height === 1)
-    return [rows[anchor] ?? { text: `… ${rows.length} more`, tone: "muted" }];
-
-  const more = (start: number, shown: Row[]): Row[] => {
-    const below = rows.length - (start + shown.length);
-    if (below <= 0) return [];
-    const rest = rows.slice(start + shown.length);
-    const allPending = rest.every((r) => r.tone === "pending");
-    return [
-      {
-        text: allPending
-          ? `… ${below} more ${theme.states.pending}`
-          : `… ${below} more`,
-        tone: "muted",
-      },
-    ];
-  };
-
-  if (height === 2) {
-    // No room for an "above" marker; prioritise keeping the anchor visible.
-    const start = Math.max(0, Math.min(anchor, rows.length - 1));
-    const shown = rows.slice(start, start + 1);
-    return [...shown, ...more(start, shown)];
+  // Too short for two headings: just the rows that need eyes, and at a
+  // single row the first of them rather than their count.
+  if (height < 4) {
+    const rows = board.running.length ? board.running : board.waiting;
+    if (height === 1) return rows.slice(0, 1);
+    return takeUpTo(
+      rows,
+      height,
+      board.running.length ? "" : theme.states.pending,
+    );
   }
 
-  let body = height - 1;
-  let start = Math.max(0, Math.min(anchor, rows.length - body));
-  if (start > 0) {
-    body = height - 2;
-    start = Math.max(0, Math.min(anchor, rows.length - body));
-  }
-  const shown = rows.slice(start, start + body);
-  const out: Row[] = [];
-  if (start > 0) out.push({ text: `… ${start} above`, tone: "muted" });
-  out.push(...shown);
-  out.push(...more(start, shown));
-  return out;
+  let left = height - 2;
+  const runN = Math.min(runBody.length, left - 1);
+  left -= runN;
+  let waitN = 1;
+  left -= 1;
+  const warnings = board.warnings.slice(0, left);
+  left -= warnings.length;
+  const landed = board.landed && left > 0 ? [board.landed] : [];
+  left -= landed.length;
+  waitN += Math.max(0, Math.min(left, waitBody.length - waitN));
+
+  return [
+    { text: theme.states.in_progress.toUpperCase(), tone: "heading" },
+    ...takeUpTo(runBody, runN, ""),
+    { text: theme.states.pending.toUpperCase(), tone: "heading" },
+    ...takeUpTo(waitBody, waitN, theme.states.pending),
+    ...landed,
+    ...warnings,
+  ];
 }
 
 function speaker(entry: TranscriptEntry, state: State, theme: Theme): string {

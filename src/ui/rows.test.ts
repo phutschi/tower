@@ -73,30 +73,102 @@ describe("laneRows", () => {
     const [row] = texts(laneRows(s, AIRPORT, 120));
     expect(row).toContain("RUNWAY B  ✓");
   });
+  test("wraps four lanes as two and two when one row is too narrow, with the units aligned", () => {
+    const s = demoState();
+    s.lanes = { A: [], B: [], C: [], D: [] };
+    const wide = texts(laneRows(s, AIRPORT, 200));
+    expect(wide).toHaveLength(1);
+    expect(wide[0]).toMatch(/RUNWAY A.*RUNWAY B.*RUNWAY C.*RUNWAY D/);
+    const rows = texts(laneRows(s, AIRPORT, 90));
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatch(/^RUNWAY A.*RUNWAY B/);
+    expect(rows[1]).toMatch(/^RUNWAY C.*RUNWAY D/);
+    expect(rows[0]?.indexOf("RUNWAY B")).toBe(
+      rows[1]?.indexOf("RUNWAY D") ?? -1,
+    );
+    for (const row of rows) expect(row.length).toBeLessThanOrEqual(90);
+  });
 });
 
 describe("boardRows", () => {
-  test("collapses the leading landed run, marks each state with its glyph, and appends the tail", () => {
+  test("splits the board into the airborne and on-the-ground sections, then the landed line", () => {
     const rows = texts(boardRows(state, AIRPORT, 120, 40, opts));
-    expect(rows[0]).toBe("✓ 11 landed  (1 … 11)");
-    expect(rows.find((r) => r.startsWith("▸ 14"))).toMatch(
-      /A .*sonnet-5\[1m\].*go around.*NORDO 24m$/,
+    expect(rows[0]).toBe("AIRBORNE");
+    expect(rows[1]).toMatch(
+      /^⚠ 12 .*B .*holding short: needs the test DB created$/,
     );
-    expect(rows.find((r) => r.startsWith("⚠ 12"))).toMatch(
-      /B .*holding short: needs the test DB created$/,
+    expect(rows[2]).toMatch(
+      /^▸ 14 .*A .*sonnet-5\[1m\].*go around.*NORDO 24m$/,
     );
-    expect(rows.find((r) => r.startsWith("✓ 13"))).toMatch(
-      /B .*opus .*a91c2f0$/,
-    );
-    expect(rows.find((r) => r.startsWith("○ 16"))).toBeDefined();
+    expect(rows[3]).toMatch(/^▸ 15 /);
+    expect(rows[4]).toBe("ON THE GROUND");
+    expect(rows[5]).toMatch(/^○ 16 /);
+    expect(rows.slice(5, 11).every((r) => r.startsWith("○ "))).toBe(true);
+    expect(rows[11]).toBe("✓ 12 landed  (1 … 13)");
+    expect(rows.some((r) => r.startsWith("✓ 13"))).toBe(false);
   });
-  test("windows to the height, keeping the first row that needs eyes visible and counting the rest", () => {
-    const rows = texts(boardRows(state, AIRPORT, 100, 5, opts));
-    expect(rows).toHaveLength(5);
-    expect(rows.some((r) => r.startsWith("⚠ 12") || r.startsWith("▸ 14"))).toBe(
-      true,
+  test("plain is literal in the section headings", () => {
+    const rows = texts(boardRows(state, PLAIN, 120, 40, opts));
+    expect(rows).toContain("IN_PROGRESS");
+    expect(rows).toContain("PENDING");
+  });
+  test("an empty section shows a dash", () => {
+    const s = demoState();
+    for (const t of s.tasks) if (t.status === "pending") t.status = "done";
+    const rows = texts(boardRows(s, AIRPORT, 120, 40, opts));
+    expect(rows[rows.indexOf("ON THE GROUND") + 1]).toBe("—");
+  });
+  test("when short, every airborne row stays and the ground is counted", () => {
+    const rows = texts(boardRows(state, AIRPORT, 100, 8, opts));
+    expect(rows).toHaveLength(8);
+    for (const id of ["⚠ 12", "▸ 14", "▸ 15"])
+      expect(rows.some((r) => r.startsWith(id))).toBe(true);
+    expect(rows[rows.indexOf("ON THE GROUND") + 1]).toBe(
+      `… 6 more ${AIRPORT.states.pending}`,
     );
-    expect(rows.at(-1)).toMatch(/^… \d+ more/);
+    expect(rows.at(-1)).toBe("⚠ 1 unreadable line");
+    expect(rows).not.toContain("✓ 12 landed  (1 … 13)");
+  });
+  test("an airborne row far down the plan is still on the board", () => {
+    const s = demoState();
+    const far = s.tasks.find((t) => t.id === "20");
+    if (!far) throw new Error("demo lost task 20");
+    far.status = "in_progress";
+    far.phase = "implementing";
+    far.model = "haiku";
+    far.startedAt = new Date(DEMO_NOW.getTime() - 5 * 60_000).toISOString();
+    const rows = texts(boardRows(s, AIRPORT, 100, 8, opts));
+    expect(rows).toHaveLength(8);
+    expect(rows.indexOf("ON THE GROUND")).toBeGreaterThan(
+      rows.findIndex((r) => r.startsWith("▸ 20")),
+    );
+  });
+  test("when even the airborne rows overflow, the count still leaves one ground row", () => {
+    const rows = texts(boardRows(state, AIRPORT, 100, 5, opts));
+    expect(rows).toEqual([
+      "AIRBORNE",
+      expect.stringMatching(/^⚠ 12 /),
+      "… 2 more",
+      "ON THE GROUND",
+      `… 6 more ${AIRPORT.states.pending}`,
+    ]);
+  });
+  test("rows in a section share one column layout, at every width", () => {
+    for (const columns of [60, 70, 100, 140]) {
+      const rows = texts(boardRows(state, AIRPORT, columns, 40, opts));
+      const air = rows.slice(1, rows.indexOf("ON THE GROUND"));
+      expect(air.length).toBe(3);
+      const laneCol = air.map((r) => r.search(/ {2}[AB] {2}/));
+      expect(new Set(laneCol).size).toBe(1);
+      const areaCol = air.map((r) => r.indexOf("apps/server"));
+      expect(new Set(areaCol).size).toBe(1);
+      const blocked = air.find((r) => r.startsWith("⚠ 12")) ?? "";
+      const active = air.find((r) => r.startsWith("▸ 14")) ?? "";
+      // The blocked row has no model; its note starts in the model column.
+      expect(blocked.indexOf("holding short")).toBe(
+        active.indexOf("sonnet-5[1m]"),
+      );
+    }
   });
   test("never exceeds the width", () => {
     for (const row of texts(boardRows(state, AIRPORT, 60, 40, opts)))
@@ -122,14 +194,18 @@ describe("boardRows", () => {
     expect(rows.at(-1)).toBe("⚠ 1 unreadable line");
   });
   test("never exceeds the given height, even at extreme small heights", () => {
-    for (const height of [0, 1, 2, 3]) {
+    for (const height of [0, 1, 2, 3, 4]) {
       const rows = boardRows(state, AIRPORT, 100, height, opts);
       expect(rows.length).toBeLessThanOrEqual(height);
     }
   });
-  test("keeps the row that needs eyes visible even at height 1", () => {
+  test("below four rows there are no headings, only the rows that need eyes", () => {
     const rows = texts(boardRows(state, AIRPORT, 100, 1, opts));
     expect(rows[0]?.startsWith("⚠ 12")).toBe(true);
+    const three = texts(boardRows(state, AIRPORT, 100, 3, opts));
+    expect(three[0]?.startsWith("⚠ 12")).toBe(true);
+    expect(three[1]?.startsWith("▸ 14")).toBe(true);
+    expect(three[2]?.startsWith("▸ 15")).toBe(true);
   });
 });
 
