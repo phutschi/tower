@@ -47,6 +47,8 @@ Where: `$XDG_STATE_HOME/tower/runs/<repo>-<branch>-<yyyymmdd-hhmm>/`
   `quality-reviewer` are the three default _role names_ when `--model` is
   never given; each starts out empty until a model is assigned to it.
 - `tasks` is in plan order. Everything tower shows is in plan order.
+- `tasks` may be `[]`: a run created without a plan. Tasks then arrive as
+  `add` events.
 - Lane assignments are **not** here; they are events.
 
 ## Task ids
@@ -58,13 +60,16 @@ are integers.
 ## Events
 
 Every line: `"v": 1`, a `"kind"`, and an ISO 8601 `"ts"` with offset. Order in
-the file is the order of the run; timestamps are for display. Four kinds:
+the file is the order of the run; timestamps are for display. Seven kinds:
 
 ```json
 {"v":1,"kind":"report","ts":"…","task":"14","status":"in_progress","phase":"implementing","model":"sonnet-5","note":"","commit":"4f27b92"}
 {"v":1,"kind":"note","ts":"…","text":"merged lane B at task 8","task":null,"lane":"A"}
 {"v":1,"kind":"assign","ts":"…","lane":"B","tasks":["5","7","8","9"]}
 {"v":1,"kind":"close","ts":"…","text":"shipped as v0.1.0"}
+{"v":1,"kind":"add","ts":"…","task":{"id":"12","title":"Wire the webhook","area":""},"after":"8"}
+{"v":1,"kind":"change","ts":"…","task":"12","title":"Wire the outbound webhook","area":null,"after":null}
+{"v":1,"kind":"remove","ts":"…","task":"12"}
 ```
 
 ### report
@@ -76,6 +81,33 @@ the file is the order of the run; timestamps are for display. Four kinds:
 | `model`  | required by the CLI on `in_progress` and `reviewing`; `none` is the documented escape            |
 | `note`   | ≤ 500 characters; required on `blocked`                                                          |
 | `commit` | short sha of `HEAD` in the reporting process's cwd, or `""`                                      |
+
+### add, change, remove
+
+The run's word on what its tasks are, on top of the plan's. They are events
+because `run.json` is written once (ADR 0001).
+
+| kind     |                                                                                                        |
+| -------- | ------------------------------------------------------------------------------------------------------ |
+| `add`    | `task` is a full task (`id`, `title`, `area`); `after` is an id to insert after, or `null` for the end |
+| `change` | `title`, `area`, `after`: each a string, or `null` for "untouched"                                     |
+| `remove` | `task` is the id                                                                                       |
+
+What the fold does with them:
+
+- `add` for a new id creates a pending task, `origin: "added"`. `add` for an
+  id the run already has, removed or not, is a change to that task: its
+  status and history are kept, and a removed task comes back.
+- an `after` id the run does not have puts the task at the end and flags the
+  transcript entry `unknown-after`. The fold refuses nothing.
+- `remove` takes the task off the board, out of its lane, and out of the
+  summary. Its reports stay in the transcript. A later report for that id is
+  `unknown-task`, as a typo is.
+- reports that precede the `add` of their id in file order are `unknown-task`.
+- the fold never invents a task from a report; only `add` creates one.
+
+A reader that switches on `kind` must ignore kinds it does not know: a new
+kind is an additive change.
 
 ### The state machine
 
@@ -124,7 +156,8 @@ unparseable lines, counts them, and shows the count.
       "commit": "",
       "startedAt": "…",
       "updatedAt": "…",
-      "stale": true
+      "stale": true,
+      "origin": "plan"
     }
   ],
   "lanes": { "A": ["1", "2", "14"], "B": ["12"] },
@@ -133,6 +166,7 @@ unparseable lines, counts them, and shows the count.
   ],
   "unreadable": 0,
   "unknown": ["99"],
+  "nextId": "22",
   "closed": null,
   "firstEventAt": "…",
   "summary": {
@@ -150,6 +184,10 @@ unparseable lines, counts them, and shows the count.
 
 `implementer` is sticky: the last model that held `in_progress` or `done`.
 `model` is whoever is on the task now.
+
+`origin` is `"plan"` or `"added"`. `nextId` is one above the largest
+plain-integer id the record has ever seen, removed ids included; it is what
+`tower add` picks when `--id` is not given.
 
 ## `tower wait --timeout <seconds>`
 

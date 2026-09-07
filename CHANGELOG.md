@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- On-the-fly tasks: `tower add`, `tower change`, `tower remove`, and the
+  three event kinds behind them. `tower init` with no plan creates an empty
+  run. `state --json` gains `origin` per task and `nextId`. (ADR 0007)
+
 ## [0.1.0] — 2026-09-05
 
 tower's first run was its own build.

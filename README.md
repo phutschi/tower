@@ -61,6 +61,16 @@ tower state --json           # the folded state; literal, versioned
 tower wait --timeout 300     # exit 0 with the reasons on attention, completion, or close; 3 when quiet
 ```
 
+No plan? Start empty and let the executor add its tasks as it derives them:
+
+```sh
+tower init                                 # 0 tasks
+tower add "Wire the webhook" --lane A      # prints the id; report against it
+tower brief A                              # once lane A has a task
+tower change 1 --title "Wire the outbound webhook"
+tower remove 2
+```
+
 ## The screen
 
 ```
@@ -129,19 +139,22 @@ then `/tower:run`.
 
 ## Commands
 
-|                                                       |                                                                    |
-| ----------------------------------------------------- | ------------------------------------------------------------------ |
-| `tower`                                               | the console (`--plain`, `--theme`, `--stale <min>`, `--run <dir>`) |
-| `tower init`                                          | create a run from `--plan <md>`, `--tasks <tsv>` or stdin          |
-| `tower assign <lane> <ids>`                           | record which tasks a lane owns                                     |
-| `tower brief <lane>`                                  | the executor letter                                                |
-| `tower close [note]`                                  | declare the run finished                                           |
-| `tower task <id> <status> [phase] [note] --model <m>` | report                                                             |
-| `tower block <id> "<need>"`                           | report blocked                                                     |
-| `tower note [--task\|--lane] "<text>"`                | narrate                                                            |
-| `tower state --json`                                  | the folded state                                                   |
-| `tower wait --timeout <s>`                            | block until attention                                              |
-| `tower theme rules\|new\|check\|preview`              | author a theme                                                     |
+|                                                       |                                                                     |
+| ----------------------------------------------------- | ------------------------------------------------------------------- |
+| `tower`                                               | the console (`--plain`, `--theme`, `--stale <min>`, `--run <dir>`)  |
+| `tower init`                                          | create a run from `--plan <md>`, `--tasks <tsv>`, stdin, or nothing |
+| `tower assign <lane> <ids>`                           | record which tasks a lane owns                                      |
+| `tower brief <lane>`                                  | the executor letter                                                 |
+| `tower close [note]`                                  | declare the run finished                                            |
+| `tower add "<title>" [--lane <lane>]`                 | add a task the plan did not have                                    |
+| `tower change <id> --title\|--area\|--after`          | edit a task                                                         |
+| `tower remove <id> [--force]`                         | take a task off the board                                           |
+| `tower task <id> <status> [phase] [note] --model <m>` | report                                                              |
+| `tower block <id> "<need>"`                           | report blocked                                                      |
+| `tower note [--task\|--lane] "<text>"`                | narrate                                                             |
+| `tower state --json`                                  | the folded state                                                    |
+| `tower wait --timeout <s>`                            | block until attention                                               |
+| `tower theme rules\|new\|check\|preview`              | author a theme                                                      |
 
 `tower --help` for the flags.
 
