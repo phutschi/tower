@@ -47,6 +47,38 @@ const report = (
     ...extra,
   });
 
+const add = (
+  id: string,
+  title: string,
+  min: number,
+  after: string | null = null,
+) =>
+  line({
+    v: 1,
+    kind: "add",
+    ts: at(min),
+    task: { id, title, area: "" },
+    after,
+  });
+const change = (
+  id: string,
+  min: number,
+  fields: { title?: string; area?: string; after?: string },
+) =>
+  line({
+    v: 1,
+    kind: "change",
+    ts: at(min),
+    task: id,
+    title: fields.title ?? null,
+    area: fields.area ?? null,
+    after: fields.after ?? null,
+  });
+const remove = (id: string, min: number) =>
+  line({ v: 1, kind: "remove", ts: at(min), task: id });
+const assign = (lane: string, tasks: string[], min: number) =>
+  line({ v: 1, kind: "assign", ts: at(min), lane, tasks });
+
 const opts = { now: new Date(at(30)), staleMinutes: 10 };
 
 describe("fold", () => {
@@ -252,6 +284,133 @@ describe("fold", () => {
   test("a plan with no tasks is never complete", () => {
     const emptyRun: RunFile = { ...run, tasks: [] };
     const s = fold(emptyRun, [], opts);
+    expect(s.summary.complete).toBe(false);
+  });
+});
+
+describe("fold: add, change, remove", () => {
+  test("plan tasks are origin plan; an add appends at the end as origin added", () => {
+    const s = fold(run, [add("4", "D", 0)], opts);
+    expect(s.tasks.map((t) => [t.id, t.origin])).toEqual([
+      ["1", "plan"],
+      ["2", "plan"],
+      ["3", "plan"],
+      ["4", "added"],
+    ]);
+    expect(s.tasks[3]).toMatchObject({
+      title: "D",
+      status: "pending",
+      lane: null,
+    });
+    expect(s.summary.total).toBe(4);
+  });
+
+  test("add with after inserts after that id", () => {
+    const s = fold(run, [add("1a", "D", 0, "1")], opts);
+    expect(s.tasks.map((t) => t.id)).toEqual(["1", "1a", "2", "3"]);
+  });
+
+  test("add with an unknown after goes to the end and is flagged", () => {
+    const s = fold(run, [add("4", "D", 0, "99")], opts);
+    expect(s.tasks.map((t) => t.id)).toEqual(["1", "2", "3", "4"]);
+    expect(s.transcript.at(-1)?.problem).toBe("unknown-after");
+  });
+
+  test("add for an existing id is a change: title and position update, status stays", () => {
+    const s = fold(
+      run,
+      [report("2", "in_progress", 0, { model: "m" }), add("2", "B2", 1, "3")],
+      opts,
+    );
+    expect(s.tasks.map((t) => t.id)).toEqual(["1", "3", "2"]);
+    expect(s.tasks[2]).toMatchObject({
+      title: "B2",
+      status: "in_progress",
+      origin: "plan",
+    });
+  });
+
+  test("change edits only the fields given", () => {
+    const s = fold(run, [change("2", 0, { area: "apps/x" })], opts);
+    expect(s.tasks[1]).toMatchObject({ title: "B", area: "apps/x" });
+    const moved = fold(run, [change("1", 0, { after: "3" })], opts);
+    expect(moved.tasks.map((t) => t.id)).toEqual(["2", "3", "1"]);
+  });
+
+  test("change for an unknown id is flagged unknown-task and ignored", () => {
+    const s = fold(run, [change("9", 0, { title: "x" })], opts);
+    expect(s.tasks).toHaveLength(3);
+    expect(s.unknown).toEqual(["9"]);
+    expect(s.transcript.at(-1)?.problem).toBe("unknown-task");
+  });
+
+  test("remove drops the row from tasks, lanes and summary; its reports stay in the transcript", () => {
+    const s = fold(
+      run,
+      [assign("A", ["1", "2"], 0), report("2", "done", 1), remove("2", 2)],
+      opts,
+    );
+    expect(s.tasks.map((t) => t.id)).toEqual(["1", "3"]);
+    expect(s.lanes).toEqual({ A: ["1"] });
+    expect(s.summary).toMatchObject({ total: 2, done: 0 });
+    expect(s.transcript).toHaveLength(3);
+  });
+
+  test("a report after a remove is unknown-task; a report before an add is too", () => {
+    const after = fold(run, [remove("2", 0), report("2", "done", 1)], opts);
+    expect(after.unknown).toEqual(["2"]);
+    expect(after.transcript.at(-1)?.problem).toBe("unknown-task");
+    const before = fold(run, [report("4", "done", 0), add("4", "D", 1)], opts);
+    expect(before.transcript[0]?.problem).toBe("unknown-task");
+    expect(before.tasks[3]?.status).toBe("pending");
+  });
+
+  test("re-adding a removed id brings it back with its history", () => {
+    const s = fold(
+      run,
+      [
+        report("2", "done", 0, { commit: "abc" }),
+        remove("2", 1),
+        add("2", "B again", 2),
+      ],
+      opts,
+    );
+    expect(s.tasks.map((t) => t.id)).toEqual(["1", "3", "2"]);
+    expect(s.tasks[2]).toMatchObject({
+      title: "B again",
+      status: "done",
+      commit: "abc",
+    });
+    expect(s.unknown).toEqual([]);
+  });
+
+  test("remove for an unknown id is flagged", () => {
+    const s = fold(run, [remove("9", 0)], opts);
+    expect(s.unknown).toEqual(["9"]);
+  });
+
+  test("removing the last open task completes the run", () => {
+    const s = fold(
+      run,
+      [report("1", "done", 0), report("2", "done", 0), remove("3", 1)],
+      opts,
+    );
+    expect(s.summary.complete).toBe(true);
+  });
+
+  test("nextId is one above the largest integer id ever seen, removed ones included; non-integers are ignored", () => {
+    expect(fold(run, [], opts).nextId).toBe("4");
+    expect(fold(run, [add("10", "x", 0), remove("10", 1)], opts).nextId).toBe(
+      "11",
+    );
+    expect(fold(run, [add("auth-7", "x", 0)], opts).nextId).toBe("4");
+    const empty = { ...run, tasks: [] };
+    expect(fold(empty, [], opts).nextId).toBe("1");
+  });
+
+  test("an empty plan with no events has no tasks and is not complete", () => {
+    const s = fold({ ...run, tasks: [] }, [], opts);
+    expect(s.tasks).toEqual([]);
     expect(s.summary.complete).toBe(false);
   });
 });
