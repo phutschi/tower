@@ -146,9 +146,10 @@ export async function removeCommand(argv: string[], io: Io): Promise<number> {
   if (!id || extra.length > 0) throw new UsageError(REMOVE_USAGE);
   const { runDir, state } = openRun(io, values.run);
   requireTask(state, id);
-  const task = state.tasks.find((t) => t.id === id);
+  const task = state.tasks.find(
+    (t) => t.id === id,
+  ) as (typeof state.tasks)[number];
   if (
-    task &&
     (task.status === "in_progress" || task.status === "reviewing") &&
     !values.force
   )
@@ -162,6 +163,6 @@ export async function removeCommand(argv: string[], io: Io): Promise<number> {
     task: id,
   };
   appendEvent(eventsPath(runDir), event);
-  io.stdout(`removed task ${id}${task ? ` — ${task.title}` : ""}\n`);
+  io.stdout(`removed task ${id} — ${task.title}\n`);
   return 0;
 }
