@@ -63,10 +63,12 @@ git clone git@github.com:phutschi/tower.git ~/tools/tower
 ~/tools/tower/install.sh
 ```
 
-That checks the dependencies (herdr, git, bash, python3, node; claude,
-tower, codex, semgrep and gitleaks optional), adds this repo as the
-`phutschi-tower` marketplace in Claude Code and installs the `tower` plugin
-from it. For codex it links `orchestrate`, `spec-to-plan` and `preflight`
+That checks the dependencies (herdr, tower, git, bash, python3, node; claude,
+codex, semgrep and gitleaks optional). tower is required and must run: a
+missing tower shows up here, not at the start of a run. With claude, it adds
+this repo as the `phutschi-tower` marketplace in Claude Code and installs the
+`tower` plugin from it. The kit's plugin and marketplace from before it moved
+into tower are removed first, so only one orchestrator is installed. For codex it links `orchestrate`, `spec-to-plan` and `preflight`
 into `~/.agents/skills`, and `preflight` into `~/.codex/skills` (codex
 Reviewers load it). Links of the kit's old layout in
 `~/.claude/skills` are removed, so no skill shows up twice.

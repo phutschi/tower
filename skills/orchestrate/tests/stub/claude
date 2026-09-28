@@ -2,8 +2,25 @@
 # Stand-in for claude under DRY_RUN=1 and test.sh. Logs argv to HERDR_STUB_LOG.
 # CLAUDE_STUB=absent refuses to run, so the kind counts as not installed
 # (command -v still finds this stub).
+# `plugin` and `plugin marketplace` keep what is installed in CLAUDE_STUB_STATE,
+# one `marketplace <name>` or `plugin <id>` line each, and list it the way
+# claude does (`  ❯ <name>`).
 [ "${CLAUDE_STUB:-}" = absent ] && { echo "claude: not installed (stub)" >&2; exit 127; }
 printf 'claude %s\n' "$*" >> "${HERDR_STUB_LOG:-/dev/null}"
-case "${1:-}" in
-  --version) echo "claude (stub)" ;;
+state="${CLAUDE_STUB_STATE:-${HERDR_STUB_COUNTER:-${TMPDIR:-/tmp}/herdr-stub-counter}.claude}"
+has()  { grep -qxF -- "$1 $2" "$state" 2>/dev/null; }
+put()  { has "$1" "$2" || echo "$1 $2" >> "$state"; }
+drop() { has "$1" "$2" || { echo "claude: $1 $2 not found (stub)" >&2; exit 1; }; grep -vxF -- "$1 $2" "$state" > "$state.next"; mv "$state.next" "$state"; }
+list() { echo "$2"; echo; sed -n "s/^$1 /  ❯ /p" "$state" 2>/dev/null; }
+case "${1:-} ${2:-} ${3:-}" in
+  "--version"*)                   echo "claude (stub)" ;;
+  "plugin marketplace list")      list marketplace "Configured marketplaces:" ;;
+  "plugin marketplace add")       name=$(sed -n '/"name"/{s/^ *"name": *"\([^"]*\)".*/\1/p;q;}' "$4/.claude-plugin/marketplace.json" 2>/dev/null)
+                                  put marketplace "${name:-$(basename "$4")}" ;;
+  "plugin marketplace remove"|"plugin marketplace rm") drop marketplace "$4" ;;
+  "plugin marketplace update")    has marketplace "$4" || exit 1 ;;
+  "plugin list "*)                list plugin "Installed plugins:" ;;
+  "plugin install "*)             has marketplace "${3#*@}" || { echo "claude: marketplace ${3#*@} not found (stub)" >&2; exit 1; }; put plugin "$3" ;;
+  "plugin uninstall "*|"plugin remove "*) drop plugin "$3" ;;
+  "plugin update "*)              has plugin "$3" || exit 1 ;;
 esac

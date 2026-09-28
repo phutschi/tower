@@ -855,10 +855,13 @@ if section install; then
   mkdir -p "$H/.claude/skills" "$H/.agents/skills"; ln -s "$ROOT" "$H/.claude/skills/herdr-orchestrate"
   ln -s "$ROOT/preflight" "$H/.claude/skills/preflight"; ln -s "$TMP/tools/spec-to-plan" "$H/.claude/skills/spec-to-plan"
   ln -s "$ROOT" "$H/.agents/skills/herdr-orchestrate"; ln -s "$TMP/elsewhere" "$H/.claude/skills/other"
+  export CLAUDE_STUB_STATE="$TMP/claude-state"; : > "$CLAUDE_STUB_STATE"
   reset_stub; out=$(HOME="$H" "$ROOT/install.sh" 2>&1; echo "exit=$?")
   assert_match "install: exit 0"                      "$out" 'exit=0$'
-  assert_match "install: adds this repo as the phutschi marketplace" "$(cat "$TMP/log")" "^claude plugin marketplace add $ROOT$"
-  assert_match "install: installs the phutschi plugin" "$(cat "$TMP/log")" '^claude plugin install phutschi@phutschi$'
+  assert_match "install: adds this repo as the phutschi-tower marketplace" "$(cat "$TMP/log")" "^claude plugin marketplace add $ROOT$"
+  assert_match "install: installs tower@phutschi-tower" "$(cat "$TMP/log")" '^claude plugin install tower@phutschi-tower$'
+  assert_nomatch "install: without the old plugin, removes nothing" "$(cat "$TMP/log")" '^claude plugin (uninstall|remove|marketplace (remove|rm)) '
+  assert_eq "install: claude has the tower plugin and its marketplace" "$(sort "$CLAUDE_STUB_STATE")" "$(printf 'marketplace phutschi-tower\nplugin tower@phutschi-tower')"
   for n in herdr-orchestrate preflight spec-to-plan; do
     [ -e "$H/.claude/skills/$n" ] || [ -L "$H/.claude/skills/$n" ] && bad "install: old ~/.claude/skills/$n link removed" || ok "install: old ~/.claude/skills/$n link removed"
   done
@@ -869,15 +872,18 @@ if section install; then
   done
   assert_eq "install: preflight linked into ~/.codex/skills" "$(readlink "$H/.codex/skills/preflight")" "$PREFLIGHT_DIR"
   assert_match "install: lists herdr as ok (stub)"    "$out" 'ok +herdr'
-  assert_match "install: tower optional"              "$out" 'tower'
+  assert_match "install: tower is required, and runs"  "$out" 'ok +tower$'
   assert_match "install: prints the two openings"     "$out" 'with a plan: +/tower:orchestrate'
   assert_match "install: prints how to plan"          "$out" '/tower:spec-to-plan'
+  assert_nomatch "install: names no old plugin or command" "$out" 'phutschi[@:]'
   assert_match "install: semgrep is optional"         "$out" 'semgrep.*optional'
   assert_match "install: gitleaks is optional"        "$out" 'gitleaks.*optional'
   links() { find "$H" -type l -exec sh -c 'printf "%s -> %s\n" "$1" "$(readlink "$1")"' _ {} \; | sort; }
   before=$(links)
-  out=$(HOME="$H" "$ROOT/install.sh" 2>&1; echo "exit=$?")
+  reset_stub; out=$(HOME="$H" "$ROOT/install.sh" 2>&1; echo "exit=$?")
   assert_match "install: idempotent"                  "$out" 'exit=0$'
+  assert_nomatch "install: a second run installs and removes nothing" "$(cat "$TMP/log")" '^claude plugin (install|uninstall|remove|marketplace (add|remove|rm)) '
+  assert_eq "install: a second run leaves claude's plugins as they are" "$(sort "$CLAUDE_STUB_STATE")" "$(printf 'marketplace phutschi-tower\nplugin tower@phutschi-tower')"
   assert_eq "install: a second run changes no link"   "$(links)" "$before"
   assert_nomatch "install: a second run skips nothing" "$out" 'SKIPPED'
   ln -s "$ROOT" "$TMP/repo-link"; out=$(HOME="$H" "$TMP/repo-link/install.sh" 2>&1; echo "exit=$?")
@@ -892,6 +898,13 @@ if section install; then
   assert_match "install: a missing semgrep is optional" "$out" 'optional +semgrep'
   assert_match "install: a missing gitleaks is optional" "$out" 'optional +gitleaks'
   assert_match "install: missing scanners do not fail it" "$out" 'exit=0$'
+  # An old kit install: the phutschi plugin and its marketplace go, tower comes.
+  H4="$TMP/home4"; mkdir -p "$H4"; printf 'marketplace phutschi\nplugin phutschi@phutschi\nmarketplace acme-tools\n' > "$CLAUDE_STUB_STATE"
+  reset_stub; out=$(HOME="$H4" "$ROOT/install.sh" 2>&1; echo "exit=$?")
+  assert_match "migrate: exit 0"                      "$out" 'exit=0$'
+  assert_match "migrate: uninstalls phutschi@phutschi" "$(cat "$TMP/log")" '^claude plugin uninstall phutschi@phutschi$'
+  assert_match "migrate: removes the phutschi marketplace" "$(cat "$TMP/log")" '^claude plugin marketplace remove phutschi$'
+  assert_eq "migrate: claude keeps others' marketplaces, and has tower instead of phutschi" "$(sort "$CLAUDE_STUB_STATE")" "$(printf 'marketplace acme-tools\nmarketplace phutschi-tower\nplugin tower@phutschi-tower')"
   H2="$TMP/home2"; mkdir -p "$H2"
   out=$(HOME="$H2" "$ROOT/install.sh" --check 2>&1; echo "exit=$?")
   assert_match "check: exit 0"                        "$out" 'exit=0$'
@@ -901,6 +914,14 @@ if section install; then
   out=$(HOME="$H2" PATH="$KIT/tests/stub:$B" "$ROOT/install.sh" --check 2>&1; echo "exit=$?")
   assert_match "check: a missing dependency is named"  "$out" 'MISSING +node'
   assert_match "check: a missing dependency fails"     "$out" 'exit=1$'
+  out=$(HOME="$H2" TOWER_STUB=absent "$ROOT/install.sh" --check 2>&1; echo "exit=$?")
+  assert_match "check: a tower that does not run is missing" "$out" 'MISSING +tower'
+  assert_match "check: ... and fails"                  "$out" 'exit=1$'
+  ln -sf "$KIT/tests/stub/herdr" "$B/herdr"; ln -sf "$(command -v node)" "$B/node"
+  out=$(HOME="$H2" DRY_RUN=0 PATH="$B" "$ROOT/install.sh" --check 2>&1; echo "exit=$?")
+  assert_match "check: no tower on PATH is missing"    "$out" 'MISSING +tower'
+  assert_match "check: ... and fails"                  "$out" 'exit=1$'
+  unset CLAUDE_STUB_STATE
 fi
 
 # --- run ---------------------------------------------------------------------
