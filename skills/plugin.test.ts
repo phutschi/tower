@@ -144,3 +144,31 @@ test("orchestrate describes no run without tower", () => {
     expect(text).not.toMatch(/tasks\.tsv`? and `?lanes\.txt|run\.txt/);
   }
 });
+
+test("CI checks both sides on Linux and macOS", () => {
+  const ci = read(".github/workflows/ci.yml");
+  expect(ci).toContain("os: [ubuntu-latest, macos-latest]");
+  for (const step of [
+    "bun run check",
+    "bun run build",
+    "node dist/cli.js --help",
+    "shellcheck -S warning *.sh skills/*/*.sh skills/orchestrate/tests/stub/*",
+    "./test.sh",
+  ])
+    expect(ci).toContain(step);
+});
+
+test("the npm package ships the CLI only", () => {
+  const [pack] = JSON.parse(
+    execFileSync("npm", ["pack", "--dry-run", "--json"], {
+      cwd: root,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }),
+  ) as { files: { path: string }[] }[];
+  const paths = pack!.files.map((f) => f.path);
+  expect(paths).toContain("README.md");
+  expect(
+    paths.filter((p) => /^(skills\/|test\.sh$|install\.sh$)/.test(p)),
+  ).toEqual([]);
+});

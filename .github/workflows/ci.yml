@@ -11,6 +11,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
+      # tower runs on Node >= 22.12; the runner's own Node may be older.
+      - uses: actions/setup-node@v5
+        with:
+          node-version: lts/*
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
@@ -18,3 +22,14 @@ jobs:
       - run: bun run check
       - run: bun run build
       - run: node dist/cli.js --help
+      # The kit: shell lint (shellcheck ships on the Linux runner), then its
+      # tests, which run the tower from this checkout.
+      - name: shellcheck
+        if: runner.os == 'Linux'
+        run: shellcheck -S warning *.sh skills/*/*.sh skills/orchestrate/tests/stub/*
+      - name: kit tests
+        run: |
+          git config --global user.name ci
+          git config --global user.email ci@example.invalid
+          git config --global init.defaultBranch main
+          ./test.sh
