@@ -68,19 +68,29 @@ and do it in a lane anyway or suggest doing it without the kit.
    merge points, the boundary sentence, the review tail for the lane's kind).
    Send with `herdr agent prompt <agent> "$(cat <run-dir>/brief-<X>.md)"`.
    Without tower, write the derivable part yourself (template, "Without tower").
-6. **Watch, in the background.** `tower wait --timeout 540 --stale 30` for
-   task-level attention, and `watch-lanes.sh <run-dir> <agent>...` for the
-   processes, with every lane agent and every live Reviewer agent. Both exit
-   when something needs you; re-run them after acting. Never poll
-   `tower state` or the panes in a loop. Without tower, watch with
-   `watch-lanes.sh` alone; idle after the final report is done.
+   In every brief and prompt, describe the final report's marker in words, as
+   the template does: `watch-lanes.sh` reads the marker itself as the report,
+   so a prompt that spells it makes an idle lane look finished.
+6. **Watch, in the background.** Run what bootstrap's `watch:` line prints;
+   it carries the run's stale threshold. With tower that is
+   `tower wait --timeout 540 --stale <STALE>` for task-level attention and
+   `watch-lanes.sh <run-dir> <agent>...` for the processes; without tower,
+   `watch-lanes.sh` alone, and idle after the final report is done. Pass
+   every lane agent and every live Reviewer agent. Both exit when something
+   needs you; re-run them after acting. Never poll `tower state` or the
+   panes in a loop.
 7. **Act on attention.** `blocked` → decide, then re-brief with what the lane
    asked for (a discovered task: you add it, then tell the lane). `stale` or
-   `idle-unexplained` → read the pane tail, then re-brief or wait. A lane
-   reporting ready (`ready to merge`, or lane A's `ALL DONE` after its last
-   task) → verify its check gate and commits, then its lane review (step 8;
-   `LANE_REVIEW=off`: step 9). A Reviewer's `FINDINGS WRITTEN` → triage it
-   (see "Triage"), and start the review of a lane waiting for a free slot.
+   `idle-unexplained` → read the pane tail, then re-brief or wait. tower
+   wait's `complete` → keep `watch-lanes.sh` running: a lane's final review
+   comes after its last task, and the watch prints `tower: run complete` once
+   no watched agent is working. tower wait returns at once on a complete
+   board, so run it again once the board has an open task (a review or fix
+   task you add). A lane reporting ready (`ready to merge`, or lane A's
+   `ALL DONE` after its last task) → verify its check gate and commits, then
+   its lane review (step 8; `LANE_REVIEW=off`: step 9). A Reviewer's
+   `FINDINGS WRITTEN` → triage it (see "Triage"), and start the review of a
+   lane waiting for a free slot.
 8. **Lane review.** Every lane, lane A included. Start it with
    ```
    <kit>/add-reviewer.sh <run-dir> <R1|R2> <lane-kind> "Lane review <X>, round <n>" <run-dir>/findings/lane-<X>-<n>.json
@@ -91,7 +101,8 @@ and do it in a lane anyway or suggest doing it without the kit.
    with the lane review brief (`brief-template.md`). The fixed point is the
    lane's base: the commit it forked from; for lane A the run base (step 2),
    leaving out the commits of the other lanes. Triage the findings alone
-   (see "Triage"). Fix tasks → the lane fixes → a new round with a fresh
+   (see "Triage"). Fix tasks → the lane fixes (the prompt asks it to end
+   with its final report's marker again, in words) → a new round with a fresh
    Reviewer and the next `<n>`. The review is clean when no finding triaged
    fix is left → step 9.
 9. **Merge the lane** into the integration branch, note it

@@ -462,10 +462,33 @@ if section watch; then
   assert_match "blocked: attention line first"        "$out" '^attention: a blocked'
   assert_match "blocked: tail printed"                "$out" 'need the API key'
   assert_match "blocked: exit 0"                      "$out" 'exit=0$'
-  echo idle > "$S/a"; printf 'tower note --lane A ALL DONE - check green\n' > "$S/a.tail"; out=$(watch a)
+  echo idle > "$S/a"; printf "tower note --lane A 'ALL DONE - check green'\nSummary: tasks 1-4 done.\n[[ALL DONE]]\n" > "$S/a.tail"; out=$(watch a)
   assert_match "idle after the final report"          "$out" '^attention: a idle-after-final-report'
-  echo idle > "$S/r"; printf 'FINDINGS WRITTEN /run/findings/lane-a.json\n' > "$S/r.tail"; out=$(watch r)
+  echo idle > "$S/b"; printf "tower note --lane B 'lane B complete - ready to merge'\n[[READY TO MERGE]]\n" > "$S/b.tail"; out=$(watch b)
+  assert_match "lane B idle after its final report"   "$out" '^attention: b idle-after-final-report'
+  echo idle > "$S/r"; printf '[[FINDINGS WRITTEN]] /run/findings/lane-a.json\n' > "$S/r.tail"; out=$(watch r)
   assert_match "a Reviewer idle after writing its findings" "$out" '^attention: r idle-after-final-report'
+  echo idle > "$S/a"; printf '⏺ [[ALL DONE]]\n' > "$S/a.tail"; out=$(watch a)
+  assert_match "the marker after a TUI bullet reads as the report" "$out" '^attention: a idle-after-final-report'
+  # The marker quoted inside other text (a diff, a comment, a sentence) is not
+  # a report: an agent reading the kit's own sources shows these.
+  echo idle > "$S/a"; printf '+# [[READY TO MERGE]] (lanes B-D)\nreport phrase in double square brackets, [[ALL DONE]] (lane A),\n' > "$S/a.tail"; out=$(watch a)
+  assert_match "a quoted marker is not the report"      "$out" '^attention: a idle-unexplained'
+  echo idle > "$S/b"; printf '[[ Ready to merge ]]\n' > "$S/b.tail"; out=$(watch b)
+  assert_match "the marker in another case or with spaces still reads as the report" "$out" '^attention: b idle-after-final-report'
+  # A pane that still shows only its brief has not reported: the briefs name
+  # the report phrases (ALL DONE, ready to merge, FINDINGS WRITTEN) but never
+  # the marker itself.
+  # The tail must still name a report phrase, or the case below tests nothing.
+  names_report() { assert_match "$1: the tail names a report phrase" "$(grep -v '^[[:space:]]*$' "$2" | tail -12)" 'ALL DONE|ready to merge|FINDINGS WRITTEN'; }
+  echo idle > "$S/a"; sed -n '/^You are lane/,/^Begin now/p' "$KIT/brief-template.md" > "$S/a.tail"; names_report "lane brief" "$S/a.tail"; out=$(watch a)
+  assert_match "idle with only the lane brief in the tail is unexplained" "$out" '^attention: a idle-unexplained'
+  for brief in 'Lane review' 'Preflight slot'; do
+    echo idle > "$S/r"; sed -n "/^### $brief/,/^End with/p" "$KIT/brief-template.md" > "$S/r.tail"; names_report "$brief brief" "$S/r.tail"; out=$(watch r)
+    assert_match "idle with only the Reviewer brief ($brief) in the tail is unexplained" "$out" '^attention: r idle-unexplained'
+  done
+  echo idle > "$S/r"; sed -n '/^## Who does what/,/^Look only/p' "$KIT/preflight/SKILL.md" > "$S/r.tail"; names_report "preflight skill" "$S/r.tail"; out=$(watch r)
+  assert_match "idle with only the preflight skill's Reviewer lines in the tail is unexplained" "$out" '^attention: r idle-unexplained'
   echo idle > "$S/a"; printf 'Running tests...\n' > "$S/a.tail"; out=$(watch a)
   assert_match "idle without a report is unexplained" "$out" '^attention: a idle-unexplained'
   echo gone > "$S/a"; out=$(watch a)
@@ -476,6 +499,35 @@ if section watch; then
   assert_match "tower summary when tower is present"  "$out" '^--- tower'
   out=$(TOWER_STUB=absent watch b)
   assert_match "no tower: git log instead"            "$out" 'no tower: task state is in git'
+  # A complete board is not attention while a watched agent still works (the
+  # lane's final review comes after its last task); a closed run always is.
+  echo working > "$S/a"; out=$(ROUND=1 TOWER_STUB_STATE=complete watch a)
+  assert_match "complete board, lane working: exit 3"  "$out" 'exit=3$'
+  assert_nomatch "complete board, lane working: no tower attention" "$out" '^tower: run'
+  echo working > "$S/a"; out=$(ROUND=1 TOWER_STUB_STATE=closed watch a)
+  assert_match "closed run, lane working: attention"   "$out" '^tower: run closed'
+  assert_match "closed run, lane working: exit 0"      "$out" 'exit=0$'
+  printf 'idle\nidle\nworking\n' > "$S/a"; out=$(ROUND=1 TOWER_STUB_STATE=complete watch a)
+  assert_nomatch "complete board, lane idle for one poll only: no tower attention" "$out" '^tower: run'
+  printf 'working\nidle\n' > "$S/a"; printf 'idle\nidle\n' > "$S/b"; out=$(TOWER_STUB_STATE=complete watch a b)
+  assert_nomatch "complete board, one agent settled, the other idle only once: no tower attention" "$out" '^tower: run'
+  echo working > "$S/a"; echo done > "$S/b"; out=$(ROUND=1 TOWER_STUB_STATE=complete watch a b)
+  assert_nomatch "complete board, one of two lanes working: no tower attention" "$out" '^tower: run'
+  printf 'idle\nidle\n' > "$S/a"; out=$(TOWER_STUB_STATE=complete watch a)
+  assert_match "complete board, every agent settled: attention" "$out" '^tower: run complete'
+fi
+
+# --- watchline ---------------------------------------------------------------
+# bootstrap.sh's printed "watch:" line: the run's stale threshold reaches
+# tower wait, and without tower only watch-lanes.sh is named.
+if section watchline; then
+  r=$(fixture_repo contract); reset_stub
+  wl=$(cd "$r" && "$KIT/bootstrap.sh" "$TMP/run-wl1" "WL" main 2>&1 | grep '^watch:')
+  assert_match "watch line: tower wait takes the run's stale threshold" "$wl" '^watch: +tower wait --timeout 540 --stale 45 +and +.*/watch-lanes\.sh '
+  r=$(fixture_repo none); reset_stub
+  wl=$(cd "$r" && TOWER_STUB=absent "$KIT/bootstrap.sh" "$TMP/run-wl2" "WL" main 2>&1 | grep '^watch:')
+  assert_match "watch line without tower: watch-lanes.sh" "$wl" 'watch-lanes\.sh '
+  assert_nomatch "watch line without tower: no tower wait" "$wl" 'tower wait'
 fi
 
 # --- look --------------------------------------------------------------------

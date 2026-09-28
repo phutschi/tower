@@ -92,7 +92,7 @@ PANES you may read instead of re-running suites (herdr pane read <id> --source r
 
 Do not stop between tasks to ask whether to continue. If you cannot proceed: tower block <id> "<exactly what you need>", then stop and wait.
 
-WHEN YOUR LAST TASK IS DONE: {{lane A: "run the check gate from the repo root, then a final whole-implementation review (claude: subagent, model opus; codex: self-review of the whole lane diff with the code-review skill), fix what it flags, then  tower note --lane A 'ALL DONE - check green'  and report a summary."  other lanes: "run the check gate for your files, then  tower note --lane {{LANE}} 'lane {{LANE}} complete - ready to merge'  and wait; the orchestrator merges you."}} A Reviewer then reviews your lane. Stay in this session: fix tasks from that review come to you on the board and by prompt; do them like any task.
+WHEN YOUR LAST TASK IS DONE: {{lane A: "run the check gate from the repo root, then a final whole-implementation review (claude: subagent, model opus; codex: self-review of the whole lane diff with the code-review skill), fix what it flags, then  tower note --lane A 'ALL DONE - check green'  and report a summary; end your message with a last line of ALL DONE in double square brackets."  other lanes: "run the check gate for your files, then  tower note --lane {{LANE}} 'lane {{LANE}} complete - ready to merge' , end your message with a last line of READY TO MERGE in double square brackets, and wait; the orchestrator merges you."}} A Reviewer then reviews your lane. Stay in this session: fix tasks from that review come to you on the board and by prompt; do them like any task, and after the last one end your message with the same last line again.
 
 Begin now with task {{FIRST_ID}}.
 
@@ -104,7 +104,7 @@ A Reviewer gets its own brief, not a lane's: one message, sent with
 `herdr agent prompt <reviewer-agent> "$(cat <run-dir>/brief-<task-id>.md)"`
 (add-reviewer.sh prints the agent, the task id and the findings file). No
 `tower brief` part. Both kinds use the same text. Without tower, drop the
-REPORT paragraph: `FINDINGS WRITTEN` is the report. In the empty opening
+REPORT paragraph: the findings line is the report. In the empty opening
 there is no plan: name the tasks' titles from the board or `tasks.tsv`.
 
 ### Lane review
@@ -117,7 +117,7 @@ Write every finding to {{FINDINGS_FILE}} in the format of {{KIT}}/preflight/find
 
 REPORT: at the start  tower task {{TASK_ID}} reviewing --model {{MODEL}} ; at the end  tower note --task {{TASK_ID}} "<n> findings"  then  tower task {{TASK_ID}} done --model {{MODEL}} . If you cannot proceed:  tower block {{TASK_ID}} "<what you need>" .
 
-End with the line  FINDINGS WRITTEN {{FINDINGS_FILE}}  and stop.
+End with one line: FINDINGS WRITTEN in double square brackets, a space, then {{FINDINGS_FILE}} after the closing brackets. Then stop.
 
 ### Preflight slot
 
@@ -127,4 +127,4 @@ Load the preflight skill and run its look half as a Reviewer. Your areas: {{AREA
 
 REPORT: at the start  tower task {{TASK_ID}} reviewing --model {{MODEL}} ; at the end  tower note --task {{TASK_ID}} "<n> findings"  then  tower task {{TASK_ID}} done --model {{MODEL}} . If you cannot proceed:  tower block {{TASK_ID}} "<what you need>" .
 
-End with the line  FINDINGS WRITTEN {{FINDINGS_FILE}}  and stop.
+End with one line: FINDINGS WRITTEN in double square brackets, a space, then {{FINDINGS_FILE}} after the closing brackets. Then stop.

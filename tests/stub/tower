@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Stand-in for tower under DRY_RUN=1 and test.sh. TOWER_STUB=new (default) is
 # 0.2.0 with `tower add`; old is a 0.1 usage; absent refuses to run.
+# TOWER_STUB_STATE picks the board `tower state` answers: open (default),
+# complete (every task done) or closed.
 [ "${TOWER_STUB:-new}" = absent ] && { echo "tower: not installed (stub)" >&2; exit 127; }
 printf 'tower %s\n' "$*" >> "${HERDR_STUB_LOG:-/dev/null}"
 case "${1:-}" in
@@ -9,6 +11,10 @@ case "${1:-}" in
     echo "    tower init [--plan <plan.md> | --tasks <tasks.tsv> | TSV on stdin | nothing]"
     [ "${TOWER_STUB:-new}" = old ] || echo '    tower add "<title>" [--id <id>] [--area <text>] [--after <id>] [--lane <lane>]' ;;
   init)  echo "run: (stub)" ;;
-  state) echo '{"tasks":[{"id":"1"},{"id":"2"},{"id":"3"}],"summary":{"total":3,"done":0,"complete":false},"closed":false,"attention":[]}' ;;
+  state) case "${TOWER_STUB_STATE:-open}" in
+           complete) echo '{"tasks":[{"id":"1"},{"id":"2"},{"id":"3"}],"summary":{"total":3,"done":3,"complete":true},"closed":false,"attention":[]}' ;;
+           closed)   echo '{"tasks":[{"id":"1"},{"id":"2"},{"id":"3"}],"summary":{"total":3,"done":3,"complete":true},"closed":true,"attention":[]}' ;;
+           *)        echo '{"tasks":[{"id":"1"},{"id":"2"},{"id":"3"}],"summary":{"total":3,"done":0,"complete":false},"closed":false,"attention":[]}' ;;
+         esac ;;
   *)     ;;
 esac
