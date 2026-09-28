@@ -58,8 +58,8 @@ _Avoid_: prefix, tag
 
 **Run dir**:
 The directory that holds a run's record, made by `init` and printed by
-`state --json` as `runDir`. An orchestrate run also keeps its pane map and
-its briefs there, and nothing else.
+`state --json` as `runDir`. An orchestrate run also keeps its pane map, its
+briefs and its findings there. None of them is a second record.
 
 **Pane map**:
 `panes.txt` in the run dir: every pane of an orchestrate run by role and id,
@@ -181,8 +181,8 @@ _Avoid_: hung, dead, silent, NORDO (rendering only)
 **Attention**:
 Derived: the run is not closed and something is blocked or stale. The one
 boolean a script needs. In an orchestrate run the watch also reports
-attention per lane: its executor is blocked, idle after its final report,
-idle unexplained, done or gone.
+attention per agent, lane or Reviewer: herdr says it is blocked, done or
+gone, or it is idle with or without its end line.
 _Avoid_: alert, alarm, needs-human, urgent
 
 **Complete**:
@@ -191,9 +191,10 @@ _Avoid_: finished, closed, done (that is a task's status)
 
 **Brief**:
 The letter an executor receives: its tasks, how to report, the plan's
-conventions, the roles, the standing rules. Composed from the run, never
-templated. In an orchestrate run the orchestrator puts what tower cannot know
-on top: the method, the other lanes and the merge points.
+conventions, the roles, the standing rules. tower composes it from the run,
+with no template. In an orchestrate run the orchestrator writes what tower
+cannot know on top, from the kit's brief template: the method, the other
+lanes and the merge points.
 _Avoid_: prompt, instructions, system prompt
 
 ### Watching and review
@@ -202,15 +203,16 @@ _Avoid_: prompt, instructions, system prompt
 A lane whose executor has stopped working, for any reason.
 
 **End line**:
-The last line of a lane's reply to the orchestrator, in double square
-brackets (`READY TO MERGE`, `ALL DONE`). It is what the watch waits for; it
-is not an event.
+A phrase in double square brackets that starts a line near the end of a
+lane's or Reviewer's reply: `READY TO MERGE`, `ALL DONE` or
+`FINDINGS WRITTEN`, tagged `r<n>` from round 2. The watch reads it to tell an
+agent that finished from one that stopped. It is not an event.
 
 **Report round**:
 One ask for a lane's end line. Round 1 is its brief; each fix prompt after it
 starts the next round, and that round's end line carries its number. The
-watch counts only the expected round's end line. A re-brief after blocked or
-idle unexplained keeps the round.
+watch counts only the expected round's end line. A re-brief keeps the
+round.
 _Avoid_: fix round (a round is the ask, not the fix), iteration
 
 **Lane review**:
@@ -225,8 +227,8 @@ the last phase of an orchestrate run.
 _Avoid_: pre-PR check, final review
 
 **Preflight round**:
-One look of preflight and the act on it, with its own findings dir. After
-fixes the next round looks at the whole branch again.
+One look at the branch, and the triage and fixes that follow, with its own
+findings dir. After fixes the next round looks at the whole branch again.
 _Avoid_: re-review (a lane review's word), fix round
 
 **Static baseline**:
@@ -309,11 +311,12 @@ test, typecheck, lint and build. Slower and broader than the check gate.
 _Avoid_: check gate (that runs per task), checks pane (that watches)
 
 **Repo contract**:
-The `.orchestrate` file in a repo root: its panes, its check gate, its full
-suite as named `suite` steps, and the run's defaults for the executor kind and
-model, the reviewer models, the stale threshold and the run switches. Without
-it the kit uses the JS default and claude. The environment of any kit call
-wins over the file.
+The `.orchestrate` file in a repo root: its panes, its install command, its
+check gate, its full suite as named `suite` steps, and the run's defaults for
+the executor kind and model, the reviewer models, the stale threshold and the
+run switches. The environment of any kit call wins over the file; without
+either, the kit detects the repo's stack, and falls back to the JS default
+and claude.
 _Avoid_: config, override file
 
 **Run switch**:
