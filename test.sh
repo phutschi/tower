@@ -998,6 +998,7 @@ if section install; then
   mkdir -p "$P/dist/bin"; : > "$P/dist/bin/tower-linux-x64"; : > "$P/dist/bin/SHA256SUMS"  # what compile and the release leave
   packed=$(cd "$P" && HOME="$TMP/npmhome" npm_config_update_notifier=false npm pack --dry-run --json --ignore-scripts 2>/dev/null | python3 -c 'import json,sys; [print(f["path"]) for f in json.load(sys.stdin)[0]["files"]]')
   assert_match "pack: ships the built CLI"               "$packed" '^dist/cli\.js$'
+  assert_match "pack: ... with its modules in subdirectories" "$packed" '^dist/commands/.+\.js$'
   assert_match "pack: ... and the built-in theme"         "$packed" '^themes/airport\.json$'
   assert_nomatch "pack: ... and no compiled binary or checksum" "$packed" '^dist/bin/'
   files=$(cd "$ROOT" && HOME="$TMP/npmhome" npm_config_update_notifier=false npm pack --dry-run --json --ignore-scripts 2>/dev/null | python3 -c 'import json,sys; [print(f["path"]) for f in json.load(sys.stdin)[0]["files"]]')
