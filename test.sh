@@ -286,9 +286,11 @@ fi
 
 # --- add-reviewer ------------------------------------------------------------
 if section add-reviewer; then
+  S="$HERDR_STUB_STATES_DIR"
   r=$(fixture_repo bun-vitest); RUN="$TMP/run-review"; reset_stub
   (cd "$r" && "$KIT/bootstrap.sh" "$RUN" "Review" main "$KIT/example-tasks.tsv" >/dev/null 2>&1)
-  review() { (cd "$r" && "$KIT/add-reviewer.sh" "$RUN" "$@" 2>&1); }
+  review() { (cd "$r" && EXIT_WAIT_SECONDS=3 "$KIT/add-reviewer.sh" "$RUN" "$@" 2>&1); }
+  line_of() { grep -nE -- "$1" "$HERDR_STUB_LOG" | head -1 | cut -d: -f1; }
   reset_stub; out=$(review R1 claude "Lane review A" "$RUN/findings/lane-a.json"); log=$(cat "$HERDR_STUB_LOG")
   assert_match "first call: a new tab"                "$log" "^herdr tab create --cwd $r --label reviews --no-focus$"
   assert_match "first call: R2 split right of R1"     "$log" '^herdr pane split --pane pane-1 --direction right --ratio 0.5 '
@@ -297,37 +299,61 @@ if section add-reviewer; then
   assert_match "pane map: review tab line"            "$map" '^review tab: +tab-1 +\(R1 pane-1, R2 pane-2\)$'
   assert_match "pane map: reviewer R1 line"           "$map" '^reviewer R1: +pane-1 +\(agent "bun-vitest-r1-1", kind codex, model gpt-6-astra, review "Lane review A", findings '"$RUN"'/findings/lane-a.json\)$'
   assert_match "R1: a claude lane gets a codex Reviewer" "$log" '^herdr agent start bun-vitest-r1-1 --kind codex --pane pane-1 -- -m gpt-6-astra '
-  assert_match "R1: the review is a board task owned by the slot" "$log" '^tower add Lane review A --lane R1$'
-  assert_match "R1: prints the next step"             "$out" 'reviewer R1 ready: agent bun-vitest-r1-1'
+  assert_match "R1: the review is a board task owned by the slot" "$log" '^tower add Lane review A --id R1-1 --area review --lane R1$'
+  [ "$(line_of '^tower add')" -lt "$(line_of '^herdr agent start')" ] && ok "R1: the board task comes before the agent" || bad "R1: the board task comes before the agent" "$log"
+  assert_match "R1: prints the task id and the next step" "$out" 'reviewer R1 ready \(task R1-1\): agent bun-vitest-r1-1'
   [ -d "$RUN/findings" ] && ok "R1: the findings dir exists" || bad "R1: the findings dir exists"
 
   reset_stub; out=$(review R2 codex "Lane review B" "$RUN/findings/lane-b.json"); log=$(cat "$HERDR_STUB_LOG")
   assert_nomatch "second call: no new tab"            "$log" '^herdr tab create'
   assert_nomatch "second call: no new pane"           "$log" '^herdr pane split'
   assert_match "R2: a codex lane gets a claude Reviewer in the R2 pane" "$log" '^herdr agent start bun-vitest-r2-1 --kind claude --pane pane-2 -- --model claude-opus-5-5$'
-  assert_match "R2: board task owned by R2"           "$log" '^tower add Lane review B --lane R2$'
+  assert_match "R2: board task owned by R2"           "$log" '^tower add Lane review B --id R2-1 --area review --lane R2$'
   assert_eq "pane map: one review tab line"           "$(grep -c '^review tab:' "$RUN/panes.txt")" 1
 
-  reset_stub; out=$(review R1 claude "Lane review A, round 2" "$RUN/findings/lane-a-2.json"); log=$(cat "$HERDR_STUB_LOG")
-  assert_match "again in R1: the previous Reviewer is ended" "$log" '^herdr pane send-text pane-1 /exit$'
+  printf 'working\n' > "$S/bun-vitest-r1-1"; reset_stub
+  out=$(review R1 claude "Lane review A, round 2" "$RUN/findings/lane-a-2.json")
+  assert_match "a slot whose Reviewer is still working is refused" "$out" 'bun-vitest-r1-1 is still working in R1'
+  assert_nomatch "that refusal starts nothing"        "$(cat "$HERDR_STUB_LOG")" '^(herdr agent start|herdr pane send|tower add)'
+  printf 'idle\ngone\n' > "$S/bun-vitest-r1-1"; reset_stub
+  out=$(review R1 claude "Lane review A, round 2" "$RUN/findings/lane-a-2.json"); log=$(cat "$HERDR_STUB_LOG")
+  assert_match "again in R1: the previous Reviewer is sent /exit" "$log" '^herdr pane send-text pane-1 /exit$'
+  assert_match "again in R1: and Enter"               "$log" '^herdr pane send-keys pane-1 Enter$'
+  [ "$(line_of '^herdr pane send-keys pane-1 Enter')" -lt "$(line_of '^herdr agent start')" ] && ok "again in R1: ended before the new agent starts" || bad "again in R1: ended before the new agent starts" "$log"
   assert_match "again in R1: a new agent in the same pane" "$log" '^herdr agent start bun-vitest-r1-2 --kind codex --pane pane-1 '
   assert_eq "pane map: one line per slot"             "$(grep -c '^reviewer R1:' "$RUN/panes.txt")" 1
   assert_match "pane map: the slot line is the new review" "$(cat "$RUN/panes.txt")" '^reviewer R1: +pane-1 +\(agent "bun-vitest-r1-2", .*review "Lane review A, round 2"'
   assert_match "pane map: R2 line kept"               "$(cat "$RUN/panes.txt")" '^reviewer R2: +pane-2 +\(agent "bun-vitest-r2-1"'
 
-  reset_stub; out=$(REVIEWER_MODEL=gpt-6-astra-pro review R1 claude "Preflight R1" "$RUN/findings/preflight-r1.json")
-  assert_match "REVIEWER_MODEL reaches the agent start" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-r1-3 --kind codex --pane pane-1 -- -m gpt-6-astra-pro '
+  printf 'idle\n' > "$S/bun-vitest-r1-2"; reset_stub
+  out=$(review R1 claude "Preflight R1" "$RUN/findings/preflight-r1.json")
+  assert_match "a Reviewer that does not exit is refused" "$out" 'bun-vitest-r1-2 did not exit; end it in pane-1 and rerun'
+  assert_nomatch "that refusal starts no agent"       "$(cat "$HERDR_STUB_LOG")" '^herdr agent start'
+  assert_nomatch "that refusal adds no board task"    "$(cat "$HERDR_STUB_LOG")" '^tower add'
+  echo gone > "$S/bun-vitest-r1-2"; reset_stub
+  out=$(REVIEWER_MODEL=gpt-6-astra-pro review R1 claude "Preflight R1" "$RUN/findings/preflight-r1.json"); log=$(cat "$HERDR_STUB_LOG")
+  assert_nomatch "an exited Reviewer is not sent /exit" "$log" '^herdr pane send-text'
+  assert_match "REVIEWER_MODEL reaches the agent start" "$log" '^herdr agent start bun-vitest-r1-3 --kind codex --pane pane-1 -- -m gpt-6-astra-pro '
+  echo gone > "$S/bun-vitest-r2-1"
   out=$(CODEX_STUB=absent review R2 claude "Preflight R2" "$RUN/findings/preflight-r2.json")
   assert_match "a fallback is printed"                "$out" '^reviewer: fallback: codex is not installed'
   assert_match "a slot other than R1 or R2 is refused" "$(review R3 claude "X" "$RUN/findings/x.json")" "slot must be R1 or R2 \(got 'R3'\)"
   assert_match "a bad lane kind is refused"            "$(review R1 cursor "X" "$RUN/findings/x.json")" "lane kind must be claude or codex"
   assert_match "no pane map: refused"                 "$(cd "$r" && "$KIT/add-reviewer.sh" "$TMP/nowhere" R1 claude "X" x.json 2>&1)" 'run bootstrap.sh first'
-
+  cr=$(fixture_repo contract-switches); mkdir -p "$cr/sub"; RUNS="$TMP/run-review-sub"
+  (cd "$cr" && "$KIT/bootstrap.sh" "$RUNS" "Sub" main >/dev/null 2>&1); reset_stub
+  out=$(cd "$cr/sub" && "$KIT/add-reviewer.sh" "$RUNS" R1 claude "From a subdir" "$RUNS/findings/sub.json" 2>&1)
+  assert_match "from a subdirectory: the repo contract's REVIEWER_KIND and model are used" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start contract-switches-r1-1 --kind claude --pane [^ ]+ -- --model claude-fable-5-1$'
+  assert_match "from a subdirectory: the tab opens in the repo root" "$(cat "$HERDR_STUB_LOG")" "^herdr tab create --cwd $cr --label"
   RUN2="$TMP/run-review-nt"; reset_stub
   (cd "$r" && TOWER_STUB=absent "$KIT/bootstrap.sh" "$RUN2" "NT" main "$KIT/example-tasks.tsv" >/dev/null 2>&1)
   out=$(cd "$r" && TOWER_STUB=absent "$KIT/add-reviewer.sh" "$RUN2" R1 claude "Lane review A" "$RUN2/findings/a.json" 2>&1)
   assert_eq "no tower: the review in tasks.tsv"       "$(tail -1 "$RUN2/tasks.tsv")" "$(printf 'R1-1\tLane review A\treview\tR1')"
   assert_eq "no tower: ownership in lanes.txt"        "$(tail -1 "$RUN2/lanes.txt")" "R1=R1-1"
+  RUN3="$TMP/run-review-md"; reset_stub
+  (cd "$r" && TOWER_STUB=absent "$KIT/bootstrap.sh" "$RUN3" "MD" main "$KIT/README.md" >/dev/null 2>&1)
+  out=$(cd "$r" && TOWER_STUB=absent "$KIT/add-reviewer.sh" "$RUN3" R1 claude "Lane review A" "$RUN3/findings/a.json" 2>&1)
+  assert_eq "no tower, planned from a .md: tasks.tsv is the header and the review" "$(cat "$RUN3/tasks.tsv")" "$(printf '# id\ttitle\tarea\tlane\nR1-1\tLane review A\treview\tR1')"
 fi
 
 # --- watch -------------------------------------------------------------------

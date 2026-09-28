@@ -2,8 +2,9 @@
 # Stand-in for herdr under DRY_RUN=1 and test.sh. Logs argv to HERDR_STUB_LOG and
 # answers with the JSON shapes the kit reads. Pane ids count up per process
 # tree through HERDR_STUB_COUNTER. Agent states come from
-# HERDR_STUB_STATES_DIR/<name> (a status word, or "gone"), pane tails from
-# HERDR_STUB_STATES_DIR/<name>.tail.
+# HERDR_STUB_STATES_DIR/<name> (a status word, or "gone"; with several lines,
+# each `agent get` answers the first and drops it, the last one stays), pane
+# tails from HERDR_STUB_STATES_DIR/<name>.tail.
 printf 'herdr %s\n' "$*" >> "${HERDR_STUB_LOG:-/dev/null}"
 counter="${HERDR_STUB_COUNTER:-${TMPDIR:-/tmp}/herdr-stub-counter}"
 next_id() { local n; n=$(cat "$counter" 2>/dev/null || echo 0); n=$((n+1)); echo "$n" > "$counter"; echo "pane-$n"; }
@@ -17,7 +18,10 @@ case "${1:-} ${2:-}" in
   "agent start")     echo '{"result":{"agent":{"agent_status":"idle"}}}' ;;
   "agent get")
     status=working
-    [ -n "$states" ] && [ -f "$states/$3" ] && status=$(cat "$states/$3")
+    if [ -n "$states" ] && [ -f "$states/$3" ]; then
+      status=$(head -1 "$states/$3")
+      [ "$(wc -l < "$states/$3")" -le 1 ] || { tail -n +2 "$states/$3" > "$states/$3.next"; mv "$states/$3.next" "$states/$3"; }
+    fi
     [ "$status" = gone ] && { echo '{"error":{"code":"agent_not_found"}}'; exit 1; }
     echo "{\"result\":{\"agent\":{\"agent_status\":\"$status\"}}}" ;;
   "agent read")      [ -n "$states" ] && [ -f "$states/$3.tail" ] && cat "$states/$3.tail"; exit 0 ;;
