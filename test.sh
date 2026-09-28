@@ -596,6 +596,14 @@ for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'],
   assert_match "look: a missing scanner is not a failure" "$out" 'exit=0$'
   reset_stub; out=$(SEMGREP_STUB=error look "$r" base "$F"); v=$(verdict "$F/look.json")
   assert_match "look: semgrep's error reason is in its warn row" "$v" '^semgrep warn semgrep exited 2: Invalid scanning root: gone\.js$'
+  # semgrep can exit 0 and still report errors in its JSON (a file it could
+  # not parse): the scan is incomplete, not clean.
+  reset_stub; out=$(SEMGREP_STUB=incomplete look "$r" base "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: semgrep errors with exit 0 are a warn row with the reason" "$v" '^semgrep warn scan incomplete, 1 error: Syntax error at line new\.py:1:$'
+  assert_match "look: ... not a failure"                 "$out" 'exit=0$'
+  reset_stub; out=$(SEMGREP_STUB=incomplete-finding look "$r" base "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: an incomplete scan keeps its findings" "$(findings "$F/look.json")" '^security must-fix new\.py:3 stub\.rule \| semgrep ERROR$'
+  assert_match "look: ... its row fails and says the scan is incomplete" "$v" '^semgrep fail 1 finding; scan incomplete, 1 error: Syntax error at line new\.py:1$'
   reset_stub; out=$(SEMGREP_STUB=garbage look "$r" base "$F"); v=$(verdict "$F/look.json")
   assert_match "look: unreadable scanner output is a warn row" "$v" '^semgrep warn could not read semgrep output$'
   assert_match "look: unreadable scanner output does not stop the run" "$v" '^gitleaks pass $'

@@ -18,7 +18,11 @@
 #             (package.json); with neither, CHECK_CMD as the step `check`,
 #             or a skip row when neither the repo nor the call set CHECK_CMD
 # A scanner that is not installed, exits non-zero or prints what look.sh cannot
-# read is a warn row and the run goes on. Findings never quote the matched
+# read is a warn row and the run goes on. semgrep can exit 0 and still list
+# errors in its JSON (a file it could not parse): that scan is incomplete, so
+# its row is warn, or fail with its findings kept, and the note says
+# "scan incomplete" with the first error. (Not --strict: that turns those
+# errors into a non-zero exit, which would drop the findings.) Findings never quote the matched
 # code: semgrep does not redact it. A red suite step is a fail row and a
 # must-fix finding (area suite, file = the step's DIR, line null) carrying the
 # last 20 lines of its output, unredacted: it is the repo's own test output.
@@ -95,6 +99,14 @@ elif mode == "reason":  # why a scanner failed, from its JSON errors (semgrep pu
         print(json.load(sys.stdin)["errors"][0]["message"].splitlines()[0])
     except Exception:
         pass
+elif mode == "errors":  # errors a scanner reports beside a successful exit
+    try:
+        errors = json.load(sys.stdin).get("errors") or []
+    except Exception:
+        errors = []
+    if errors:
+        print("scan incomplete, %d error%s: %s" % (len(errors), "" if len(errors) == 1 else "s",
+              str(errors[0].get("message", "")).splitlines()[0]))
 elif mode == "gitleaks":
     for r in json.load(sys.stdin) or []:
         finding("must-fix", r["File"], r["StartLine"], r["Description"],
@@ -132,7 +144,7 @@ COMMITS=$(git rev-list --count "$MERGE_BASE..HEAD")
 # and adds its verdict row. Missing, erroring or unreadable is a warn row, never
 # a stop.
 scan() {
-  local step="$1" version="$2" rc=0 n reason; shift 2
+  local step="$1" version="$2" rc=0 n reason errors; shift 2
   if ! "$step" "$version" >/dev/null 2>&1; then
     verdict "$step" warn "$step is not installed"; echo "look: $step is not installed; skipped" >&2; return
   fi
@@ -146,7 +158,12 @@ scan() {
     || { verdict "$step" warn "could not read $step output"; return; }
   cat "$WORK/$step.findings" >> "$FINDINGS"
   n=$(wc -l < "$WORK/$step.findings" | tr -d ' ')
-  case "$n" in 0) verdict "$step" pass "" ;; 1) verdict "$step" fail "1 finding" ;; *) verdict "$step" fail "$n findings" ;; esac
+  errors=$(py errors < "$WORK/$step.json")
+  case "$n" in
+    0) if [ -n "$errors" ]; then verdict "$step" warn "$errors"; else verdict "$step" pass ""; fi ;;
+    1) verdict "$step" fail "1 finding${errors:+; $errors}" ;;
+    *) verdict "$step" fail "$n findings${errors:+; $errors}" ;;
+  esac
 }
 
 if [ "${STATIC_BASELINE:-on}" = off ]; then

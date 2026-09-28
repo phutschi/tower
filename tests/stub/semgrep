@@ -3,8 +3,10 @@
 # and answers `semgrep scan --json` with no results. SEMGREP_STUB=finding (one
 # ERROR result on the last file it was given, its message quoting a secret the
 # way a rule's metavariables can), =error (exit 2, the reason in the JSON's
-# errors like real semgrep), =garbage (exit 0, not JSON) and =absent (refuses
-# to run, so it counts as not installed).
+# errors like real semgrep), =incomplete (exit 0 with a warning-level error in
+# the JSON, as semgrep answers a file it could not parse), =incomplete-finding
+# (the same plus the ERROR result of =finding), =garbage (exit 0, not JSON) and
+# =absent (refuses to run, so it counts as not installed).
 [ "${SEMGREP_STUB:-}" = absent ] && { echo "semgrep: not installed (stub)" >&2; exit 127; }
 printf 'semgrep %s\n' "$*" >> "${HERDR_STUB_LOG:-/dev/null}"
 case "${1:-}" in
@@ -12,6 +14,10 @@ case "${1:-}" in
 esac
 case "${SEMGREP_STUB:-}" in
   error)   echo '{"results":[],"errors":[{"message":"Invalid scanning root: gone.js"}]}'; exit 2 ;;
+  incomplete) echo '{"results":[],"errors":[{"level":"warn","type":"Syntax error","message":"Syntax error at line new.py:1:\n `y` was unexpected"}]}' ;;
+  incomplete-finding)
+           file="${*: -1}"
+           printf '{"results":[{"check_id":"stub.rule","path":"%s","start":{"line":3},"extra":{"severity":"ERROR","message":"m","lines":"l"}}],"errors":[{"level":"warn","type":"Syntax error","message":"Syntax error at line new.py:1"}]}\n' "$file" ;;
   garbage) echo "not json" ;;
   finding) file="${*: -1}"
            printf '{"results":[{"check_id":"stub.rule","path":"%s","start":{"line":3},"extra":{"severity":"ERROR","message":"hardcoded key AKIASTUBSECRET","lines":"key = AKIASTUBSECRET"}}],"errors":[]}\n' "$file" ;;

@@ -2,9 +2,10 @@
 
 What an attacker, a careless caller or a leaked log could do with the
 changed code. Check the `semgrep` and `gitleaks` rows of `look.json`. Both
-`pass` or `fail`: the scanners covered known patterns and secrets, so spend
-this area on what a scanner cannot judge. Either one `skip` or `warn`, or
-no `look.json`: cover injection and secrets by reading too.
+`pass` or `fail`, with no "scan incomplete" in the note: the scanners
+covered known patterns and secrets, so spend this area on what a scanner
+cannot judge. Otherwise (a `skip` or `warn` row, an incomplete scan, or no
+`look.json`): cover injection and secrets by reading too.
 
 Walk every changed file for:
 
