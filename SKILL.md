@@ -139,17 +139,22 @@ and do it in a lane anyway or suggest doing it without the kit.
     deferred lane-review findings: those in `<run-dir>/findings/lane-*.json`
     without an `outcome`. One triage table, one reply from the user. Fixes
     become lane A tasks; after them, round `<n+1>` (step 11) on the whole
-    branch: R1 reruns `look.sh`, and the areas are the ones round `<n>`
-    skipped (a red look or a setup error) plus the areas of its findings
-    triaged `fix`. Its new findings get a new table and a new reply. When
-    round 3's triage still has a finding triaged `fix`, stop and hand it to
-    the user. `PREFLIGHT=off`: after the fixes a fresh Reviewer re-reviews
-    them instead (lane review brief, lane A, fixed point = HEAD before the
-    fixes, file `<run-dir>/findings/fix-<k>.json`). Once a round leaves
+    branch: R1 reruns `look.sh` and reviews the fix commits
+    (`git diff <HEAD before the fixes>..HEAD`) against the findings they fix,
+    whatever their area; the areas are the ones round `<n>` skipped (a red
+    look or a setup error) plus the preflight areas of its findings triaged
+    `fix`. Its new findings get a new table and a new reply. When round 3's
+    triage still has a finding triaged `fix`, stop and hand it to the user.
+    `PREFLIGHT=off`: after the fixes a fresh Reviewer re-reviews them
+    instead (lane review brief, lane A, fixed point = HEAD before the fixes,
+    file `<run-dir>/findings/preflight/fix-<k>.json`, `<k>` from 1), and act
+    runs again on that file; when `fix-2`'s triage still has a finding
+    triaged `fix`, stop and hand it to the user. Once a round leaves
     nothing to fix: the follow-up issues of every round (tracker in
     `docs/agents/issue-tracker.md`; none: ask in the table), the push, and
     the PR as `PR` says, its body in `<run-dir>/findings/preflight/pr-body.md`
-    from the skill's template or `PR_TEMPLATE`.
+    from the skill's template or `PR_TEMPLATE`, drawn from every findings
+    file act read.
 13. **Close.** `tower close "<how it ended>"` (no tower: a line in
     `<run-dir>/run.txt`). Tear nothing down until the user says so; the
     console, the review tab and its panes stay open, the human quits them.

@@ -53,8 +53,9 @@ run, the `switches:` line of `panes.txt` has the values the run uses.
 
 1. **Findings dir.** Alone: `<preflight-dir>/<n>/`, where the preflight dir
    is `$(git rev-parse --git-dir)/preflight/`; empty the preflight dir before
-   round 1 and keep earlier rounds after it. A Reviewer: the directory of
-   its findings file.
+   round 1 and keep earlier rounds after it. Inside a run the preflight dir
+   is `<run-dir>/findings/preflight/`. A Reviewer: the directory of its
+   findings file.
 2. **Base.** Run `git fetch origin`. The base branch `<base>` is the name
    the PR goes into, without `origin/`: an open PR's
    (`gh pr view --json baseRefName -q .baseRefName`), else the remote's
@@ -139,11 +140,13 @@ final table. After two red looks, stop and hand the branch to the human.
    the PR. Until that reply, everything stays on this machine.
 5. **Fix.** The next round looks at the whole branch again, at the areas
    of this round's findings triaged `fix` (those among the areas of look
-   step 4). Alone: fix, commit, then round `<n+1>`: `look.sh` ("A red look"
-   when it is red), then those areas. Inside a run: each fix becomes a task
-   for lane A, then the orchestrator starts round `<n+1>`: R1 reruns
-   `look.sh`, and Reviewers review those areas plus the ones this round
-   skipped (a red look or a setup error). Its new findings get a new table
+   step 4), and at the fix commits (`git diff <HEAD before the fixes>..HEAD`)
+   against the findings they fix, whatever their area. Alone: fix, commit,
+   then round `<n+1>`: `look.sh` ("A red look" when it is red), then those
+   areas and the fix commits. Inside a run: each fix becomes a task for
+   lane A, then the orchestrator starts round `<n+1>`: R1 reruns `look.sh`
+   and reviews the fix commits, and Reviewers review those areas plus the
+   ones this round skipped (a red look or a setup error). Its new findings get a new table
    and a new confirmation. When round 3's triage still has a finding
    triaged `fix`, stop and hand it to the human.
 6. **Follow-ups.** One issue per follow-up of every round, in the tracker.
