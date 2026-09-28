@@ -9,8 +9,9 @@
 # (claude | codex) of the lane under review; for a preflight slot, the kind
 # whose other kind should review. [lane] (A-D) names the lane under review; its
 # pane map line must be of lane-kind, and its model is the one a codex Reviewer
-# of a codex lane runs on when claude is not installed. Without it, the first
-# lane of lane-kind in the pane map stands in. The Reviewer's kind and model
+# of a codex lane runs on when claude is not installed or REVIEWER_KIND=codex.
+# Without it, the first lane of lane-kind in the pane map stands in; with none,
+# executor.sh's default. The Reviewer's kind and model
 # come from executor.sh reviewer_for (REVIEWER_KIND and REVIEWER_MODEL from the
 # pane map's switches: line, the run's values from bootstrap; this call's
 # environment wins over them). It works in lane A's checkout, read from the
@@ -94,10 +95,10 @@ if [ -n "$LANE" ]; then
   case "$LANE" in A|B|C|D) ;; *) die "lane must be A, B, C or D (got '$LANE')" ;; esac
   _line=$(grep -E "^lane $LANE: " "$MAP" || true)
   [ -n "$_line" ] || die "no lane $LANE in $MAP"
-  _kind=$(echo "$_line" | sed -nE 's/.*, kind ([a-z]+), .*/\1/p')
+  _kind=$(echo "$_line" | sed -nE 's/^lane [A-D]: +[^ ]+ +\(agent "[^"]*", kind ([a-z]+), .*/\1/p')
   [ "$_kind" = "$LANE_KIND" ] || die "lane $LANE is $_kind, not $LANE_KIND: pass the lane's own kind"
 else
-  _line=$(grep -E "^lane [A-D]: .*, kind $LANE_KIND, " "$MAP" | head -1 || true)
+  _line=$(grep -E "^lane [A-D]: +[^ ]+ +\(agent \"[^\"]*\", kind $LANE_KIND, " "$MAP" | head -1 || true)
 fi
 LANE_MODEL=$(echo "$_line" | sed -nE 's/.*, model (.*)\)$/\1/p'); unset _line _kind
 

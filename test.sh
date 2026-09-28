@@ -111,6 +111,9 @@ if section executor; then
     "$(CODEX_STUB=absent rev claude)" "claude${T}claude-fable-5-1${T}fallback: codex is not installed, so claude reviews claude"
   assert_eq "reviewer: codex only, a codex lane gets codex on the executor's model with a note" \
     "$(CLAUDE_STUB=absent EXECUTOR_KIND=codex EXECUTOR_MODEL=gpt-6-astra-mini rev codex)" "codex${T}gpt-6-astra-mini${T}fallback: claude is not installed, so a fresh codex agent reviews codex"
+  assert_eq "reviewer: a codex lane's own model beats EXECUTOR_MODEL in the fallback" \
+    "$(CLAUDE_STUB=absent EXECUTOR_KIND=codex EXECUTOR_MODEL=x rev "codex lane-m")" "codex${T}lane-m${T}fallback: claude is not installed, so a fresh codex agent reviews codex"
+  assert_eq "reviewer: a claude lane's model does not change its Reviewer" "$(CODEX_STUB=absent rev "claude lane-m")" "claude${T}claude-fable-5-1${T}fallback: codex is not installed, so claude reviews claude"
   assert_eq "reviewer: REVIEWER_KIND=claude forces its own kind on a claude lane" "$(REVIEWER_KIND=claude rev claude)" "claude${T}claude-fable-5-1${T}"
   assert_eq "reviewer: REVIEWER_KIND=codex on a codex lane"   "$(EXECUTOR_KIND=codex EXECUTOR_MODEL=gpt-6-astra-mini REVIEWER_KIND=codex rev codex)" "codex${T}gpt-6-astra-mini${T}"
   assert_eq "reviewer: REVIEWER_MODEL overrides the model"   "$(REVIEWER_MODEL=gpt-6-astra-pro rev claude)" "codex${T}gpt-6-astra-pro${T}"
@@ -494,6 +497,12 @@ if section add-reviewer; then
   reset_stub; out=$(cd "$r" && CLAUDE_STUB=absent "$KIT/add-reviewer.sh" "$RUNM" R2 codex "Preflight" "$RUNM/findings/p.json" 2>&1)
   assert_match "codex only, no lane named: the first codex lane's model (lane A)" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-r2-1 --kind codex --pane [^ ]+ -- -m gpt-6-astra-a '
   assert_match "a lane of another kind than lane-kind is refused" "$(cd "$r" && "$KIT/add-reviewer.sh" "$RUNM" R1 claude "X" "$RUNM/findings/x.json" B 2>&1)" "lane B is codex, not claude"
+  assert_match "a lane letter outside A-D is refused" "$(cd "$r" && "$KIT/add-reviewer.sh" "$RUNM" R1 codex "X" "$RUNM/findings/x.json" E 2>&1)" "lane must be A, B, C or D \(got 'E'\)"
+  RUNM2="$TMP/run-review-model2"; reset_stub
+  (cd "$r" && CLAUDE_STUB=absent EXECUTOR_KIND=claude "$KIT/bootstrap.sh" "$RUNM2" "Model2" main "$KIT/example-tasks.tsv" >/dev/null 2>&1)
+  (cd "$r" && CLAUDE_STUB=absent EXECUTOR_KIND=codex EXECUTOR_MODEL=gpt-6-astra-b "$KIT/add-lane.sh" "$RUNM2" B feat/mb2 main 2 >/dev/null 2>&1)
+  reset_stub; out=$(cd "$r" && CLAUDE_STUB=absent "$KIT/add-reviewer.sh" "$RUNM2" R1 codex "Codex lanes" "$RUNM2/findings/c.json" 2>&1)
+  assert_match "no lane named, lane A is claude: the first codex lane (B) stands in" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-r1-1 --kind codex --pane [^ ]+ -- -m gpt-6-astra-b '
   assert_match "a lane not in the pane map is refused" "$(cd "$r" && "$KIT/add-reviewer.sh" "$RUNM" R1 codex "X" "$RUNM/findings/x.json" D 2>&1)" "no lane D in $RUNM/panes.txt"
   RUN4="$TMP/run-review-busy"; reset_stub
   (cd "$r" && "$KIT/bootstrap.sh" "$RUN4" "Busy" main >/dev/null 2>&1); reset_stub

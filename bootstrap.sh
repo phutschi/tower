@@ -35,8 +35,9 @@
 # with the next step. The pane map's  switches:  line holds every run switch
 # and the value this run uses (detect-stack.sh); the same line goes to the
 # record, as a  tower note  or into run.txt without tower. So does the
-#  reviewer:  line: the kind and model that review a lane of lane A's kind
-# (executor.sh reviewer_for), with the fallback note when one applied, or none
+#  reviewer:  line: the kind and model that review lane A (executor.sh
+# reviewer_for; in a codex-only run each codex lane is reviewed on its own
+# model), with the fallback note when one applied, or none
 # when LANE_REVIEW and PREFLIGHT are both off. A forced REVIEWER_KIND that is
 # not installed is refused before anything is written. The console pane
 # stays open after the run: it is the record, and the human quits it with q.
