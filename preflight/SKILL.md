@@ -49,15 +49,16 @@ run, the `switches:` line of `panes.txt` has the values the run uses.
 
 1. **Findings dir.** Alone: `$(git rev-parse --git-dir)/preflight/`; empty
    it first. A Reviewer: the directory of its findings file.
-2. **Base.** The branch the PR goes into: an open PR's base
-   (`gh pr view --json baseRefName`), else the remote's default branch
-   (`git symbolic-ref --short refs/remotes/origin/HEAD`). Run
-   `git fetch origin` first.
+2. **Base.** Run `git fetch origin`. The base branch `<base>` is the name
+   the PR goes into, without `origin/`: an open PR's
+   (`gh pr view --json baseRefName -q .baseRefName`), else the remote's
+   default (`git symbolic-ref --short refs/remotes/origin/HEAD`, minus
+   `origin/`). Git commands take `origin/<base>`; `gh` takes `<base>`.
 3. **Static baseline and full suite.** Alone, or when your brief says so:
    note `git status --short`, then run
 
    ```bash
-   <this skill's dir>/look.sh <base> <findings-dir>
+   <this skill's dir>/look.sh origin/<base> <findings-dir>
    ```
 
    Its header is its manual. It writes `look.json` and prints the verdict.
@@ -67,15 +68,17 @@ run, the `switches:` line of `panes.txt` has the values the run uses.
    - Exit 0: green, go on.
    - Exit 1: a must-fix finding. **Stop before agent review.** Alone: see
      "A red look" below. A Reviewer: write your findings file with one
-     `skip` row per area, note `look is red`, and end.
-   - Exit 2: setup error. Report the printed error and stop.
+     `skip` row per area, note `look is red`, and go to step 5.
+   - Exit 2, or exit 1 with no `look.json`: setup error. Alone: report the
+     printed error and stop. A Reviewer: write your findings file with one
+     `warn` row per area, the error as its note, and go to step 5.
 4. **Agent review by area.** The areas are the files in `areas/` next to
    this file, plus the repo's `.preflight/areas/*.md`. A repo file with a
    built-in's name adds to that area; its rules win where they differ. The
    file name, without `.md`, is the area's name. `REVIEW_AREAS` narrows the
    list.
    - Alone on claude: one subagent per area, in parallel. Its prompt holds:
-     the area's file(s), `findings.md`, the base and merge base, the path
+     the area's file(s), `findings.md`, the merge base, the path
      `<findings-dir>/<area>.json` to write, and the rule that it writes
      that file and nothing else.
    - Alone on codex: the areas one after another, each to
@@ -83,7 +86,7 @@ run, the `switches:` line of `panes.txt` has the values the run uses.
    - A Reviewer: your areas one after another, all into your one findings
      file.
 
-   The review covers `git diff $(git merge-base <base> HEAD)`. An area is
+   The review covers `git diff $(git merge-base origin/<base> HEAD)`. An area is
    done when each rule of its file is applied to every changed file and
    its verdict row is written, with `detail` saying what was checked.
 5. A Reviewer ends here: `FINDINGS WRITTEN <findings-file>`.

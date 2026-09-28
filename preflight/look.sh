@@ -8,7 +8,8 @@
 # against HEAD. Steps, each one verdict row:
 #   semgrep   its default rules (p/default), plus the repo's .semgrep/ when it
 #             exists, over the files the branch changed that are still in the
-#             checkout; skip row when there are none
+#             checkout, reporting only results new since the merge base
+#             (--baseline-commit); skip row when there are none
 #   gitleaks  the branch's commits since the merge base, secrets redacted (8.19+);
 #             skip row when there are none
 #   the full suite, one row per step, in order, every step even when one fails:
@@ -16,7 +17,6 @@
 #             without them the detected typecheck and test scripts
 #             (package.json); with neither, CHECK_CMD as the step `check`,
 #             or a skip row when neither the repo nor the call set CHECK_CMD
-#             and there is no package.json
 # A scanner that is not installed, exits non-zero or prints what look.sh cannot
 # read is a warn row and the run goes on. Findings never quote the matched
 # code: semgrep does not redact it. A red suite step is a fail row and a
@@ -148,7 +148,8 @@ else
   else
     SEMGREP_CONFIGS=(--config p/default)
     [ -d .semgrep ] && SEMGREP_CONFIGS+=(--config .semgrep)
-    scan semgrep --version semgrep scan "${SEMGREP_CONFIGS[@]}" --json --quiet --metrics off -- "${FILES[@]}"
+    scan semgrep --version semgrep scan "${SEMGREP_CONFIGS[@]}" --json --quiet --metrics off \
+      --baseline-commit "$MERGE_BASE" -- "${FILES[@]}"
   fi
   # By commits, not by files: a secret added and removed again on the branch
   # is still in its history. `gitleaks git` and `--report-path -` need 8.19+.
@@ -173,10 +174,11 @@ else
     console.log([process.env.TYPECHECK_TASK, "test"].filter(n => s[n]).join(" "));' 2>/dev/null); do
     case "$s" in test) step test "$PM_RUN test" . ;; *) step typecheck "$PM_RUN $s" . ;; esac
   done
-  # detect-stack's CHECK_CMD without a package.json is an npm call that can
-  # only fail; only a CHECK_CMD the repo or the call declared is a step.
+  # No typecheck script here, so detect-stack's default CHECK_CMD is a call
+  # to it that can only fail; only a CHECK_CMD the repo or the call declared
+  # is a step.
   if [ "${#STEP_NAMES[@]}" = 0 ]; then
-    if [ -f package.json ] || [ -n "$CHECK_CMD_FROM_ENV" ] || [ "$CHECK_CMD" != "$PM_RUN $TYPECHECK_TASK" ]; then
+    if [ -n "$CHECK_CMD_FROM_ENV" ] || [ "$CHECK_CMD" != "$PM_RUN $TYPECHECK_TASK" ]; then
       step check "$CHECK_CMD" .
     else
       verdict check skip "no suite lines, no package.json scripts, no CHECK_CMD"

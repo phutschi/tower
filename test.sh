@@ -313,6 +313,8 @@ if section look; then
   # A harmless check gate for the fixtures without suite lines or scripts, so
   # the suite part of the look is green unless a test says otherwise.
   export CHECK_CMD=true
+  # Settings the caller's shell may carry; the fixtures decide them here.
+  unset STATIC_BASELINE SUITE_SKIP PR METHOD REVIEWER_KIND TYPECHECK_TASK PM
   # A fixture repo on a branch: tag base, then one commit that changes app.js,
   # adds new.py and deletes old.txt; kept.txt is untouched.
   look_repo() {  # FIXTURE NAME
@@ -339,6 +341,7 @@ for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'],
   assert_nomatch "look: an untouched file is not scanned" "$log" '^semgrep .*kept\.txt'
   assert_nomatch "look: a deleted file is not scanned"   "$log" '^semgrep .*old\.txt'
   assert_match "look: semgrep runs its default rules"    "$log" '^semgrep scan --config p/default '
+  assert_match "look: semgrep reports only results new since the merge base" "$log" "^semgrep scan .* --baseline-commit $(git -C "$r" rev-parse base) "
   assert_nomatch "look: no .semgrep/, no repo rules"     "$log" '--config \.semgrep'
   assert_match "look: gitleaks scans the branch's commits since the base" "$log" "^gitleaks git --log-opts=$(git -C "$r" rev-parse base)\\.\\.HEAD "
   r=$(look_repo none findings); reset_stub
@@ -440,9 +443,11 @@ for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'],
   out=$(unset CHECK_CMD; look "$r" base "$F"); v=$(verdict "$F/look.json")
   assert_match "look: no package.json and no CHECK_CMD is a skip row, not a red npm step" "$v" '^check skip no suite lines, no package.json scripts, no CHECK_CMD$'
   assert_match "look: ... and not a failure"             "$out" 'exit=0$'
+  r=$(look_repo suite-noscripts noscripts); out=$(unset CHECK_CMD; look "$r" base "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: a package.json without scripts and no CHECK_CMD is a skip row" "$v" '^check skip no suite lines, no package.json scripts, no CHECK_CMD$'
   r=$(look_repo semgrep-rules rules); reset_stub; out=$(look "$r" base "$F")
   assert_match "look: the repo's .semgrep/ rules are added" "$(cat "$HERDR_STUB_LOG")" '^semgrep scan --config p/default --config \.semgrep '
-  unset CHECK_CMD SUITE_ORDER
+  unset CHECK_CMD SUITE_ORDER; unset -f look_repo findings verdict look
 fi
 
 # --- install -----------------------------------------------------------------
