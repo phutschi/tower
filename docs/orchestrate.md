@@ -63,14 +63,27 @@ git clone git@github.com:phutschi/tower.git ~/tools/tower
 ~/tools/tower/install.sh
 ```
 
-That checks the dependencies (herdr, git, bash, python3, node; claude,
-tower, codex, semgrep and gitleaks optional), adds this repo as the
-`phutschi-tower` marketplace in Claude Code and installs the `tower` plugin
-from it. For codex it links `orchestrate`, `spec-to-plan` and `preflight`
-into `~/.agents/skills`, and `preflight` into `~/.codex/skills` (codex
-Reviewers load it). Links of the kit's old layout in
-`~/.claude/skills` are removed, so no skill shows up twice.
-`install.sh --check` only checks.
+That checks the dependencies (herdr, tower, git, bash, python3, node; claude,
+codex, semgrep and gitleaks optional). tower is required and must run: a
+missing tower shows up here, not at the start of a run.
+
+When tower is missing, install.sh fetches it. The primary path is the release
+binary for macOS or Linux (arm64 or x64) of this checkout's version, into
+`~/.local/bin` (or `$TOWER_BIN_DIR`). It is checked against the release's
+`SHA256SUMS`: a mismatch or a missing checksum file is refused, and nothing is
+installed. On another platform, install tower from git first, with Node ≥ 22.12:
+`npm i -g github:phutschi/tower`, which builds with Node alone. You never need
+bun to use tower or the kit.
+
+With claude, it adds this repo as the `phutschi-tower` marketplace in Claude
+Code and installs the `tower` plugin from it. The kit's plugin and marketplace
+from before it moved into tower are removed first, so only one orchestrator is
+installed. A claude command that fails is printed as `FAILED`, and the install
+exits 1. For codex it links `orchestrate`, `spec-to-plan` and `preflight` into
+`~/.agents/skills`, and `preflight` into `~/.codex/skills` (codex Reviewers
+load it). Links of the kit's old layout in `~/.claude/skills` are removed, so
+no skill shows up twice. `install.sh --check` only checks, and fetches
+nothing.
 
 Claude Code installs a copy of the plugin. After a `git pull`, run
 `install.sh` again (it updates the plugin) and restart Claude Code.
@@ -256,5 +269,5 @@ install.sh, test.sh    install and test the kit
 ## Design
 
 `CONTEXT.md` is the glossary. `docs/adr/` holds the decisions: lanes never
-change the task list, tower is the record, Reviewers report and the
-orchestrator decides.
+change the task list (0008), orchestrate requires tower (0011, which
+supersedes 0009), and Reviewers report and the orchestrator decides (0010).

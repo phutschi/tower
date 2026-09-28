@@ -4,7 +4,7 @@
  * herdr-orchestrate repo) is left behind.
  */
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
 
@@ -172,4 +172,28 @@ test("the npm package ships no kit files", () => {
   expect(
     paths.filter((p) => /^(skills\/|test\.sh$|install\.sh$)/.test(p)),
   ).toEqual([]);
+});
+
+// A skill cites an ADR that exists and still holds: superseded ones point on.
+test("every ADR a skill cites exists in docs/adr and is not superseded", () => {
+  const adrs = new Map<string, string>();
+  for (const f of readdirSync(join(root, "docs/adr")))
+    if (/^\d{4}-/.test(f)) adrs.set(f.slice(0, 4), read(`docs/adr/${f}`));
+  const bad: string[] = [];
+  for (const file of files.filter((f) => f.startsWith("skills/"))) {
+    let text: string;
+    try {
+      text = read(file);
+    } catch {
+      continue; // listed but deleted in the working tree
+    }
+    if (text.includes("\0")) continue;
+    for (const [cite, number] of text.matchAll(/\bADRs?[\s-]+(\d{4})/g)) {
+      const adr = adrs.get(number!);
+      if (!adr) bad.push(`${file}: ${cite} does not exist`);
+      else if (/^status: superseded/m.test(adr))
+        bad.push(`${file}: ${cite} is superseded`);
+    }
+  }
+  expect(bad).toEqual([]);
 });

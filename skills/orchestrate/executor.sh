@@ -99,7 +99,7 @@ start_agent_with_trust_retry() {
 # under a second; keep the probe that cheap (macOS has no timeout(1)).
 kind_installed() { command -v "$1" >/dev/null && "$1" --version >/dev/null 2>&1; }
 
-# Who reviews a lane of LANE_KIND [on LANE_MODEL] (ADR 0003). Prints one line:
+# Who reviews a lane of LANE_KIND [on LANE_MODEL] (ADR 0010). Prints one line:
 #   <kind>\t<model>\t<fallback note, or empty>
 # The other kind when it is installed: codex on gpt-6-astra, claude on
 # claude-opus-5-5. Otherwise the lane's own kind: claude on claude-fable-5-1,

@@ -915,10 +915,13 @@ if section install; then
   mkdir -p "$H/.claude/skills" "$H/.agents/skills"; ln -s "$ROOT" "$H/.claude/skills/herdr-orchestrate"
   ln -s "$ROOT/preflight" "$H/.claude/skills/preflight"; ln -s "$TMP/tools/spec-to-plan" "$H/.claude/skills/spec-to-plan"
   ln -s "$ROOT" "$H/.agents/skills/herdr-orchestrate"; ln -s "$TMP/elsewhere" "$H/.claude/skills/other"
+  export CLAUDE_STUB_STATE="$TMP/claude-state"; : > "$CLAUDE_STUB_STATE"
   reset_stub; out=$(HOME="$H" "$ROOT/install.sh" 2>&1; echo "exit=$?")
   assert_match "install: exit 0"                      "$out" 'exit=0$'
-  assert_match "install: adds this repo as the phutschi marketplace" "$(cat "$TMP/log")" "^claude plugin marketplace add $ROOT$"
-  assert_match "install: installs the phutschi plugin" "$(cat "$TMP/log")" '^claude plugin install phutschi@phutschi$'
+  assert_match "install: adds this repo as the phutschi-tower marketplace" "$(cat "$TMP/log")" "^claude plugin marketplace add $ROOT$"
+  assert_match "install: installs tower@phutschi-tower" "$(cat "$TMP/log")" '^claude plugin install tower@phutschi-tower$'
+  assert_nomatch "install: without the old plugin, removes nothing" "$(cat "$TMP/log")" '^claude plugin (uninstall|remove|marketplace (remove|rm)) '
+  assert_eq "install: claude has the tower plugin and its marketplace" "$(sort "$CLAUDE_STUB_STATE")" "$(printf 'marketplace phutschi-tower\nplugin tower@phutschi-tower user')"
   for n in herdr-orchestrate preflight spec-to-plan; do
     [ -e "$H/.claude/skills/$n" ] || [ -L "$H/.claude/skills/$n" ] && bad "install: old ~/.claude/skills/$n link removed" || ok "install: old ~/.claude/skills/$n link removed"
   done
@@ -929,15 +932,18 @@ if section install; then
   done
   assert_eq "install: preflight linked into ~/.codex/skills" "$(readlink "$H/.codex/skills/preflight")" "$PREFLIGHT_DIR"
   assert_match "install: lists herdr as ok (stub)"    "$out" 'ok +herdr'
-  assert_match "install: tower optional"              "$out" 'tower'
+  assert_match "install: tower is required, and runs"  "$out" 'ok +tower$'
   assert_match "install: prints the two openings"     "$out" 'with a plan: +/tower:orchestrate'
   assert_match "install: prints how to plan"          "$out" '/tower:spec-to-plan'
+  assert_nomatch "install: names no old plugin or command" "$out" 'phutschi[@:]'
   assert_match "install: semgrep is optional"         "$out" 'semgrep.*optional'
   assert_match "install: gitleaks is optional"        "$out" 'gitleaks.*optional'
   links() { find "$H" -type l -exec sh -c 'printf "%s -> %s\n" "$1" "$(readlink "$1")"' _ {} \; | sort; }
   before=$(links)
-  out=$(HOME="$H" "$ROOT/install.sh" 2>&1; echo "exit=$?")
+  reset_stub; out=$(HOME="$H" "$ROOT/install.sh" 2>&1; echo "exit=$?")
   assert_match "install: idempotent"                  "$out" 'exit=0$'
+  assert_nomatch "install: a second run installs and removes nothing" "$(cat "$TMP/log")" '^claude plugin (install|uninstall|remove|marketplace (add|remove|rm)) '
+  assert_eq "install: a second run leaves claude's plugins as they are" "$(sort "$CLAUDE_STUB_STATE")" "$(printf 'marketplace phutschi-tower\nplugin tower@phutschi-tower user')"
   assert_eq "install: a second run changes no link"   "$(links)" "$before"
   assert_nomatch "install: a second run skips nothing" "$out" 'SKIPPED'
   ln -s "$ROOT" "$TMP/repo-link"; out=$(HOME="$H" "$TMP/repo-link/install.sh" 2>&1; echo "exit=$?")
@@ -952,6 +958,48 @@ if section install; then
   assert_match "install: a missing semgrep is optional" "$out" 'optional +semgrep'
   assert_match "install: a missing gitleaks is optional" "$out" 'optional +gitleaks'
   assert_match "install: missing scanners do not fail it" "$out" 'exit=0$'
+  # An old kit install: the phutschi plugin and its marketplace go, tower comes.
+  H4="$TMP/home4"; mkdir -p "$H4"; printf 'marketplace phutschi\nplugin phutschi@phutschi user\nplugin phutschi@phutschi local\nmarketplace acme-tools\n' > "$CLAUDE_STUB_STATE"
+  reset_stub; out=$(HOME="$H4" "$ROOT/install.sh" 2>&1; echo "exit=$?")
+  assert_match "migrate: exit 0"                      "$out" 'exit=0$'
+  assert_match "migrate: uninstalls phutschi@phutschi" "$(cat "$TMP/log")" '^claude plugin uninstall phutschi@phutschi --scope user$'
+  assert_match "migrate: ... from every scope it is in" "$(cat "$TMP/log")" '^claude plugin uninstall phutschi@phutschi --scope local$'
+  assert_match "migrate: removes the phutschi marketplace" "$(cat "$TMP/log")" '^claude plugin marketplace remove phutschi$'
+  assert_eq "migrate: claude keeps others' marketplaces, and has tower instead of phutschi" "$(sort "$CLAUDE_STUB_STATE")" "$(printf 'marketplace acme-tools\nmarketplace phutschi-tower\nplugin tower@phutschi-tower user')"
+  # tower installed in project scope only: updated there, not installed again.
+  printf 'marketplace phutschi-tower\nplugin tower@phutschi-tower project\n' > "$CLAUDE_STUB_STATE"
+  reset_stub; out=$(HOME="$H4" "$ROOT/install.sh" 2>&1; echo "exit=$?")
+  assert_match "scopes: a project-only tower plugin installs fine" "$out" 'exit=0$'
+  assert_match "scopes: ... is updated in its own scope" "$(cat "$TMP/log")" '^claude plugin update tower@phutschi-tower --scope project$'
+  assert_nomatch "scopes: ... and not installed again"  "$(cat "$TMP/log")" '^claude plugin install '
+  assert_eq "scopes: ... and claude has it in project scope only" "$(sort "$CLAUDE_STUB_STATE")" "$(printf 'marketplace phutschi-tower\nplugin tower@phutschi-tower project')"
+  # A local install in another directory is that directory's business.
+  printf 'marketplace phutschi-tower\nplugin tower@phutschi-tower local /elsewhere/acme\n' > "$CLAUDE_STUB_STATE"
+  reset_stub; out=$(HOME="$H4" "$ROOT/install.sh" 2>&1; echo "exit=$?")
+  assert_match "scopes: a local install elsewhere does not stop the install" "$out" 'exit=0$'
+  assert_match "scopes: ... tower is installed for the user" "$(cat "$TMP/log")" '^claude plugin install tower@phutschi-tower$'
+  assert_nomatch "scopes: ... and the other directory's install is left alone" "$(cat "$TMP/log")" '^claude plugin update '
+  assert_eq "scopes: ... claude has both"               "$(sort "$CLAUDE_STUB_STATE")" "$(printf 'marketplace phutschi-tower\nplugin tower@phutschi-tower local /elsewhere/acme\nplugin tower@phutschi-tower user')"
+  # A local install of this directory, named through a symlink, is here.
+  ln -s "$PWD" "$TMP/here"
+  printf 'marketplace phutschi-tower\nplugin tower@phutschi-tower local %s\n' "$TMP/here" > "$CLAUDE_STUB_STATE"
+  reset_stub; out=$(HOME="$H4" "$ROOT/install.sh" 2>&1; echo "exit=$?")
+  assert_match "scopes: a local install of this directory installs fine" "$out" 'exit=0$'
+  assert_match "scopes: ... is updated there"           "$(cat "$TMP/log")" '^claude plugin update tower@phutschi-tower --scope local$'
+  assert_eq "scopes: ... and claude still has it there" "$(sort "$CLAUDE_STUB_STATE")" "$(printf 'marketplace phutschi-tower\nplugin tower@phutschi-tower local %s' "$TMP/here")"
+  assert_nomatch "scopes: ... and not installed again"   "$(cat "$TMP/log")" '^claude plugin install '
+  # claude cannot say what is installed: the install fails and guesses nothing.
+  for how in CLAUDE_STUB_FAIL=list "CLAUDE_STUB_FAIL=marketplace list" CLAUDE_STUB_GARBAGE=1 CLAUDE_STUB_GARBAGE=list; do
+    printf 'marketplace phutschi\nplugin phutschi@phutschi user\n' > "$CLAUDE_STUB_STATE"
+    reset_stub; out=$(env HOME="$H4" "$how" "$ROOT/install.sh" 2>&1; echo "exit=$?")
+    assert_match "discover ($how): the failed list is named" "$out" 'FAILED +claude plugin (marketplace )?list --json'
+    assert_match "discover ($how): ... and fails the install" "$out" 'exit=1$'
+    assert_nomatch "discover ($how): ... and changes nothing in claude" "$(cat "$TMP/log")" '^claude plugin (install|uninstall|update|marketplace (add|remove|update)) '
+  done
+  : > "$CLAUDE_STUB_STATE"
+  out=$(HOME="$H4" CLAUDE_STUB_FAIL=install "$ROOT/install.sh" 2>&1; echo "exit=$?")
+  assert_match "install: a claude command that fails is named" "$out" 'FAILED +claude plugin install tower@phutschi-tower'
+  assert_match "install: ... and fails the install"    "$out" 'exit=1$'
   H2="$TMP/home2"; mkdir -p "$H2"
   out=$(HOME="$H2" "$ROOT/install.sh" --check 2>&1; echo "exit=$?")
   assert_match "check: exit 0"                        "$out" 'exit=0$'
@@ -961,6 +1009,91 @@ if section install; then
   out=$(HOME="$H2" PATH="$KIT/tests/stub:$B" "$ROOT/install.sh" --check 2>&1; echo "exit=$?")
   assert_match "check: a missing dependency is named"  "$out" 'MISSING +node'
   assert_match "check: a missing dependency fails"     "$out" 'exit=1$'
+  out=$(HOME="$H2" TOWER_STUB=absent "$ROOT/install.sh" --check 2>&1; echo "exit=$?")
+  assert_match "check: a tower that does not run is missing" "$out" 'MISSING +tower'
+  assert_match "check: ... and fails"                  "$out" 'exit=1$'
+  ln -sf "$KIT/tests/stub/herdr" "$B/herdr"; ln -sf "$(command -v node)" "$B/node"
+  out=$(HOME="$H2" DRY_RUN=0 PATH="$B" "$ROOT/install.sh" --check 2>&1; echo "exit=$?")
+  assert_match "check: no tower on PATH is missing"    "$out" 'MISSING +tower'
+  assert_match "check: ... and fails"                  "$out" 'exit=1$'
+  : > "$CLAUDE_STUB_STATE"
+  # tower missing: install.sh fetches the release binary for this version.
+  # A fixture release, served over file://, and a fake uname (Linux x86_64).
+  V=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$ROOT/.claude-plugin/plugin.json")
+  REL="$TMP/release"; mkdir -p "$REL/v$V"
+  release() {  # the fixture binary and its SHA256SUMS
+    printf '#!/bin/sh\necho "tower %s (fixture)"\n' "$V" > "$REL/v$V/tower-linux-x64"
+    (cd "$REL/v$V" && if command -v sha256sum >/dev/null; then sha256sum tower-linux-x64; else shasum -a 256 tower-linux-x64; fi) > "$REL/v$V/SHA256SUMS"
+  }
+  release
+  U="$TMP/uname"; mkdir -p "$U"
+  printf '#!/bin/sh\ncase "$1" in -s) echo "${FAKE_OS:-Linux}" ;; -m) echo "${FAKE_ARCH:-x86_64}" ;; *) echo "${FAKE_OS:-Linux}" ;; esac\n' > "$U/uname"; chmod +x "$U/uname"
+  fetch() {  # HOME BIN [VAR=VALUE...]: install.sh with tower not runnable
+    local h=$1 bin=$2; shift 2
+    env HOME="$h" TOWER_BIN_DIR="$bin" TOWER_RELEASE_URL="file://$REL" TOWER_STUB=absent PATH="$U:$PATH" "$@" "$ROOT/install.sh" 2>&1; echo "exit=$?"
+  }
+  H5="$TMP/home5"; BIN="$TMP/bin5"; mkdir -p "$H5"
+  out=$(fetch "$H5" "$BIN")
+  assert_match "fetch: exit 0"                          "$out" 'exit=0$'
+  assert_eq "fetch: the release binary is installed and runs" "$("$BIN/tower" --help 2>&1)" "tower $V (fixture)"
+  assert_match "fetch: says what it installed"          "$out" "tower-linux-x64 v$V"
+  assert_match "fetch: ... and that tower now runs"      "$out" 'ok +tower$'
+  assert_match "fetch: a tower that does not run, earlier on PATH, is named" "$out" "note +$KIT/tests/stub/tower comes first on your PATH"
+  before=$(ls -l "$BIN")
+  out=$(fetch "$H5" "$BIN")
+  assert_match "fetch: a second run exits 0"            "$out" 'exit=0$'
+  assert_nomatch "fetch: a second run fetches nothing"  "$out" 'tower-linux-x64'
+  assert_eq "fetch: ... and leaves the binary as it is" "$(ls -l "$BIN")" "$before"
+  BIN="$TMP/bin6"
+  echo 'tampered' >> "$REL/v$V/tower-linux-x64"
+  out=$(fetch "$H5" "$BIN")
+  assert_match "fetch: a checksum mismatch is refused"  "$out" 'checksum'
+  assert_match "fetch: ... and fails"                   "$out" 'exit=1$'
+  assert_eq "fetch: ... and installs nothing"           "$(ls -A "$BIN" 2>/dev/null)" ""
+  release; rm "$REL/v$V/SHA256SUMS"
+  out=$(fetch "$H5" "$BIN")
+  assert_match "fetch: a release without SHA256SUMS is refused" "$out" 'SHA256SUMS'
+  assert_match "fetch: ... and fails"                   "$out" 'exit=1$'
+  assert_eq "fetch: ... and installs nothing"           "$(ls -A "$BIN" 2>/dev/null)" ""
+  release
+  out=$(fetch "$H5" "$BIN" FAKE_OS=SunOS)
+  assert_match "fetch: an unsupported platform is named" "$out" 'SunOS'
+  assert_match "fetch: ... with the git install as the way" "$out" 'npm i(nstall)? -g github:phutschi/tower'
+  assert_match "fetch: ... and fails"                   "$out" 'exit=1$'
+  assert_eq "fetch: ... and installs nothing"           "$(ls -A "$BIN" 2>/dev/null)" ""
+  B8="$TMP/bin8"; mkdir -p "$B8"; printf '#!/bin/sh\nexit 1\n' > "$B8/tower"; chmod +x "$B8/tower"
+  out=$(fetch "$H5" "$B8")
+  assert_match "fetch: a broken tower in the bin dir is moved aside" "$out" "moved +.*$B8/tower.old"
+  assert_eq "fetch: ... kept as tower.old"              "$(cat "$B8/tower.old")" "$(printf '#!/bin/sh\nexit 1')"
+  assert_eq "fetch: ... and replaced by the release binary" "$("$B8/tower" --help 2>&1)" "tower $V (fixture)"
+  out=$(fetch "$H5" "$TMP/bin9" TOWER_RELEASE_URL="file://$TMP/no-release")
+  assert_match "fetch: a release that cannot be reached is named" "$out" "could not fetch .*SHA256SUMS"
+  out=$(env HOME="$H5" TOWER_BIN_DIR="$TMP/bin7" TOWER_RELEASE_URL="file://$REL" PATH="$U:$PATH" "$ROOT/install.sh" 2>&1; echo "exit=$?")
+  assert_eq "fetch: a tower that runs is left alone"    "$(ls -A "$TMP/bin7" 2>/dev/null)" ""
+  unset CLAUDE_STUB_STATE
+  # The git install (npm i -g github:phutschi/tower): npm runs prepare, which
+  # builds with Node alone. A copy of the package, and a PATH without bun.
+  P="$TMP/pkg"; mkdir -p "$P"
+  for f in src themes scripts package.json tsconfig.json tsconfig.build.json; do [ -e "$ROOT/$f" ] && cp -R "$ROOT/$f" "$P/"; done
+  ln -s "$ROOT/node_modules" "$P/node_modules"
+  NB="$TMP/nobun"; mkdir -p "$NB"; for t in node npm sh env dirname; do ln -sf "$(command -v $t)" "$NB/$t"; done
+  PATH="$NB" command -v bun >/dev/null && bad "prepare: the PATH has no bun" || ok "prepare: the PATH has no bun"
+  out=$(cd "$P" && HOME="$TMP/npmhome" PATH="$NB" npm_config_update_notifier=false npm run prepare 2>&1; echo "exit=$?")
+  assert_match "prepare: builds with node alone"        "$out" 'exit=0$'
+  [ -x "$P/dist/cli.js" ] && ok "prepare: dist/cli.js is executable" || bad "prepare: dist/cli.js is executable"
+  out=$(PATH="$NB" "$P/dist/cli.js" --help 2>&1; echo "exit=$?")
+  assert_match "prepare: the built tower runs with node" "$out" 'tower init'
+  assert_match "prepare: ... and exits 0"               "$out" 'exit=0$'
+  assert_nomatch "prepare: ... with no warning on stderr (Node >= 22.12)" "$out" 'ExperimentalWarning'
+  mkdir -p "$P/dist/bin"; : > "$P/dist/bin/tower-linux-x64"; : > "$P/dist/bin/SHA256SUMS"  # what compile and the release leave
+  packed=$(cd "$P" && HOME="$TMP/npmhome" npm_config_update_notifier=false npm pack --dry-run --json --ignore-scripts 2>/dev/null | python3 -c 'import json,sys; [print(f["path"]) for f in json.load(sys.stdin)[0]["files"]]')
+  assert_match "pack: ships the built CLI"               "$packed" '^dist/cli\.js$'
+  assert_match "pack: ... with its modules in subdirectories" "$packed" '^dist/commands/.+\.js$'
+  assert_match "pack: ... and the built-in theme"         "$packed" '^themes/airport\.json$'
+  assert_nomatch "pack: ... and no compiled binary or checksum" "$packed" '^dist/bin/'
+  files=$(cd "$ROOT" && HOME="$TMP/npmhome" npm_config_update_notifier=false npm pack --dry-run --json --ignore-scripts 2>/dev/null | python3 -c 'import json,sys; [print(f["path"]) for f in json.load(sys.stdin)[0]["files"]]')
+  assert_match "pack: ships the CLI"                     "$files" '^package\.json$'
+  assert_nomatch "pack: ships no skill, test.sh or install.sh" "$files" '^(skills/|test\.sh$|install\.sh$)'
 fi
 
 # --- run ---------------------------------------------------------------------

@@ -32,7 +32,7 @@ check it against the release's checksums, and put it on your `PATH` as
 missing and installs the plugin below. It also checks what `/tower:orchestrate`
 needs ([docs/orchestrate.md](docs/orchestrate.md)).
 
-**From git**, with Node ≥ 22:
+**From git**, with Node ≥ 22.12:
 
 ```sh
 npm install -g github:phutschi/tower     # builds with Node alone

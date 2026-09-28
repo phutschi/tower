@@ -14,7 +14,8 @@ and markdown, and drives a run through the CLI.
 
 ## Setup
 
-To work on tower you need Bun, and for the kit shellcheck, git and python3.
+To work on tower you need Bun and Node ≥ 22.12 (`bun install` builds `dist/` with
+Node), and for the kit shellcheck, git and python3.
 Users need only git for the CLI; `/tower:orchestrate` also needs herdr,
 python3 and node.
 

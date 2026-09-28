@@ -26,18 +26,17 @@
     "tower": "./dist/cli.js"
   },
   "files": [
-    "dist",
+    "dist/**/*.js",
     "themes",
     "README.md",
     "LICENSE"
   ],
   "engines": {
-    "node": ">=22"
+    "node": ">=22.12"
   },
   "scripts": {
     "dev": "bun run src/cli.ts",
-    "build": "bun build src/cli.ts --outdir dist --target node --format esm --splitting --packages external --banner '#!/usr/bin/env node'",
-    "postbuild": "chmod +x dist/cli.js",
+    "build": "node scripts/build.mjs",
     "compile": "./scripts/compile.sh",
     "format": "prettier --check .",
     "format:fix": "prettier --write .",
@@ -45,7 +44,8 @@
     "typecheck": "tsc --noEmit",
     "test": "bun test",
     "check": "bun run format && bun run lint && bun run typecheck && bun run test",
-    "prepublishOnly": "bun run check && bun run build"
+    "prepublishOnly": "bun run check && bun run build",
+    "prepare": "node scripts/build.mjs"
   },
   "dependencies": {
     "ink": "^7.1.1",
@@ -54,6 +54,7 @@
   "devDependencies": {
     "@eslint/js": "^9.0.0",
     "@types/bun": "^1.3.0",
+    "@types/node": "^26.4.1",
     "@types/react": "^19.2.0",
     "eslint": "^9.0.0",
     "ink-testing-library": "^4.0.0",

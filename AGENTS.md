@@ -9,7 +9,7 @@ read docs/agents.md instead.
   kit, `orchestrate`, `spec-to-plan` and `preflight`. `orchestrate` is the one
   herdr-only skill; no other skill and nothing in `src/` names herdr.
 - Runtime: `src/` uses `node:*` APIs only. No `Bun.*` (ESLint enforces it).
-  Node ≥ 22 and Bun must both run the built CLI. Users never need Bun.
+  Node ≥ 22.12 and Bun must both run the built CLI. Users never need Bun.
 - Toolchain: Bun. `bun run check` = format + lint + typecheck + test, and is
   what CI runs. Run it before every push.
 - The kit's check: `./test.sh [section…]` (`--fast` skips the slow sections),
