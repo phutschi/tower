@@ -3,7 +3,9 @@ comments. Merge-ready tone: the reader should conclude "ready to merge".
 Every trade-off reads as decided and accepted, with its reason. An area
 with nothing to say keeps its row and a one-line TLDR. -->
 
-<!-- The spec issue or plan this PR implements, as a link; "No spec linked" when none. -->
+<!-- The spec issue or plan this PR implements, as a link; "No spec linked" when none.
+To close issues on merge, give each number its own keyword: "Closes #2, closes #3".
+GitHub closes only the first of "Closes #2, #3". -->
 {{SPEC_LINK}}
 
 ## Verdict
