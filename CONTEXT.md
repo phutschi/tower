@@ -133,7 +133,7 @@ The `.herdr-orchestrate` file in a repo root: its panes, its check gate, its
 full suite as named `suite` steps, and the run's defaults for the executor
 kind and model, the reviewer models, the stale threshold and the run
 switches. Without it the kit uses the JS default and claude. The environment
-of a bootstrap or add-lane call wins over the file.
+of any kit call wins over the file.
 _Avoid_: config, override file
 
 **Run switch**:

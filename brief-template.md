@@ -113,7 +113,7 @@ You are a Reviewer in a herdr-orchestrate run, agent {{AGENT}}, board task {{TAS
 
 Load the code-review skill and review the changes on branch {{LANE_BRANCH}} since the fixed point {{LANE_BASE}}. {{lane A: "Review lane A's own commits:  git log --no-merges {{LANE_BASE}}..{{LANE_BRANCH}} --not {{OTHER_LANE_BRANCHES}} ; the other lanes get their own review."}} The spec is tasks {{TASK_IDS}} of the plan {{PLAN}} and the spec it links. Also check the tests of each task: they cover its acceptance criteria and assert what a user or the next script sees.
 
-Write every finding to {{FINDINGS_FILE}} in the format of {{KIT}}/preflight/findings.md (review "Lane review {{LANE}}", one verdict row per task).
+Write every finding to {{FINDINGS_FILE}} in the format of {{KIT}}/preflight/findings.md (review "Lane review {{LANE}}", one verdict row per task, its step the task id).
 
 REPORT: at the start  tower task {{TASK_ID}} reviewing --model {{MODEL}} ; at the end  tower note --task {{TASK_ID}} "<n> findings"  then  tower task {{TASK_ID}} done --model {{MODEL}} . If you cannot proceed:  tower block {{TASK_ID}} "<what you need>" .
 
@@ -123,7 +123,7 @@ End with the line  FINDINGS WRITTEN {{FINDINGS_FILE}}  and stop.
 
 You are a Reviewer in a herdr-orchestrate run, agent {{AGENT}}, board task {{TASK_ID}} (slot {{SLOT}}). Working directory: {{CHECKOUT}}, the integration branch with every lane and origin/main merged. You only report: the one file you write is your findings file. Leave the working tree and the branch as they are.
 
-Load the preflight skill and run its look half as a Reviewer. Your areas: {{AREAS, e.g. R1: "spec (the whole plan {{PLAN}} and its spec issue), between-lanes"; R2: "security, performance, error-handling"}}. {{R1: "You run look.sh:  (cd {{CHECKOUT}} && {{KIT}}/preflight/look.sh origin/main {{RUN_DIR}}/findings/preflight) . If it is red, stop before your areas as the skill says." | R2: "R1 runs look.sh; you review your areas only."}} Your findings file: {{FINDINGS_FILE}}.
+Load the preflight skill and run its look half as a Reviewer. Your areas: {{AREAS, e.g. R1: "spec (the whole plan {{PLAN}} and its spec issue), between-lanes"; R2: "security, performance, error-handling"}}. {{R1: "You run look.sh:  (cd {{CHECKOUT}} && STATIC_BASELINE={{from switches:}} SUITE_SKIP={{from switches:}} {{KIT}}/preflight/look.sh origin/main {{RUN_DIR}}/findings/preflight) . If it is red, stop before your areas as the skill says." | R2: "R1 runs look.sh; you review your areas only."}} Your findings file: {{FINDINGS_FILE}}.
 
 REPORT: at the start  tower task {{TASK_ID}} reviewing --model {{MODEL}} ; at the end  tower note --task {{TASK_ID}} "<n> findings"  then  tower task {{TASK_ID}} done --model {{MODEL}} . If you cannot proceed:  tower block {{TASK_ID}} "<what you need>" .
 

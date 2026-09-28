@@ -135,8 +135,10 @@ and do it in a lane anyway or suggest doing it without the kit.
 
 The pane map's `switches:` line has the values this run uses. Defaults come
 from the repo contract; the user's words override them ("no PR", "skip lane
-reviews", "plain, no tdd"): set them in the environment of bootstrap, and of
-add-lane or add-reviewer for the calls they concern.
+reviews", "plain, no tdd"): set them in bootstrap's environment.
+`add-reviewer.sh` reads them back from the pane map; `look.sh` does not, so
+the preflight slot brief passes `STATIC_BASELINE` and `SUITE_SKIP` on its
+call.
 
 | Switch | Default | What it changes |
 |---|---|---|

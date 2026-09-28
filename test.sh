@@ -354,6 +354,15 @@ if section add-reviewer; then
   out=$(cd "$cr/sub" && "$KIT/add-reviewer.sh" "$RUNS" R1 claude "From a subdir" "$RUNS/findings/sub.json" 2>&1)
   assert_match "from a subdirectory: the repo contract's REVIEWER_KIND and model are used" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start contract-switches-r1-1 --kind claude --pane [^ ]+ -- --model claude-fable-5-1$'
   assert_match "from a subdirectory: the tab opens in the repo root" "$(cat "$HERDR_STUB_LOG")" "^herdr tab create --cwd $cr --label"
+  RUNK="$TMP/run-review-switches"; reset_stub
+  (cd "$r" && REVIEWER_KIND=claude REVIEWER_MODEL=claude-sonnet-5 "$KIT/bootstrap.sh" "$RUNK" "Switches" main >/dev/null 2>&1); reset_stub
+  out=$(cd "$r" && "$KIT/add-reviewer.sh" "$RUNK" R1 claude "Lane review A" "$RUNK/findings/a.json" 2>&1)
+  assert_match "the run's switches from bootstrap reach the Reviewer" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-r1-1 --kind claude --pane [^ ]+ -- --model claude-sonnet-5$'
+  out=$(cd "$r" && EXIT_WAIT_SECONDS=0 REVIEWER_KIND=codex "$KIT/add-reviewer.sh" "$RUNK" R2 claude "Lane review A" "$RUNK/findings/b.json" 2>&1)
+  assert_match "this call's environment wins over the run's switches" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-r2-1 --kind codex --pane [^ ]+ -- -m claude-sonnet-5 '
+  RELD="$TMP/rel"; mkdir -p "$RELD"; cp -R "$RUNK" "$RELD/run"; reset_stub
+  out=$(cd "$RELD" && EXIT_WAIT_SECONDS=0 REVIEWER_KIND=codex "$KIT/add-reviewer.sh" run R2 claude "Rel" run/findings/rel.json 2>&1)
+  assert_match "a relative run dir is made absolute" "$(cat "$RELD/run/panes.txt")" "^reviewer R2: .*findings $RELD/run/findings/rel.json\\)$"
   RUN2="$TMP/run-review-nt"; reset_stub
   (cd "$r" && TOWER_STUB=absent "$KIT/bootstrap.sh" "$RUN2" "NT" main "$KIT/example-tasks.tsv" >/dev/null 2>&1)
   out=$(cd "$r" && TOWER_STUB=absent "$KIT/add-reviewer.sh" "$RUN2" R1 claude "Lane review A" "$RUN2/findings/a.json" 2>&1)

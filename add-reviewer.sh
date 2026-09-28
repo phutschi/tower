@@ -8,9 +8,11 @@
 # Run it from the orchestrator's pane after bootstrap.sh. lane-kind is the kind
 # (claude | codex) of the lane under review; for a preflight slot, the kind
 # whose other kind should review. The Reviewer's kind and model come from
-# executor.sh reviewer_for (REVIEWER_KIND and REVIEWER_MODEL from the repo
-# contract or this call's environment). It works in lane A's checkout, read
-# from the pane map. The title must not hold a tab or a newline.
+# executor.sh reviewer_for (REVIEWER_KIND and REVIEWER_MODEL from the
+# pane map's switches: line, the run's values from bootstrap; this call's
+# environment wins over them). It works in lane A's checkout, read from the
+# pane map. <run-dir> and <findings-file> may be relative to where it is
+# called. The title must not hold a tab or a newline.
 #
 # The first call opens the review tab with two panes, slots R1 and R2:
 #
@@ -53,6 +55,13 @@ RUN_DIR="$1"; SLOT="$2"; LANE_KIND="$3"; TITLE="$4"; FINDINGS="$5"
 MAP="$RUN_DIR/panes.txt"
 [ -f "$MAP" ] || die "no pane map at $MAP: run bootstrap.sh first"
 case "$SLOT" in R1|R2) ;; *) die "slot must be R1 or R2 (got '$SLOT')" ;; esac
+# Absolute, since the rest runs from lane A's checkout.
+RUN_DIR="$(cd "$RUN_DIR" && pwd)"; MAP="$RUN_DIR/panes.txt"
+case "$FINDINGS" in /*) ;; *) FINDINGS="$PWD/$FINDINGS" ;; esac
+# The run's switches, as bootstrap resolved them, unless this call sets one.
+for _kv in $(sed -nE 's/^switches: +//p' "$MAP"); do
+  _k=${_kv%%=*}; [ -n "${!_k+set}" ] || export "$_kv"
+done; unset _kv _k
 case "$LANE_KIND" in claude|codex) ;; *) die "lane kind must be claude or codex (got '$LANE_KIND')" ;; esac
 # The Reviewer works in lane A's checkout (the integration branch), where the
 # repo contract lives too.
