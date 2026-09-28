@@ -116,6 +116,7 @@ test("the example tasks and fixtures are neutral", () => {
   const neutral = files.filter(
     (f) =>
       f === "skills/orchestrate/example-tasks.tsv" ||
+      f === "skills/orchestrate/tests/example-plan.md" ||
       f.startsWith("skills/orchestrate/tests/fixtures/"),
   );
   expect(neutral.length).toBeGreaterThan(1);
