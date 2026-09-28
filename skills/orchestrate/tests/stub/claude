@@ -3,9 +3,11 @@
 # CLAUDE_STUB=absent refuses to run, so the kind counts as not installed
 # (command -v still finds this stub).
 # `plugin` and `plugin marketplace` keep what is installed in CLAUDE_STUB_STATE,
-# one `marketplace <name>` or `plugin <id> <scope>` line each, and list it as
-# claude's --json does. CLAUDE_STUB_FAIL=<command> (install, uninstall, add,
-# remove, update) makes that command fail.
+# one `marketplace <name>` or `plugin <id> <scope> [<project path>]` line each
+# (a project or local install elsewhere has a path), and list it as
+# claude's --json does. CLAUDE_STUB_FAIL=<command> makes that command fail:
+# install, uninstall, update or list, or marketplace add, remove, update or
+# list. CLAUDE_STUB_GARBAGE=1 makes the lists print something that is not JSON.
 [ "${CLAUDE_STUB:-}" = absent ] && { echo "claude: not installed (stub)" >&2; exit 127; }
 printf 'claude %s\n' "$*" >> "${HERDR_STUB_LOG:-/dev/null}"
 state="${CLAUDE_STUB_STATE:-${HERDR_STUB_COUNTER:-${TMPDIR:-/tmp}/herdr-stub-counter}.claude}"
@@ -15,26 +17,26 @@ drop() { has "$1" || { echo "claude: $1 not found (stub)" >&2; exit 1; }; grep -
 json() {  # KIND: the state's lines of that kind as claude's --json list
   sed -n "s/^$1 //p" "$state" 2>/dev/null | awk -v kind="$1" '
     { printf "%s", (NR > 1 ? "," : "[") }
-    kind == "plugin" { printf "{\"id\":\"%s\",\"scope\":\"%s\"}", $1, $2 }
+    kind == "plugin" { printf "{\"id\":\"%s\",\"scope\":\"%s\"%s}", $1, $2, ($3 == "" ? "" : ",\"projectPath\":\"" $3 "\"") }
     kind != "plugin" { printf "{\"name\":\"%s\",\"source\":\"directory\"}", $1 }
     END { print (NR ? "]" : "[]") }'
 }
 scope() { local s=user; while [ $# -gt 0 ]; do [ "$1" = --scope ] && s=$2; shift; done; echo "$s"; }
 cmd="${1:-} ${2:-}"; [ "$cmd" = "plugin marketplace" ] && cmd="$cmd ${3:-}"
 case "$cmd" in
-  "plugin marketplace "*) verb=$3; arg=${4:-} ;;
+  "plugin marketplace "*) verb="marketplace $3"; arg=${4:-} ;;
   "plugin "*)             verb=$2; arg=${3:-} ;;
   *)                      verb=$1 ;;
 esac
 [ -n "${CLAUDE_STUB_FAIL:-}" ] && [ "$verb" = "$CLAUDE_STUB_FAIL" ] && { echo "claude: $verb failed (stub)" >&2; exit 1; }
 case "$cmd" in
   --version*)                        echo "claude (stub)" ;;
-  "plugin marketplace list")         json marketplace ;;
+  "plugin marketplace list")         if [ -n "${CLAUDE_STUB_GARBAGE:-}" ]; then echo "not json"; else json marketplace; fi ;;
   "plugin marketplace add")          name=$(sed -n '/"name"/{s/^ *"name": *"\([^"]*\)".*/\1/p;q;}' "$arg/.claude-plugin/marketplace.json" 2>/dev/null)
                                      put "marketplace ${name:-$(basename "$arg")}" ;;
   "plugin marketplace remove"|"plugin marketplace rm") drop "marketplace $arg" ;;
   "plugin marketplace update")       has "marketplace $arg" || exit 1 ;;
-  "plugin list")                     json plugin ;;
+  "plugin list")                     if [ -n "${CLAUDE_STUB_GARBAGE:-}" ]; then echo "not json"; else json plugin; fi ;;
   "plugin install")                  has "marketplace ${arg#*@}" || { echo "claude: marketplace ${arg#*@} not found (stub)" >&2; exit 1; }
                                      put "plugin $arg $(scope "$@")" ;;
   "plugin uninstall"|"plugin remove") drop "plugin $arg $(scope "$@")" ;;

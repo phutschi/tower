@@ -912,6 +912,20 @@ if section install; then
   assert_match "scopes: a project-only tower plugin installs fine" "$out" 'exit=0$'
   assert_match "scopes: ... is updated in its own scope" "$(cat "$TMP/log")" '^claude plugin update tower@phutschi-tower --scope project$'
   assert_nomatch "scopes: ... and not installed again"  "$(cat "$TMP/log")" '^claude plugin install '
+  # A local install in another directory is that directory's business.
+  printf 'marketplace phutschi-tower\nplugin tower@phutschi-tower local /elsewhere/acme\n' > "$CLAUDE_STUB_STATE"
+  reset_stub; out=$(HOME="$H4" "$ROOT/install.sh" 2>&1; echo "exit=$?")
+  assert_match "scopes: a local install elsewhere does not stop the install" "$out" 'exit=0$'
+  assert_match "scopes: ... tower is installed for the user" "$(cat "$TMP/log")" '^claude plugin install tower@phutschi-tower$'
+  assert_nomatch "scopes: ... and the other directory's install is left alone" "$(cat "$TMP/log")" '^claude plugin update '
+  # claude cannot say what is installed: the install fails and guesses nothing.
+  for how in CLAUDE_STUB_FAIL=list "CLAUDE_STUB_FAIL=marketplace list" CLAUDE_STUB_GARBAGE=1; do
+    printf 'marketplace phutschi\nplugin phutschi@phutschi user\n' > "$CLAUDE_STUB_STATE"
+    reset_stub; out=$(env HOME="$H4" "$how" "$ROOT/install.sh" 2>&1; echo "exit=$?")
+    assert_match "discover ($how): the failed list is named" "$out" 'FAILED +claude plugin (marketplace )?list --json'
+    assert_match "discover ($how): ... and fails the install" "$out" 'exit=1$'
+    assert_nomatch "discover ($how): ... and changes nothing in claude" "$(cat "$TMP/log")" '^claude plugin (install|uninstall|update|marketplace (add|remove|update)) '
+  done
   : > "$CLAUDE_STUB_STATE"
   out=$(HOME="$H4" CLAUDE_STUB_FAIL=install "$ROOT/install.sh" 2>&1; echo "exit=$?")
   assert_match "install: a claude command that fails is named" "$out" 'FAILED +claude plugin install tower@phutschi-tower'

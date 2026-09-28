@@ -100,27 +100,42 @@ if command -v claude >/dev/null; then
   echo "plugin:"
   # try WHAT CMD...: run a claude command, and say what it did or that it failed.
   try() { local what=$1; shift; if "$@" >/dev/null; then echo "  $what"; else echo "  FAILED    $*" >&2; ok=0; fi; }
-  # The scopes claude has plugin $1 installed in, one per line.
-  scopes() { claude plugin list --json 2>/dev/null | python3 -c 'import json,sys; [print(p.get("scope","user")) for p in json.load(sys.stdin) if p.get("id")==sys.argv[1]]' "$1" 2>/dev/null; }
-  marketplace() { claude plugin marketplace list --json 2>/dev/null | python3 -c 'import json,sys; sys.exit(not any(m.get("name")==sys.argv[1] for m in json.load(sys.stdin)))' "$1" 2>/dev/null; }
-  # The kit's old plugin: a second orchestrator next to tower's.
-  for s in $(scopes phutschi@phutschi); do
-    try "removed   phutschi@phutschi ($s scope, old plugin)" claude plugin uninstall phutschi@phutschi --scope "$s"
-  done
-  marketplace phutschi && try "removed   marketplace phutschi (old)" claude plugin marketplace remove phutschi
-  # An existing phutschi-tower marketplace is kept and updated, wherever it points.
-  if marketplace phutschi-tower; then
-    try "updated   marketplace phutschi-tower" claude plugin marketplace update phutschi-tower
-  else
-    try "added     marketplace phutschi-tower -> $ROOT" claude plugin marketplace add "$ROOT"
-  fi
-  tower_scopes=$(scopes tower@phutschi-tower)
-  if [ -n "$tower_scopes" ]; then
-    for s in $tower_scopes; do
-      try "updated   tower@phutschi-tower ($s scope)" claude plugin update tower@phutschi-tower --scope "$s"
+  # listed CMD...: the JSON list a claude list command prints. When claude
+  # cannot say, it is FAILED: the install changes nothing and does not guess.
+  listed() {
+    local out
+    if out=$("$@" 2>/dev/null) && printf '%s' "$out" | python3 -c 'import json,sys; sys.exit(not isinstance(json.load(sys.stdin), list))' 2>/dev/null; then
+      printf '%s' "$out"
+    else
+      echo "  FAILED    $* (claude could not list what is installed, so no plugin was changed)" >&2; return 1
+    fi
+  }
+  # The scopes plugin $1 is installed in for here: user, or a project or local
+  # install of this directory. Other directories' installs are theirs.
+  scopes() { printf '%s' "$PLUGINS" | python3 -c 'import json,os,sys; here=os.path.realpath(os.getcwd()); [print(p.get("scope","user")) for p in json.load(sys.stdin) if p.get("id")==sys.argv[1] and (not p.get("projectPath") or os.path.realpath(p["projectPath"])==here)]' "$1"; }
+  marketplace() { printf '%s' "$MARKETS" | python3 -c 'import json,sys; sys.exit(not any(m.get("name")==sys.argv[1] for m in json.load(sys.stdin)))' "$1"; }
+  if PLUGINS=$(listed claude plugin list --json) && MARKETS=$(listed claude plugin marketplace list --json); then
+    # The kit's old plugin: a second orchestrator next to tower's.
+    for s in $(scopes phutschi@phutschi); do
+      try "removed   phutschi@phutschi ($s scope, old plugin)" claude plugin uninstall phutschi@phutschi --scope "$s"
     done
+    marketplace phutschi && try "removed   marketplace phutschi (old)" claude plugin marketplace remove phutschi
+    # An existing phutschi-tower marketplace is kept and updated, wherever it points.
+    if marketplace phutschi-tower; then
+      try "updated   marketplace phutschi-tower" claude plugin marketplace update phutschi-tower
+    else
+      try "added     marketplace phutschi-tower -> $ROOT" claude plugin marketplace add "$ROOT"
+    fi
+    tower_scopes=$(scopes tower@phutschi-tower)
+    if [ -n "$tower_scopes" ]; then
+      for s in $tower_scopes; do
+        try "updated   tower@phutschi-tower ($s scope)" claude plugin update tower@phutschi-tower --scope "$s"
+      done
+    else
+      try "installed tower@phutschi-tower" claude plugin install tower@phutschi-tower
+    fi
   else
-    try "installed tower@phutschi-tower" claude plugin install tower@phutschi-tower
+    ok=0
   fi
 fi
 
