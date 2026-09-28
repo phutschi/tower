@@ -5,27 +5,52 @@
 #
 # .herdr-orchestrate is plain bash in the repo root (see example.herdr-orchestrate):
 #   CHECK_CMD="bun run check"           the check gate; one-shot, must pass before a commit
+#   INSTALL_CMD="make deps"             what add-lane.sh runs in a new lane's worktree; default:
+#                                       the package manager's install, none without a package.json
 #   pane checks "bun test --watch"      pane NAME "CMD" [DIR]; DIR relative to the checkout
 #   pane dev    "bun run dev" apps/web  only checks and dev are placed
 #   EXECUTOR_KIND=codex                 the lanes' harness: claude (default) | codex
 #   EXECUTOR_MODEL=gpt-6-astra          the lanes' model (executor.sh has the kind's default)
 #   SPEC_REVIEWER_MODEL=sonnet          the two reviewer models tower records for the run
 #   QUALITY_REVIEWER_MODEL=opus
-#   STALE=30                            minutes before the console flags a lane as stale
-# plus PM, TYPECHECK_TASK, TEST_PKG and TEST_FILTER to steer the detection below.
+#   STALE=30                            minutes before the console and tower wait flag a lane as stale
+#   suite lint "bun run lint" [DIR]     suite NAME "CMD" [DIR]: the full suite as named steps, in order
+# plus PM, TYPECHECK_TASK, TEST_PKG and TEST_FILTER to steer the detection below,
+# and the run switches (default first; a value outside the list, or on more than
+# one line, is refused):
+#   TASK_REVIEW LANE_REVIEW PREFLIGHT STATIC_BASELINE   on | off
+#   PR                                                   draft | ready | off
+#   METHOD                                               tdd | plain
+#   REVIEWER_KIND                                        other | claude | codex
+#   REVIEWER_MODEL REVIEW_AREAS SUITE_SKIP PR_TEMPLATE   free text, empty by default;
+#                                                        lists are comma-separated
 # A value set in the environment of the bootstrap or add-lane call wins over the
-# file; anything else the file sets is ignored with a note.
+# file, even an empty one (REVIEW_AREAS= clears the file's list); anything else
+# the file sets is ignored with a note. The switches keep their plain names (PR,
+# METHOD, ...), so an unrelated PR or METHOD in the calling shell is read too.
 #
 # Sets: PM PM_EXEC PM_RUN INSTALL_CMD TYPECHECK_TASK CHECK_CMD
+#       INSTALL_WHY  (why INSTALL_CMD is empty, for the one line add-lane.sh prints)
 #       EXECUTOR_KIND EXECUTOR_MODEL SPEC_REVIEWER_MODEL QUALITY_REVIEWER_MODEL STALE  (when the file sets them)
 #       PANE_NAMES PANE_CMDS PANE_DIRS   (parallel arrays; pane_index NAME finds one)
+#       NO_RUNNER   1 when no checks pane is declared and no test runner is detected
+#                   (the checks pane then only echoes a note), else 0
+#       SUITE_NAMES SUITE_CMDS SUITE_DIRS  (parallel arrays in contract order; empty without suite lines)
+#       every switch above, exported; switches_line prints them all on one line,
+#       NAME=value, a value with spaces or quotes single-quoted the shell's way
 
-CONTRACT_VARS="EXECUTOR_KIND EXECUTOR_MODEL SPEC_REVIEWER_MODEL QUALITY_REVIEWER_MODEL STALE PM TYPECHECK_TASK CHECK_CMD TEST_PKG TEST_FILTER"
+CONTRACT_VARS="EXECUTOR_KIND EXECUTOR_MODEL SPEC_REVIEWER_MODEL QUALITY_REVIEWER_MODEL STALE PM TYPECHECK_TASK CHECK_CMD INSTALL_CMD TEST_PKG TEST_FILTER $SWITCHES"
 PANE_NAMES=(); PANE_CMDS=(); PANE_DIRS=()
+SUITE_NAMES=(); SUITE_CMDS=(); SUITE_DIRS=()
 pane() {
   case "${1:-}" in checks|dev) ;; *) die ".herdr-orchestrate: unknown pane '${1:-}' (only checks and dev are placed)" ;; esac
   [ -n "${2:-}" ] || die ".herdr-orchestrate: pane $1 needs a command"
   PANE_NAMES[${#PANE_NAMES[@]}]="$1"; PANE_CMDS[${#PANE_CMDS[@]}]="$2"; PANE_DIRS[${#PANE_DIRS[@]}]="${3:-.}"
+}
+suite() {
+  [ -n "${1:-}" ] || die ".herdr-orchestrate: suite needs a name"
+  [ -n "${2:-}" ] || die ".herdr-orchestrate: suite $1 needs a command"
+  SUITE_NAMES[${#SUITE_NAMES[@]}]="$1"; SUITE_CMDS[${#SUITE_CMDS[@]}]="$2"; SUITE_DIRS[${#SUITE_DIRS[@]}]="${3:-.}"
 }
 pane_index() {  # prints the index of pane NAME, nothing when absent
   local i=0
@@ -38,12 +63,14 @@ if [ -f .herdr-orchestrate ]; then
   # Environment first: remember what the call set, source the file, put the
   # call's values back. Unknown names in the file are left alone but named,
   # so a typo does not pass silently.
-  _env=""
-  for _v in $CONTRACT_VARS; do [ -n "${!_v:-}" ] && _env="$_env $_v=${!_v}"; done
+  _env=()
+  for _v in $CONTRACT_VARS; do [ -z "${!_v+set}" ] || _env+=("$_v=${!_v}"); done
   _before="$(compgen -v | sort)"
   . ./.herdr-orchestrate
-  for _kv in $_env; do export "$_kv"; done
-  _new="$(comm -13 <(echo "$_before") <(compgen -v | sort) | grep -vE '^(_|PANE_|CONTRACT_VARS$)')"
+  for _kv in ${_env[@]+"${_env[@]}"}; do export "$_kv"; done
+  # grep finds nothing when the file adds no names (only pane and suite lines);
+  # that is not an error for a caller running under set -e and pipefail.
+  _new="$(comm -13 <(echo "$_before") <(compgen -v | sort) | { grep -vE '^(_|PANE_)' || true; })"
   for _v in $_new; do
     case " $CONTRACT_VARS " in *" $_v "*) ;; *) echo ".herdr-orchestrate: '$_v' is not a setting the kit reads (see example.herdr-orchestrate)" >&2 ;; esac
   done
@@ -60,11 +87,19 @@ if [ -z "${PM:-}" ]; then
   fi
 fi
 case "$PM" in
-  bun)  PM_EXEC="bunx";      PM_RUN="bun run";  INSTALL_CMD="bun install" ;;
-  pnpm) PM_EXEC="pnpm exec"; PM_RUN="pnpm run"; INSTALL_CMD="pnpm install" ;;
-  yarn) PM_EXEC="yarn exec"; PM_RUN="yarn run"; INSTALL_CMD="yarn install" ;;
-  *)    PM_EXEC="npx";       PM_RUN="npm run";  INSTALL_CMD="npm install" ;;
+  bun)  PM_EXEC="bunx";      PM_RUN="bun run";  _install="bun install" ;;
+  pnpm) PM_EXEC="pnpm exec"; PM_RUN="pnpm run"; _install="pnpm install" ;;
+  yarn) PM_EXEC="yarn exec"; PM_RUN="yarn run"; _install="yarn install" ;;
+  *)    PM_EXEC="npx";       PM_RUN="npm run";  _install="npm install" ;;
 esac
+# The lane install: the package manager's, and nothing without a package.json.
+# Set, even empty, it wins.
+INSTALL_WHY="INSTALL_CMD is empty"
+if [ -z "${INSTALL_CMD+set}" ]; then
+  if [ -f package.json ]; then INSTALL_CMD=$_install
+  else INSTALL_CMD=""; INSTALL_WHY="no package.json and no INSTALL_CMD in .herdr-orchestrate"; fi
+fi
+unset _install
 
 # --- which script is "typecheck" here? ---------------------------------------
 if [ -z "${TYPECHECK_TASK:-}" ]; then
@@ -119,17 +154,51 @@ herdr_default_test_cmd() {  # $1 = test filter; run from the package directory
     if (PM === "bun")                           return `bun test --watch${filter}`;
     return "";
   })());
-  ' 2>/dev/null
+  ' 2>/dev/null || true   # no node: no runner detected, not an error
 }
+NO_RUNNER=0
 if [ -z "$(pane_index checks)" ]; then
   TEST_PKG="${TEST_PKG:-.}"
   _cmd="$( cd "$TEST_PKG" 2>/dev/null || cd .; herdr_default_test_cmd "${TEST_FILTER:-}" )"
-  [ -n "$_cmd" ] || _cmd="echo 'herdr-orchestrate: no test runner detected; declare  pane checks \"<cmd>\"  in .herdr-orchestrate'"
+  if [ -z "$_cmd" ]; then
+    NO_RUNNER=1
+    _cmd="echo 'herdr-orchestrate: no test runner detected; declare  pane checks \"<cmd>\"  in .herdr-orchestrate'"
+  fi
   pane checks "$_cmd" "$TEST_PKG"
   unset _cmd
 fi
 
-export PM PM_EXEC PM_RUN INSTALL_CMD TYPECHECK_TASK CHECK_CMD
+# --- the run switches --------------------------------------------------------
+TASK_REVIEW="${TASK_REVIEW:-on}"; LANE_REVIEW="${LANE_REVIEW:-on}"
+PREFLIGHT="${PREFLIGHT:-on}";     STATIC_BASELINE="${STATIC_BASELINE:-on}"
+PR="${PR:-draft}"; METHOD="${METHOD:-tdd}"; REVIEWER_KIND="${REVIEWER_KIND:-other}"
+REVIEWER_MODEL="${REVIEWER_MODEL:-}"; REVIEW_AREAS="${REVIEW_AREAS:-}"
+SUITE_SKIP="${SUITE_SKIP:-}";         PR_TEMPLATE="${PR_TEMPLATE:-}"
+switch_allows() {  # NAME "a, b or c" VALUE...: refuse NAME unless its value is one of VALUE...
+  local name="$1" say="$2" v; shift 2
+  for v in "$@"; do [ "${!name}" = "$v" ] && return 0; done
+  die "$name must be $say (got '${!name}')"
+}
+for _v in TASK_REVIEW LANE_REVIEW PREFLIGHT STATIC_BASELINE; do switch_allows "$_v" "on or off" on off; done; unset _v
+switch_allows PR            "draft, ready or off"     draft ready off
+switch_allows METHOD        "tdd or plain"            tdd plain
+switch_allows REVIEWER_KIND "other, claude or codex"  other claude codex
+for _v in $SWITCHES; do  # one line each, for the pane map's switches: line
+  case "${!_v}" in *$'\n'*) die "$_v must be one line" ;; esac
+done; unset _v
+switches_line() {  # every switch and its value, on one line; a value with any
+  # character outside [A-Za-z0-9_.,:/@%+-] is single-quoted the shell's way, so
+  # add-reviewer.sh reads it back whole (python3 shlex, no eval, no globbing)
+  local v val out=""
+  for v in $SWITCHES; do
+    val=${!v}
+    case "$val" in *[!A-Za-z0-9_.,:/@%+-]*) val="'$(printf '%s' "$val" | sed "s/'/'\\\\''/g")'" ;; esac
+    out="$out $v=$val"
+  done
+  echo "${out# }"
+}
+
+export PM PM_EXEC PM_RUN INSTALL_CMD TYPECHECK_TASK CHECK_CMD $SWITCHES
 for _v in EXECUTOR_KIND EXECUTOR_MODEL SPEC_REVIEWER_MODEL QUALITY_REVIEWER_MODEL STALE; do
   [ -z "${!_v:-}" ] || export "$_v"
 done; unset _v

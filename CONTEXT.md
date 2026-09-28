@@ -42,8 +42,9 @@ the task list and lane ownership.
 
 **Orchestrator**:
 The session the user talks to. It sets up the layout, loads or derives the
-task list, briefs lanes, watches, merges finished lanes, and closes. It never
-implements.
+task list, briefs lanes, watches, merges finished lanes and `main`, and
+closes. It never implements: a merge that conflicts is aborted and becomes a
+task for lane A.
 _Avoid_: main session, controller, manager
 
 **Lane**:
@@ -60,6 +61,37 @@ _Avoid_: worker, implementer (a tower role name), agent (herdr's word)
 The one message that gives a lane all its tasks, method, other lanes, merge
 points and reporting rules.
 _Avoid_: prompt, instructions
+
+**Reviewer**:
+An agent that reviews finished work it did not write, by default of the other
+kind than the executors. It only reports findings; the orchestrator decides
+what becomes a fix task and which lane does it.
+_Avoid_: review lane, reviewer model (tower's per-task review roles inside a lane)
+
+**Lane review**:
+A Reviewer's review of one lane's diff, after the lane reports ready and
+before the orchestrator merges it. Fixes go back to the same lane.
+_Avoid_: per-task review (the executor's own review inside a lane)
+
+**Preflight**:
+The check of a whole branch before its PR: static analysis, the repo's full
+suite, and agent review by area. A generic skill of its own; the last phase
+of a run.
+_Avoid_: pre-PR check, final review
+
+**Preflight round**:
+One look of preflight and the act on it, with its own findings dir. After
+fixes the next round looks at the whole branch again.
+_Avoid_: re-review (a lane review's word), fix round
+
+**Finding**:
+One problem a review reports, with the file and line it cites. Triage gives
+it one outcome: fix, accept, follow-up or reject.
+
+**Follow-up**:
+A finding chosen to be done later. It always becomes an issue in the repo's
+issue tracker, linked from the PR.
+_Avoid_: todo, deferred finding
 
 **Integration branch**:
 Lane A's branch, the feature branch of the run. Finished lanes are merged into
@@ -96,12 +128,26 @@ checkout. One per run, never per lane.
 The one-shot command a lane must pass before committing a task. Declared by
 the repo, or the JS default.
 
+**Full suite**:
+The repo's thorough checks, run once in preflight on the whole branch: every
+test, typecheck, lint and build. Slower and broader than the check gate.
+_Avoid_: check gate (that runs per task), checks pane (that watches)
+
 **Repo contract**:
-The `.herdr-orchestrate` file in a repo root: its panes, its check gate, and
-the run's defaults for the executor kind and model, the reviewer models and
-the stale threshold. Without it the kit uses the JS default and claude. The
-environment of a bootstrap or add-lane call wins over the file.
+The `.herdr-orchestrate` file in a repo root: its panes, its check gate, its
+full suite as named `suite` steps, and the run's defaults for the executor
+kind and model, the reviewer models, the stale threshold and the run
+switches. Without it the kit uses the JS default and claude. The environment
+of any kit call wins over the file.
 _Avoid_: config, override file
+
+**Run switch**:
+One setting that turns a stage or choice of the run on, off or to a variant:
+per-task review, lane review, preflight, static baseline, PR mode, method,
+reviewer kind and model, review areas, skipped suite steps, PR template. The
+repo contract sets its default, the user's message overrides it, and the pane
+map's `switches:` line records the value the run used.
+_Avoid_: flag, option, profile
 
 ### Watching
 

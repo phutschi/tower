@@ -1,0 +1,6 @@
+rules:
+  - id: no-eval
+    pattern: eval(...)
+    message: eval runs arbitrary code
+    languages: [javascript]
+    severity: ERROR

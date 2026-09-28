@@ -12,11 +12,17 @@
 #        │ lane C   │ lane D   │
 #
 # The kind is per lane (executor.sh). Worktrees live at
-# <repo>/.worktrees/<branch>; the repo package manager installs (from here, log
-# in <run-dir>/install-<lane>.log) and .env (gitignored) is copied once the
-# agent owns the pane. The worktree shares the repo's common git dir, so `tower`
-# inside it finds the run with no flags. Without tower, ownership goes to
-# <run-dir>/lanes.txt.
+# <repo>/.worktrees/<branch>; INSTALL_CMD installs (from here, log in
+# <run-dir>/install-<lane>.log): the repo contract's, else the package manager's
+# when there is a package.json, else nothing, said in one line. .env
+# (gitignored) is copied once the agent owns the pane. The worktree shares the
+# repo's common git dir, so `tower` inside it finds the run with no flags. Without tower, ownership goes to
+# <run-dir>/lanes.txt. A run switch with a value outside its list (see
+# detect-stack.sh) is refused here as in bootstrap.sh; the run's values are the
+# pane map's  switches:  line.
+#
+# START_TRIES (environment, default 10): how often an agent start is tried,
+# a second apart, while its new pane's shell is not ready yet (executor.sh).
 #
 # Never run this for real to see what it does; use DRY_RUN=1, which answers
 # every herdr and tower call from tests/stub and touches nothing.
@@ -44,7 +50,7 @@ TARGET=$(lane_pane "$ANCHOR")
 REPO_ROOT="$(repo_root)"
 WT="$REPO_ROOT/.worktrees/$BRANCH"
 _here="$PWD"; cd "$REPO_ROOT"
-. "$KIT/detect-stack.sh"   # INSTALL_CMD, and .herdr-orchestrate's EXECUTOR_* (the environment wins)
+. "$KIT/detect-stack.sh"   # INSTALL_CMD, .herdr-orchestrate's EXECUTOR_* (the environment wins); refuses a bad run switch
 cd "$_here"; unset _here
 . "$KIT/executor.sh"       # EXECUTOR_KIND, EXECUTOR_MODEL, agent_name, start_agent*
 NAME="$(agent_name "-lane-$(echo "$LANE" | tr 'A-Z' 'a-z')")"
@@ -64,7 +70,8 @@ PANE=$(herdr pane move "$WT_PANE" --tab "$HERDR_TAB_ID" --split "$SPLIT" --targe
 # oh-my-zsh dotenv plugin does exactly that when it finds a .env). Same wait
 # as before, from a subshell, with the output kept in the run dir.
 INSTALL_LOG="$RUN_DIR/install-$LANE.log"
-if [ "${DRY_RUN:-0}" = 1 ]; then echo "[dry-run] (cd $WT && $INSTALL_CMD) > $INSTALL_LOG"
+if [ -z "$INSTALL_CMD" ]; then echo "add-lane: no install: $INSTALL_WHY"
+elif [ "${DRY_RUN:-0}" = 1 ]; then echo "[dry-run] (cd $WT && $INSTALL_CMD) > $INSTALL_LOG"
 elif ! ( cd "$WT" && eval "$INSTALL_CMD" ) >"$INSTALL_LOG" 2>&1; then
   echo "add-lane: install failed (see $INSTALL_LOG); starting the agent anyway" >&2
   tail -n 5 "$INSTALL_LOG" >&2

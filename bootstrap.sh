@@ -27,14 +27,27 @@
 #        └──────┴──────────┴──────────────────┘
 #
 # checks and dev come from .herdr-orchestrate (see example.herdr-orchestrate)
-# or the JS default (detect-stack.sh); both run in lane A's checkout. Lane A is
-# EXECUTOR_KIND (claude | codex) on EXECUTOR_MODEL: .herdr-orchestrate sets the
-# run's default, the environment of this call overrides it (executor.sh).
+# or the JS default (detect-stack.sh); both run in lane A's checkout. With no
+# checks pane declared and no test runner detected, one info: line on stderr
+# says so. Lane A is EXECUTOR_KIND (claude | codex) on EXECUTOR_MODEL:
+# .herdr-orchestrate sets the run's default, the environment of this call
+# overrides it (executor.sh).
 #
 # Writes <run-dir>/panes.txt, the pane map for the whole run, then prints it
-# with the next step. The console pane stays open after the run: it is the
-# record, and the human quits it with q. Nothing is torn down until the user
-# says so.
+# with the next step. The pane map's  switches:  line holds every run switch
+# and the value this run uses (detect-stack.sh); the same line goes to the
+# record, as a  tower note  or into run.txt without tower. So does the
+#  reviewer:  line: the kind and model that review lane A (executor.sh
+# reviewer_for; in a codex-only run add-reviewer.sh reviews a codex lane on
+# that lane's model when the call names the lane), with the fallback note when
+# one applied, or none
+# when LANE_REVIEW and PREFLIGHT are both off. A forced REVIEWER_KIND that is
+# not installed is refused before anything is written. The console pane
+# stays open after the run: it is the record, and the human quits it with q.
+# Nothing is torn down until the user says so.
+#
+# START_TRIES (environment, default 10): how often an agent start is tried,
+# a second apart, while its new pane's shell is not ready yet (executor.sh).
 #
 # Never run this for real to see what it does; use DRY_RUN=1, which answers
 # every herdr and tower call from tests/stub and touches nothing.
@@ -64,6 +77,16 @@ SPEC_REVIEWER_MODEL="${SPEC_REVIEWER_MODEL:-sonnet}"
 QUALITY_REVIEWER_MODEL="${QUALITY_REVIEWER_MODEL:-opus}"
 STALE="${STALE:-30}"
 LANE_A="$(agent_name -lane-a)"
+# Who reviews lane A (and every lane of its kind); refused here, before the run
+# dir exists, when a forced REVIEWER_KIND is not installed.
+if [ "$LANE_REVIEW" = off ] && [ "$PREFLIGHT" = off ]; then
+  REVIEWER="none (LANE_REVIEW=off, PREFLIGHT=off)"
+else
+  _rev=$(reviewer_for "$EXECUTOR_KIND")
+  IFS=$'\t' read -r R_KIND R_MODEL R_NOTE <<< "$_rev"
+  REVIEWER="kind $R_KIND, model $R_MODEL${R_NOTE:+ ($R_NOTE)}"
+  unset _rev
+fi
 
 # --- the record --------------------------------------------------------------
 mkdir -p "$RUN_DIR"
@@ -79,6 +102,8 @@ if [ "$HAVE_TOWER" = 1 ]; then
   elif [ -n "$SOURCE" ]; then
     tower assign A "$(tower state --json | jsonq '",".join(t["id"] for t in d["tasks"])')"
   fi
+  tower note "switches: $(switches_line)"
+  tower note "reviewer: $REVIEWER"
 else
   case "$SOURCE" in
     "")   printf '# id\ttitle\tarea\tlane\n' > "$RUN_DIR/tasks.tsv" ;;
@@ -97,6 +122,8 @@ tasks:            $RUN_DIR/$(case "$SOURCE" in *.md) echo plan.md ;; *) echo tas
 implementer:      $EXECUTOR_MODEL ($EXECUTOR_KIND)
 spec-reviewer:    $SPEC_REVIEWER_MODEL
 quality-reviewer: $QUALITY_REVIEWER_MODEL
+switches:         $(switches_line)
+reviewer:         $REVIEWER
 TXT
 fi
 
@@ -117,6 +144,7 @@ else
   CONSOLE_PANE=$(split --pane "$BOTTOM" --direction right --ratio 0.5)
 fi
 run_in "$CHECKS_PANE" "${PANE_DIRS[$CHECKS_I]}" "${PANE_CMDS[$CHECKS_I]}"
+[ "$NO_RUNNER" = 0 ] || echo 'info: no test runner detected: the checks pane has nothing to run; declare  pane checks "<cmd>"  in .herdr-orchestrate' >&2
 GITLOG_CMD='while true; do clear; date +%H:%M:%S; git log --color=always --oneline --graph --decorate=short --branches="*" -14 | cut -c1-$(( $(tput cols) + 60 )); sleep 5; done'
 if [ "$HAVE_TOWER" = 1 ]; then herdr pane run "$CONSOLE_PANE" "tower --stale $STALE" >/dev/null
 else herdr pane run "$CONSOLE_PANE" "$GITLOG_CMD" >/dev/null; fi
@@ -131,6 +159,8 @@ else herdr pane run "$CONSOLE_PANE" "$GITLOG_CMD" >/dev/null; fi
   if [ "$HAVE_TOWER" = 1 ]; then echo "console:        $CONSOLE_PANE   (tower; the record — stays open, the human quits it with q)"
   else echo "console:        $CONSOLE_PANE   (git log; no tower — the run dir is the record: run.txt, tasks.tsv, lanes.txt)"; fi
   echo "check gate:     $CHECK_CMD"
+  echo "switches:       $(switches_line)"
+  echo "reviewer:       $REVIEWER"
   echo "toolchain:      $PM"
   echo "read a pane:    herdr pane read <id> --source recent-unwrapped --lines 60"
 } > "$RUN_DIR/panes.txt"
@@ -149,4 +179,5 @@ else
 fi
 echo "       herdr agent prompt $LANE_A \"\$(cat $RUN_DIR/brief-A.md)\""
 echo "more lanes:  $KIT/add-lane.sh $RUN_DIR B <branch> $BRANCH <ids>"
-echo "watch:       tower wait --timeout 540 --stale $STALE   and   $KIT/watch-lanes.sh $RUN_DIR $LANE_A   (both in the background)"
+if [ "$HAVE_TOWER" = 1 ]; then echo "watch:       tower wait --timeout 540 --stale $STALE   and   $KIT/watch-lanes.sh $RUN_DIR $LANE_A   (both in the background)"
+else echo "watch:       $KIT/watch-lanes.sh $RUN_DIR $LANE_A   (in the background)"; fi

@@ -1,0 +1,3 @@
+pane checks "make watch"
+suite lint "make lint"
+suite test "make test"

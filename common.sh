@@ -1,11 +1,13 @@
 # Sourced first by every script in the kit. Expects `set -u`.
 #
-# DRY_RUN=1 puts tests/stub first on PATH: herdr and tower are then stand-ins
-# that log their argv (HERDR_STUB_LOG, default stderr) and answer with canned
-# JSON, so a script can be run outside herdr to see what it would do. test.sh
-# runs everything this way.
+# DRY_RUN=1 puts tests/stub first on PATH: herdr, tower, claude and codex are
+# then stand-ins that log their argv (HERDR_STUB_LOG, default stderr) and
+# answer with canned JSON, so a script can be run outside herdr to see what it
+# would do. test.sh runs everything this way.
 KIT="${KIT:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 die()      { echo "$*" >&2; exit 1; }
+# The run switches' names (detect-stack.sh gives them their values).
+SWITCHES="TASK_REVIEW LANE_REVIEW PREFLIGHT STATIC_BASELINE PR METHOD REVIEWER_KIND REVIEWER_MODEL REVIEW_AREAS SUITE_SKIP PR_TEMPLATE"
 if [ "${DRY_RUN:-0}" = 1 ]; then
   # A broken or non-executable stub would otherwise fall through silently to
   # whatever herdr/tower is next on PATH — the real ones. Refuse instead.
