@@ -61,7 +61,7 @@ for _tool in herdr tower claude codex semgrep gitleaks; do
   [ "$_which" = "$KIT/tests/stub/$_tool" ] || { echo "test.sh: $_tool resolves to '$_which', not the stub ($KIT/tests/stub/$_tool) — refusing to run" >&2; exit 1; }
 done
 unset _tool _which
-reset_stub() { : > "$HERDR_STUB_LOG"; rm -f "$HERDR_STUB_COUNTER" "$HERDR_STUB_COUNTER.busy"; }
+reset_stub() { : > "$HERDR_STUB_LOG"; rm -f "$HERDR_STUB_COUNTER" "$HERDR_STUB_COUNTER.busy" "$HERDR_STUB_COUNTER.tower-ids"; }
 # A git repo built from tests/fixtures/<name> (or empty). Prints its path.
 fixture_repo() {
   local d="$TMP/repos/$1"
@@ -458,6 +458,23 @@ if section add-reviewer; then
   grep -v '^orchestrator:' "$RUNG/panes.txt" > "$RUNG/panes.tmp"; mv "$RUNG/panes.tmp" "$RUNG/panes.txt"
   assert_match "a pane map without an orchestrator line is refused" \
     "$(cd "$r" && "$KIT/add-reviewer.sh" "$RUNG" R1 claude "Gone" "$RUNG/findings/a.json" 2>&1)" "no orchestrator line in $RUNG/panes.txt"
+  RUNF="$TMP/run-review-failed"; reset_stub
+  (cd "$r" && "$KIT/bootstrap.sh" "$RUNF" "Failed" main >/dev/null 2>&1)
+  out=$(cd "$r" && HERDR_STUB_BUSY_STARTS=99 START_TRIES=1 "$KIT/add-reviewer.sh" "$RUNF" R1 claude "Try" "$RUNF/findings/a.json" 2>&1; echo "exit=$?")
+  assert_match "a Reviewer that does not start: add-reviewer fails" "$out" 'exit=1$'
+  : > "$HERDR_STUB_LOG"
+  out=$(cd "$r" && "$KIT/add-reviewer.sh" "$RUNF" R1 claude "Try again" "$RUNF/findings/a.json" 2>&1; echo "exit=$?")
+  assert_match "after a failed start, the same slot works again" "$out" 'exit=0$'
+  assert_match "the retry starts the Reviewer"        "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-r1-1 '
+  assert_match "the retry keeps the review's task id" "$(cat "$RUNF/panes.txt")" '^reviewer R1: .*agent "bun-vitest-r1-1".*review "Try again"'
+  assert_match "the retry says it reuses the task"    "$out" '^reusing task R1-1: '
+  RUNFN="$TMP/run-review-failed-nt"; reset_stub
+  (cd "$r" && TOWER_STUB=absent "$KIT/bootstrap.sh" "$RUNFN" "Failed NT" main >/dev/null 2>&1)
+  (cd "$r" && TOWER_STUB=absent HERDR_STUB_BUSY_STARTS=99 START_TRIES=1 "$KIT/add-reviewer.sh" "$RUNFN" R1 claude "Try" "$RUNFN/findings/a.json" >/dev/null 2>&1)
+  out=$(cd "$r" && TOWER_STUB=absent "$KIT/add-reviewer.sh" "$RUNFN" R1 claude "Try again" "$RUNFN/findings/a.json" 2>&1; echo "exit=$?")
+  assert_match "no tower: after a failed start, the same slot works again" "$out" 'exit=0$'
+  assert_eq "no tower: one line for the review in tasks.tsv" "$(grep -c '^R1-1	' "$RUNFN/tasks.tsv")" 1
+  assert_eq "no tower: one ownership line in lanes.txt" "$(grep -c '^R1=R1-1$' "$RUNFN/lanes.txt")" 1
   RUN4="$TMP/run-review-busy"; reset_stub
   (cd "$r" && "$KIT/bootstrap.sh" "$RUN4" "Busy" main >/dev/null 2>&1); reset_stub
   out=$(cd "$r" && HERDR_STUB_BUSY_STARTS=1 "$KIT/add-reviewer.sh" "$RUN4" R1 claude "Busy" "$RUN4/findings/a.json" 2>&1; echo "exit=$?")

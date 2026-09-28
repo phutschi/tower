@@ -31,7 +31,10 @@
 #     tower add "<title>" --id R1-<n> --area review --lane R1
 #   without tower a line in <run-dir>/tasks.tsv (id R1-<n>, area review; the
 #   file is created with its header if the run has none) and R1=R1-<n> in
-#   <run-dir>/lanes.txt;
+#   <run-dir>/lanes.txt. When that id is already there (an earlier call for the
+#   slot added it, then its Reviewer did not start), the task is reused under
+#   this call's title and "reusing task <id>: ..." is printed: a failed call can
+#   simply be run again;
 #   the pane map (<run-dir>/panes.txt):
 #     review tab:     <tab-id>   (R1 <pane-id>, R2 <pane-id>)   once, on the first call
 #     reviewer R1:    <pane-id>   (agent "<name>", kind <kind>, model <model>, review "<title>", findings <file>)
@@ -131,13 +134,27 @@ if [ -z "$TAB_LINE" ]; then
 fi
 
 # --- the review on the board: a refusal stops before anything opens ----------
+# The id can already be there: an earlier call for this slot added it, then its
+# Reviewer did not start, so no reviewer line counted it. That task is reused,
+# under this call's title.
+REUSED=0
 if tower_ok; then
-  tower add "$TITLE" --id "$ID" --area review --lane "$SLOT" >/dev/null
+  if ! out=$(tower add "$TITLE" --id "$ID" --area review --lane "$SLOT" 2>&1); then
+    case "$out" in *"already exists"*) ;; *) die "$out" ;; esac
+    tower change "$ID" --title "$TITLE" >/dev/null
+    REUSED=1
+  fi
 else
   [ -f "$RUN_DIR/tasks.tsv" ] || printf '# id\ttitle\tarea\tlane\n' > "$RUN_DIR/tasks.tsv"
+  if grep -q "^$ID	" "$RUN_DIR/tasks.tsv"; then
+    { grep -v "^$ID	" "$RUN_DIR/tasks.tsv" || [ $? -eq 1 ]; } > "$RUN_DIR/tasks.tsv.tmp"
+    mv "$RUN_DIR/tasks.tsv.tmp" "$RUN_DIR/tasks.tsv"
+    REUSED=1
+  fi
   printf '%s\t%s\treview\t%s\n' "$ID" "$TITLE" "$SLOT" >> "$RUN_DIR/tasks.tsv"
-  echo "$SLOT=$ID" >> "$RUN_DIR/lanes.txt"
+  grep -qx "$SLOT=$ID" "$RUN_DIR/lanes.txt" 2>/dev/null || echo "$SLOT=$ID" >> "$RUN_DIR/lanes.txt"
 fi
+[ "$REUSED" = 0 ] || echo "reusing task $ID: an earlier call for $SLOT added it, but its Reviewer did not start"
 
 # --- the review tab, on the first call ----------------------------------------
 if [ -z "$TAB_LINE" ]; then
