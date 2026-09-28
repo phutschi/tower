@@ -5,16 +5,33 @@
 #
 #   ./test.sh            all sections
 #   ./test.sh bootstrap  one section (a word from the "# ---" headings below)
+#   ./test.sh --fast     all sections but the slow ones (SLOW): the check gate's
+#                        mode; the full suite runs them all
+#   ./test.sh --list     the sections that would run, one per line; runs nothing
+#
+# A new section runs in both modes unless it is added to SLOW.
 set -u
 KIT="$(cd "$(dirname "$0")" && pwd)"; export KIT
-ONLY="${1:-}"
+SLOW="look run"   # preflight's look.sh and one whole run: ~12 of ~35 seconds
+ONLY=""; LIST=0; FAST=0
+for _a in "$@"; do
+  case "$_a" in
+    --list) LIST=1 ;;
+    --fast) FAST=1 ;;
+    *)      ONLY=$_a ;;
+  esac
+done; unset _a
 pass=0; fail=0
 ok()  { pass=$((pass+1)); echo "ok   $1"; }
 bad() { fail=$((fail+1)); echo "FAIL $1"; shift; printf '     %s\n' "$@"; }
 assert_eq()      { [ "$2" = "$3" ] && ok "$1" || bad "$1" "expected: $3" "got:      $2"; }
 assert_match()   { printf '%s\n' "$2" | grep -qE -- "$3" && ok "$1" || bad "$1" "no match for /$3/ in:" "$2"; }
 assert_nomatch() { printf '%s\n' "$2" | grep -qE -- "$3" && bad "$1" "unexpected match for /$3/ in:" "$2" || ok "$1"; }
-section() { [ -z "$ONLY" ] || [ "$ONLY" = "$1" ]; }
+section() {
+  [ -z "$ONLY" ] || [ "$ONLY" = "$1" ] || return 1
+  [ "$FAST" = 0 ] || case " $SLOW " in *" $1 "*) return 1 ;; esac
+  [ "$LIST" = 0 ] || { echo "$1"; return 1; }
+}
 
 TMP=$(cd "$(mktemp -d)" && pwd -P); trap 'rm -rf "$TMP"' EXIT
 export DRY_RUN=1 HERDR_STUB_LOG="$TMP/log" HERDR_STUB_COUNTER="$TMP/counter" HERDR_STUB_STATES_DIR="$TMP/states"
@@ -151,6 +168,9 @@ if section detect; then
   assert_eq "suite: steps in contract order, DIR defaulting to ." \
     "$(detect_in "$r" 'for i in 0 1 2; do printf "%s|%s|%s;" "${SUITE_NAMES[$i]}" "${SUITE_CMDS[$i]}" "${SUITE_DIRS[$i]}"; done')" \
     "lint|make lint|.;test|make test|pkg/core;build|make build|.;"
+  assert_match "this repo's contract: the check gate runs the fast tests and shellcheck" "$(detect_in "$KIT" 'echo "$CHECK_CMD"')" '^\./test\.sh --fast && shellcheck '
+  assert_eq "this repo's contract: the full suite is every test, then shellcheck" "$(detect_in "$KIT" 'echo "${SUITE_NAMES[*]}|${SUITE_CMDS[0]}"')" "tests shellcheck|./test.sh"
+  assert_nomatch "this repo's contract: a checks pane, no unknown settings" "$(detect_in "$KIT" 'echo "${PANE_CMDS[0]}"')" 'no test runner detected|not a setting'
   assert_eq "suite: none without suite lines" "$(detect_in "$(fixture_repo none)" 'echo ${#SUITE_NAMES[@]}')" 0
   r=$(fixture_repo contract-switches-bad)
   assert_match "switches: a bad value is refused with the allowed values" "$(detect_in "$r" 'echo reached')" "PR must be draft, ready or off \(got 'maybe'\)"
@@ -705,5 +725,17 @@ if section run; then
   unset -f in_repo review
 fi
 
+# --- runner ------------------------------------------------------------------
+if section runner; then
+  list=$("$KIT/test.sh" --list 2>&1)
+  assert_match "--list: names the sections, one per line" "$list" '^bootstrap$'
+  assert_match "--list: the slow ones too"               "$list" '^look$'
+  assert_nomatch "--list: runs no test"                  "$list" '^(ok|FAIL) '
+  fast=$("$KIT/test.sh" --fast --list 2>&1)
+  assert_nomatch "--fast: skips the slow sections"       "$fast" '^(look|run)$'
+  assert_eq "--fast: runs every other section" "$(printf '%s\n' "$fast" | wc -l | tr -d ' ')" "$(( $(printf '%s\n' "$list" | wc -l) - 2 ))"
+fi
+
+[ "$LIST" = 0 ] || exit 0
 echo; echo "$pass passed, $fail failed"
 [ "$fail" = 0 ]

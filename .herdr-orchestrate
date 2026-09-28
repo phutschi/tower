@@ -1,0 +1,14 @@
+# .herdr-orchestrate — the kit's own Repo contract (see example.herdr-orchestrate).
+# A bash repo: no package.json, so no install and no JS default.
+
+# The check gate: the fast tests (./test.sh --fast skips the slow sections),
+# then the same shellcheck call CI makes.
+CHECK_CMD='./test.sh --fast && shellcheck -S warning *.sh tests/stub/* preflight/*.sh'
+
+# The checks pane: the fast tests again whenever HEAD or the working tree
+# changes, showing only failures and the count.
+pane checks 'last=; while true; do now="$(git rev-parse HEAD; git status --porcelain; git diff | cksum)"; if [ "$now" != "$last" ]; then clear; date +%H:%M:%S; ./test.sh --fast | grep -E -A2 "^FAIL|passed,"; last=$now; fi; sleep 5; done'
+
+# The full suite, for preflight: every test section, then shellcheck.
+suite tests      './test.sh'
+suite shellcheck 'shellcheck -S warning *.sh tests/stub/* preflight/*.sh'

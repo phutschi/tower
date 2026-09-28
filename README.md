@@ -175,6 +175,9 @@ from any directory shows the same for a real repo.
 `shellcheck -S warning *.sh tests/stub/* preflight/*.sh` lints
 (`.shellcheckrc` holds the deliberate exceptions). CI runs both on Linux and
 macOS.
+`./test.sh --fast` skips the slow sections (preflight's look and the whole
+run) and is the check gate in the kit's own `.herdr-orchestrate`; the full
+`./test.sh` is its full suite.
 
 ## Design
 
