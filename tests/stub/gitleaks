@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Stand-in for gitleaks under DRY_RUN=1 and test.sh. Logs argv to HERDR_STUB_LOG
 # and answers `gitleaks git --report-path -` with an empty JSON report.
-# GITLEAKS_STUB=finding (one leak), =error (exit 2) and =absent (refuses to
-# run, so it counts as not installed).
+# GITLEAKS_STUB=finding (one leak; its match shows the secret unless --redact
+# was given), =error (exit 2) and =absent (refuses to run, so it counts as not
+# installed).
 [ "${GITLEAKS_STUB:-}" = absent ] && { echo "gitleaks: not installed (stub)" >&2; exit 127; }
 printf 'gitleaks %s\n' "$*" >> "${HERDR_STUB_LOG:-/dev/null}"
 case "${1:-}" in
@@ -10,6 +11,7 @@ case "${1:-}" in
 esac
 case "${GITLEAKS_STUB:-}" in
   error)   echo "gitleaks: not a git repository (stub)" >&2; exit 2 ;;
-  finding) echo '[{"RuleID":"generic-api-key","Description":"Generic API Key","File":"app.js","StartLine":2,"Commit":"abc1234","Secret":"REDACTED","Match":"key = REDACTED"}]' ;;
+  finding) secret=GLSTUBSECRET; case " $* " in *" --redact "*) secret=REDACTED ;; esac
+           echo '[{"RuleID":"generic-api-key","Description":"Generic API Key","File":"app.js","StartLine":2,"Commit":"abc1234","Secret":"'"$secret"'","Match":"key = '"$secret"'"}]' ;;
   *)       echo '[]' ;;
 esac

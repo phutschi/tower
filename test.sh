@@ -273,8 +273,9 @@ for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'],
   r=$(look_repo none findings); reset_stub
   out=$(SEMGREP_STUB=finding GITLEAKS_STUB=finding look "$r" base "$F")
   f=$(findings "$F/look.json")
-  assert_match "look: a semgrep result is a finding"     "$f" '^security must-fix new\.py:3 stub finding \| semgrep stub\.rule$'
-  assert_nomatch "look: the matched code is not copied (it may hold a secret)" "$(cat "$F/look.json")" 'eval\(input\)'
+  assert_match "look: a semgrep result is a finding"     "$f" '^security must-fix new\.py:3 stub\.rule \| semgrep ERROR$'
+  assert_nomatch "look: semgrep's matched code and message are not copied (they may quote a secret)" "$(cat "$F/look.json")" 'AKIASTUBSECRET'
+  assert_nomatch "look: gitleaks runs with its secrets redacted" "$(cat "$F/look.json")" 'GLSTUBSECRET'
   assert_match "look: a gitleaks result is a finding"    "$f" '^security must-fix app\.js:2 Generic API Key \| gitleaks generic-api-key in commit abc1234: key = REDACTED$'
   assert_match "look: the review is named look"          "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["review"])' "$F/look.json")" '^look$'
   v=$(verdict "$F/look.json")
@@ -287,6 +288,11 @@ for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'],
   assert_match "look: a missing scanner is a warn row"   "$v" '^semgrep warn semgrep is not installed'
   assert_match "look: the run continues past a missing scanner" "$v" '^gitleaks pass $'
   assert_match "look: a missing scanner is not a failure" "$out" 'exit=0$'
+  reset_stub; out=$(SEMGREP_STUB=error look "$r" base "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: semgrep's error reason is in its warn row" "$v" '^semgrep warn semgrep exited 2: Invalid scanning root: gone\.js$'
+  reset_stub; out=$(SEMGREP_STUB=garbage look "$r" base "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: unreadable scanner output is a warn row" "$v" '^semgrep warn could not read semgrep output$'
+  assert_match "look: unreadable scanner output does not stop the run" "$v" '^gitleaks pass $'
   reset_stub; out=$(GITLEAKS_STUB=error look "$r" base "$F"); v=$(verdict "$F/look.json")
   assert_match "look: a scanner that errors is a warn row with its message" "$v" '^gitleaks warn gitleaks exited 2: gitleaks: not a git repository \(stub\)$'
   reset_stub; out=$(STATIC_BASELINE=off SEMGREP_STUB=finding look "$r" base "$F"); v=$(verdict "$F/look.json")
@@ -296,6 +302,26 @@ for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'],
   r=$(look_repo none same); reset_stub; out=$(SEMGREP_STUB=finding GITLEAKS_STUB=finding look "$r" feat "$F"); v=$(verdict "$F/look.json")
   assert_nomatch "look: no changed files, no scan"       "$(cat "$HERDR_STUB_LOG")" '^(semgrep|gitleaks) (scan|git)'
   assert_match "look: no changed files is a skip row"    "$v" '^semgrep skip no changed files$'
+  assert_match "look: no commits, gitleaks is a skip row" "$v" '^gitleaks skip no commits since the base$'
+  r=$(look_repo none added-then-deleted)
+  printf 'k\n' > "$r/leak.js"; git -C "$r" add leak.js; git -C "$r" commit -qm leak
+  git -C "$r" rm -q leak.js new.py; git -C "$r" checkout -q base -- app.js; git -C "$r" commit -qm unleak
+  reset_stub; out=$(look "$r" base "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: no net change still scans the commits for secrets" "$(cat "$HERDR_STUB_LOG")" '^gitleaks git '
+  assert_match "look: no net change skips semgrep"       "$v" '^semgrep skip no changed files$'
+  r=$(look_repo none odd-names)
+  printf 'z\n' > "$r/café app.js"; git -C "$r" add -A; git -C "$r" commit -qm odd
+  rm "$r/new.py"
+  reset_stub; out=$(look "$r" base "$F"); log=$(cat "$HERDR_STUB_LOG")
+  assert_match "look: a file name with spaces and accents is passed as is" "$log" '^semgrep scan .* -- app\.js café app\.js$'
+  assert_nomatch "look: a file missing from the checkout is not scanned" "$log" '^semgrep .*new\.py'
+  mkdir -p "$r/sub"; reset_stub
+  out=$(cd "$r/sub" && "$KIT/preflight/look.sh" base rel-findings 2>&1; echo "exit=$?")
+  assert_match "look: runs from a subdirectory"          "$(cat "$HERDR_STUB_LOG")" '^semgrep scan .* -- app\.js café app\.js$'
+  assert_eq "look: a relative findings dir is relative to where it was called" "$(verdict "$r/sub/rel-findings/look.json" | head -1)" "semgrep pass "
+  out=$(look "$r" nosuchref "$F")
+  assert_match "look: an unknown base is refused"        "$out" "no merge base between 'nosuchref' and HEAD"
+  assert_match "look: an unknown base exits 1"           "$out" 'exit=1$'
   assert_eq "look: no changed files, no findings"        "$(findings "$F/look.json")" ""
   r=$(look_repo none clean2); reset_stub
   out=$(SEMGREP_STUB=finding look "$r" base "$F")
