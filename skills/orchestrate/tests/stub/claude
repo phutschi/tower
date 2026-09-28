@@ -22,9 +22,18 @@ json() {  # KIND: the state's lines of that kind as claude's --json list
     kind != "plugin" { printf "{\"name\":\"%s\",\"source\":\"directory\"}", $1 }
     END { print (NR ? "]" : "[]") }'
 }
-# row ID SCOPE: the plugin row with that id and scope, whatever its path (claude
-# acts on the current directory's project or local install).
-row() { awk -v id="$1" -v sc="$2" '$1 == "plugin" && $2 == id && $3 == sc { print; exit }' "$state" 2>/dev/null; }
+# row ID SCOPE: the plugin row with that id and scope that claude acts on here:
+# no path, or a path that is this directory (claude acts on the current
+# directory's project or local install).
+row() {
+  local kind id sc path here; here=$(pwd -P)
+  while read -r kind id sc path; do
+    [ "$kind $id $sc" = "plugin $1 $2" ] || continue
+    if [ -z "$path" ] || [ "$(cd "$path" 2>/dev/null && pwd -P)" = "$here" ]; then
+      echo "$kind $id $sc${path:+ $path}"; return
+    fi
+  done < "$state"
+}
 scope() { local s=user; while [ $# -gt 0 ]; do [ "$1" = --scope ] && s=$2; shift; done; echo "$s"; }
 cmd="${1:-} ${2:-}"; [ "$cmd" = "plugin marketplace" ] && cmd="$cmd ${3:-}"
 case "$cmd" in

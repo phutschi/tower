@@ -912,12 +912,14 @@ if section install; then
   assert_match "scopes: a project-only tower plugin installs fine" "$out" 'exit=0$'
   assert_match "scopes: ... is updated in its own scope" "$(cat "$TMP/log")" '^claude plugin update tower@phutschi-tower --scope project$'
   assert_nomatch "scopes: ... and not installed again"  "$(cat "$TMP/log")" '^claude plugin install '
+  assert_eq "scopes: ... and claude has it in project scope only" "$(sort "$CLAUDE_STUB_STATE")" "$(printf 'marketplace phutschi-tower\nplugin tower@phutschi-tower project')"
   # A local install in another directory is that directory's business.
   printf 'marketplace phutschi-tower\nplugin tower@phutschi-tower local /elsewhere/acme\n' > "$CLAUDE_STUB_STATE"
   reset_stub; out=$(HOME="$H4" "$ROOT/install.sh" 2>&1; echo "exit=$?")
   assert_match "scopes: a local install elsewhere does not stop the install" "$out" 'exit=0$'
   assert_match "scopes: ... tower is installed for the user" "$(cat "$TMP/log")" '^claude plugin install tower@phutschi-tower$'
   assert_nomatch "scopes: ... and the other directory's install is left alone" "$(cat "$TMP/log")" '^claude plugin update '
+  assert_eq "scopes: ... claude has both"               "$(sort "$CLAUDE_STUB_STATE")" "$(printf 'marketplace phutschi-tower\nplugin tower@phutschi-tower local /elsewhere/acme\nplugin tower@phutschi-tower user')"
   # A local install of this directory, named through a symlink, is here.
   ln -s "$PWD" "$TMP/here"
   printf 'marketplace phutschi-tower\nplugin tower@phutschi-tower local %s\n' "$TMP/here" > "$CLAUDE_STUB_STATE"
