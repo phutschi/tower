@@ -13,12 +13,13 @@
 set -u
 KIT="$(cd "$(dirname "$0")" && pwd)"; export KIT
 SLOW="look run"   # preflight's look.sh and one whole run: ~12 of ~35 seconds
-ONLY=""; LIST=0; FAST=0
+ONLY=""; LIST=0; FAST=0; MATCHED=0
 for _a in "$@"; do
   case "$_a" in
     --list) LIST=1 ;;
     --fast) FAST=1 ;;
-    *)      ONLY=$_a ;;
+    --*)    echo "test.sh: unknown flag $_a" >&2; exit 2 ;;
+    *)      [ -z "$ONLY" ] || { echo "test.sh: one section at most" >&2; exit 2; }; ONLY=$_a ;;
   esac
 done; unset _a
 pass=0; fail=0
@@ -29,6 +30,7 @@ assert_match()   { printf '%s\n' "$2" | grep -qE -- "$3" && ok "$1" || bad "$1" 
 assert_nomatch() { printf '%s\n' "$2" | grep -qE -- "$3" && bad "$1" "unexpected match for /$3/ in:" "$2" || ok "$1"; }
 section() {
   [ -z "$ONLY" ] || [ "$ONLY" = "$1" ] || return 1
+  MATCHED=1
   [ "$FAST" = 0 ] || case " $SLOW " in *" $1 "*) return 1 ;; esac
   [ "$LIST" = 0 ] || { echo "$1"; return 1; }
 }
@@ -732,10 +734,20 @@ if section runner; then
   assert_match "--list: the slow ones too"               "$list" '^look$'
   assert_nomatch "--list: runs no test"                  "$list" '^(ok|FAIL) '
   fast=$("$KIT/test.sh" --fast --list 2>&1)
-  assert_nomatch "--fast: skips the slow sections"       "$fast" '^(look|run)$'
-  assert_eq "--fast: runs every other section" "$(printf '%s\n' "$fast" | wc -l | tr -d ' ')" "$(( $(printf '%s\n' "$list" | wc -l) - 2 ))"
+  # shellcheck disable=SC2086 # SLOW is a list of words
+  assert_nomatch "--fast: skips the slow sections"       "$fast" "^($(echo $SLOW | tr ' ' '|'))\$"
+  # shellcheck disable=SC2086
+  assert_eq "--fast: runs every other section" "$(printf '%s\n' "$fast" | wc -l | tr -d ' ')" "$(( $(printf '%s\n' "$list" | wc -l) - $(set -- $SLOW; echo $#) ))"
+  out=$("$KIT/test.sh" --fsat 2>&1; echo "exit=$?")
+  assert_match "an unknown flag is refused"              "$out" "test.sh: unknown flag --fsat"
+  assert_match "an unknown flag fails"                   "$out" 'exit=2$'
+  out=$("$KIT/test.sh" lok 2>&1; echo "exit=$?")
+  assert_match "an unknown section is refused"           "$out" "test.sh: no section named lok"
+  assert_match "an unknown section fails"                "$out" 'exit=2$'
+  assert_match "two sections are refused"                "$("$KIT/test.sh" bootstrap detect 2>&1)" "test.sh: one section at most"
 fi
 
+[ -z "$ONLY" ] || [ "$MATCHED" = 1 ] || { echo "test.sh: no section named $ONLY (./test.sh --list)" >&2; exit 2; }
 [ "$LIST" = 0 ] || exit 0
 echo; echo "$pass passed, $fail failed"
 [ "$fail" = 0 ]
