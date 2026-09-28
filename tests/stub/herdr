@@ -4,10 +4,11 @@
 # tree through HERDR_STUB_COUNTER. Agent states come from
 # HERDR_STUB_STATES_DIR/<name> (a status word, or "gone"; with several lines,
 # each `agent get` answers the first and drops it, the last one stays), pane
-# tails from HERDR_STUB_STATES_DIR/<name>.tail. Every pane is in workspace ws-0; `pane get`
-# answers pane_not_found when HERDR_STUB_STATES_DIR/<pane-id> says gone. HERDR_STUB_BUSY_STARTS=N answers
-# the first N `agent start` calls with agent_pane_busy (a pane whose shell is not
-# ready yet), counted through HERDR_STUB_COUNTER.busy.
+# tails from HERDR_STUB_STATES_DIR/<name>.tail. Every pane is in workspace
+# ws-0; `pane get` answers pane_not_found when HERDR_STUB_STATES_DIR/<pane-id>
+# says gone. HERDR_STUB_BUSY_STARTS=N answers the first N `agent start` calls
+# with agent_pane_busy (a pane whose shell is not ready yet), counted through
+# HERDR_STUB_COUNTER.busy.
 printf 'herdr %s\n' "$*" >> "${HERDR_STUB_LOG:-/dev/null}"
 counter="${HERDR_STUB_COUNTER:-${TMPDIR:-/tmp}/herdr-stub-counter}"
 next_id() { local n; n=$(cat "$counter" 2>/dev/null || echo 0); n=$((n+1)); echo "$n" > "$counter"; echo "pane-$n"; }

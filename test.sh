@@ -408,11 +408,18 @@ if section add-reviewer; then
   assert_eq "no tower, planned from a .md: tasks.tsv is the header and the review" "$(cat "$RUN3/tasks.tsv")" "$(printf '# id\ttitle\tarea\tlane\nR1-1\tLane review A\treview\tR1')"
   RUNG="$TMP/run-review-gone"; reset_stub
   (cd "$r" && "$KIT/bootstrap.sh" "$RUNG" "Gone" main >/dev/null 2>&1); reset_stub
-  echo gone > "$S/pane-0"
-  out=$(cd "$r" && "$KIT/add-reviewer.sh" "$RUNG" R1 claude "Gone" "$RUNG/findings/a.json" 2>&1)
-  rm -f "$S/pane-0"
+  echo gone > "$S/pane-0"; before=$(cat "$RUNG/panes.txt")
+  out=$(cd "$r" && "$KIT/add-reviewer.sh" "$RUNG" R1 claude "Gone" "$RUNG/findings/a.json" 2>&1; echo "exit=$?")
   assert_match "no orchestrator pane: refused, naming it" "$out" 'no workspace for the orchestrator pane pane-0'
+  assert_match "no orchestrator pane: exits non-zero" "$out" 'exit=1$'
   assert_nomatch "no orchestrator pane: no tab, no board task" "$(cat "$HERDR_STUB_LOG")" '^(herdr tab create|herdr agent start|tower add)'
+  assert_eq "no orchestrator pane: the pane map is unchanged" "$(cat "$RUNG/panes.txt")" "$before"
+  out=$(cd "$r" && TOWER_STUB=absent "$KIT/add-reviewer.sh" "$RUNG" R1 claude "Gone" "$RUNG/findings/a.json" 2>&1)
+  [ -e "$RUNG/tasks.tsv" ] && bad "no orchestrator pane, no tower: no tasks.tsv" || ok "no orchestrator pane, no tower: no tasks.tsv"
+  rm -f "$S/pane-0"
+  grep -v '^orchestrator:' "$RUNG/panes.txt" > "$RUNG/panes.tmp"; mv "$RUNG/panes.tmp" "$RUNG/panes.txt"
+  assert_match "a pane map without an orchestrator line is refused" \
+    "$(cd "$r" && "$KIT/add-reviewer.sh" "$RUNG" R1 claude "Gone" "$RUNG/findings/a.json" 2>&1)" "no orchestrator line in $RUNG/panes.txt"
   RUN4="$TMP/run-review-busy"; reset_stub
   (cd "$r" && "$KIT/bootstrap.sh" "$RUN4" "Busy" main >/dev/null 2>&1); reset_stub
   out=$(cd "$r" && HERDR_STUB_BUSY_STARTS=1 "$KIT/add-reviewer.sh" "$RUN4" R1 claude "Busy" "$RUN4/findings/a.json" 2>&1; echo "exit=$?")
