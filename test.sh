@@ -32,6 +32,10 @@ mkdir -p "$HERDR_STUB_STATES_DIR"
 # script run outside test.sh and outside DRY_RUN=1 from driving real panes).
 _herdr_which=$(bash -c ". \"$KIT/common.sh\"; command -v herdr" 2>/dev/null || true)
 _tower_which=$(bash -c ". \"$KIT/common.sh\"; command -v tower" 2>/dev/null || true)
+for _t in semgrep gitleaks; do
+  _w=$(bash -c ". \"$KIT/common.sh\"; command -v $_t" 2>/dev/null || true)
+  [ "$_w" = "$KIT/tests/stub/$_t" ] || { echo "test.sh: $_t resolves to '$_w', not the stub ($KIT/tests/stub/$_t) — refusing to run" >&2; exit 1; }
+done; unset _t _w
 [ "$_herdr_which" = "$KIT/tests/stub/herdr" ] || { echo "test.sh: herdr resolves to '$_herdr_which', not the stub ($KIT/tests/stub/herdr) — refusing to run" >&2; exit 1; }
 [ "$_tower_which" = "$KIT/tests/stub/tower" ] || { echo "test.sh: tower resolves to '$_tower_which', not the stub ($KIT/tests/stub/tower) — refusing to run" >&2; exit 1; }
 unset _herdr_which _tower_which
@@ -234,6 +238,74 @@ if section watch; then
   assert_match "tower summary when tower is present"  "$out" '^--- tower'
   out=$(TOWER_STUB=absent watch b)
   assert_match "no tower: git log instead"            "$out" 'no tower: task state is in git'
+fi
+
+# --- look --------------------------------------------------------------------
+if section look; then
+  # A fixture repo on a branch: tag base, then one commit that changes app.js,
+  # adds new.py and deletes old.txt; kept.txt is untouched.
+  look_repo() {  # FIXTURE NAME
+    local r="$TMP/repos/look-$2"
+    mkdir -p "$r"; [ -d "$KIT/tests/fixtures/$1" ] && cp -R "$KIT/tests/fixtures/$1/." "$r/"
+    git -C "$r" init -q
+    printf 'x\n' > "$r/kept.txt"; printf 'x\n' > "$r/old.txt"; printf 'a\n' > "$r/app.js"
+    git -C "$r" add -A && git -C "$r" commit -qm base && git -C "$r" tag base
+    git -C "$r" checkout -qb feat
+    printf 'b\n' >> "$r/app.js"; printf 'y\n' > "$r/new.py"; git -C "$r" rm -q old.txt
+    git -C "$r" add -A && git -C "$r" commit -qm change
+    echo "$r"
+  }
+  # One line per finding in a look.json: "area severity file:line title | evidence".
+  findings() { python3 -c "import json,sys
+for f in json.load(open(sys.argv[1]))['findings']: print('%s %s %s:%s %s | %s' % (f['area'], f['severity'], f['file'], f['line'], f['title'], f['evidence']))" "$1"; }
+  # One line per verdict row: "step status note".
+  verdict() { python3 -c "import json,sys
+for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'], v['status'], v['note']))" "$1"; }
+  look() { (cd "$1" && shift && "$KIT/preflight/look.sh" "$@" 2>&1; echo "exit=$?"); }
+  r=$(look_repo none plain); F="$TMP/findings-look"; reset_stub
+  out=$(look "$r" base "$F"); log=$(cat "$HERDR_STUB_LOG")
+  assert_match "look: semgrep scans the changed files"   "$log" '^semgrep scan .* app\.js new\.py$'
+  assert_nomatch "look: an untouched file is not scanned" "$log" '^semgrep .*kept\.txt'
+  assert_nomatch "look: a deleted file is not scanned"   "$log" '^semgrep .*old\.txt'
+  assert_match "look: semgrep runs its default rules"    "$log" '^semgrep scan --config p/default '
+  assert_nomatch "look: no .semgrep/, no repo rules"     "$log" '--config \.semgrep'
+  assert_match "look: gitleaks scans the branch's commits since the base" "$log" "^gitleaks git --log-opts=$(git -C "$r" rev-parse base)\\.\\.HEAD "
+  r=$(look_repo none findings); reset_stub
+  out=$(SEMGREP_STUB=finding GITLEAKS_STUB=finding look "$r" base "$F")
+  f=$(findings "$F/look.json")
+  assert_match "look: a semgrep result is a finding"     "$f" '^security must-fix new\.py:3 stub finding \| semgrep stub\.rule$'
+  assert_nomatch "look: the matched code is not copied (it may hold a secret)" "$(cat "$F/look.json")" 'eval\(input\)'
+  assert_match "look: a gitleaks result is a finding"    "$f" '^security must-fix app\.js:2 Generic API Key \| gitleaks generic-api-key in commit abc1234: key = REDACTED$'
+  assert_match "look: the review is named look"          "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["review"])' "$F/look.json")" '^look$'
+  v=$(verdict "$F/look.json")
+  assert_match "look: a scanner with findings fails its verdict row" "$v" '^semgrep fail 1 finding$'
+  assert_match "look: gitleaks has its own verdict row"  "$v" '^gitleaks fail 1 finding$'
+  r=$(look_repo none clean); reset_stub; out=$(look "$r" base "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: a clean scanner passes"            "$v" '^semgrep pass $'
+  assert_eq "look: a clean branch has no findings"       "$(findings "$F/look.json")" ""
+  reset_stub; out=$(SEMGREP_STUB=absent look "$r" base "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: a missing scanner is a warn row"   "$v" '^semgrep warn semgrep is not installed'
+  assert_match "look: the run continues past a missing scanner" "$v" '^gitleaks pass $'
+  assert_match "look: a missing scanner is not a failure" "$out" 'exit=0$'
+  reset_stub; out=$(GITLEAKS_STUB=error look "$r" base "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: a scanner that errors is a warn row with its message" "$v" '^gitleaks warn gitleaks exited 2: gitleaks: not a git repository \(stub\)$'
+  reset_stub; out=$(STATIC_BASELINE=off SEMGREP_STUB=finding look "$r" base "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: STATIC_BASELINE=off skips semgrep and says so" "$v" '^semgrep skip STATIC_BASELINE=off$'
+  assert_match "look: STATIC_BASELINE=off skips gitleaks and says so" "$v" '^gitleaks skip STATIC_BASELINE=off$'
+  assert_nomatch "look: STATIC_BASELINE=off runs no scanner" "$(cat "$HERDR_STUB_LOG")" '^(semgrep|gitleaks) '
+  r=$(look_repo none same); reset_stub; out=$(SEMGREP_STUB=finding GITLEAKS_STUB=finding look "$r" feat "$F"); v=$(verdict "$F/look.json")
+  assert_nomatch "look: no changed files, no scan"       "$(cat "$HERDR_STUB_LOG")" '^(semgrep|gitleaks) (scan|git)'
+  assert_match "look: no changed files is a skip row"    "$v" '^semgrep skip no changed files$'
+  assert_eq "look: no changed files, no findings"        "$(findings "$F/look.json")" ""
+  r=$(look_repo none clean2); reset_stub
+  out=$(SEMGREP_STUB=finding look "$r" base "$F")
+  assert_match "look: a must-fix finding exits 1"        "$out" 'exit=1$'
+  assert_match "look: the verdict table is printed"      "$out" '^semgrep +fail +1 finding$'
+  out=$(look "$r" base "$F")
+  assert_match "look: no must-fix finding exits 0"       "$out" 'exit=0$'
+  assert_match "look: the table names the findings file" "$out" "findings: $F/look.json"
+  r=$(look_repo semgrep-rules rules); reset_stub; out=$(look "$r" base "$F")
+  assert_match "look: the repo's .semgrep/ rules are added" "$(cat "$HERDR_STUB_LOG")" '^semgrep scan --config p/default --config \.semgrep '
 fi
 
 # --- install -----------------------------------------------------------------
