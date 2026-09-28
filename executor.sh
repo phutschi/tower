@@ -11,8 +11,9 @@
 #           writable: the run dir (tower task|block|note append to it) and the
 #           repo's common git dir (a lane worktree commits into it).
 #
-# Expects `set -u`; provides agent_name SUFFIX, start_agent NAME PANE and
-# start_agent_with_trust_retry NAME PANE.
+# Expects `set -u`; provides agent_name SUFFIX, start_agent NAME PANE,
+# start_agent_with_trust_retry NAME PANE, kind_installed KIND and
+# reviewer_for LANE_KIND (the Reviewer's kind and model; see below).
 
 EXECUTOR_KIND="${EXECUTOR_KIND:-claude}"
 case "$EXECUTOR_KIND" in
@@ -80,4 +81,43 @@ start_agent_with_trust_retry() {
       echo "$out" >&2; return 1
     fi
   fi
+}
+
+# Is KIND (claude | codex) installed and runnable?
+kind_installed() { command -v "$1" >/dev/null && "$1" --version >/dev/null 2>&1; }
+
+# Who reviews a lane of LANE_KIND (ADR 0003). Prints one line:
+#   <kind>\t<model>\t<fallback note, or empty>
+# The other kind when it is installed: codex on gpt-6-astra, claude on
+# claude-opus-5-5. Otherwise the lane's own kind: claude on claude-fable-5-1,
+# codex on the executor's model (a fresh agent), with a fallback note.
+# REVIEWER_KIND=claude|codex forces the kind (refused when not installed);
+# REVIEWER_MODEL replaces the model the rules picked.
+reviewer_for() {
+  local lane="$1" other kind model note=""
+  other=$([ "$lane" = claude ] && echo codex || echo claude)
+  case "${REVIEWER_KIND:-other}" in
+    other)
+      if kind_installed "$other"; then kind=$other
+      elif kind_installed "$lane"; then
+        kind=$lane
+        case "$lane" in
+          claude) note="fallback: codex is not installed, so claude reviews claude on another model" ;;
+          codex)  note="fallback: claude is not installed, so a fresh codex agent reviews codex on the same model" ;;
+        esac
+      else
+        die "no Reviewer: neither claude nor codex is installed"
+      fi ;;
+    *)
+      kind=$REVIEWER_KIND
+      kind_installed "$kind" || die "REVIEWER_KIND=$kind, but $kind is not installed" ;;
+  esac
+  case "$kind:$lane" in
+    codex:claude)  model=gpt-6-astra ;;
+    claude:codex)  model=claude-opus-5-5 ;;
+    claude:claude) model=claude-fable-5-1 ;;
+    codex:codex)   model=$([ "$EXECUTOR_KIND" = codex ] && echo "$EXECUTOR_MODEL" || echo gpt-6-astra) ;;
+  esac
+  model="${REVIEWER_MODEL:-$model}"
+  printf '%s\t%s\t%s\n' "$kind" "$model" "$note"
 }

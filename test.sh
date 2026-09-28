@@ -30,15 +30,11 @@ mkdir -p "$HERDR_STUB_STATES_DIR"
 # test touching the real herdr or tower (this happened once: HERDR_ENV=1 is
 # inherited from the orchestrating pane, so `in_herdr` alone does not stop a
 # script run outside test.sh and outside DRY_RUN=1 from driving real panes).
-_herdr_which=$(bash -c ". \"$KIT/common.sh\"; command -v herdr" 2>/dev/null || true)
-_tower_which=$(bash -c ". \"$KIT/common.sh\"; command -v tower" 2>/dev/null || true)
-for _t in semgrep gitleaks; do
-  _w=$(bash -c ". \"$KIT/common.sh\"; command -v $_t" 2>/dev/null || true)
-  [ "$_w" = "$KIT/tests/stub/$_t" ] || { echo "test.sh: $_t resolves to '$_w', not the stub ($KIT/tests/stub/$_t) — refusing to run" >&2; exit 1; }
-done; unset _t _w
-[ "$_herdr_which" = "$KIT/tests/stub/herdr" ] || { echo "test.sh: herdr resolves to '$_herdr_which', not the stub ($KIT/tests/stub/herdr) — refusing to run" >&2; exit 1; }
-[ "$_tower_which" = "$KIT/tests/stub/tower" ] || { echo "test.sh: tower resolves to '$_tower_which', not the stub ($KIT/tests/stub/tower) — refusing to run" >&2; exit 1; }
-unset _herdr_which _tower_which
+for _tool in herdr tower claude codex semgrep gitleaks; do
+  _which=$(bash -c ". \"$KIT/common.sh\"; command -v $_tool" 2>/dev/null || true)
+  [ "$_which" = "$KIT/tests/stub/$_tool" ] || { echo "test.sh: $_tool resolves to '$_which', not the stub ($KIT/tests/stub/$_tool) — refusing to run" >&2; exit 1; }
+done
+unset _tool _which
 reset_stub() { : > "$HERDR_STUB_LOG"; rm -f "$HERDR_STUB_COUNTER"; }
 # A git repo built from tests/fixtures/<name> (or empty). Prints its path.
 fixture_repo() {
@@ -79,6 +75,23 @@ if section executor; then
   assert_match "agent_name: lowercase, safe characters, suffix intact" "$n" '^[a-z][a-z0-9_-]*-lane-a$'
   digits="$TMP/repos/123-Repo"; mkdir -p "$digits"; git -C "$digits" init -q
   assert_eq "agent_name: starts with a letter"     "$(name_in "$digits" -lane-a)" "repo-lane-a"
+  # HOME with a codex tdd skill, so executor.sh's missing-skill note stays out of the output.
+  mkdir -p "$TMP/rev-home/.codex/skills/tdd"
+  rev() { HOME="$TMP/rev-home" bash -c ". \"\$KIT/common.sh\"; . \"\$KIT/executor.sh\"; reviewer_for $1" 2>&1; }
+  T=$(printf '\t')
+  assert_eq "reviewer: both kinds, a claude lane gets codex on gpt-6-astra" "$(rev claude)" "codex${T}gpt-6-astra${T}"
+  assert_eq "reviewer: both kinds, a codex lane gets claude on claude-opus-5-5" "$(rev codex)" "claude${T}claude-opus-5-5${T}"
+  assert_eq "reviewer: claude only, a claude lane gets claude on claude-fable-5-1 with a note" \
+    "$(CODEX_STUB=absent rev claude)" "claude${T}claude-fable-5-1${T}fallback: codex is not installed, so claude reviews claude on another model"
+  assert_eq "reviewer: codex only, a codex lane gets codex on the executor's model with a note" \
+    "$(CLAUDE_STUB=absent EXECUTOR_KIND=codex EXECUTOR_MODEL=gpt-6-astra-mini rev codex)" "codex${T}gpt-6-astra-mini${T}fallback: claude is not installed, so a fresh codex agent reviews codex on the same model"
+  assert_eq "reviewer: REVIEWER_KIND=claude forces its own kind on a claude lane" "$(REVIEWER_KIND=claude rev claude)" "claude${T}claude-fable-5-1${T}"
+  assert_eq "reviewer: REVIEWER_KIND=codex on a codex lane"   "$(REVIEWER_KIND=codex rev codex)" "codex${T}gpt-6-astra${T}"
+  assert_eq "reviewer: REVIEWER_MODEL overrides the model"   "$(REVIEWER_MODEL=gpt-6-astra-pro rev claude)" "codex${T}gpt-6-astra-pro${T}"
+  assert_eq "reviewer: REVIEWER_MODEL overrides a fallback's model" "$(CODEX_STUB=absent REVIEWER_MODEL=sonnet rev claude)" "claude${T}sonnet${T}fallback: codex is not installed, so claude reviews claude on another model"
+  assert_match "reviewer: a forced kind that is not installed is refused" "$(CODEX_STUB=absent REVIEWER_KIND=codex rev claude; echo "exit=$?")" "REVIEWER_KIND=codex, but codex is not installed"
+  assert_match "reviewer: the refusal exits non-zero" "$(CODEX_STUB=absent REVIEWER_KIND=codex rev claude; echo "exit=$?")" "exit=1$"
+  assert_match "reviewer: neither kind installed is refused" "$(CODEX_STUB=absent CLAUDE_STUB=absent rev claude)" "neither claude nor codex is installed"
 fi
 
 # --- detect ------------------------------------------------------------------
@@ -107,6 +120,36 @@ if section detect; then
   assert_match "contract: console stale from the file" "$(cat "$HERDR_STUB_LOG")" '^herdr pane run pane-4 tower --stale 45$'
   reset_stub; out=$(cd "$r" && EXECUTOR_KIND=claude "$KIT/add-lane.sh" "$RUNC" B feat/b main 2 2>&1)
   assert_match "contract: add-lane env overrides the file's kind" "$(cat "$RUNC/panes.txt")" '^lane B: .*kind claude, .*model gpt-6-astra-mini\)'
+  r=$(fixture_repo none)
+  assert_eq "switches: defaults when neither file nor environment sets them" \
+    "$(detect_in "$r" 'switches_line')" \
+    "TASK_REVIEW=on LANE_REVIEW=on PREFLIGHT=on STATIC_BASELINE=on PR=draft METHOD=tdd REVIEWER_KIND=other REVIEWER_MODEL= REVIEW_AREAS= SUITE_SKIP= PR_TEMPLATE="
+  r=$(fixture_repo contract-switches)
+  assert_eq "switches: the file's values are used" \
+    "$(detect_in "$r" 'switches_line')" \
+    "TASK_REVIEW=off LANE_REVIEW=off PREFLIGHT=off STATIC_BASELINE=off PR=ready METHOD=plain REVIEWER_KIND=claude REVIEWER_MODEL=claude-fable-5-1 REVIEW_AREAS=security,spec SUITE_SKIP=build PR_TEMPLATE=.github/pull_request_template.md"
+  assert_eq "switches: the environment wins over the file" \
+    "$(PR=off METHOD=tdd SUITE_SKIP=lint,test REVIEWER_KIND=codex detect_in "$r" 'echo "$PR $METHOD $SUITE_SKIP $REVIEWER_KIND $TASK_REVIEW"')" \
+    "off tdd lint,test codex off"
+  assert_nomatch "switches: not reported as unknown settings" "$(detect_in "$r" 'true')" "not a setting the kit reads"
+  assert_eq "switches: an environment value with spaces wins whole" \
+    "$(CHECK_CMD='make it all' PR_TEMPLATE='my template.md' detect_in "$r" 'echo "$CHECK_CMD|$PR_TEMPLATE"')" "make it all|my template.md"
+  assert_eq "suite: steps in contract order, DIR defaulting to ." \
+    "$(detect_in "$r" 'for i in 0 1 2; do printf "%s|%s|%s;" "${SUITE_NAMES[$i]}" "${SUITE_CMDS[$i]}" "${SUITE_DIRS[$i]}"; done')" \
+    "lint|make lint|.;test|make test|pkg/core;build|make build|.;"
+  assert_eq "suite: none without suite lines" "$(detect_in "$(fixture_repo none)" 'echo ${#SUITE_NAMES[@]}')" 0
+  r=$(fixture_repo contract-switches-bad)
+  assert_match "switches: a bad value is refused with the allowed values" "$(detect_in "$r" 'echo reached')" "PR must be draft, ready or off \(got 'maybe'\)"
+  assert_nomatch "switches: the refusal stops the script" "$(detect_in "$r" 'echo reached')" "^reached$"
+  assert_match "switches: METHOD=fast is refused"          "$(METHOD=fast detect_in "$(fixture_repo none)" 'true')" "METHOD must be tdd or plain \(got 'fast'\)"
+  assert_match "switches: REVIEWER_KIND=cursor is refused" "$(REVIEWER_KIND=cursor detect_in "$(fixture_repo none)" 'true')" "REVIEWER_KIND must be other, claude or codex \(got 'cursor'\)"
+  assert_match "switches: LANE_REVIEW=yes is refused"      "$(LANE_REVIEW=yes detect_in "$(fixture_repo none)" 'true')" "LANE_REVIEW must be on or off \(got 'yes'\)"
+  tr_="$TMP/repos/suite-typo"; mkdir -p "$tr_"; echo 'SUITE_SKP=build' > "$tr_/.herdr-orchestrate"
+  assert_match "suite: a mistyped SUITE_ setting is named" "$(detect_in "$tr_" 'true')" "'SUITE_SKP' is not a setting"
+  assert_eq "switches: an empty environment value clears the file's" "$(REVIEW_AREAS='' SUITE_SKIP='' detect_in "$(fixture_repo contract-switches)" 'echo "[$REVIEW_AREAS][$SUITE_SKIP]"')" "[][]"
+  sr="$TMP/repos/suite-nocmd"; mkdir -p "$sr"; echo 'suite lint' > "$sr/.herdr-orchestrate"
+  assert_match "suite: a step without a command is refused" "$(detect_in "$sr" 'echo reached')" "suite lint needs a command"
+  assert_nomatch "suite: that refusal stops the script"      "$(detect_in "$sr" 'echo reached')" "^reached$"
   r=$(fixture_repo contract-bad)
   assert_match "contract: unknown pane name is refused" "$(detect_in "$r" 'echo reached')" "unknown pane 'logs'"
   assert_nomatch "contract: refusal stops the script" "$(detect_in "$r" 'echo reached')" "^reached$"
@@ -134,6 +177,11 @@ if section bootstrap; then
   assert_nomatch "pane map: no dev line by default"     "$map" '^dev:'
   assert_match "output: the pane map is printed"        "$out" '^lane A: '
   assert_match "output: next step for the empty opening" "$out" 'tower add'
+  assert_match "switches: pane map has every switch"    "$map" '^switches: +TASK_REVIEW=on LANE_REVIEW=on PREFLIGHT=on STATIC_BASELINE=on PR=draft METHOD=tdd REVIEWER_KIND=other REVIEWER_MODEL= REVIEW_AREAS= SUITE_SKIP= PR_TEMPLATE=$'
+  assert_match "switches: the record gets a tower note" "$log" '^tower note switches: TASK_REVIEW=on LANE_REVIEW=on .* PR_TEMPLATE=$'
+  assert_match "switches: printed with the pane map"    "$out" '^switches: +TASK_REVIEW=on '
+  assert_match "reviewer: pane map has kind and model"  "$map" '^reviewer: +kind codex, model gpt-6-astra$'
+  assert_match "reviewer: the record gets a tower note" "$log" '^tower note reviewer: kind codex, model gpt-6-astra$'
 
   RUN="$TMP/run-planned"; reset_stub
   out=$(boot "$r" "$RUN" "Planned" main "$KIT/example-tasks.tsv")
@@ -154,8 +202,28 @@ if section bootstrap; then
   assert_eq "no tower: empty tasks.tsv with the header" "$(cat "$RUN/tasks.tsv")" "$(printf '# id\ttitle\tarea\tlane')"
   assert_eq "no tower: lanes.txt exists and is empty"   "$(cat "$RUN/lanes.txt" | wc -l | tr -d ' ')" 0
   assert_match "no tower: run.txt records the title"    "$(cat "$RUN/run.txt")" '^title: +No tower$'
+  assert_match "no tower: run.txt has the switches"     "$(cat "$RUN/run.txt")" '^switches: +TASK_REVIEW=on LANE_REVIEW=on .* PR_TEMPLATE=$'
+  assert_nomatch "no tower: no tower note"              "$(cat "$HERDR_STUB_LOG")" '^tower note'
+  assert_match "no tower: run.txt has the reviewer"     "$(cat "$RUN/run.txt")" '^reviewer: +kind codex, model gpt-6-astra$'
   assert_match "no tower: console shows the git log"    "$(cat "$HERDR_STUB_LOG")" '^herdr pane run pane-3 while true; do clear; .*git log'
   assert_match "no tower: pane map says so"             "$(cat "$RUN/panes.txt")" '^console: +pane-3 +\(git log'
+  RUN="$TMP/run-switches"; reset_stub
+  out=$(PR=off boot "$(fixture_repo contract-switches)" "$RUN" "Switches" main)
+  assert_match "switches: the file and the environment reach the pane map" "$(cat "$RUN/panes.txt")" '^switches: +TASK_REVIEW=off .* PR=off METHOD=plain .* SUITE_SKIP=build '
+  out=$(boot "$(fixture_repo contract-switches-bad)" "$TMP/run-bad" "Bad" main)
+  assert_match "switches: bootstrap refuses a bad value" "$out" "PR must be draft, ready or off"
+  [ -e "$TMP/run-bad/panes.txt" ] && bad "switches: a refused run writes no pane map" || ok "switches: a refused run writes no pane map"
+  RUN="$TMP/run-fallback"; reset_stub
+  out=$(CODEX_STUB=absent boot "$r" "$RUN" "Fallback" main)
+  assert_match "reviewer: a fallback is in the pane map" "$(cat "$RUN/panes.txt")" '^reviewer: +kind claude, model claude-fable-5-1 \(fallback: codex is not installed'
+  assert_match "reviewer: a fallback is printed"         "$out" '^reviewer: +kind claude, model claude-fable-5-1 \(fallback: '
+  assert_match "reviewer: a fallback goes to the record" "$(cat "$HERDR_STUB_LOG")" '^tower note reviewer: kind claude, model claude-fable-5-1 \(fallback: '
+  out=$(CODEX_STUB=absent REVIEWER_KIND=codex boot "$r" "$TMP/run-forced" "Forced" main)
+  assert_match "reviewer: bootstrap refuses a forced kind that is not installed" "$out" 'REVIEWER_KIND=codex, but codex is not installed'
+  [ -e "$TMP/run-forced" ] && bad "reviewer: a refused run creates no run dir" || ok "reviewer: a refused run creates no run dir"
+  RUN="$TMP/run-noreview"; reset_stub
+  out=$(LANE_REVIEW=off PREFLIGHT=off CODEX_STUB=absent REVIEWER_KIND=codex boot "$r" "$RUN" "No review" main)
+  assert_match "reviewer: none when lane review and preflight are off" "$(cat "$RUN/panes.txt")" '^reviewer: +none \(LANE_REVIEW=off, PREFLIGHT=off\)$'
   out=$(TOWER_STUB=absent boot "$r" "$TMP/run-nt2" "NT2" main "$KIT/example-tasks.tsv")
   assert_eq "no tower, planned: lane A owns all"        "$(cat "$TMP/run-nt2/lanes.txt")" "A=all"
   out=$(TOWER_STUB=old boot "$r" "$TMP/run-old" "Old" main)

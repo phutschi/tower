@@ -32,9 +32,15 @@
 # run's default, the environment of this call overrides it (executor.sh).
 #
 # Writes <run-dir>/panes.txt, the pane map for the whole run, then prints it
-# with the next step. The console pane stays open after the run: it is the
-# record, and the human quits it with q. Nothing is torn down until the user
-# says so.
+# with the next step. The pane map's  switches:  line holds every run switch
+# and the value this run uses (detect-stack.sh); the same line goes to the
+# record, as a  tower note  or into run.txt without tower. So does the
+#  reviewer:  line: the kind and model that review a lane of lane A's kind
+# (executor.sh reviewer_for), with the fallback note when one applied, or none
+# when LANE_REVIEW and PREFLIGHT are both off. A forced REVIEWER_KIND that is
+# not installed is refused before anything is written. The console pane
+# stays open after the run: it is the record, and the human quits it with q.
+# Nothing is torn down until the user says so.
 #
 # Never run this for real to see what it does; use DRY_RUN=1, which answers
 # every herdr and tower call from tests/stub and touches nothing.
@@ -64,6 +70,16 @@ SPEC_REVIEWER_MODEL="${SPEC_REVIEWER_MODEL:-sonnet}"
 QUALITY_REVIEWER_MODEL="${QUALITY_REVIEWER_MODEL:-opus}"
 STALE="${STALE:-30}"
 LANE_A="$(agent_name -lane-a)"
+# Who reviews lane A (and every lane of its kind); refused here, before the run
+# dir exists, when a forced REVIEWER_KIND is not installed.
+if [ "$LANE_REVIEW" = off ] && [ "$PREFLIGHT" = off ]; then
+  REVIEWER="none (LANE_REVIEW=off, PREFLIGHT=off)"
+else
+  _rev=$(reviewer_for "$EXECUTOR_KIND")
+  IFS=$'\t' read -r R_KIND R_MODEL R_NOTE <<< "$_rev"
+  REVIEWER="kind $R_KIND, model $R_MODEL${R_NOTE:+ ($R_NOTE)}"
+  unset _rev
+fi
 
 # --- the record --------------------------------------------------------------
 mkdir -p "$RUN_DIR"
@@ -79,6 +95,8 @@ if [ "$HAVE_TOWER" = 1 ]; then
   elif [ -n "$SOURCE" ]; then
     tower assign A "$(tower state --json | jsonq '",".join(t["id"] for t in d["tasks"])')"
   fi
+  tower note "switches: $(switches_line)"
+  tower note "reviewer: $REVIEWER"
 else
   case "$SOURCE" in
     "")   printf '# id\ttitle\tarea\tlane\n' > "$RUN_DIR/tasks.tsv" ;;
@@ -97,6 +115,8 @@ tasks:            $RUN_DIR/$(case "$SOURCE" in *.md) echo plan.md ;; *) echo tas
 implementer:      $EXECUTOR_MODEL ($EXECUTOR_KIND)
 spec-reviewer:    $SPEC_REVIEWER_MODEL
 quality-reviewer: $QUALITY_REVIEWER_MODEL
+switches:         $(switches_line)
+reviewer:         $REVIEWER
 TXT
 fi
 
@@ -131,6 +151,8 @@ else herdr pane run "$CONSOLE_PANE" "$GITLOG_CMD" >/dev/null; fi
   if [ "$HAVE_TOWER" = 1 ]; then echo "console:        $CONSOLE_PANE   (tower; the record — stays open, the human quits it with q)"
   else echo "console:        $CONSOLE_PANE   (git log; no tower — the run dir is the record: run.txt, tasks.tsv, lanes.txt)"; fi
   echo "check gate:     $CHECK_CMD"
+  echo "switches:       $(switches_line)"
+  echo "reviewer:       $REVIEWER"
   echo "toolchain:      $PM"
   echo "read a pane:    herdr pane read <id> --source recent-unwrapped --lines 60"
 } > "$RUN_DIR/panes.txt"

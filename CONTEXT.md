@@ -129,11 +129,20 @@ test, typecheck, lint and build. Slower and broader than the check gate.
 _Avoid_: check gate (that runs per task), checks pane (that watches)
 
 **Repo contract**:
-The `.herdr-orchestrate` file in a repo root: its panes, its check gate, and
-the run's defaults for the executor kind and model, the reviewer models and
-the stale threshold. Without it the kit uses the JS default and claude. The
-environment of a bootstrap or add-lane call wins over the file.
+The `.herdr-orchestrate` file in a repo root: its panes, its check gate, its
+full suite as named `suite` steps, and the run's defaults for the executor
+kind and model, the reviewer models, the stale threshold and the run
+switches. Without it the kit uses the JS default and claude. The environment
+of a bootstrap or add-lane call wins over the file.
 _Avoid_: config, override file
+
+**Run switch**:
+One setting that turns a stage or choice of the run on, off or to a variant:
+per-task review, lane review, preflight, static baseline, PR mode, method,
+reviewer kind and model, review areas, skipped suite steps, PR template. The
+repo contract sets its default, the user's message overrides it, and the pane
+map's `switches:` line records the value the run used.
+_Avoid_: flag, option, profile
 
 ### Watching
 
