@@ -5,6 +5,8 @@
 #
 # .herdr-orchestrate is plain bash in the repo root (see example.herdr-orchestrate):
 #   CHECK_CMD="bun run check"           the check gate; one-shot, must pass before a commit
+#   INSTALL_CMD="make deps"             what add-lane.sh runs in a new lane's worktree; default:
+#                                       the package manager's install, none without a package.json
 #   pane checks "bun test --watch"      pane NAME "CMD" [DIR]; DIR relative to the checkout
 #   pane dev    "bun run dev" apps/web  only checks and dev are placed
 #   EXECUTOR_KIND=codex                 the lanes' harness: claude (default) | codex
@@ -33,7 +35,7 @@
 #       every switch above, exported; switches_line prints them all on one line
 
 SWITCHES="TASK_REVIEW LANE_REVIEW PREFLIGHT STATIC_BASELINE PR METHOD REVIEWER_KIND REVIEWER_MODEL REVIEW_AREAS SUITE_SKIP PR_TEMPLATE"
-CONTRACT_VARS="EXECUTOR_KIND EXECUTOR_MODEL SPEC_REVIEWER_MODEL QUALITY_REVIEWER_MODEL STALE PM TYPECHECK_TASK CHECK_CMD TEST_PKG TEST_FILTER $SWITCHES"
+CONTRACT_VARS="EXECUTOR_KIND EXECUTOR_MODEL SPEC_REVIEWER_MODEL QUALITY_REVIEWER_MODEL STALE PM TYPECHECK_TASK CHECK_CMD INSTALL_CMD TEST_PKG TEST_FILTER $SWITCHES"
 PANE_NAMES=(); PANE_CMDS=(); PANE_DIRS=()
 SUITE_NAMES=(); SUITE_CMDS=(); SUITE_DIRS=()
 pane() {
@@ -81,11 +83,17 @@ if [ -z "${PM:-}" ]; then
   fi
 fi
 case "$PM" in
-  bun)  PM_EXEC="bunx";      PM_RUN="bun run";  INSTALL_CMD="bun install" ;;
-  pnpm) PM_EXEC="pnpm exec"; PM_RUN="pnpm run"; INSTALL_CMD="pnpm install" ;;
-  yarn) PM_EXEC="yarn exec"; PM_RUN="yarn run"; INSTALL_CMD="yarn install" ;;
-  *)    PM_EXEC="npx";       PM_RUN="npm run";  INSTALL_CMD="npm install" ;;
+  bun)  PM_EXEC="bunx";      PM_RUN="bun run";  _install="bun install" ;;
+  pnpm) PM_EXEC="pnpm exec"; PM_RUN="pnpm run"; _install="pnpm install" ;;
+  yarn) PM_EXEC="yarn exec"; PM_RUN="yarn run"; _install="yarn install" ;;
+  *)    PM_EXEC="npx";       PM_RUN="npm run";  _install="npm install" ;;
 esac
+# The lane install: the package manager's, and nothing without a package.json.
+# Set, even empty, it wins.
+if [ -z "${INSTALL_CMD+set}" ]; then
+  if [ -f package.json ]; then INSTALL_CMD=$_install; else INSTALL_CMD=""; fi
+fi
+unset _install
 
 # --- which script is "typecheck" here? ---------------------------------------
 if [ -z "${TYPECHECK_TASK:-}" ]; then

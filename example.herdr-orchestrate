@@ -6,6 +6,11 @@
 # The check gate: one command every lane must pass before it commits a task.
 CHECK_CMD="bun run check"
 
+# What add-lane.sh runs in each new lane's worktree. Default: the package
+# manager's install (bun install, npm install, ...), and nothing at all when
+# the repo has no package.json. INSTALL_CMD= turns the install off.
+# INSTALL_CMD="bun install --frozen-lockfile"
+
 # Panes on the bottom row, running in lane A's checkout (the integration branch).
 #   pane NAME "COMMAND" [DIR]     NAME is checks or dev; DIR is relative to the checkout.
 pane checks "bun test --watch"
