@@ -55,17 +55,21 @@ run, the `switches:` line of `panes.txt` has the values the run uses.
    (`gh pr view --json baseRefName -q .baseRefName`), else the remote's
    default (`git symbolic-ref --short refs/remotes/origin/HEAD`, minus
    `origin/`). Git commands take `origin/<base>`; `gh` takes `<base>`.
-3. **Static baseline and full suite.** Alone, or when your brief says so:
-   note `git status --short`, then run
+3. **Static baseline and full suite.** Alone, or when your brief says so.
+   `look.sh` needs a checkout with no uncommitted changes to tracked files
+   (untracked files are fine) and refuses any other with exit 2. Alone, with
+   such changes: ask the human whether to commit or stash them first. Then
+   run
 
    ```bash
    <this skill's dir>/look.sh origin/<base> <findings-dir>
    ```
 
    Its header is its manual. It writes `look.json` and prints the verdict.
-   If `git status --short` now lists files the suite changed, add a
-   `should-fix` finding (area `suite`) naming them, and put them back with
-   `git checkout -- <files>`.
+   If `git status --short --untracked-files=no` now lists files, the suite
+   changed them: add a `should-fix` finding (area `suite`) naming them, and
+   put them back with `git checkout -- <files>`. The tree was clean, so this
+   returns the checkout to how look found it.
    - Exit 0: green, go on.
    - Exit 1: a must-fix finding. **Stop before agent review.** Alone: see
      "A red look" below. A Reviewer: write your findings file with one

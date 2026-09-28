@@ -38,8 +38,13 @@
 #                     "file", "line", "title", "evidence" } ] }
 # Prints each suite step as it starts (stderr), the verdict table and the
 # findings file. Exit 0 when no finding is must-fix, 1 when one is, 2 on a
-# setup error (usage, unknown base, a refused repo contract); look.json is
-# removed first, so after exit 2 there is none.
+# setup error (usage, uncommitted changes to tracked files, unknown base, a
+# refused repo contract); look.json is removed first, so after exit 2 there
+# is none.
+#
+# The checkout must have no uncommitted changes to tracked files (untracked
+# files are fine): whatever the suite then leaves changed is the suite's own,
+# and  git checkout -- <files>  puts it back without touching anyone's edits.
 set -euo pipefail
 LOOK_DIR="$(cd "$(dirname "$0")" && pwd -P)"
 KIT="$(dirname "$LOOK_DIR")"
@@ -52,6 +57,10 @@ need git python3
 mkdir -p "$FINDINGS_DIR"; FINDINGS_DIR="$(cd "$FINDINGS_DIR" && pwd -P)"
 rm -f "$FINDINGS_DIR/look.json"
 cd "$(git rev-parse --show-toplevel)"
+# A clean tree, so what the suite changes is all the suite's: putting it back
+# (git checkout) then touches nothing else. Untracked files may stay.
+DIRTY=$(git status --porcelain --untracked-files=no | cut -c4- | tr '\n' ' ')
+[ -z "$DIRTY" ] || die "look: uncommitted changes to tracked files: ${DIRTY% }. Commit or stash them, then run look again."
 # The repo contract: STATIC_BASELINE, SUITE_SKIP, the suite steps, CHECK_CMD.
 CHECK_CMD_FROM_ENV="${CHECK_CMD:+yes}"
 . "$KIT/detect-stack.sh"

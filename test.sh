@@ -618,10 +618,10 @@ for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'],
   assert_match "look: no net change skips semgrep"       "$v" '^semgrep skip no changed files$'
   r=$(look_repo none odd-names)
   printf 'z\n' > "$r/café app.js"; git -C "$r" add -A; git -C "$r" commit -qm odd
-  rm "$r/new.py"
+  git -C "$r" rm -q new.py; git -C "$r" commit -qm gone
   reset_stub; out=$(look "$r" base "$F"); log=$(cat "$HERDR_STUB_LOG")
   assert_match "look: a file name with spaces and accents is passed as is" "$log" '^semgrep scan .* -- app\.js café app\.js$'
-  assert_nomatch "look: a file missing from the checkout is not scanned" "$log" '^semgrep .*new\.py'
+  assert_nomatch "look: a file a later commit deleted is not scanned" "$log" '^semgrep .*new\.py'
   mkdir -p "$r/sub"; reset_stub
   out=$(cd "$r/sub" && "$KIT/preflight/look.sh" base rel-findings 2>&1; echo "exit=$?")
   assert_match "look: runs from a subdirectory"          "$(cat "$HERDR_STUB_LOG")" '^semgrep scan .* -- app\.js café app\.js$'
@@ -679,6 +679,17 @@ for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'],
   assert_match "look: a package.json without scripts and no CHECK_CMD is a skip row" "$v" '^check skip no suite lines, no package.json scripts, no CHECK_CMD$'
   r=$(look_repo semgrep-rules rules); reset_stub; out=$(look "$r" base "$F")
   assert_match "look: the repo's .semgrep/ rules are added" "$(cat "$HERDR_STUB_LOG")" '^semgrep scan --config p/default --config \.semgrep '
+  # A tracked file with edits the branch has not committed: the suite could
+  # rewrite it, and putting the suite's changes back would take those edits
+  # with it. look.sh refuses before any step runs.
+  r=$(look_repo none dirty); printf 'my edit\n' >> "$r/app.js"; printf 'u\n' > "$r/untracked.txt"; reset_stub
+  out=$(look "$r" base "$F")
+  assert_match "look: uncommitted edits to a tracked file are refused" "$out" '^look: .*app\.js'
+  assert_match "look: ... as a setup error"              "$out" 'exit=2$'
+  assert_nomatch "look: ... before any step runs"        "$(cat "$HERDR_STUB_LOG")" '^(semgrep|gitleaks) '
+  assert_match "look: ... and the edits are still there" "$(cat "$r/app.js")" 'my edit'
+  git -C "$r" checkout -q -- app.js; reset_stub; out=$(look "$r" base "$F")
+  assert_match "look: an untracked file alone is no refusal" "$out" 'exit=0$'
   unset CHECK_CMD SUITE_ORDER; unset -f look_repo findings verdict look
 fi
 
