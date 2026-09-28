@@ -4,7 +4,8 @@
 # TOWER_STUB_STATE picks the board `tower state` answers: open (default),
 # complete (every task done) or closed. Like tower, `add --id` refuses an id the
 # run already has: the ids are kept in HERDR_STUB_COUNTER.tower-ids, emptied by
-# `init` (a new run) and dropped by `remove`.
+# `init` (a new run) and dropped by `remove`: one board, the last init's.
+# `state` lists them after tasks 1-3 as pending, or TOWER_STUB_ADDED_STATUS.
 [ "${TOWER_STUB:-new}" = absent ] && { echo "tower: not installed (stub)" >&2; exit 127; }
 printf 'tower %s\n' "$*" >> "${HERDR_STUB_LOG:-/dev/null}"
 ids="${HERDR_STUB_COUNTER:-${TMPDIR:-/tmp}/herdr-stub-counter}.tower-ids"
@@ -22,10 +23,13 @@ case "${1:-}" in
     [ -z "$id" ] || echo "$id" >> "$ids"
     echo "${id:-4}" ;;
   remove) grep -vxF -- "$2" "$ids" > "$ids.next" 2>/dev/null; mv "$ids.next" "$ids" ;;
-  state) case "${TOWER_STUB_STATE:-open}" in
-           complete) echo '{"tasks":[{"id":"1"},{"id":"2"},{"id":"3"}],"summary":{"total":3,"done":3,"complete":true},"closed":false,"attention":[]}' ;;
-           closed)   echo '{"tasks":[{"id":"1"},{"id":"2"},{"id":"3"}],"summary":{"total":3,"done":3,"complete":true},"closed":true,"attention":[]}' ;;
-           *)        echo '{"tasks":[{"id":"1"},{"id":"2"},{"id":"3"}],"summary":{"total":3,"done":0,"complete":false},"closed":false,"attention":[]}' ;;
+  state) added=""
+         while IFS= read -r a; do added="$added,{\"id\":\"$a\",\"status\":\"${TOWER_STUB_ADDED_STATUS:-pending}\"}"; done < <(cat "$ids" 2>/dev/null)
+         tasks="{\"id\":\"1\"},{\"id\":\"2\"},{\"id\":\"3\"}$added"
+         case "${TOWER_STUB_STATE:-open}" in
+           complete) echo "{\"tasks\":[$tasks],\"summary\":{\"total\":3,\"done\":3,\"complete\":true},\"closed\":false,\"attention\":[]}" ;;
+           closed)   echo "{\"tasks\":[$tasks],\"summary\":{\"total\":3,\"done\":3,\"complete\":true},\"closed\":true,\"attention\":[]}" ;;
+           *)        echo "{\"tasks\":[$tasks],\"summary\":{\"total\":3,\"done\":0,\"complete\":false},\"closed\":false,\"attention\":[]}" ;;
          esac ;;
   *)     ;;
 esac

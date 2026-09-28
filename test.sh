@@ -466,8 +466,13 @@ if section add-reviewer; then
   out=$(cd "$r" && "$KIT/add-reviewer.sh" "$RUNF" R1 claude "Try again" "$RUNF/findings/a.json" 2>&1; echo "exit=$?")
   assert_match "after a failed start, the same slot works again" "$out" 'exit=0$'
   assert_match "the retry starts the Reviewer"        "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-r1-1 '
+  assert_match "the reused task takes the new title"  "$(cat "$HERDR_STUB_LOG")" '^tower change R1-1 --title Try again$'
   assert_match "the retry keeps the review's task id" "$(cat "$RUNF/panes.txt")" '^reviewer R1: .*agent "bun-vitest-r1-1".*review "Try again"'
   assert_match "the retry says it reuses the task"    "$out" '^reusing task R1-1: '
+  (cd "$r" && HERDR_STUB_BUSY_STARTS=99 START_TRIES=1 "$KIT/add-reviewer.sh" "$RUNF" R2 claude "Try" "$RUNF/findings/b.json" >/dev/null 2>&1)
+  out=$(cd "$r" && TOWER_STUB_ADDED_STATUS=done "$KIT/add-reviewer.sh" "$RUNF" R2 claude "Try again" "$RUNF/findings/b.json" 2>&1; echo "exit=$?")
+  assert_match "a task already worked on is not taken over" "$out" 'task R2-1 is done on the board'
+  assert_match "that refusal fails"                   "$out" 'exit=1$'
   RUNFN="$TMP/run-review-failed-nt"; reset_stub
   (cd "$r" && TOWER_STUB=absent "$KIT/bootstrap.sh" "$RUNFN" "Failed NT" main >/dev/null 2>&1)
   (cd "$r" && TOWER_STUB=absent HERDR_STUB_BUSY_STARTS=99 START_TRIES=1 "$KIT/add-reviewer.sh" "$RUNFN" R1 claude "Try" "$RUNFN/findings/a.json" >/dev/null 2>&1)
@@ -475,6 +480,9 @@ if section add-reviewer; then
   assert_match "no tower: after a failed start, the same slot works again" "$out" 'exit=0$'
   assert_eq "no tower: one line for the review in tasks.tsv" "$(grep -c '^R1-1	' "$RUNFN/tasks.tsv")" 1
   assert_eq "no tower: one ownership line in lanes.txt" "$(grep -c '^R1=R1-1$' "$RUNFN/lanes.txt")" 1
+  printf 'R2-1\tBy hand\treview\tR2\n' >> "$RUNFN/tasks.tsv"
+  out=$(cd "$r" && TOWER_STUB=absent "$KIT/add-reviewer.sh" "$RUNFN" R2 claude "Mine" "$RUNFN/findings/b.json" 2>&1)
+  assert_match "no tower: a line the slot did not write is not taken over" "$out" 'R2-1 is in .*tasks.tsv, but not as R2=R2-1 in .*lanes.txt'
   RUN4="$TMP/run-review-busy"; reset_stub
   (cd "$r" && "$KIT/bootstrap.sh" "$RUN4" "Busy" main >/dev/null 2>&1); reset_stub
   out=$(cd "$r" && HERDR_STUB_BUSY_STARTS=1 "$KIT/add-reviewer.sh" "$RUN4" R1 claude "Busy" "$RUN4/findings/a.json" 2>&1; echo "exit=$?")
