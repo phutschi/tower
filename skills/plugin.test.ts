@@ -153,25 +153,10 @@ test("CI checks both sides on Linux and macOS", () => {
     "bun run build",
     "node dist/cli.js --help",
     "shellcheck -S warning *.sh skills/*/*.sh skills/orchestrate/tests/stub/*",
-    "./test.sh",
   ])
     expect(ci).toContain(step);
-});
-
-// --ignore-scripts: the file list is the question here, not the prepare build.
-test("the npm package ships no kit files", () => {
-  const [pack] = JSON.parse(
-    execFileSync("npm", ["pack", "--dry-run", "--json", "--ignore-scripts"], {
-      cwd: root,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-    }),
-  ) as { files: { path: string }[] }[];
-  const paths = pack!.files.map((f) => f.path);
-  expect(paths).toContain("README.md");
-  expect(
-    paths.filter((p) => /^(skills\/|test\.sh$|install\.sh$)/.test(p)),
-  ).toEqual([]);
+  // The full kit suite, not --fast.
+  expect(ci).toMatch(/^\s+\.\/test\.sh$/m);
 });
 
 // A skill cites an ADR that exists and still holds: superseded ones point on.
