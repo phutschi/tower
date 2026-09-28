@@ -184,8 +184,9 @@ if section detect; then
   assert_eq "suite: steps in contract order, DIR defaulting to ." \
     "$(detect_in "$r" 'for i in 0 1 2; do printf "%s|%s|%s;" "${SUITE_NAMES[$i]}" "${SUITE_CMDS[$i]}" "${SUITE_DIRS[$i]}"; done')" \
     "lint|make lint|.;test|make test|pkg/core;build|make build|.;"
-  assert_match "this repo's contract: the check gate runs the fast tests and shellcheck" "$(detect_in "$ROOT" 'echo "$CHECK_CMD"')" '^\./test\.sh --fast && shellcheck '
-  assert_eq "this repo's contract: the full suite is every test, then shellcheck" "$(detect_in "$ROOT" 'echo "${SUITE_NAMES[*]}|${SUITE_CMDS[0]}"')" "tests shellcheck|./test.sh"
+  assert_match "this repo's contract: the check gate runs tower's check, the fast tests and shellcheck" "$(detect_in "$ROOT" 'echo "$CHECK_CMD"')" '^bun run check && \./test\.sh --fast && shellcheck '
+  assert_eq "this repo's contract: the full suite is tower's check, every test, then shellcheck" "$(detect_in "$ROOT" 'echo "${SUITE_NAMES[*]}|${SUITE_CMDS[0]}|${SUITE_CMDS[1]}"')" "check tests shellcheck|bun run check|./test.sh"
+  assert_match "this repo's contract: the checks pane covers both sides" "$(detect_in "$ROOT" 'echo "${PANE_CMDS[0]}"')" 'bun run check.*\./test\.sh --fast'
   assert_nomatch "this repo's contract: a checks pane, no unknown settings" "$(detect_in "$ROOT" 'echo "${PANE_CMDS[0]}"')" 'no test runner detected|not a setting'
   assert_eq "suite: none without suite lines" "$(detect_in "$(fixture_repo none)" 'echo ${#SUITE_NAMES[@]}')" 0
   r=$(fixture_repo contract-switches-bad)

@@ -1,1 +1,7 @@
-{ "name": "suite-detected", "scripts": { "typecheck": "true", "test": "true" } }
+{
+  "name": "suite-detected",
+  "scripts": {
+    "typecheck": "true",
+    "test": "true"
+  }
+}

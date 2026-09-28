@@ -1,1 +1,6 @@
-{ "name": "suite-noscripts", "devDependencies": { "prettier": "3" } }
+{
+  "name": "suite-noscripts",
+  "devDependencies": {
+    "prettier": "3"
+  }
+}

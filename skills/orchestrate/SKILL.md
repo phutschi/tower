@@ -130,10 +130,12 @@ and do it in a lane anyway or suggest doing it without the kit.
     (`git status --short --untracked-files=no` prints nothing): `look.sh`
     refuses any other. Two Reviewers, one findings dir per round, apart from
     the lane reviews':
+
     ```
     <kit>/add-reviewer.sh <run-dir> R1 <kind> "Preflight R1, round <n>" <run-dir>/findings/preflight/<n>/R1.json
     <kit>/add-reviewer.sh <run-dir> R2 <kind> "Preflight R2, round <n>" <run-dir>/findings/preflight/<n>/R2.json
     ```
+
     `<kind>`: in a single-kind run the lanes' kind, for both; in a mixed run
     `claude` for R1 and `codex` for R2, so one Reviewer of each kind
     reviews. Brief each with the preflight slot brief (`brief-template.md`):
@@ -161,6 +163,7 @@ and do it in a lane anyway or suggest doing it without the kit.
     round-1 slot. R1 gets a Reviewer every round, since it runs `look.sh`
     (no areas: its brief says "Your areas: none"); R2 only when it has
     areas. The board task id counts reviews per slot, not rounds.
+
 12. **Act.** Load the `preflight` skill and run its act half on
     `<run-dir>/findings/preflight/<n>/*.json`; in round 1 also on the
     deferred lane-review findings: those in `<run-dir>/findings/lane-*.json`
@@ -200,19 +203,19 @@ reviews", "plain, no tdd"): set them in bootstrap's environment.
 the preflight slot brief passes `STATIC_BASELINE` and `SUITE_SKIP` on its
 call.
 
-| Switch | Default | What it changes |
-|---|---|---|
-| `TASK_REVIEW` | on | off: briefs drop the per-task review tail |
-| `LANE_REVIEW` | on | off: a ready lane is merged without step 8 |
-| `PREFLIGHT` | on | off: step 11 is skipped; act has only the deferred lane-review findings |
-| `STATIC_BASELINE` | on | off: `look.sh` skips semgrep and gitleaks |
-| `PR` | draft | ready: a PR ready for review; off: no push, no PR |
-| `METHOD` | tdd | plain: briefs drop the tdd sentence |
-| `REVIEWER_KIND` | other | claude or codex: that kind reviews every lane |
-| `REVIEWER_MODEL` | empty | the Reviewer's model, instead of the kit's pick |
-| `REVIEW_AREAS` | empty | preflight's areas, comma-separated; empty: all |
-| `SUITE_SKIP` | empty | suite steps `look.sh` skips |
-| `PR_TEMPLATE` | empty | the PR body template; empty: preflight's own |
+| Switch            | Default | What it changes                                                         |
+| ----------------- | ------- | ----------------------------------------------------------------------- |
+| `TASK_REVIEW`     | on      | off: briefs drop the per-task review tail                               |
+| `LANE_REVIEW`     | on      | off: a ready lane is merged without step 8                              |
+| `PREFLIGHT`       | on      | off: step 11 is skipped; act has only the deferred lane-review findings |
+| `STATIC_BASELINE` | on      | off: `look.sh` skips semgrep and gitleaks                               |
+| `PR`              | draft   | ready: a PR ready for review; off: no push, no PR                       |
+| `METHOD`          | tdd     | plain: briefs drop the tdd sentence                                     |
+| `REVIEWER_KIND`   | other   | claude or codex: that kind reviews every lane                           |
+| `REVIEWER_MODEL`  | empty   | the Reviewer's model, instead of the kit's pick                         |
+| `REVIEW_AREAS`    | empty   | preflight's areas, comma-separated; empty: all                          |
+| `SUITE_SKIP`      | empty   | suite steps `look.sh` skips                                             |
+| `PR_TEMPLATE`     | empty   | the PR body template; empty: preflight's own                            |
 
 ## Triage
 
@@ -256,20 +259,20 @@ is still working. The next `FINDINGS WRITTEN` frees a slot.
 
 ## Common mistakes
 
-| Mistake | Instead |
-|---|---|
-| Hand-rolling `herdr pane split` and `herdr agent start` | Run `bootstrap.sh`; the layout and pane map are its job |
-| Briefing before the task list exists | Load or derive it first; the board is the plan |
-| Drip-feeding one task per prompt | One brief per lane with all its tasks; "do not stop between tasks" is in the template |
-| Briefing with the plan alone | Brief = template judgement + derived part; method, other lanes, merge points, reporting |
-| Letting a lane `tower add` | The boundary sentence stays in every brief; a discovered task goes through you |
-| Waiting for lane A to merge lane B | You merge B into the integration branch after its lane review |
-| Sleeping and re-reading panes | The two watches in `run_in_background`; act only when one exits |
-| Closing panes during teardown | Nothing closes until the user says so; the console never |
-| A second run in a repo with an open one | tower refuses; `tower close` the old one first |
-| Briefing a codex lane with subagent review instructions | Codex has no subagents; it reviews its own diff with the code-review skill |
-| Merging a lane the moment it reports ready | Lane review first (unless `LANE_REVIEW=off`) |
-| Asking the user about each lane-review finding | Triage alone; deferred findings wait for the one preflight table |
-| Reusing a Reviewer for a second review | `add-reviewer.sh` again: every review gets a fresh agent |
-| One findings file for every round of a lane | `lane-<X>-<n>.json`: a new round never overwrites deferred findings |
-| Watching a lane by its bare name after a fix prompt | `<agent>:<n>`, the fix prompt's report round: the old marker still in the pane reads as done otherwise |
+| Mistake                                                 | Instead                                                                                                |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Hand-rolling `herdr pane split` and `herdr agent start` | Run `bootstrap.sh`; the layout and pane map are its job                                                |
+| Briefing before the task list exists                    | Load or derive it first; the board is the plan                                                         |
+| Drip-feeding one task per prompt                        | One brief per lane with all its tasks; "do not stop between tasks" is in the template                  |
+| Briefing with the plan alone                            | Brief = template judgement + derived part; method, other lanes, merge points, reporting                |
+| Letting a lane `tower add`                              | The boundary sentence stays in every brief; a discovered task goes through you                         |
+| Waiting for lane A to merge lane B                      | You merge B into the integration branch after its lane review                                          |
+| Sleeping and re-reading panes                           | The two watches in `run_in_background`; act only when one exits                                        |
+| Closing panes during teardown                           | Nothing closes until the user says so; the console never                                               |
+| A second run in a repo with an open one                 | tower refuses; `tower close` the old one first                                                         |
+| Briefing a codex lane with subagent review instructions | Codex has no subagents; it reviews its own diff with the code-review skill                             |
+| Merging a lane the moment it reports ready              | Lane review first (unless `LANE_REVIEW=off`)                                                           |
+| Asking the user about each lane-review finding          | Triage alone; deferred findings wait for the one preflight table                                       |
+| Reusing a Reviewer for a second review                  | `add-reviewer.sh` again: every review gets a fresh agent                                               |
+| One findings file for every round of a lane             | `lane-<X>-<n>.json`: a new round never overwrites deferred findings                                    |
+| Watching a lane by its bare name after a fix prompt     | `<agent>:<n>`, the fix prompt's report round: the old marker still in the pane reads as done otherwise |

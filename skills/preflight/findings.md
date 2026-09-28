@@ -5,13 +5,27 @@ Every review writes one JSON file into the findings dir. `look.sh` writes
 names (a Reviewer in a run). The triaging session reads every `*.json` there.
 
 ```json
-{ "review": "security",
-  "verdict":  [ { "step": "security", "status": "fail", "note": "1 finding",
-                  "detail": "Read every changed route: 3 new handlers, all behind requireUser; ..." } ],
-  "findings": [ { "area": "security", "severity": "must-fix",
-                  "file": "src/api/login.ts", "line": 42,
-                  "title": "Password compared with ==",
-                  "evidence": "L40-44: `if (hash == input)`; timing-safe compare missing" } ] }
+{
+  "review": "security",
+  "verdict": [
+    {
+      "step": "security",
+      "status": "fail",
+      "note": "1 finding",
+      "detail": "Read every changed route: 3 new handlers, all behind requireUser; ..."
+    }
+  ],
+  "findings": [
+    {
+      "area": "security",
+      "severity": "must-fix",
+      "file": "src/api/login.ts",
+      "line": 42,
+      "title": "Password compared with ==",
+      "evidence": "L40-44: `if (hash == input)`; timing-safe compare missing"
+    }
+  ]
+}
 ```
 
 `review`: `look`, the area name, or the review title from the brief.

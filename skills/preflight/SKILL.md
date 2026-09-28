@@ -68,10 +68,10 @@ run, the `switches:` line of `panes.txt` has the values the run uses.
    default (`git symbolic-ref --short refs/remotes/origin/HEAD`, minus
    `origin/`). Git commands take `origin/<base>`; `gh` takes `<base>`.
 3. **Static baseline and full suite.** Alone, or when your brief says so.
-   `look.sh` needs a clean tracked tree: `git status --short
-   --untracked-files=no` prints nothing (untracked files are fine); it exits
-   2 otherwise. Alone, when that prints files: ask the human whether to
-   commit or stash them first. Then run
+   `look.sh` needs a clean tracked tree:
+   `git status --short --untracked-files=no` prints nothing (untracked files
+   are fine); it exits 2 otherwise. Alone, when that prints files: ask the
+   human whether to commit or stash them first. Then run
 
    ```bash
    <this skill's dir>/look.sh origin/<base> <findings-dir>
@@ -91,6 +91,7 @@ run, the `switches:` line of `panes.txt` has the values the run uses.
    - Exit 2, or exit 1 with no `look.json`: setup error. Alone: report the
      printed error and stop. A Reviewer: write your findings file with one
      `warn` row per area, the error as its note, and go to step 5.
+
 4. **Agent review by area.** The areas are the files in `areas/` next to
    this file, plus the repo's `.preflight/areas/*.md`. A repo file with a
    built-in's name adds to that area; its rules win where they differ. The
@@ -118,6 +119,7 @@ run, the `switches:` line of `panes.txt` has the values the run uses.
    `reject`. For each finding triaged `fix`, re-read the lines it cited;
    when you still see its problem, the fix did not hold: report it again
    with that finding's area, file and title, so it matches (see open).
+
 5. A Reviewer ends here, with its findings line (see "Who does what").
 
 ### A red look
@@ -142,12 +144,12 @@ must-fix finding is open; carry those outcomes into the final table. After two r
      suite finding is in scope when that step passes on the merge base.
    - **Outcome**:
 
-     | Validity | Scope | Suggested outcome |
-     |---|---|---|
-     | false-positive | | reject |
-     | uncertain | | accept or follow-up |
-     | valid | in-scope | fix |
-     | valid | pre-existing | accept or follow-up |
+     | Validity       | Scope        | Suggested outcome   |
+     | -------------- | ------------ | ------------------- |
+     | false-positive |              | reject              |
+     | uncertain      |              | accept or follow-up |
+     | valid          | in-scope     | fix                 |
+     | valid          | pre-existing | accept or follow-up |
 
 3. **Tracker.** Read `docs/agents/issue-tracker.md` for where follow-ups
    go. No such file: ask where, as part of the table's question in step 4.

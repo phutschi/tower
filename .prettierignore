@@ -2,3 +2,8 @@ dist
 node_modules
 bun.lock
 CHANGELOG.md
+# Load-bearing kit text: the brief template's double-spaced commands and its
+# sections, which test.sh slices, and the templates the skills fill in.
+skills/orchestrate/brief-template.md
+skills/preflight/templates/
+skills/spec-to-plan/plan-template.md

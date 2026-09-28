@@ -5,11 +5,11 @@ A Claude Code plugin that plans and runs a multi-task implementation inside
 executing lanes. [tower](https://github.com/phutschi/tower) keeps the record
 if you have it; it is optional.
 
-| Skill | What it does |
-|---|---|
-| `/phutschi:spec-to-plan` | Turns a spec into `plan.md`: tasks, lanes, merge points. Any session. |
-| `/phutschi:orchestrate` | Runs a plan (or a request) with lanes, reviews, merge, preflight and a PR. Needs herdr. |
-| `/phutschi:preflight` | Checks a whole branch before its PR. Also on its own, without herdr. |
+| Skill                    | What it does                                                                            |
+| ------------------------ | --------------------------------------------------------------------------------------- |
+| `/phutschi:spec-to-plan` | Turns a spec into `plan.md`: tasks, lanes, merge points. Any session.                   |
+| `/phutschi:orchestrate`  | Runs a plan (or a request) with lanes, reviews, merge, preflight and a PR. Needs herdr. |
+| `/phutschi:preflight`    | Checks a whole branch before its PR. Also on its own, without herdr.                    |
 
 Planning and running are separate sessions, and the plan is the only thing
 between them.
@@ -111,7 +111,7 @@ One tab:
   branch (the integration branch); B to D get worktrees under `.worktrees/`.
   The grid grows one lane at a time: B right of A, C under A, D under B.
   Four at most. A lane that needs another lane's work merges it at its own
-  merge point; a *finished* lane is merged into the integration branch by
+  merge point; a _finished_ lane is merged into the integration branch by
   the orchestrator, right away — never by lane A.
 - **checks** runs your test runner in watch mode, **dev** your development
   server if you declare one. Both run in lane A's checkout.
@@ -199,19 +199,19 @@ per run in plain words ("no PR", "skip the lane reviews", "no tdd, it's a
 spike"), and bootstrap records the values the run uses on the `switches:`
 line of the pane map and in the record.
 
-| Switch | Default | Other values |
-|---|---|---|
-| `TASK_REVIEW` | on | off: no spec and quality review after each task |
-| `LANE_REVIEW` | on | off: lanes are merged without a Reviewer |
-| `PREFLIGHT` | on | off: no whole-branch check before the PR |
-| `STATIC_BASELINE` | on | off: preflight skips semgrep and gitleaks |
-| `PR` | draft | ready, or off (no push, no PR) |
-| `METHOD` | tdd | plain: lanes work without the tdd loop |
-| `REVIEWER_KIND` | other | claude or codex, for every review |
-| `REVIEWER_MODEL` | the kit's pick | any model |
-| `REVIEW_AREAS` | every area | e.g. `security,spec` |
-| `SUITE_SKIP` | none | suite steps to skip, e.g. `build` |
-| `PR_TEMPLATE` | preflight's | a PR body template in the repo |
+| Switch            | Default        | Other values                                    |
+| ----------------- | -------------- | ----------------------------------------------- |
+| `TASK_REVIEW`     | on             | off: no spec and quality review after each task |
+| `LANE_REVIEW`     | on             | off: lanes are merged without a Reviewer        |
+| `PREFLIGHT`       | on             | off: no whole-branch check before the PR        |
+| `STATIC_BASELINE` | on             | off: preflight skips semgrep and gitleaks       |
+| `PR`              | draft          | ready, or off (no push, no PR)                  |
+| `METHOD`          | tdd            | plain: lanes work without the tdd loop          |
+| `REVIEWER_KIND`   | other          | claude or codex, for every review               |
+| `REVIEWER_MODEL`  | the kit's pick | any model                                       |
+| `REVIEW_AREAS`    | every area     | e.g. `security,spec`                            |
+| `SUITE_SKIP`      | none           | suite steps to skip, e.g. `build`               |
+| `PR_TEMPLATE`     | preflight's    | a PR body template in the repo                  |
 
 A value outside the list is refused at bootstrap.
 
