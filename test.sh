@@ -861,7 +861,7 @@ if section install; then
   assert_match "install: adds this repo as the phutschi-tower marketplace" "$(cat "$TMP/log")" "^claude plugin marketplace add $ROOT$"
   assert_match "install: installs tower@phutschi-tower" "$(cat "$TMP/log")" '^claude plugin install tower@phutschi-tower$'
   assert_nomatch "install: without the old plugin, removes nothing" "$(cat "$TMP/log")" '^claude plugin (uninstall|remove|marketplace (remove|rm)) '
-  assert_eq "install: claude has the tower plugin and its marketplace" "$(sort "$CLAUDE_STUB_STATE")" "$(printf 'marketplace phutschi-tower\nplugin tower@phutschi-tower')"
+  assert_eq "install: claude has the tower plugin and its marketplace" "$(sort "$CLAUDE_STUB_STATE")" "$(printf 'marketplace phutschi-tower\nplugin tower@phutschi-tower user')"
   for n in herdr-orchestrate preflight spec-to-plan; do
     [ -e "$H/.claude/skills/$n" ] || [ -L "$H/.claude/skills/$n" ] && bad "install: old ~/.claude/skills/$n link removed" || ok "install: old ~/.claude/skills/$n link removed"
   done
@@ -883,7 +883,7 @@ if section install; then
   reset_stub; out=$(HOME="$H" "$ROOT/install.sh" 2>&1; echo "exit=$?")
   assert_match "install: idempotent"                  "$out" 'exit=0$'
   assert_nomatch "install: a second run installs and removes nothing" "$(cat "$TMP/log")" '^claude plugin (install|uninstall|remove|marketplace (add|remove|rm)) '
-  assert_eq "install: a second run leaves claude's plugins as they are" "$(sort "$CLAUDE_STUB_STATE")" "$(printf 'marketplace phutschi-tower\nplugin tower@phutschi-tower')"
+  assert_eq "install: a second run leaves claude's plugins as they are" "$(sort "$CLAUDE_STUB_STATE")" "$(printf 'marketplace phutschi-tower\nplugin tower@phutschi-tower user')"
   assert_eq "install: a second run changes no link"   "$(links)" "$before"
   assert_nomatch "install: a second run skips nothing" "$out" 'SKIPPED'
   ln -s "$ROOT" "$TMP/repo-link"; out=$(HOME="$H" "$TMP/repo-link/install.sh" 2>&1; echo "exit=$?")
@@ -899,12 +899,17 @@ if section install; then
   assert_match "install: a missing gitleaks is optional" "$out" 'optional +gitleaks'
   assert_match "install: missing scanners do not fail it" "$out" 'exit=0$'
   # An old kit install: the phutschi plugin and its marketplace go, tower comes.
-  H4="$TMP/home4"; mkdir -p "$H4"; printf 'marketplace phutschi\nplugin phutschi@phutschi\nmarketplace acme-tools\n' > "$CLAUDE_STUB_STATE"
+  H4="$TMP/home4"; mkdir -p "$H4"; printf 'marketplace phutschi\nplugin phutschi@phutschi user\nplugin phutschi@phutschi local\nmarketplace acme-tools\n' > "$CLAUDE_STUB_STATE"
   reset_stub; out=$(HOME="$H4" "$ROOT/install.sh" 2>&1; echo "exit=$?")
   assert_match "migrate: exit 0"                      "$out" 'exit=0$'
-  assert_match "migrate: uninstalls phutschi@phutschi" "$(cat "$TMP/log")" '^claude plugin uninstall phutschi@phutschi$'
+  assert_match "migrate: uninstalls phutschi@phutschi" "$(cat "$TMP/log")" '^claude plugin uninstall phutschi@phutschi --scope user$'
+  assert_match "migrate: ... from every scope it is in" "$(cat "$TMP/log")" '^claude plugin uninstall phutschi@phutschi --scope local$'
   assert_match "migrate: removes the phutschi marketplace" "$(cat "$TMP/log")" '^claude plugin marketplace remove phutschi$'
-  assert_eq "migrate: claude keeps others' marketplaces, and has tower instead of phutschi" "$(sort "$CLAUDE_STUB_STATE")" "$(printf 'marketplace acme-tools\nmarketplace phutschi-tower\nplugin tower@phutschi-tower')"
+  assert_eq "migrate: claude keeps others' marketplaces, and has tower instead of phutschi" "$(sort "$CLAUDE_STUB_STATE")" "$(printf 'marketplace acme-tools\nmarketplace phutschi-tower\nplugin tower@phutschi-tower user')"
+  : > "$CLAUDE_STUB_STATE"
+  out=$(HOME="$H4" CLAUDE_STUB_FAIL=install "$ROOT/install.sh" 2>&1; echo "exit=$?")
+  assert_match "install: a claude command that fails is named" "$out" 'FAILED +claude plugin install tower@phutschi-tower'
+  assert_match "install: ... and fails the install"    "$out" 'exit=1$'
   H2="$TMP/home2"; mkdir -p "$H2"
   out=$(HOME="$H2" "$ROOT/install.sh" --check 2>&1; echo "exit=$?")
   assert_match "check: exit 0"                        "$out" 'exit=0$'

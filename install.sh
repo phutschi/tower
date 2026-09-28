@@ -15,7 +15,8 @@
 # git, bash, python3 (reads herdr's JSON), node (reads package.json in JS
 # repos). Optional: claude (the plugin), codex (EXECUTOR_KIND=codex lanes),
 # semgrep and gitleaks (preflight's static baseline). Running it again changes
-# nothing.
+# nothing. A claude command that fails is printed as FAILED, and the install
+# exits 1.
 set -u
 ROOT="$(cd "$(dirname "$0")" && pwd -P)"  # -P: run through a link, it still installs the real repo
 SKILLS="$ROOT/skills"
@@ -43,27 +44,26 @@ opt  gitleaks "preflight's secret scan (a warn row without it)" version
 
 if command -v claude >/dev/null; then
   echo "plugin:"
-  # listed KIND NAME: claude lists that plugin or marketplace (`  ❯ <name>`).
-  listed() {
-    if [ "$1" = plugin ]; then claude plugin list; else claude plugin marketplace list; fi 2>/dev/null \
-      | sed -n 's/^[[:space:]]*❯[[:space:]]*//p' | grep -qxF -- "$2"
-  }
+  # try WHAT CMD...: run a claude command, and say what it did or that it failed.
+  try() { local what=$1; shift; if "$@" >/dev/null; then echo "  $what"; else echo "  FAILED    $*" >&2; ok=0; fi; }
+  # The scopes claude has plugin $1 installed in, one per line.
+  scopes() { claude plugin list --json 2>/dev/null | python3 -c 'import json,sys; [print(p.get("scope","user")) for p in json.load(sys.stdin) if p.get("id")==sys.argv[1]]' "$1" 2>/dev/null; }
+  marketplace() { claude plugin marketplace list --json 2>/dev/null | python3 -c 'import json,sys; sys.exit(not any(m.get("name")==sys.argv[1] for m in json.load(sys.stdin)))' "$1" 2>/dev/null; }
   # The kit's old plugin: a second orchestrator next to tower's.
-  if listed plugin phutschi@phutschi; then
-    claude plugin uninstall phutschi@phutschi >/dev/null && echo "  removed   phutschi@phutschi (old plugin)"
-  fi
-  if listed marketplace phutschi; then
-    claude plugin marketplace remove phutschi >/dev/null && echo "  removed   marketplace phutschi (old)"
-  fi
-  if listed marketplace phutschi-tower; then
-    claude plugin marketplace update phutschi-tower >/dev/null && echo "  updated   marketplace phutschi-tower"
+  for s in $(scopes phutschi@phutschi); do
+    try "removed   phutschi@phutschi ($s scope, old plugin)" claude plugin uninstall phutschi@phutschi --scope "$s"
+  done
+  marketplace phutschi && try "removed   marketplace phutschi (old)" claude plugin marketplace remove phutschi
+  # An existing phutschi-tower marketplace is kept and updated, wherever it points.
+  if marketplace phutschi-tower; then
+    try "updated   marketplace phutschi-tower" claude plugin marketplace update phutschi-tower
   else
-    claude plugin marketplace add "$ROOT" >/dev/null && echo "  added     marketplace phutschi-tower -> $ROOT"
+    try "added     marketplace phutschi-tower -> $ROOT" claude plugin marketplace add "$ROOT"
   fi
-  if listed plugin tower@phutschi-tower; then
-    claude plugin update tower@phutschi-tower >/dev/null && echo "  updated   tower@phutschi-tower"
+  if [ -n "$(scopes tower@phutschi-tower)" ]; then
+    try "updated   tower@phutschi-tower" claude plugin update tower@phutschi-tower
   else
-    claude plugin install tower@phutschi-tower >/dev/null && echo "  installed tower@phutschi-tower"
+    try "installed tower@phutschi-tower" claude plugin install tower@phutschi-tower
   fi
 fi
 
@@ -87,6 +87,7 @@ for n in herdr-orchestrate preflight spec-to-plan; do unlink_old "$HOME/.claude/
 unlink_old "$HOME/.agents/skills" herdr-orchestrate
 for n in orchestrate spec-to-plan preflight; do link "$SKILLS/$n" "$HOME/.agents/skills" "$n"; done
 link "$SKILLS/preflight" "$HOME/.codex/skills" preflight
+[ "$ok" = 1 ] || { echo "install failed: see FAILED above" >&2; exit 1; }
 cat <<'MSG'
 
 Plan, in any session:  /tower:spec-to-plan <spec path or issue URL>
