@@ -22,3 +22,26 @@ pane checks "bun test --watch"
 
 # Minutes of silence before the console flags a lane as stale (default 30).
 # STALE=30
+
+# The full suite: the repo's thorough checks, run once by preflight on the
+# whole branch. Named steps, run in this order, every one even when one fails.
+#   suite NAME "COMMAND" [DIR]    DIR is relative to the checkout (default .).
+# Without suite lines preflight runs the detected checks, then CHECK_CMD.
+# suite lint      "bun run lint"
+# suite typecheck "bun run typecheck"
+# suite test      "bun test"
+# suite build     "bun run build" apps/web
+
+# The run switches. Each line shows the default; the user's message overrides
+# them per run in plain words. A value outside the listed ones is refused.
+# TASK_REVIEW=on        on | off    the spec and quality review after each task inside a lane
+# LANE_REVIEW=on        on | off    a Reviewer reviews each lane's diff before it is merged
+# PREFLIGHT=on          on | off    preflight checks the whole branch before the PR
+# STATIC_BASELINE=on    on | off    preflight scans the diff with semgrep and gitleaks
+# PR=draft              draft | ready | off    how the run's PR is opened, or no PR
+# METHOD=tdd            tdd | plain    plain briefs lanes without the tdd loop
+# REVIEWER_KIND=other   other | claude | codex    other: the kind the lane's executor is not
+# REVIEWER_MODEL=       the Reviewer's model; empty: the kit picks one per kind
+# REVIEW_AREAS=         preflight's areas, comma-separated; empty: every area
+# SUITE_SKIP=           suite steps to skip, comma-separated (e.g. build)
+# PR_TEMPLATE=          a PR body template in the repo; empty: preflight's default

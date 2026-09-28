@@ -32,9 +32,11 @@
 # run's default, the environment of this call overrides it (executor.sh).
 #
 # Writes <run-dir>/panes.txt, the pane map for the whole run, then prints it
-# with the next step. The console pane stays open after the run: it is the
-# record, and the human quits it with q. Nothing is torn down until the user
-# says so.
+# with the next step. The pane map's  switches:  line holds every run switch
+# and the value this run uses (detect-stack.sh); the same line goes to the
+# record, as a  tower note  or into run.txt without tower. The console pane
+# stays open after the run: it is the record, and the human quits it with q.
+# Nothing is torn down until the user says so.
 #
 # Never run this for real to see what it does; use DRY_RUN=1, which answers
 # every herdr and tower call from tests/stub and touches nothing.
@@ -79,6 +81,7 @@ if [ "$HAVE_TOWER" = 1 ]; then
   elif [ -n "$SOURCE" ]; then
     tower assign A "$(tower state --json | jsonq '",".join(t["id"] for t in d["tasks"])')"
   fi
+  tower note "switches: $(switches_line)"
 else
   case "$SOURCE" in
     "")   printf '# id\ttitle\tarea\tlane\n' > "$RUN_DIR/tasks.tsv" ;;
@@ -97,6 +100,7 @@ tasks:            $RUN_DIR/$(case "$SOURCE" in *.md) echo plan.md ;; *) echo tas
 implementer:      $EXECUTOR_MODEL ($EXECUTOR_KIND)
 spec-reviewer:    $SPEC_REVIEWER_MODEL
 quality-reviewer: $QUALITY_REVIEWER_MODEL
+switches:         $(switches_line)
 TXT
 fi
 
@@ -131,6 +135,7 @@ else herdr pane run "$CONSOLE_PANE" "$GITLOG_CMD" >/dev/null; fi
   if [ "$HAVE_TOWER" = 1 ]; then echo "console:        $CONSOLE_PANE   (tower; the record — stays open, the human quits it with q)"
   else echo "console:        $CONSOLE_PANE   (git log; no tower — the run dir is the record: run.txt, tasks.tsv, lanes.txt)"; fi
   echo "check gate:     $CHECK_CMD"
+  echo "switches:       $(switches_line)"
   echo "toolchain:      $PM"
   echo "read a pane:    herdr pane read <id> --source recent-unwrapped --lines 60"
 } > "$RUN_DIR/panes.txt"
