@@ -77,8 +77,8 @@ Every run ends in a pull request, in this order:
    task), a **Reviewer** reviews the lane's diff before it is merged. It is
    a fresh agent of the other kind: codex reviews claude lanes on
    gpt-6-astra, claude reviews codex lanes on claude-opus-5-5. With only
-   one kind installed, the same kind reviews on another model (claude:
-   claude-fable-5-1); bootstrap prints the choice and any fallback on its
+   one kind installed, the same kind reviews in a fresh agent (claude on
+   claude-fable-5-1, codex on the lanes' model); bootstrap prints the choice and any fallback on its
    `reviewer:` line. Reviewers only report. The orchestrator triages their
    findings alone: a real problem the lane introduced goes back to that
    lane as a fix task, the rest waits for the preflight table. A fix loop
