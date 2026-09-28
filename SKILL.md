@@ -123,14 +123,21 @@ and do it in a lane anyway or suggest doing it without the kit.
     ```
     `<kind>`: in a single-kind run the lanes' kind, for both; in a mixed run
     `claude` for R1 and `codex` for R2, so one Reviewer of each kind
-    reviews. Brief both with the preflight slot brief (`brief-template.md`):
+    reviews. Brief each with the preflight slot brief (`brief-template.md`):
     - R1: `look.sh` (static baseline and full suite), `spec` against the
       whole plan and its spec issue, `between-lanes`. Only R1 runs
       `look.sh`.
-    - R2: `security`, `performance`, `error-handling`, after a green look:
-      its brief has it wait for the round's `look.json` and review only
-      when no finding in it is must-fix (red: skip rows; a setup error:
-      warn rows). No agent review starts before the look is green.
+    - R2: `security`, `performance`, `error-handling`. Agent review starts
+      only once the look is green, so start R2 after it: add and brief R1,
+      then wait in the background, like the watch, for R1's look to finish
+      and its checkout to be clean again (R1 puts back what the suite
+      changed):
+      ```
+      d=<run-dir>/findings/preflight/<n>; until { [ -e $d/look.json ] || [ -e $d/R1.json ]; } && [ -z "$(git -C <lane-A-checkout> status --short --untracked-files=no)" ]; do sleep 20; done
+      ```
+      Then `look.json` with no must-fix finding: add and brief R2. A
+      must-fix finding (red) or no `look.json` (a setup error): no R2 this
+      round; its areas count as skipped in step 12.
 
     `REVIEW_AREAS` narrows the areas; split what is left over the two
     slots. From round 2 the areas are the ones step 12 names, each in its

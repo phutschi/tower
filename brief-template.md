@@ -107,7 +107,9 @@ A Reviewer gets its own brief, not a lane's: one message, sent with
 REPORT paragraph: the findings line is the report. In the empty opening
 there is no plan: name the tasks' titles from the board or `tasks.tsv`.
 `{{ROUND}}` is the preflight round `<n>` (SKILL.md step 11): the directory
-of `{{FINDINGS_FILE}}` is `<run-dir>/findings/preflight/{{ROUND}}/`. `{{FIX_BASE}}` is HEAD before the previous round's fixes. `{{R1_FINDINGS_FILE}}` is R1's findings file of the same round.
+of `{{FINDINGS_FILE}}` is `<run-dir>/findings/preflight/{{ROUND}}/`.
+`{{FIX_BASE}}` is HEAD before the previous round's fixes. R2 is briefed
+only after R1's look is green (SKILL.md step 11).
 
 ### Lane review
 
@@ -125,7 +127,7 @@ End with one line: FINDINGS WRITTEN in double square brackets, a space, then {{F
 
 You are a Reviewer in a herdr-orchestrate run, agent {{AGENT}}, board task {{TASK_ID}} (slot {{SLOT}}). Working directory: {{CHECKOUT}}, the integration branch with every lane and origin/main merged. You only report: the one file you write is your findings file. Leave the working tree and the branch as they are.
 
-Load the preflight skill and run its look half as a Reviewer. Your areas: {{AREAS, e.g. R1: "spec (the whole plan {{PLAN}} and its spec issue), between-lanes"; R2: "security, performance, error-handling"}}. {{R1: "You run look.sh:  (cd {{CHECKOUT}} && STATIC_BASELINE={{from switches:}} SUITE_SKIP={{from switches:}} {{KIT}}/preflight/look.sh origin/main {{RUN_DIR}}/findings/preflight/{{ROUND}}) . If it is red, stop before your areas as the skill says." From round 2, R1 also: "Review the fix commits,  git diff {{FIX_BASE}}..HEAD , against the findings they fix: those with outcome fix in {{RUN_DIR}}/findings/preflight/{{ROUND - 1}}/ (and the deferred lane-review findings with outcome fix, after round 1)." | R2: "R1 runs look.sh; you review your areas only, after its look is green. First wait: re-check every 3 minutes until {{RUN_DIR}}/findings/preflight/{{ROUND}}/look.json exists and parses, or R1's findings file {{R1_FINDINGS_FILE}} exists without it. Then, as the skill's look step 3 says: no must-fix finding in look.json is green, review your areas; a must-fix finding is red; no look.json is a setup error."}} Your findings file: {{FINDINGS_FILE}}.
+Load the preflight skill and run its look half as a Reviewer. Your areas: {{AREAS, e.g. R1: "spec (the whole plan {{PLAN}} and its spec issue), between-lanes"; R2: "security, performance, error-handling"}}. {{R1: "You run look.sh:  (cd {{CHECKOUT}} && STATIC_BASELINE={{from switches:}} SUITE_SKIP={{from switches:}} {{KIT}}/preflight/look.sh origin/main {{RUN_DIR}}/findings/preflight/{{ROUND}}) . If it is red, stop before your areas as the skill says." From round 2, R1 also: "Review the fix commits,  git diff {{FIX_BASE}}..HEAD , against the findings they fix: those with outcome fix in {{RUN_DIR}}/findings/preflight/{{ROUND - 1}}/ (and the deferred lane-review findings with outcome fix, after round 1)." | R2: "R1 ran look.sh and it is green ({{RUN_DIR}}/findings/preflight/{{ROUND}}/look.json); you review your areas only."}} Your findings file: {{FINDINGS_FILE}}.
 
 REPORT: at the start  tower task {{TASK_ID}} reviewing --model {{MODEL}} ; at the end  tower note --task {{TASK_ID}} "<n> findings"  then  tower task {{TASK_ID}} done --model {{MODEL}} . If you cannot proceed:  tower block {{TASK_ID}} "<what you need>" .
 
