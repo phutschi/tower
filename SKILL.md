@@ -86,7 +86,8 @@ and do it in a lane anyway or suggest doing it without the kit.
    agent is working. A lane reporting ready (`ready to merge`, or lane A's
    `ALL DONE` after its last task) → verify its check gate and commits, then
    its lane review (step 8; `LANE_REVIEW=off`: step 9). A Reviewer's
-   `FINDINGS WRITTEN` → triage it (see "Triage"), and start the review of a lane waiting for a free slot.
+   `FINDINGS WRITTEN` → triage it (see "Triage"), and start the review of a
+   lane waiting for a free slot.
 8. **Lane review.** Every lane, lane A included. Start it with
    ```
    <kit>/add-reviewer.sh <run-dir> <R1|R2> <lane-kind> "Lane review <X>, round <n>" <run-dir>/findings/lane-<X>-<n>.json
@@ -97,7 +98,8 @@ and do it in a lane anyway or suggest doing it without the kit.
    with the lane review brief (`brief-template.md`). The fixed point is the
    lane's base: the commit it forked from; for lane A the run base (step 2),
    leaving out the commits of the other lanes. Triage the findings alone
-   (see "Triage"). Fix tasks → the lane fixes → a new round with a fresh
+   (see "Triage"). Fix tasks → the lane fixes (the prompt asks it to end
+   with its final report's marker again, in words) → a new round with a fresh
    Reviewer and the next `<n>`. The review is clean when no finding triaged
    fix is left → step 9.
 9. **Merge the lane** into the integration branch, note it

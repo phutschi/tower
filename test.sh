@@ -392,16 +392,20 @@ if section watch; then
   assert_match "lane B idle after its final report"   "$out" '^attention: b idle-after-final-report'
   echo idle > "$S/r"; printf '[[FINDINGS WRITTEN]] /run/findings/lane-a.json\n' > "$S/r.tail"; out=$(watch r)
   assert_match "a Reviewer idle after writing its findings" "$out" '^attention: r idle-after-final-report'
+  echo idle > "$S/b"; printf '[[ Ready to merge ]]\n' > "$S/b.tail"; out=$(watch b)
+  assert_match "the marker in another case or with spaces still reads as the report" "$out" '^attention: b idle-after-final-report'
   # A pane that still shows only its brief has not reported: the briefs name
   # the report phrases (ALL DONE, ready to merge, FINDINGS WRITTEN) but never
   # the marker itself.
-  echo idle > "$S/a"; sed -n '/^You are lane/,/^Begin now/p' "$KIT/brief-template.md" > "$S/a.tail"; out=$(watch a)
+  # The tail must still name a report phrase, or the case below tests nothing.
+  names_report() { assert_match "$1: the tail names a report phrase" "$(grep -v '^[[:space:]]*$' "$2" | tail -12)" 'ALL DONE|ready to merge|FINDINGS WRITTEN'; }
+  echo idle > "$S/a"; sed -n '/^You are lane/,/^Begin now/p' "$KIT/brief-template.md" > "$S/a.tail"; names_report "lane brief" "$S/a.tail"; out=$(watch a)
   assert_match "idle with only the lane brief in the tail is unexplained" "$out" '^attention: a idle-unexplained'
   for brief in 'Lane review' 'Preflight slot'; do
-    echo idle > "$S/r"; sed -n "/^### $brief/,/^End with/p" "$KIT/brief-template.md" > "$S/r.tail"; out=$(watch r)
+    echo idle > "$S/r"; sed -n "/^### $brief/,/^End with/p" "$KIT/brief-template.md" > "$S/r.tail"; names_report "$brief brief" "$S/r.tail"; out=$(watch r)
     assert_match "idle with only the Reviewer brief ($brief) in the tail is unexplained" "$out" '^attention: r idle-unexplained'
   done
-  echo idle > "$S/r"; sed -n '/^## Who does what/,/^Look only/p' "$KIT/preflight/SKILL.md" > "$S/r.tail"; out=$(watch r)
+  echo idle > "$S/r"; sed -n '/^## Who does what/,/^Look only/p' "$KIT/preflight/SKILL.md" > "$S/r.tail"; names_report "preflight skill" "$S/r.tail"; out=$(watch r)
   assert_match "idle with only the preflight skill's Reviewer lines in the tail is unexplained" "$out" '^attention: r idle-unexplained'
   echo idle > "$S/a"; printf 'Running tests...\n' > "$S/a.tail"; out=$(watch a)
   assert_match "idle without a report is unexplained" "$out" '^attention: a idle-unexplained'

@@ -27,7 +27,7 @@ Find your role first; it decides which half you run.
 - **A Reviewer in a run**: your brief names your areas, your findings file,
   and whether you run `look.sh`. Run look for those only, then end with one
   line: FINDINGS WRITTEN in double square brackets, a space, then the
-  findings file.
+  findings file after the closing brackets.
 - **The orchestrator of a run**: run act, on the Reviewers' findings files
   plus the findings you deferred during lane reviews.
 

@@ -24,7 +24,8 @@
 # GRACE_SECONDS and only when seen on two consecutive polls, and the reason
 # says whether the pane tail shows the final report's marker or not: the
 # report phrase in double square brackets, [[ALL DONE]] (lane A),
-# [[READY TO MERGE]] (lanes B-D) or [[FINDINGS WRITTEN]] <file> (a Reviewer).
+# [[READY TO MERGE]] (lanes B-D) or [[FINDINGS WRITTEN]] <file> (a Reviewer),
+# in any case and with spaces inside the brackets.
 # Briefs and skills describe the marker and never spell it, so a pane that
 # still shows only its brief reads idle-unexplained.
 #
@@ -45,7 +46,7 @@ state_of() { herdr agent get "$1" 2>/dev/null | jsonq 'd["result"]["agent"]["age
 tail_of()  { herdr agent read "$1" --source recent-unwrapped --lines 40 2>/dev/null | grep -v '^[[:space:]]*$' | tail -12; }
 reason_for() {  # $1 name, $2 state
   case "$2" in
-    idle) if tail_of "$1" | grep -qE '\[\[(ALL DONE|READY TO MERGE|FINDINGS WRITTEN)\]\]'; then echo idle-after-final-report; else echo idle-unexplained; fi ;;
+    idle) if tail_of "$1" | grep -qiE '\[\[ *(ALL DONE|READY TO MERGE|FINDINGS WRITTEN)'; then echo idle-after-final-report; else echo idle-unexplained; fi ;;
     *)    echo "$2" ;;
   esac
 }
