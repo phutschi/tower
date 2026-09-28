@@ -127,7 +127,10 @@ and do it in a lane anyway or suggest doing it without the kit.
     - R1: `look.sh` (static baseline and full suite), `spec` against the
       whole plan and its spec issue, `between-lanes`. Only R1 runs
       `look.sh`.
-    - R2: `security`, `performance`, `error-handling`.
+    - R2: `security`, `performance`, `error-handling`, after a green look:
+      its brief has it wait for the round's `look.json` and review only
+      when no finding in it is must-fix (red: skip rows; a setup error:
+      warn rows). No agent review starts before the look is green.
 
     `REVIEW_AREAS` narrows the areas; split what is left over the two
     slots. From round 2 the areas are the ones step 12 names, each in its

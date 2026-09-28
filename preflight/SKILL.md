@@ -28,7 +28,8 @@ Find your role first; it decides which half you run.
 
 - **Alone** (no herdr-orchestrate run): you run both halves in this session.
 - **A Reviewer in a run**: your brief names your areas, your findings file,
-  and whether you run `look.sh`. Run look for those only, then end with one
+  and whether you run `look.sh` or wait for another Reviewer's. Run look
+  for those only, then end with one
   line: FINDINGS WRITTEN in double square brackets, a space, then the
   findings file after the closing brackets.
 - **The orchestrator of a run**: run act, on the Reviewers' findings files
@@ -65,7 +66,10 @@ run, the `switches:` line of `panes.txt` has the values the run uses.
    `look.sh` needs a clean tracked tree: `git status --short
    --untracked-files=no` prints nothing (untracked files are fine); it exits
    2 otherwise. Alone, when that prints files: ask the human whether to
-   commit or stash them first. Then run
+   commit or stash them first. A Reviewer whose brief has it wait for
+   another's `look.sh`: its brief says how; that `look.json` then decides
+   as the exit codes below do (no must-fix finding: exit 0; one: exit 1;
+   none written: exit 2). Otherwise run
 
    ```bash
    <this skill's dir>/look.sh origin/<base> <findings-dir>
