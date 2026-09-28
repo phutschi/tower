@@ -30,7 +30,7 @@ needs herdr, python3 and node.
 check it against the release's checksums, and put it on your `PATH` as
 `tower`. In a clone of tower, `./install.sh` fetches the binary when tower is
 missing and installs the plugin below. It also checks what `/tower:orchestrate`
-needs, herdr among them ([docs/orchestrate.md](docs/orchestrate.md)).
+needs ([docs/orchestrate.md](docs/orchestrate.md)).
 
 **From git**, with Node ≥ 22:
 

@@ -34,8 +34,8 @@ _Avoid_: item, step, ticket, issue, flight (rendering only)
 
 **Lane**:
 A group of tasks worked in order by one executor. In an orchestrate run lanes
-are lettered A to D, and each has its own branch and checkout: lane A the
-checkout the run opens in, the others a worktree each.
+are lettered A to D, and each has its own branch and checkout: lane A in
+the checkout the run opens in, B to D each in a worktree under `.worktrees/`.
 _Avoid_: runway (rendering only), worker, thread, track, stream
 
 **Integration branch**:
