@@ -183,16 +183,22 @@ test("every ADR a skill cites exists in docs/adr and is not superseded", () => {
   expect(bad).toEqual([]);
 });
 
-// The release builds on the Node that CI checked.
+// The release sets up Node the way CI does: every setup-node step and every
+// node-version, in order, with quotes and trailing comments stripped.
 test("CI and the release set up the same Node", () => {
+  const values = (text: string, key: RegExp) =>
+    [...text.matchAll(key)].map((m) =>
+      m[1]!.replace(/\s+#.*$/, "").replace(/^["']|["']$/g, ""),
+    );
   const nodeSetup = (path: string) => {
     const text = read(path);
     return {
-      action: text.match(/uses: (actions\/setup-node@\S+)/)?.[1],
-      version: text.match(/node-version: (\S+)/)?.[1],
+      actions: values(text, /uses:\s*(actions\/setup-node@\S+)/g),
+      versions: values(text, /node-version:\s*(.+)$/gm),
     };
   };
   const ci = nodeSetup(".github/workflows/ci.yml");
-  expect(ci).toEqual({ action: "actions/setup-node@v5", version: "lts/*" });
+  expect(ci.actions).toHaveLength(1);
+  expect(ci.versions).toHaveLength(1);
   expect(nodeSetup(".github/workflows/release.yml")).toEqual(ci);
 });
