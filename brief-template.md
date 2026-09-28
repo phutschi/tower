@@ -54,6 +54,14 @@ the sentence that works for both.
 A codex lane briefed with subagent instructions will improvise; match the
 tail to the kind.
 
+## Switches
+
+Read `switches:` in panes.txt before writing the brief.
+
+- `METHOD=plain`: METHOD starts at "When green:"; drop the tdd sentence.
+- `TASK_REVIEW=off`: METHOD ends at "commit"; drop the per-task review tail
+  for either kind. The final review of WHEN YOUR LAST TASK IS DONE stays.
+
 ## Merge points
 
 Lane A's branch is the integration branch. A lane that needs another lane's
@@ -61,7 +69,10 @@ work merges that lane's branch (or the integration branch, to pick up work
 already merged into it) before the task that needs it. A finished lane never
 merges its own branch into the integration branch — only the orchestrator
 does that, right away, not lane A at its next merge point. So lane B's brief
-never says "merge into A"; it says "tower note … ready to merge" and stops.
+never says "merge into A"; it says "tower note … ready to merge" and waits.
+Ready is not the end: a lane review follows, and its fixes come back to the
+same lane, so every lane stays alive until the orchestrator says it is
+merged.
 
 ---
 
@@ -81,8 +92,33 @@ PANES you may read instead of re-running suites (herdr pane read <id> --source r
 
 Do not stop between tasks to ask whether to continue. If you cannot proceed: tower block <id> "<exactly what you need>", then stop and wait.
 
-WHEN YOUR LAST TASK IS DONE: {{lane A: "run the check gate from the repo root, then a final whole-implementation review (claude: subagent, model opus; codex: self-review of the whole lane diff with the code-review skill), fix what it flags, then  tower note --lane A 'ALL DONE - check green'  and report a summary."  other lanes: "run the check gate for your files, then  tower note --lane {{LANE}} 'lane {{LANE}} complete - ready to merge'  and stop; the orchestrator merges you."}}
+WHEN YOUR LAST TASK IS DONE: {{lane A: "run the check gate from the repo root, then a final whole-implementation review (claude: subagent, model opus; codex: self-review of the whole lane diff with the code-review skill), fix what it flags, then  tower note --lane A 'ALL DONE - check green'  and report a summary."  other lanes: "run the check gate for your files, then  tower note --lane {{LANE}} 'lane {{LANE}} complete - ready to merge'  and wait; the orchestrator merges you."}} A Reviewer then reviews your lane. Stay in this session: fix tasks from that review come to you on the board and by prompt; do them like any task.
 
 Begin now with task {{FIRST_ID}}.
 
 --- (paste the output of `tower brief <lane>` below this line) ---
+
+## Reviewer briefs
+
+A Reviewer gets its own brief, not a lane's: one message, sent with
+`herdr agent prompt <reviewer-agent> "$(cat <run-dir>/brief-<task-id>.md)"`
+(add-reviewer.sh prints the agent, the task id and the findings file). No
+`tower brief` part. Both kinds use the same text.
+
+### Lane review
+
+You are a Reviewer in a herdr-orchestrate run, agent {{AGENT}}, board task {{TASK_ID}} (lane {{SLOT}}). Working directory: {{CHECKOUT}}. You review lane {{LANE}}'s work, which you did not write. You only report: never edit a file, commit, push or open a PR.
+
+Load the code-review skill and review the changes since the fixed point {{LANE_BASE}} on branch {{LANE_BRANCH}} ({{"lane A: lanes merged into it since then were reviewed already; review lane A's own commits"}}). The spec is tasks {{TASK_IDS}} of the plan {{PLAN}} and the spec it links. Also check the tests of each task: they cover its acceptance criteria and assert what a user or the next script sees.
+
+Write every finding to {{FINDINGS_FILE}} in the format of {{KIT}}/preflight/findings.md (review "Lane review {{LANE}}", one verdict row per task). Report on the board: at the start  tower task {{TASK_ID}} reviewing --model {{MODEL}} ; at the end  tower note --task {{TASK_ID}} "<n> findings"  then  tower task {{TASK_ID}} done --model {{MODEL}} . If you cannot proceed: tower block {{TASK_ID}} "<what you need>".
+
+End with the line  FINDINGS WRITTEN {{FINDINGS_FILE}}  and stop.
+
+### Preflight slot
+
+You are a Reviewer in a herdr-orchestrate run, agent {{AGENT}}, board task {{TASK_ID}} (lane {{SLOT}}). Working directory: {{CHECKOUT}}, the integration branch with every lane and origin/main merged. You only report: never edit a file, commit, push or open a PR.
+
+Load the preflight skill and run its look half as a Reviewer. Your areas: {{AREAS, e.g. R1: "spec (the whole plan {{PLAN}} and its spec issue), between-lanes"; R2: "security, performance, error-handling"}}. {{R1 only: "You run look.sh:  (cd {{CHECKOUT}} && {{KIT}}/preflight/look.sh origin/main {{RUN_DIR}}/findings/preflight) . If it is red, stop before your areas as the skill says." | R2: "Do not run look.sh; R1 runs it."}} Your findings file: {{RUN_DIR}}/findings/preflight/{{SLOT}}.json.
+
+Report on the board as in a lane review (tower task {{TASK_ID}} …). End with the line  FINDINGS WRITTEN {{FINDINGS_FILE}}  and stop.
