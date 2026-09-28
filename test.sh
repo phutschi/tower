@@ -455,8 +455,17 @@ if section install; then
   assert_match "install: lists herdr as ok (stub)"    "$out" 'ok +herdr'
   assert_match "install: tower optional"              "$out" 'tower'
   assert_match "install: prints the two openings"     "$out" 'with a plan'
+  for d in .claude/skills .agents/skills .codex/skills; do
+    assert_eq "install: preflight linked into ~/$d"   "$(readlink "$H/$d/preflight")" "$KIT/preflight"
+  done
+  assert_match "install: semgrep is optional"         "$out" 'semgrep.*optional'
+  assert_match "install: gitleaks is optional"        "$out" 'gitleaks.*optional'
+  links() { find "$H" -type l -exec sh -c 'printf "%s -> %s\n" "$1" "$(readlink "$1")"' _ {} \; | sort; }
+  before=$(links)
   out=$(HOME="$H" "$KIT/install.sh" 2>&1; echo "exit=$?")
   assert_match "install: idempotent"                  "$out" 'exit=0$'
+  assert_eq "install: a second run changes no link"   "$(links)" "$before"
+  assert_nomatch "install: a second run skips nothing" "$out" 'SKIPPED'
   H2="$TMP/home2"; mkdir -p "$H2"
   out=$(HOME="$H2" "$KIT/install.sh" --check 2>&1; echo "exit=$?")
   assert_match "check: exit 0"                        "$out" 'exit=0$'
