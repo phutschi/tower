@@ -22,8 +22,8 @@ the act on it: the first round looks at the whole branch, and after fixes
 the next round looks again. Each round `<n>` (from 1) writes into its own
 findings dir, `<preflight-dir>/<n>/`. A look is **red** while it has an
 **open** must-fix finding: one not triaged `accept`, `follow-up` or
-`reject` in an earlier round. `look.sh` exits 1 on any must-fix finding; it
-does not know the triage.
+`reject` in an earlier round (the same area, file and title). `look.sh`
+exits 1 on any must-fix finding; it does not know the triage.
 
 ## Who does what
 

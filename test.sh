@@ -635,6 +635,7 @@ for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'],
   # A sparse checkout can lack a changed file without the tree being dirty.
   git -C "$r" update-index --skip-worktree new.py; rm "$r/new.py"; reset_stub; out=$(look "$r" base "$F")
   assert_nomatch "look: a changed file missing from a sparse checkout is not scanned" "$(cat "$HERDR_STUB_LOG")" '^semgrep .*new\.py'
+  assert_match "look: ... the rest is still scanned"    "$(cat "$HERDR_STUB_LOG")" '^semgrep scan .* -- app\.js café app\.js$'
   git -C "$r" update-index --no-skip-worktree new.py; git -C "$r" checkout -q -- new.py
   mkdir -p "$r/sub"; reset_stub
   out=$(cd "$r/sub" && "$KIT/preflight/look.sh" base rel-findings 2>&1; echo "exit=$?")
