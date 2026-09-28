@@ -34,6 +34,11 @@ GIT_INSTALL='npm i -g github:phutschi/tower (Node >= 22)'
 on_path() {  # a tower in BIN_DIR that runs, though BIN_DIR is not on PATH
   export PATH="$BIN_DIR:$PATH"
   case ":$ORIG_PATH:" in *":$BIN_DIR:"*) ;; *) echo "  note      $BIN_DIR is not on your PATH; add it" ;; esac
+  # A tower that does not run, found before BIN_DIR, still wins in your shell.
+  local first; first=$(PATH="$ORIG_PATH" command -v tower || true)
+  if [ -n "$first" ] && [ "$first" != "$BIN_DIR/tower" ]; then
+    echo "  note      $first comes first on your PATH and does not run; remove it, or put $BIN_DIR before it"
+  fi
 }
 sha256() { if command -v sha256sum >/dev/null; then sha256sum "$1"; else shasum -a 256 "$1"; fi | awk '{print $1}'; }
 fetch_tower() {

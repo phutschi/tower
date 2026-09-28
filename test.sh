@@ -948,6 +948,7 @@ if section install; then
   assert_eq "fetch: the release binary is installed and runs" "$("$BIN/tower" --help 2>&1)" "tower $V (fixture)"
   assert_match "fetch: says what it installed"          "$out" "tower-linux-x64 v$V"
   assert_match "fetch: ... and that tower now runs"      "$out" 'ok +tower$'
+  assert_match "fetch: a tower that does not run, earlier on PATH, is named" "$out" "note +$KIT/tests/stub/tower comes first on your PATH"
   before=$(ls -l "$BIN")
   out=$(fetch "$H5" "$BIN")
   assert_match "fetch: a second run exits 0"            "$out" 'exit=0$'
@@ -983,7 +984,7 @@ if section install; then
   # The git install (npm i -g github:phutschi/tower): npm runs prepare, which
   # builds with Node alone. A copy of the package, and a PATH without bun.
   P="$TMP/pkg"; mkdir -p "$P"
-  for f in src themes package.json tsconfig.json tsconfig.build.json; do [ -e "$ROOT/$f" ] && cp -R "$ROOT/$f" "$P/"; done
+  for f in src themes scripts package.json tsconfig.json tsconfig.build.json; do [ -e "$ROOT/$f" ] && cp -R "$ROOT/$f" "$P/"; done
   ln -s "$ROOT/node_modules" "$P/node_modules"
   NB="$TMP/nobun"; mkdir -p "$NB"; for t in node npm sh env dirname; do ln -sf "$(command -v $t)" "$NB/$t"; done
   PATH="$NB" command -v bun >/dev/null && bad "prepare: the PATH has no bun" || ok "prepare: the PATH has no bun"
