@@ -31,7 +31,7 @@
 # Steps get no stdin and no timeout. A SUITE_SKIP name that matches no step is
 # a warn row.
 #
-# Settings (environment > .herdr-orchestrate, read through detect-stack.sh):
+# Settings (environment > .orchestrate, read through detect-stack.sh):
 #   STATIC_BASELINE=off   skip both scanners; their rows say so
 #   SUITE_SKIP=build,lint suite steps to skip; their rows are skip rows
 #   CHECK_CMD             the one step when there are no suite lines or scripts
@@ -53,7 +53,7 @@
 # and  git checkout -- <files>  puts it back without touching anyone's edits.
 set -euo pipefail
 LOOK_DIR="$(cd "$(dirname "$0")" && pwd -P)"
-KIT="$(dirname "$LOOK_DIR")"
+KIT="$(dirname "$LOOK_DIR")/orchestrate"  # the orchestrate skill beside this one
 . "$KIT/common.sh"
 die() { echo "$*" >&2; exit 2; }  # a setup error, apart from exit 1 (must-fix found)
 

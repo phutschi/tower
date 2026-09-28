@@ -1,0 +1,12 @@
+{
+  "name": "phutschi",
+  "owner": { "name": "Philipp Wruck" },
+  "description": "phutschi's own Claude Code plugins.",
+  "plugins": [
+    {
+      "name": "phutschi",
+      "source": "./",
+      "description": "Plan and run multi-lane implementations in herdr: spec-to-plan, orchestrate, preflight."
+    }
+  ]
+}

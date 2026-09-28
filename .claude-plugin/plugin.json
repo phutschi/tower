@@ -1,0 +1,8 @@
+{
+  "name": "phutschi",
+  "version": "0.1.0",
+  "description": "Plan and run multi-lane implementations in herdr: /phutschi:spec-to-plan turns a spec into a plan, /phutschi:orchestrate runs it with one to four lanes, /phutschi:preflight checks the branch before its PR.",
+  "author": { "name": "Philipp Wruck" },
+  "repository": "https://github.com/phutschi/herdr-orchestrate",
+  "license": "UNLICENSED"
+}

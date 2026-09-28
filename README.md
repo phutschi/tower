@@ -1,37 +1,90 @@
-# herdr-orchestrate
+# phutschi
 
-Run a multi-task implementation inside [herdr](https://herdr.dev) with one
-orchestrating session and one to four executing lanes, and read the record
-afterwards in [tower](https://github.com/phutschi/tower).
+A Claude Code plugin that plans and runs a multi-task implementation inside
+[herdr](https://herdr.dev): one orchestrating session and one to four
+executing lanes. [tower](https://github.com/phutschi/tower) keeps the record
+if you have it; it is optional.
+
+| Skill | What it does |
+|---|---|
+| `/phutschi:spec-to-plan` | Turns a spec into `plan.md`: tasks, lanes, merge points. Any session. |
+| `/phutschi:orchestrate` | Runs a plan (or a request) with lanes, reviews, merge, preflight and a PR. Needs herdr. |
+| `/phutschi:preflight` | Checks a whole branch before its PR. Also on its own, without herdr. |
+
+Planning and running are separate sessions, and the plan is the only thing
+between them.
 
 You talk to the orchestrator. It opens the run, owns the task list, briefs
 the lanes, watches, has every lane reviewed, merges, checks the whole
-branch, opens a pull request (a draft by default), and closes. It never writes code. Lanes execute
-their brief and report their own tasks. Reviewers review and report
-findings. Nothing else.
+branch, opens a pull request (a draft by default), and closes. It never
+writes code. Lanes execute their brief and report their own tasks.
+Reviewers review and report findings. Nothing else.
+
+## Quick start
+
+### Tell this to your agent to get started quickly
+
+**1. Install.** Paste this into Claude Code:
+
+```
+Install the phutschi plugin: clone git@github.com:phutschi/herdr-orchestrate.git
+into ~/tools/herdr-orchestrate (or pull it if it is already there) and run
+~/tools/herdr-orchestrate/install.sh. If it reports a missing dependency,
+tell me which one and how to install it, then run it again. When it passes,
+tell me to restart Claude Code so the /phutschi: skills show up.
+```
+
+**2. Plan.** In any session, in your repo, on the feature branch:
+
+```
+/phutschi:spec-to-plan <path or issue URL of the spec>
+```
+
+It slices the spec into tasks, proposes the lanes, asks you to approve
+them, and writes `plan.md`. It writes no code.
+
+**3. Run.** In a new session, from a herdr pane, same repo and branch:
+
+```
+/phutschi:orchestrate <path to plan.md>
+```
+
+The orchestrator briefs the lanes, gets their work reviewed and merged,
+checks the whole branch, and asks you once before it pushes and opens a
+draft PR.
+
+No spec yet? Skip step 2: run `/phutschi:orchestrate` with no plan, and
+your next message is the work.
 
 ## Install
 
 ```
-git clone <this repo> ~/tools/herdr-orchestrate
+git clone git@github.com:phutschi/herdr-orchestrate.git ~/tools/herdr-orchestrate
 ~/tools/herdr-orchestrate/install.sh
 ```
 
-That checks the dependencies (herdr, git, bash, python3, node; tower 0.2.0+,
-codex, semgrep and gitleaks optional), links the kit into `~/.claude/skills`
-and `~/.agents/skills` as the `herdr-orchestrate` skill, and links
-`preflight/` as the `preflight` skill for claude and codex.
+That checks the dependencies (herdr, git, bash, python3, node; claude,
+tower 0.2.0+, codex, semgrep and gitleaks optional), adds this repo as the
+`phutschi` marketplace in Claude Code and installs the `phutschi` plugin
+from it. For codex it links `orchestrate`, `spec-to-plan` and `preflight`
+into `~/.agents/skills`, and `preflight` into `~/.codex/skills` (codex
+Reviewers load it). Links of the old `herdr-orchestrate` layout in
+`~/.claude/skills` are removed, so no skill shows up twice.
 `install.sh --check` only checks.
+
+Claude Code installs a copy of the plugin. After a `git pull`, run
+`install.sh` again (it updates the plugin) and restart Claude Code.
 
 ## Two openings
 
 From a herdr pane, in your repo, on the feature branch:
 
-- **With a plan.** "Implement `<path>` with herdr-orchestrate." The path is a
-  markdown plan with `### Task <id>: <title>` headings, or a TSV
-  (`id<TAB>title<TAB>area`, see `example-tasks.tsv`). Keep plans wherever
-  you like; the kit only takes the path.
-- **Without.** "Spin up herdr-orchestrate." The layout comes up, the
+- **With a plan.** `/phutschi:orchestrate <path>`. The path is a markdown
+  plan with `### Task <id>: <title>` headings (what
+  `/phutschi:spec-to-plan` writes), or a TSV (`id<TAB>title<TAB>area`, see
+  `skills/orchestrate/example-tasks.tsv`). Keep plans wherever you like;
+  the kit only takes the path.
+- **Without.** `/phutschi:orchestrate` alone. The layout comes up, the
   orchestrator reports the pane map (`panes.txt` in the run dir), and your
   next message is the work. It derives the task list, puts it on the board,
   and briefs the lanes. Say "two lanes" or "ask me before you brief" if you
@@ -93,8 +146,8 @@ this order:
 4. **Preflight** checks the whole branch: semgrep and gitleaks on the diff,
    the repo's full suite, then agent review by area. R1 runs the checks and
    reviews the spec and problems between lanes; R2 reviews security,
-   performance and error handling. `preflight` is also a skill of its own:
-   run it on any branch, without herdr ("run preflight").
+   performance and error handling. `/phutschi:preflight` is also a skill of
+   its own: run it on any branch, without herdr.
 5. **One table, one reply.** The orchestrator shows you every finding in
    one table with a suggested outcome: fix, accept, follow-up or reject.
    Your one reply approves the fixes, the follow-up issues (filed where
@@ -109,8 +162,8 @@ this order:
 
 JS repos need nothing: the package manager, the typecheck script and the
 test runner are detected from lockfiles and `package.json`. Anything else,
-or any repo whose real entrypoint is its own tool, writes a
-`.herdr-orchestrate` file in the root (see `example.herdr-orchestrate`):
+or any repo whose real entrypoint is its own tool, writes a `.orchestrate`
+file in the root (see `skills/orchestrate/example.orchestrate`):
 
 ```bash
 CHECK_CMD="make check"            # the check gate every lane runs before a commit
@@ -126,6 +179,9 @@ suite lint  "make lint"           # the full suite, as named steps preflight run
 suite test  "make test"
 suite build "make build" web
 ```
+
+A repo that still has the old name, `.herdr-orchestrate`, keeps working,
+with a note to rename it.
 
 The same names in the environment of a bootstrap or add-lane call win over
 the file for that call. A name the kit does not read is pointed out on stderr.
@@ -158,7 +214,7 @@ A value outside the list is refused at bootstrap.
 ## Executor kinds
 
 Lanes run Claude Code by default (`claude-opus-5-5[1m]`). A repo can switch
-its runs to codex in `.herdr-orchestrate` (`EXECUTOR_KIND=codex`, model
+its runs to codex in `.orchestrate` (`EXECUTOR_KIND=codex`, model
 `gpt-6-astra`; `EXECUTOR_MODEL` overrides either), and a single lane can
 differ: `EXECUTOR_KIND=codex` in that bootstrap or add-lane call. Mixed runs
 are fine.
@@ -172,14 +228,24 @@ through commits and their pane, and the console shows the git log.
 ## Testing the kit
 
 `./test.sh` runs without herdr, tower, claude, codex, semgrep or gitleaks:
-stubs under `tests/stub/` log what would be called. `DRY_RUN=1 ./bootstrap.sh …`
-from any directory shows the same for a real repo.
-`shellcheck -S warning *.sh tests/stub/* preflight/*.sh` lints
+stubs under `skills/orchestrate/tests/stub/` log what would be called.
+`DRY_RUN=1 skills/orchestrate/bootstrap.sh …` from any directory shows the same for a real repo.
+`shellcheck -S warning *.sh skills/*/*.sh skills/orchestrate/tests/stub/*` lints
 (`.shellcheckrc` holds the deliberate exceptions). CI runs both on Linux and
 macOS.
 `./test.sh --fast` skips the slow sections (preflight's look and the whole
-run) and is the check gate in the kit's own `.herdr-orchestrate`; the full
+run) and is the check gate in the kit's own `.orchestrate`; the full
 `./test.sh` is its full suite.
+
+## Layout of this repo
+
+```
+.claude-plugin/        the phutschi marketplace and plugin manifests
+skills/orchestrate/    the orchestrator's skill and scripts; tests/ holds the stubs and fixtures
+skills/spec-to-plan/   the planning skill and its plan template
+skills/preflight/      the whole-branch check
+install.sh, test.sh    install and test everything
+```
 
 ## Design
 

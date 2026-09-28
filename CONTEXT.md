@@ -1,4 +1,4 @@
-# herdr-orchestrate
+# phutschi: orchestrate, spec-to-plan, preflight
 
 A skill and a kit of scripts for running a multi-task implementation inside
 herdr: one orchestrating session, one to four executing agents, a live record.
@@ -134,7 +134,7 @@ test, typecheck, lint and build. Slower and broader than the check gate.
 _Avoid_: check gate (that runs per task), checks pane (that watches)
 
 **Repo contract**:
-The `.herdr-orchestrate` file in a repo root: its panes, its check gate, its
+The `.orchestrate` file in a repo root: its panes, its check gate, its
 full suite as named `suite` steps, and the run's defaults for the executor
 kind and model, the reviewer models, the stale threshold and the run
 switches. Without it the kit uses the JS default and claude. The environment
