@@ -36,7 +36,7 @@
 #   one reviewer line per slot, replaced by each new review in that slot;
 #   the directory of <findings-file>.
 #
-# The Reviewer ends its report with  FINDINGS WRITTEN <findings-file>;
+# The Reviewer ends its report with  [[FINDINGS WRITTEN]] <findings-file>;
 # watch-lanes.sh then reads it as idle-after-final-report. The review tab and
 # its panes stay open after the run, like every pane.
 #

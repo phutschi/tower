@@ -386,10 +386,23 @@ if section watch; then
   assert_match "blocked: attention line first"        "$out" '^attention: a blocked'
   assert_match "blocked: tail printed"                "$out" 'need the API key'
   assert_match "blocked: exit 0"                      "$out" 'exit=0$'
-  echo idle > "$S/a"; printf 'tower note --lane A ALL DONE - check green\n' > "$S/a.tail"; out=$(watch a)
+  echo idle > "$S/a"; printf "tower note --lane A 'ALL DONE - check green'\nSummary: tasks 1-4 done.\n[[ALL DONE]]\n" > "$S/a.tail"; out=$(watch a)
   assert_match "idle after the final report"          "$out" '^attention: a idle-after-final-report'
-  echo idle > "$S/r"; printf 'FINDINGS WRITTEN /run/findings/lane-a.json\n' > "$S/r.tail"; out=$(watch r)
+  echo idle > "$S/b"; printf "tower note --lane B 'lane B complete - ready to merge'\n[[READY TO MERGE]]\n" > "$S/b.tail"; out=$(watch b)
+  assert_match "lane B idle after its final report"   "$out" '^attention: b idle-after-final-report'
+  echo idle > "$S/r"; printf '[[FINDINGS WRITTEN]] /run/findings/lane-a.json\n' > "$S/r.tail"; out=$(watch r)
   assert_match "a Reviewer idle after writing its findings" "$out" '^attention: r idle-after-final-report'
+  # A pane that still shows only its brief has not reported: the briefs name
+  # the report phrases (ALL DONE, ready to merge, FINDINGS WRITTEN) but never
+  # the marker itself.
+  echo idle > "$S/a"; sed -n '/^You are lane/,/^Begin now/p' "$KIT/brief-template.md" > "$S/a.tail"; out=$(watch a)
+  assert_match "idle with only the lane brief in the tail is unexplained" "$out" '^attention: a idle-unexplained'
+  for brief in 'Lane review' 'Preflight slot'; do
+    echo idle > "$S/r"; sed -n "/^### $brief/,/^End with/p" "$KIT/brief-template.md" > "$S/r.tail"; out=$(watch r)
+    assert_match "idle with only the Reviewer brief ($brief) in the tail is unexplained" "$out" '^attention: r idle-unexplained'
+  done
+  echo idle > "$S/r"; sed -n '/^## Who does what/,/^Look only/p' "$KIT/preflight/SKILL.md" > "$S/r.tail"; out=$(watch r)
+  assert_match "idle with only the preflight skill's Reviewer lines in the tail is unexplained" "$out" '^attention: r idle-unexplained'
   echo idle > "$S/a"; printf 'Running tests...\n' > "$S/a.tail"; out=$(watch a)
   assert_match "idle without a report is unexplained" "$out" '^attention: a idle-unexplained'
   echo gone > "$S/a"; out=$(watch a)

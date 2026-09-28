@@ -68,6 +68,9 @@ and do it in a lane anyway or suggest doing it without the kit.
    merge points, the boundary sentence, the review tail for the lane's kind).
    Send with `herdr agent prompt <agent> "$(cat <run-dir>/brief-<X>.md)"`.
    Without tower, write the derivable part yourself (template, "Without tower").
+   In every brief and prompt, describe the final report's marker in words, as
+   the template does: `watch-lanes.sh` reads the marker itself as the report,
+   so a prompt that spells it makes an idle lane look finished.
 6. **Watch, in the background.** `tower wait --timeout 540 --stale 30` for
    task-level attention, and `watch-lanes.sh <run-dir> <agent>...` for the
    processes, with every lane agent and every live Reviewer agent. Both exit
@@ -80,11 +83,10 @@ and do it in a lane anyway or suggest doing it without the kit.
    wait's `complete` → leave tower wait off (on a complete board it returns at
    once) and keep `watch-lanes.sh` running: a lane's final review comes after
    its last task, and the watch prints `tower: run complete` once no watched
-   agent is working. A lane
-   reporting ready (`ready to merge`, or lane A's `ALL DONE` after its last
-   task) → verify its check gate and commits, then its lane review (step 8;
-   `LANE_REVIEW=off`: step 9). A Reviewer's `FINDINGS WRITTEN` → triage it
-   (see "Triage"), and start the review of a lane waiting for a free slot.
+   agent is working. A lane reporting ready (`ready to merge`, or lane A's
+   `ALL DONE` after its last task) → verify its check gate and commits, then
+   its lane review (step 8; `LANE_REVIEW=off`: step 9). A Reviewer's
+   `FINDINGS WRITTEN` → triage it (see "Triage"), and start the review of a lane waiting for a free slot.
 8. **Lane review.** Every lane, lane A included. Start it with
    ```
    <kit>/add-reviewer.sh <run-dir> <R1|R2> <lane-kind> "Lane review <X>, round <n>" <run-dir>/findings/lane-<X>-<n>.json

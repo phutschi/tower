@@ -25,8 +25,9 @@ Find your role first; it decides which half you run.
 
 - **Alone** (no herdr-orchestrate run): you run both halves in this session.
 - **A Reviewer in a run**: your brief names your areas, your findings file,
-  and whether you run `look.sh`. Run look for those only, then end with the
-  line `FINDINGS WRITTEN <findings-file>`.
+  and whether you run `look.sh`. Run look for those only, then end with one
+  line: FINDINGS WRITTEN in double square brackets, a space, then the
+  findings file.
 - **The orchestrator of a run**: run act, on the Reviewers' findings files
   plus the findings you deferred during lane reviews.
 
@@ -89,7 +90,7 @@ run, the `switches:` line of `panes.txt` has the values the run uses.
    The review covers `git diff $(git merge-base origin/<base> HEAD)`. An area is
    done when each rule of its file is applied to every changed file and
    its verdict row is written, with `detail` saying what was checked.
-5. A Reviewer ends here: `FINDINGS WRITTEN <findings-file>`.
+5. A Reviewer ends here, with its findings line (see "Who does what").
 
 ### A red look
 
