@@ -1,6 +1,6 @@
 ---
 name: preflight
-description: Use to check a whole branch before its PR ("run preflight", "is this branch ready for a PR"), ending in a draft PR. Also loaded by a herdr-orchestrate Reviewer to review its areas only.
+description: Use to check a whole branch before its PR ("run preflight", "is this branch ready for a PR"), ending in a draft PR. Also loaded by an orchestrate Reviewer to review its areas only.
 ---
 
 # Preflight
@@ -16,7 +16,7 @@ Preflight checks a whole branch before its PR, in two halves:
 Words: a **Finding** is one problem with the file and line it cites. A
 **Follow-up** is a finding chosen for later; it becomes an issue. The
 **full suite** is the repo's thorough checks: every test, typecheck, lint
-and build. A **Reviewer** is an agent in a herdr-orchestrate run that
+and build. A **Reviewer** is an agent in an orchestrate run that
 reviews work it did not write and only reports. A **round** is one look and
 the act on it: the first round looks at the whole branch, and after fixes
 the next round looks again. Each round `<n>` (from 1) writes into its own
@@ -31,7 +31,7 @@ exits 1 on any must-fix finding; it does not know the triage.
 
 Find your role first; it decides which half you run.
 
-- **Alone** (no herdr-orchestrate run): you run both halves in this session.
+- **Alone** (no orchestrate run): you run both halves in this session.
 - **A Reviewer in a run**: your brief names your areas, your findings file,
   and whether you run `look.sh`. Run look for those only, then end with one
   line: FINDINGS WRITTEN in double square brackets, a space, then the
@@ -45,7 +45,7 @@ change it makes is putting back what the suite changed (look step 3).
 
 ## Settings
 
-Read from the environment, else the repo's `.herdr-orchestrate`. Inside a
+Read from the environment, else the repo's `.orchestrate`. Inside a
 run, the `switches:` line of `panes.txt` has the values the run uses.
 `look.sh` reads `STATIC_BASELINE` and `SUITE_SKIP` itself. You read:
 

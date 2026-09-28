@@ -1,6 +1,6 @@
 # Sourced by bootstrap.sh and add-lane.sh: everything that depends on which
 # agent runs a lane. EXECUTOR_KIND=claude (default) | codex, chosen per lane:
-# the repo's .herdr-orchestrate sets the run's default, the environment of the
+# the repo's .orchestrate sets the run's default, the environment of the
 # bootstrap or add-lane call overrides it (so source detect-stack.sh first).
 # EXECUTOR_MODEL overrides the kind's default model the same way.
 #

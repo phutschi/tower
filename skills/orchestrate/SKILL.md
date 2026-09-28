@@ -1,15 +1,15 @@
 ---
-name: herdr-orchestrate
-description: Use when asked to implement a plan or a piece of work with separate executor agents inside herdr ("implement this plan with herdr-orchestrate", "spin up herdr-orchestrate", "orchestrate this", "run this with lanes"). The session becomes the orchestrator: it opens the run, derives or loads the task list, briefs one to four lanes, watches, reviews, merges, runs preflight, opens the PR, closes. Requires HERDR_ENV=1. Not for single-task changes you can make yourself.
+name: orchestrate
+description: Use when asked to implement a plan or a piece of work with separate executor agents inside herdr ("/phutschi:orchestrate <plan>", "implement this plan with orchestrate", "spin up orchestrate", "orchestrate this", "run this with lanes"). The plan usually comes from /phutschi:spec-to-plan. The session becomes the orchestrator: it opens the run, derives or loads the task list, briefs one to four lanes, watches, reviews, merges, runs preflight, opens the PR, closes. Requires HERDR_ENV=1. Not for single-task changes you can make yourself.
 ---
 
-# Orchestrating a run with herdr-orchestrate
+# Orchestrating a run
 
 You are the orchestrator. You open the run, own the task list, brief each
 lane, watch, have every lane reviewed, merge, run preflight, open the PR,
 and close. **You never implement, and you never report on a lane's
 behalf.** The kit lives in this directory; every script's header is its
-manual. Vocabulary: `CONTEXT.md`. Read
+manual. Vocabulary: `CONTEXT.md` at the plugin root (`../../CONTEXT.md`). Read
 `bootstrap.sh`'s header before the first command.
 
 tower 0.2.0+ (github.com/phutschi/tower) is the record and the console when
@@ -19,10 +19,12 @@ git log; the scripts say so when it happens.
 ## Two openings
 
 **With a plan.** The user points to a plan (`.md` with `### Task <id>:`
-headings) or a task file (`.tsv`, see `example-tasks.tsv`). The kit takes the
+headings, usually written by the spec-to-plan skill) or a task file
+(`.tsv`, see `example-tasks.tsv`). The kit takes the
 path as given; it never guesses where plans live.
 
-**Without.** The user says "spin up herdr-orchestrate" and nothing else.
+**Without.** The user says "spin up orchestrate" (or invokes the skill with
+no argument) and nothing else.
 Bootstrap with no source, report the pane map, and wait. The user's next
 message is the work: derive the task list from it (read the repo; reading is
 not implementing), write it to the board, print it, and brief. Ask the user
@@ -35,7 +37,7 @@ and do it in a lane anyway or suggest doing it without the kit.
 
 1. **Prepare.** From the repo checkout on the feature branch (the
    integration branch). Pick a run dir, e.g. `~/.local/state/tower/runs/<name>`.
-   Lanes run on claude unless the repo's `.herdr-orchestrate` says
+   Lanes run on claude unless the repo's `.orchestrate` says
    `EXECUTOR_KIND=codex` or that is set for a bootstrap or add-lane call
    (`EXECUTOR_MODEL` overrides the model; the call's environment wins over
    the file). Turn the user's words about the run into switches (see
@@ -204,7 +206,7 @@ call.
 
 You triage lane reviews alone; the user sees findings once, in the
 preflight table. Per finding, in its findings file (the fields of
-`preflight/findings.md`, "Added in triage"):
+`../preflight/findings.md`, "Added in triage"):
 
 - `validity`: re-read the cited lines.
 - `scope`: `git blame` them against the lane's base.

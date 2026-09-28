@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # The repo contract and the JS default. Sourced (after common.sh) with $PWD at
-# the checkout. Resolution for every value: environment > .herdr-orchestrate >
+# the checkout. Resolution for every value: environment > .orchestrate >
 # detection > built-in default.
 #
-# .herdr-orchestrate is plain bash in the repo root (see example.herdr-orchestrate):
+# .orchestrate is plain bash in the repo root (see example.orchestrate):
 #   CHECK_CMD="bun run check"           the check gate; one-shot, must pass before a commit
 #   INSTALL_CMD="make deps"             what add-lane.sh runs in a new lane's worktree; default:
 #                                       the package manager's install, none without a package.json
@@ -42,14 +42,20 @@
 CONTRACT_VARS="EXECUTOR_KIND EXECUTOR_MODEL SPEC_REVIEWER_MODEL QUALITY_REVIEWER_MODEL STALE PM TYPECHECK_TASK CHECK_CMD INSTALL_CMD TEST_PKG TEST_FILTER $SWITCHES"
 PANE_NAMES=(); PANE_CMDS=(); PANE_DIRS=()
 SUITE_NAMES=(); SUITE_CMDS=(); SUITE_DIRS=()
+# The contract file; the kit's old name for it still works, with a note.
+CONTRACT_FILE=.orchestrate
+if [ ! -f .orchestrate ] && [ -f .herdr-orchestrate ]; then
+  CONTRACT_FILE=.herdr-orchestrate
+  echo "note: rename .herdr-orchestrate to .orchestrate; the old name still works for now" >&2
+fi
 pane() {
-  case "${1:-}" in checks|dev) ;; *) die ".herdr-orchestrate: unknown pane '${1:-}' (only checks and dev are placed)" ;; esac
-  [ -n "${2:-}" ] || die ".herdr-orchestrate: pane $1 needs a command"
+  case "${1:-}" in checks|dev) ;; *) die "$CONTRACT_FILE: unknown pane '${1:-}' (only checks and dev are placed)" ;; esac
+  [ -n "${2:-}" ] || die "$CONTRACT_FILE: pane $1 needs a command"
   PANE_NAMES[${#PANE_NAMES[@]}]="$1"; PANE_CMDS[${#PANE_CMDS[@]}]="$2"; PANE_DIRS[${#PANE_DIRS[@]}]="${3:-.}"
 }
 suite() {
-  [ -n "${1:-}" ] || die ".herdr-orchestrate: suite needs a name"
-  [ -n "${2:-}" ] || die ".herdr-orchestrate: suite $1 needs a command"
+  [ -n "${1:-}" ] || die "$CONTRACT_FILE: suite needs a name"
+  [ -n "${2:-}" ] || die "$CONTRACT_FILE: suite $1 needs a command"
   SUITE_NAMES[${#SUITE_NAMES[@]}]="$1"; SUITE_CMDS[${#SUITE_CMDS[@]}]="$2"; SUITE_DIRS[${#SUITE_DIRS[@]}]="${3:-.}"
 }
 pane_index() {  # prints the index of pane NAME, nothing when absent
@@ -59,20 +65,21 @@ pane_index() {  # prints the index of pane NAME, nothing when absent
     i=$((i+1))
   done
 }
-if [ -f .herdr-orchestrate ]; then
+if [ -f "$CONTRACT_FILE" ]; then
   # Environment first: remember what the call set, source the file, put the
   # call's values back. Unknown names in the file are left alone but named,
   # so a typo does not pass silently.
   _env=()
   for _v in $CONTRACT_VARS; do [ -z "${!_v+set}" ] || _env+=("$_v=${!_v}"); done
   _before="$(compgen -v | sort)"
-  . ./.herdr-orchestrate
+  # shellcheck source=/dev/null  # the repo's own file
+  . "./$CONTRACT_FILE"
   for _kv in ${_env[@]+"${_env[@]}"}; do export "$_kv"; done
   # grep finds nothing when the file adds no names (only pane and suite lines);
   # that is not an error for a caller running under set -e and pipefail.
   _new="$(comm -13 <(echo "$_before") <(compgen -v | sort) | { grep -vE '^(_|PANE_)' || true; })"
   for _v in $_new; do
-    case " $CONTRACT_VARS " in *" $_v "*) ;; *) echo ".herdr-orchestrate: '$_v' is not a setting the kit reads (see example.herdr-orchestrate)" >&2 ;; esac
+    case " $CONTRACT_VARS " in *" $_v "*) ;; *) echo "$CONTRACT_FILE: '$_v' is not a setting the kit reads (see example.orchestrate)" >&2 ;; esac
   done
   unset _env _v _kv _before _new
 fi
@@ -97,7 +104,7 @@ esac
 INSTALL_WHY="INSTALL_CMD is empty"
 if [ -z "${INSTALL_CMD+set}" ]; then
   if [ -f package.json ]; then INSTALL_CMD=$_install
-  else INSTALL_CMD=""; INSTALL_WHY="no package.json and no INSTALL_CMD in .herdr-orchestrate"; fi
+  else INSTALL_CMD=""; INSTALL_WHY="no package.json and no INSTALL_CMD in .orchestrate"; fi
 fi
 unset _install
 
@@ -162,7 +169,7 @@ if [ -z "$(pane_index checks)" ]; then
   _cmd="$( cd "$TEST_PKG" 2>/dev/null || cd .; herdr_default_test_cmd "${TEST_FILTER:-}" )"
   if [ -z "$_cmd" ]; then
     NO_RUNNER=1
-    _cmd="echo 'herdr-orchestrate: no test runner detected; declare  pane checks \"<cmd>\"  in .herdr-orchestrate'"
+    _cmd="echo 'orchestrate: no test runner detected; declare  pane checks \"<cmd>\"  in .orchestrate'"
   fi
   pane checks "$_cmd" "$TEST_PKG"
   unset _cmd

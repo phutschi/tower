@@ -15,8 +15,8 @@ The agent names and pane ids are in `<run-dir>/panes.txt`.
 
 ## The boundary (ADR 0001)
 
-tower's own brief tells an executor to `tower add` a task it discovers. In a
-herdr-orchestrate run it must not: only the orchestrator changes the task
+tower's own brief tells an executor to `tower add` a task it discovers. In an
+orchestrate run it must not: only the orchestrator changes the task
 list. The template below says so in one sentence; keep it in every brief,
 for every kind.
 
@@ -113,11 +113,11 @@ only after R1's look is green (SKILL.md step 11).
 
 ### Lane review
 
-You are a Reviewer in a herdr-orchestrate run, agent {{AGENT}}, board task {{TASK_ID}} (slot {{SLOT}}). Working directory: {{CHECKOUT}}, lane A's live checkout. You review lane {{LANE}}'s work, which you did not write. You only report: the one file you write is your findings file. Leave the working tree and the branch as they are; read other branches with  git diff  ,  git log  and  git show .
+You are a Reviewer in an orchestrate run, agent {{AGENT}}, board task {{TASK_ID}} (slot {{SLOT}}). Working directory: {{CHECKOUT}}, lane A's live checkout. You review lane {{LANE}}'s work, which you did not write. You only report: the one file you write is your findings file. Leave the working tree and the branch as they are; read other branches with  git diff  ,  git log  and  git show .
 
 Load the code-review skill and review the changes on branch {{LANE_BRANCH}} since the fixed point {{LANE_BASE}}. {{lane A: "Review lane A's own commits:  git log --no-merges {{LANE_BASE}}..{{LANE_BRANCH}} --not {{OTHER_LANE_BRANCHES}} ; the other lanes get their own review."}} The spec is tasks {{TASK_IDS}} of the plan {{PLAN}} and the spec it links. Also check the tests of each task: they cover its acceptance criteria and assert what a user or the next script sees.
 
-Write every finding to {{FINDINGS_FILE}} in the format of {{KIT}}/preflight/findings.md (review "Lane review {{LANE}}", one verdict row per task, its step the task id).
+Write every finding to {{FINDINGS_FILE}} in the format of {{KIT}}/../preflight/findings.md (review "Lane review {{LANE}}", one verdict row per task, its step the task id).
 
 REPORT: at the start  tower task {{TASK_ID}} reviewing --model {{MODEL}} ; at the end  tower note --task {{TASK_ID}} "<n> findings"  then  tower task {{TASK_ID}} done --model {{MODEL}} . If you cannot proceed:  tower block {{TASK_ID}} "<what you need>" .
 
@@ -125,9 +125,9 @@ End with one line: FINDINGS WRITTEN in double square brackets, a space, then {{F
 
 ### Preflight slot
 
-You are a Reviewer in a herdr-orchestrate run, agent {{AGENT}}, board task {{TASK_ID}} (slot {{SLOT}}). Working directory: {{CHECKOUT}}, the integration branch with every lane and origin/main merged. You only report: the one file you write is your findings file. Leave the working tree and the branch as they are, except putting back what the suite changed (the skill's look step 3).
+You are a Reviewer in an orchestrate run, agent {{AGENT}}, board task {{TASK_ID}} (slot {{SLOT}}). Working directory: {{CHECKOUT}}, the integration branch with every lane and origin/main merged. You only report: the one file you write is your findings file. Leave the working tree and the branch as they are, except putting back what the suite changed (the skill's look step 3).
 
-Load the preflight skill and run its look half as a Reviewer. {{From round 2: "Earlier rounds' findings, with their triage, are in {{RUN_DIR}}/findings/preflight/1/ to {{ROUND - 1}}/; leave out a finding triaged accept, follow-up or reject there. For a finding triaged fix there, re-read the lines it cited; when you still see its problem, its fix did not hold: report it again with that finding's area, file and title."}} Your areas: {{AREAS, e.g. R1: "spec (the whole plan {{PLAN}} and its spec issue), between-lanes"; R2: "security, performance, error-handling"}}. {{R1: "You run look.sh:  (cd {{CHECKOUT}} && STATIC_BASELINE={{from switches:}} SUITE_SKIP={{from switches:}} {{KIT}}/preflight/look.sh origin/main {{RUN_DIR}}/findings/preflight/{{ROUND}}) . If it is red (an open must-fix finding, as the skill says), stop before your areas." From round 2, R1 also: "Review the fix commits,  git diff {{FIX_BASE}}..HEAD , against the findings they fix: those with outcome fix in {{RUN_DIR}}/findings/preflight/{{ROUND - 1}}/ (and the deferred lane-review findings with outcome fix, after round 1)." | R2: "R1 ran look.sh and it is green ({{RUN_DIR}}/findings/preflight/{{ROUND}}/look.json); you review your areas only."}} Your findings file: {{FINDINGS_FILE}}.
+Load the preflight skill and run its look half as a Reviewer. {{From round 2: "Earlier rounds' findings, with their triage, are in {{RUN_DIR}}/findings/preflight/1/ to {{ROUND - 1}}/; leave out a finding triaged accept, follow-up or reject there. For a finding triaged fix there, re-read the lines it cited; when you still see its problem, its fix did not hold: report it again with that finding's area, file and title."}} Your areas: {{AREAS, e.g. R1: "spec (the whole plan {{PLAN}} and its spec issue), between-lanes"; R2: "security, performance, error-handling"}}. {{R1: "You run look.sh:  (cd {{CHECKOUT}} && STATIC_BASELINE={{from switches:}} SUITE_SKIP={{from switches:}} {{KIT}}/../preflight/look.sh origin/main {{RUN_DIR}}/findings/preflight/{{ROUND}}) . If it is red (an open must-fix finding, as the skill says), stop before your areas." From round 2, R1 also: "Review the fix commits,  git diff {{FIX_BASE}}..HEAD , against the findings they fix: those with outcome fix in {{RUN_DIR}}/findings/preflight/{{ROUND - 1}}/ (and the deferred lane-review findings with outcome fix, after round 1)." | R2: "R1 ran look.sh and it is green ({{RUN_DIR}}/findings/preflight/{{ROUND}}/look.json); you review your areas only."}} Your findings file: {{FINDINGS_FILE}}.
 
 REPORT: at the start  tower task {{TASK_ID}} reviewing --model {{MODEL}} ; at the end  tower note --task {{TASK_ID}} "<n> findings"  then  tower task {{TASK_ID}} done --model {{MODEL}} . If you cannot proceed:  tower block {{TASK_ID}} "<what you need>" .
 

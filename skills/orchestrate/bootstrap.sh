@@ -26,11 +26,11 @@
 #        │ dev  │ checks   │ console          │   ← dev only when the repo declares it
 #        └──────┴──────────┴──────────────────┘
 #
-# checks and dev come from .herdr-orchestrate (see example.herdr-orchestrate)
+# checks and dev come from .orchestrate (see example.orchestrate)
 # or the JS default (detect-stack.sh); both run in lane A's checkout. With no
 # checks pane declared and no test runner detected, one info: line on stderr
 # says so. Lane A is EXECUTOR_KIND (claude | codex) on EXECUTOR_MODEL:
-# .herdr-orchestrate sets the run's default, the environment of this call
+# .orchestrate sets the run's default, the environment of this call
 # overrides it (executor.sh).
 #
 # Writes <run-dir>/panes.txt, the pane map for the whole run, then prints it
@@ -71,7 +71,7 @@ tower_ok || case $? in
   2) die "tower is older than 0.2.0 (no 'tower add'); bootstrap needs it. $TOWER_POINTER" ;;
 esac
 
-. "$KIT/detect-stack.sh"  # PM, CHECK_CMD, PANE_*, INSTALL_CMD, and .herdr-orchestrate's EXECUTOR_*/reviewer models
+. "$KIT/detect-stack.sh"  # PM, CHECK_CMD, PANE_*, INSTALL_CMD, and .orchestrate's EXECUTOR_*/reviewer models
 . "$KIT/executor.sh"      # EXECUTOR_KIND, EXECUTOR_MODEL, agent_name, start_agent*
 SPEC_REVIEWER_MODEL="${SPEC_REVIEWER_MODEL:-sonnet}"
 QUALITY_REVIEWER_MODEL="${QUALITY_REVIEWER_MODEL:-opus}"
@@ -144,7 +144,7 @@ else
   CONSOLE_PANE=$(split --pane "$BOTTOM" --direction right --ratio 0.5)
 fi
 run_in "$CHECKS_PANE" "${PANE_DIRS[$CHECKS_I]}" "${PANE_CMDS[$CHECKS_I]}"
-[ "$NO_RUNNER" = 0 ] || echo 'info: no test runner detected: the checks pane has nothing to run; declare  pane checks "<cmd>"  in .herdr-orchestrate' >&2
+[ "$NO_RUNNER" = 0 ] || echo 'info: no test runner detected: the checks pane has nothing to run; declare  pane checks "<cmd>"  in .orchestrate' >&2
 GITLOG_CMD='while true; do clear; date +%H:%M:%S; git log --color=always --oneline --graph --decorate=short --branches="*" -14 | cut -c1-$(( $(tput cols) + 60 )); sleep 5; done'
 if [ "$HAVE_TOWER" = 1 ]; then herdr pane run "$CONSOLE_PANE" "tower --stale $STALE" >/dev/null
 else herdr pane run "$CONSOLE_PANE" "$GITLOG_CMD" >/dev/null; fi

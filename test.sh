@@ -12,7 +12,7 @@
 #
 # A new section runs in both modes unless it is added to SLOW.
 set -u
-KIT="$(cd "$(dirname "$0")" && pwd)"; export KIT
+ROOT="$(cd "$(dirname "$0")" && pwd)"; KIT="$ROOT/skills/orchestrate"; PREFLIGHT_DIR="$ROOT/skills/preflight"; export KIT
 SLOW="look run"   # preflight's look.sh and one whole run: ~12 of ~35 seconds
 ONLY=""; LIST=0; FAST=0; MATCHED=0
 for _a in "$@"; do
@@ -138,14 +138,19 @@ if section detect; then
   assert_match "detect: no runner gives a note, not a broken pane" "$(detect_in "$r" 'echo "${PANE_CMDS[0]}"')" "no test runner detected"
   assert_eq "detect: NO_RUNNER=1 without a runner"  "$(detect_in "$r" 'echo $NO_RUNNER')" 1
   assert_eq "detect: NO_RUNNER=0 with a detected runner" "$(detect_in "$(fixture_repo bun-vitest)" 'echo $NO_RUNNER')" 0
-  printf 'pane checks "make test"\n' > "$r/.herdr-orchestrate"
+  printf 'pane checks "make test"\n' > "$r/.orchestrate"
   assert_eq "detect: NO_RUNNER=0 with a declared checks pane" "$(detect_in "$r" 'echo $NO_RUNNER')" 0
-  rm "$r/.herdr-orchestrate"
+  rm "$r/.orchestrate"
   assert_eq "install: the package manager's install with a package.json" "$(detect_in "$(fixture_repo bun-vitest)" 'echo "$INSTALL_CMD"')" "bun install"
   assert_eq "install: none without a package.json"  "$(detect_in "$(fixture_repo none)" 'echo "[$INSTALL_CMD]"')" "[]"
-  ir="$TMP/repos/install-contract"; mkdir -p "$ir"; echo 'INSTALL_CMD="make deps"' > "$ir/.herdr-orchestrate"
+  ir="$TMP/repos/install-contract"; mkdir -p "$ir"; echo 'INSTALL_CMD="make deps"' > "$ir/.orchestrate"
   assert_eq "install: INSTALL_CMD from the repo contract" "$(detect_in "$ir" 'echo "$INSTALL_CMD"')" "make deps"
   assert_nomatch "install: INSTALL_CMD is a setting the kit reads" "$(detect_in "$ir" 'true')" "not a setting"
+  or_="$TMP/repos/old-contract"; mkdir -p "$or_"; echo 'INSTALL_CMD="make old"' > "$or_/.herdr-orchestrate"
+  assert_eq "contract: the old name .herdr-orchestrate is still read" "$(detect_in "$or_" 'echo "$INSTALL_CMD"' 2>/dev/null | tail -1)" "make old"
+  assert_match "contract: ... with a note to rename it" "$(detect_in "$or_" 'true')" 'rename \.herdr-orchestrate to \.orchestrate'
+  echo 'INSTALL_CMD="make new"' > "$or_/.orchestrate"
+  assert_eq "contract: .orchestrate wins over the old name" "$(detect_in "$or_" 'echo "$INSTALL_CMD"')" "make new"
   assert_eq "install: the environment wins over the file" "$(INSTALL_CMD='make all' detect_in "$ir" 'echo "$INSTALL_CMD"')" "make all"
   assert_eq "install: the environment wins, even empty" "$(INSTALL_CMD='' detect_in "$ir" 'echo "[$INSTALL_CMD]"')" "[]"
   r=$(fixture_repo contract)
@@ -179,9 +184,9 @@ if section detect; then
   assert_eq "suite: steps in contract order, DIR defaulting to ." \
     "$(detect_in "$r" 'for i in 0 1 2; do printf "%s|%s|%s;" "${SUITE_NAMES[$i]}" "${SUITE_CMDS[$i]}" "${SUITE_DIRS[$i]}"; done')" \
     "lint|make lint|.;test|make test|pkg/core;build|make build|.;"
-  assert_match "this repo's contract: the check gate runs the fast tests and shellcheck" "$(detect_in "$KIT" 'echo "$CHECK_CMD"')" '^\./test\.sh --fast && shellcheck '
-  assert_eq "this repo's contract: the full suite is every test, then shellcheck" "$(detect_in "$KIT" 'echo "${SUITE_NAMES[*]}|${SUITE_CMDS[0]}"')" "tests shellcheck|./test.sh"
-  assert_nomatch "this repo's contract: a checks pane, no unknown settings" "$(detect_in "$KIT" 'echo "${PANE_CMDS[0]}"')" 'no test runner detected|not a setting'
+  assert_match "this repo's contract: the check gate runs the fast tests and shellcheck" "$(detect_in "$ROOT" 'echo "$CHECK_CMD"')" '^\./test\.sh --fast && shellcheck '
+  assert_eq "this repo's contract: the full suite is every test, then shellcheck" "$(detect_in "$ROOT" 'echo "${SUITE_NAMES[*]}|${SUITE_CMDS[0]}"')" "tests shellcheck|./test.sh"
+  assert_nomatch "this repo's contract: a checks pane, no unknown settings" "$(detect_in "$ROOT" 'echo "${PANE_CMDS[0]}"')" 'no test runner detected|not a setting'
   assert_eq "suite: none without suite lines" "$(detect_in "$(fixture_repo none)" 'echo ${#SUITE_NAMES[@]}')" 0
   r=$(fixture_repo contract-switches-bad)
   assert_match "switches: a bad value is refused with the allowed values" "$(detect_in "$r" 'echo reached')" "PR must be draft, ready or off \(got 'maybe'\)"
@@ -190,10 +195,10 @@ if section detect; then
   assert_match "switches: REVIEWER_KIND=cursor is refused" "$(REVIEWER_KIND=cursor detect_in "$(fixture_repo none)" 'true')" "REVIEWER_KIND must be other, claude or codex \(got 'cursor'\)"
   assert_match "switches: a value on two lines is refused" "$(PR_TEMPLATE=$'a\nb' detect_in "$(fixture_repo none)" 'true')" "PR_TEMPLATE must be one line"
   assert_match "switches: LANE_REVIEW=yes is refused"      "$(LANE_REVIEW=yes detect_in "$(fixture_repo none)" 'true')" "LANE_REVIEW must be on or off \(got 'yes'\)"
-  tr_="$TMP/repos/suite-typo"; mkdir -p "$tr_"; echo 'SUITE_SKP=build' > "$tr_/.herdr-orchestrate"
+  tr_="$TMP/repos/suite-typo"; mkdir -p "$tr_"; echo 'SUITE_SKP=build' > "$tr_/.orchestrate"
   assert_match "suite: a mistyped SUITE_ setting is named" "$(detect_in "$tr_" 'true')" "'SUITE_SKP' is not a setting"
   assert_eq "switches: an empty environment value clears the file's" "$(REVIEW_AREAS='' SUITE_SKIP='' detect_in "$(fixture_repo contract-switches)" 'echo "[$REVIEW_AREAS][$SUITE_SKIP]"')" "[][]"
-  sr="$TMP/repos/suite-nocmd"; mkdir -p "$sr"; echo 'suite lint' > "$sr/.herdr-orchestrate"
+  sr="$TMP/repos/suite-nocmd"; mkdir -p "$sr"; echo 'suite lint' > "$sr/.orchestrate"
   assert_match "suite: a step without a command is refused" "$(detect_in "$sr" 'echo reached')" "suite lint needs a command"
   assert_nomatch "suite: that refusal stops the script"      "$(detect_in "$sr" 'echo reached')" "^reached$"
   r=$(fixture_repo contract-bad)
@@ -227,7 +232,7 @@ if section bootstrap; then
   out=$(boot "$(fixture_repo pnpm-notest)" "$TMP/run-norunner" "No runner" main)
   assert_eq "output: no test runner detected, said once" "$(printf '%s\n' "$out" | grep -c '^info: no test runner detected')" 1
   assert_nomatch "output: the note is on stderr, not stdout" "$(cd "$(fixture_repo pnpm-notest)" && "$KIT/bootstrap.sh" "$TMP/run-norunner2" "No runner" main 2>/dev/null)" '^info: no test runner detected'
-  assert_match "output: the note says how to declare one" "$out" '^info: no test runner detected: the checks pane has nothing to run; declare  pane checks "<cmd>"  in \.herdr-orchestrate$'
+  assert_match "output: the note says how to declare one" "$out" '^info: no test runner detected: the checks pane has nothing to run; declare  pane checks "<cmd>"  in \.orchestrate$'
   assert_match "switches: pane map has every switch"    "$map" '^switches: +TASK_REVIEW=on LANE_REVIEW=on PREFLIGHT=on STATIC_BASELINE=on PR=draft METHOD=tdd REVIEWER_KIND=other REVIEWER_MODEL= REVIEW_AREAS= SUITE_SKIP= PR_TEMPLATE=$'
   assert_match "switches: the record gets a tower note" "$log" '^tower note switches: TASK_REVIEW=on LANE_REVIEW=on .* PR_TEMPLATE=$'
   assert_match "switches: printed with the pane map"    "$out" '^switches: +TASK_REVIEW=on '
@@ -354,7 +359,7 @@ if section add-lane; then
   out=$(cd "$nr" && "$KIT/add-lane.sh" "$RUNN" B feat/b main 2 2>&1)
   assert_nomatch "no package.json: no install"        "$out" '\[dry-run\] \(cd .*install'
   assert_eq "no package.json: one line says so"       "$(printf '%s\n' "$out" | grep -c 'no install')" 1
-  assert_match "no package.json: the line names why"  "$out" '^add-lane: no install: no package.json and no INSTALL_CMD in \.herdr-orchestrate$'
+  assert_match "no package.json: the line names why"  "$out" '^add-lane: no install: no package.json and no INSTALL_CMD in \.orchestrate$'
   out=$(cd "$r" && INSTALL_CMD='' TOWER_STUB=absent "$KIT/add-lane.sh" "$RUN3" D feat/d main 5 2>&1)
   assert_match "INSTALL_CMD set empty: no install, and that is the reason" "$out" '^add-lane: no install: INSTALL_CMD is empty$'
   out=$(cd "$nr" && INSTALL_CMD='' "$KIT/add-lane.sh" "$RUNN" C feat/c main 3 2>&1)
@@ -456,7 +461,7 @@ if section add-reviewer; then
   assert_eq "no tower: the review in tasks.tsv"       "$(tail -1 "$RUN2/tasks.tsv")" "$(printf 'R1-1\tLane review A\treview\tR1')"
   assert_eq "no tower: ownership in lanes.txt"        "$(tail -1 "$RUN2/lanes.txt")" "R1=R1-1"
   RUN3="$TMP/run-review-md"; reset_stub
-  (cd "$r" && TOWER_STUB=absent "$KIT/bootstrap.sh" "$RUN3" "MD" main "$KIT/README.md" >/dev/null 2>&1)
+  (cd "$r" && TOWER_STUB=absent "$KIT/bootstrap.sh" "$RUN3" "MD" main "$ROOT/README.md" >/dev/null 2>&1)
   out=$(cd "$r" && TOWER_STUB=absent "$KIT/add-reviewer.sh" "$RUN3" R1 claude "Lane review A" "$RUN3/findings/a.json" 2>&1)
   assert_eq "no tower, planned from a .md: tasks.tsv is the header and the review" "$(cat "$RUN3/tasks.tsv")" "$(printf '# id\ttitle\tarea\tlane\nR1-1\tLane review A\treview\tR1')"
   RUNG="$TMP/run-review-gone"; reset_stub
@@ -572,7 +577,7 @@ if section watch; then
     echo idle > "$S/r"; sed -n "/^### $brief/,/^End with/p" "$KIT/brief-template.md" > "$S/r.tail"; names_report "$brief brief" "$S/r.tail"; out=$(watch r)
     assert_match "idle with only the Reviewer brief ($brief) in the tail is unexplained" "$out" '^attention: r idle-unexplained'
   done
-  echo idle > "$S/r"; sed -n '/^## Who does what/,/^Look only/p' "$KIT/preflight/SKILL.md" > "$S/r.tail"; names_report "preflight skill" "$S/r.tail"; out=$(watch r)
+  echo idle > "$S/r"; sed -n '/^## Who does what/,/^Look only/p' "$PREFLIGHT_DIR/SKILL.md" > "$S/r.tail"; names_report "preflight skill" "$S/r.tail"; out=$(watch r)
   assert_match "idle with only the preflight skill's Reviewer lines in the tail is unexplained" "$out" '^attention: r idle-unexplained'
   echo idle > "$S/a"; printf 'Running tests...\n' > "$S/a.tail"; out=$(watch a)
   assert_match "idle without a report is unexplained" "$out" '^attention: a idle-unexplained'
@@ -641,7 +646,7 @@ for f in json.load(open(sys.argv[1]))['findings']: print('%s %s %s:%s %s | %s' %
   # One line per verdict row: "step status note".
   verdict() { python3 -c "import json,sys
 for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'], v['status'], v['note']))" "$1"; }
-  look() { (cd "$1" && shift && "$KIT/preflight/look.sh" "$@" 2>&1; echo "exit=$?"); }
+  look() { (cd "$1" && shift && "$PREFLIGHT_DIR/look.sh" "$@" 2>&1; echo "exit=$?"); }
   r=$(look_repo none plain); F="$TMP/findings-look"; reset_stub
   out=$(look "$r" base "$F"); log=$(cat "$HERDR_STUB_LOG")
   assert_match "look: semgrep scans the changed files"   "$log" '^semgrep scan .* app\.js new\.py$'
@@ -654,7 +659,7 @@ for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'],
   # No node on the machine (a node that cannot run answers 127, like a missing
   # one), a contract of suite lines only: detect-stack.sh must not end look.sh.
   NB="$TMP/no-node"; mkdir -p "$NB"; printf '#!/bin/sh\nexit 127\n' > "$NB/node"; chmod +x "$NB/node"
-  r=$(look_repo none no-node); printf 'suite ok "true"\n' > "$r/.herdr-orchestrate"; reset_stub
+  r=$(look_repo none no-node); printf 'suite ok "true"\n' > "$r/.orchestrate"; reset_stub
   out=$(PATH="$NB:$PATH" look "$r" base "$TMP/findings-no-node")
   assert_match "look: no node and only suite lines, exit 0" "$out" 'exit=0$'
   assert_match "look: no node and only suite lines, the suite step runs" "$(verdict "$TMP/findings-no-node/look.json" 2>&1)" '^ok pass'
@@ -720,7 +725,7 @@ for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'],
   assert_match "look: ... the rest is still scanned"    "$(cat "$HERDR_STUB_LOG")" '^semgrep scan .* -- app\.js café app\.js$'
   git -C "$r" update-index --no-skip-worktree new.py; git -C "$r" checkout -q -- new.py
   mkdir -p "$r/sub"; reset_stub
-  out=$(cd "$r/sub" && "$KIT/preflight/look.sh" base rel-findings 2>&1; echo "exit=$?")
+  out=$(cd "$r/sub" && "$PREFLIGHT_DIR/look.sh" base rel-findings 2>&1; echo "exit=$?")
   assert_match "look: runs from a subdirectory"          "$(cat "$HERDR_STUB_LOG")" '^semgrep scan .* -- app\.js café app\.js new\.py$'
   assert_eq "look: a relative findings dir is relative to where it was called" "$(verdict "$r/sub/rel-findings/look.json" | head -1)" "semgrep pass "
   out=$(look "$r" nosuchref "$F")
@@ -797,46 +802,57 @@ fi
 # --- install -----------------------------------------------------------------
 if section install; then
   H="$TMP/home"; mkdir -p "$H"
-  out=$(HOME="$H" "$KIT/install.sh" 2>&1; echo "exit=$?")
+  # The old layout's links, which install removes: Claude Code gets the plugin.
+  mkdir -p "$H/.claude/skills" "$H/.agents/skills"; ln -s "$ROOT" "$H/.claude/skills/herdr-orchestrate"
+  ln -s "$ROOT/preflight" "$H/.claude/skills/preflight"; ln -s "$TMP/tools/spec-to-plan" "$H/.claude/skills/spec-to-plan"
+  ln -s "$ROOT" "$H/.agents/skills/herdr-orchestrate"; ln -s "$TMP/elsewhere" "$H/.claude/skills/other"
+  reset_stub; out=$(HOME="$H" "$ROOT/install.sh" 2>&1; echo "exit=$?")
   assert_match "install: exit 0"                      "$out" 'exit=0$'
-  assert_eq "install: ~/.claude/skills link"          "$(readlink "$H/.claude/skills/herdr-orchestrate")" "$KIT"
-  assert_eq "install: ~/.agents/skills link"          "$(readlink "$H/.agents/skills/herdr-orchestrate")" "$KIT"
+  assert_match "install: adds this repo as the phutschi marketplace" "$(cat "$TMP/log")" "^claude plugin marketplace add $ROOT$"
+  assert_match "install: installs the phutschi plugin" "$(cat "$TMP/log")" '^claude plugin install phutschi@phutschi$'
+  for n in herdr-orchestrate preflight spec-to-plan; do
+    [ -e "$H/.claude/skills/$n" ] || [ -L "$H/.claude/skills/$n" ] && bad "install: old ~/.claude/skills/$n link removed" || ok "install: old ~/.claude/skills/$n link removed"
+  done
+  [ -L "$H/.agents/skills/herdr-orchestrate" ] && bad "install: old ~/.agents/skills link removed" || ok "install: old ~/.agents/skills link removed"
+  assert_eq "install: a link of someone else's is left alone" "$(readlink "$H/.claude/skills/other")" "$TMP/elsewhere"
+  for n in orchestrate spec-to-plan preflight; do
+    assert_eq "install: $n linked into ~/.agents/skills" "$(readlink "$H/.agents/skills/$n")" "$ROOT/skills/$n"
+  done
+  assert_eq "install: preflight linked into ~/.codex/skills" "$(readlink "$H/.codex/skills/preflight")" "$PREFLIGHT_DIR"
   assert_match "install: lists herdr as ok (stub)"    "$out" 'ok +herdr'
   assert_match "install: tower optional"              "$out" 'tower'
-  assert_match "install: prints the two openings"     "$out" 'with a plan'
-  for d in .claude/skills .agents/skills .codex/skills; do
-    assert_eq "install: preflight linked into ~/$d"   "$(readlink "$H/$d/preflight")" "$KIT/preflight"
-  done
+  assert_match "install: prints the two openings"     "$out" 'with a plan: +/phutschi:orchestrate'
+  assert_match "install: prints how to plan"          "$out" '/phutschi:spec-to-plan'
   assert_match "install: semgrep is optional"         "$out" 'semgrep.*optional'
   assert_match "install: gitleaks is optional"        "$out" 'gitleaks.*optional'
   links() { find "$H" -type l -exec sh -c 'printf "%s -> %s\n" "$1" "$(readlink "$1")"' _ {} \; | sort; }
   before=$(links)
-  out=$(HOME="$H" "$KIT/install.sh" 2>&1; echo "exit=$?")
+  out=$(HOME="$H" "$ROOT/install.sh" 2>&1; echo "exit=$?")
   assert_match "install: idempotent"                  "$out" 'exit=0$'
   assert_eq "install: a second run changes no link"   "$(links)" "$before"
   assert_nomatch "install: a second run skips nothing" "$out" 'SKIPPED'
-  out=$(HOME="$H" "$H/.claude/skills/herdr-orchestrate/install.sh" 2>&1; echo "exit=$?")
-  assert_eq "install: run through its own link, the links still point at the kit" "$(links)" "$before"
-  out=$("$H/.claude/skills/preflight/look.sh" 2>&1; echo "exit=$?")
+  ln -s "$ROOT" "$TMP/repo-link"; out=$(HOME="$H" "$TMP/repo-link/install.sh" 2>&1; echo "exit=$?")
+  assert_eq "install: run through a link, the links still point at the repo" "$(links)" "$before"
+  out=$("$H/.codex/skills/preflight/look.sh" 2>&1; echo "exit=$?")
   assert_match "install: look.sh runs through the installed link" "$out" '^usage: preflight/look.sh'
   assert_match "install: ... and finds the kit behind it" "$out" 'exit=2$'
   H3="$TMP/home3"; mkdir -p "$H3/.codex/skills/preflight"
-  out=$(HOME="$H3" SEMGREP_STUB=absent GITLEAKS_STUB=absent "$KIT/install.sh" 2>&1; echo "exit=$?")
+  out=$(HOME="$H3" SEMGREP_STUB=absent GITLEAKS_STUB=absent "$ROOT/install.sh" 2>&1; echo "exit=$?")
   assert_match "install: a real dir in the way is skipped" "$out" "SKIPPED +$H3/.codex/skills/preflight exists"
   assert_eq "install: ... and left as it is"          "$([ -L "$H3/.codex/skills/preflight" ] && echo link || echo dir)" dir
   assert_match "install: a missing semgrep is optional" "$out" 'optional +semgrep'
   assert_match "install: a missing gitleaks is optional" "$out" 'optional +gitleaks'
   assert_match "install: missing scanners do not fail it" "$out" 'exit=0$'
   H2="$TMP/home2"; mkdir -p "$H2"
-  out=$(HOME="$H2" "$KIT/install.sh" --check 2>&1; echo "exit=$?")
+  out=$(HOME="$H2" "$ROOT/install.sh" --check 2>&1; echo "exit=$?")
   assert_match "check: exit 0"                        "$out" 'exit=0$'
-  [ -e "$H2/.claude/skills/herdr-orchestrate" ] && bad "check: links nothing" || ok "check: links nothing"
+  [ -e "$H2/.agents/skills/orchestrate" ] && bad "check: links nothing" || ok "check: links nothing"
   # A PATH with everything the script needs except node.
   B="$TMP/bin"; mkdir -p "$B"; for t in git bash python3 dirname sed readlink mkdir ln cat tr grep; do ln -sf "$(command -v $t)" "$B/$t"; done
-  out=$(HOME="$H2" PATH="$KIT/tests/stub:$B" "$KIT/install.sh" --check 2>&1; echo "exit=$?")
+  out=$(HOME="$H2" PATH="$KIT/tests/stub:$B" "$ROOT/install.sh" --check 2>&1; echo "exit=$?")
   assert_match "check: a missing dependency is named"  "$out" 'MISSING +node'
   assert_match "check: a missing dependency fails"     "$out" 'exit=1$'
-  out=$(HOME="$H2" TOWER_STUB=old "$KIT/install.sh" --check 2>&1)
+  out=$(HOME="$H2" TOWER_STUB=old "$ROOT/install.sh" --check 2>&1)
   assert_match "check: an old tower is called out"    "$out" 'OLD +tower'
 fi
 
@@ -881,7 +897,7 @@ if section run; then
   assert_match "run: the second round is its own task" "$log" '^tower add Lane review A, round 2 --id R1-2 --area review --lane R1$'
 
   export SUITE_ORDER="$TMP/run-suite-order"; : > "$SUITE_ORDER"
-  out=$(in_repo "$KIT/preflight/look.sh" base "$RUN/findings/preflight/1")
+  out=$(in_repo "$PREFLIGHT_DIR/look.sh" base "$RUN/findings/preflight/1")
   assert_match "run: look.sh names the findings file it wrote" "$out" "$RUN/findings/preflight/1/look.json"
   steps=$(python3 -c "import json,sys; print(' '.join(v['step']+':'+v['status'] for v in json.load(open(sys.argv[1]))['verdict']))" "$RUN/findings/preflight/1/look.json" 2>&1)
   assert_eq "run: look.json has a row for each scanner and every suite step" "$steps" "semgrep:pass gitleaks:pass lint:skip test:fail build:pass"
@@ -896,23 +912,23 @@ fi
 
 # --- runner ------------------------------------------------------------------
 if section runner; then
-  list=$("$KIT/test.sh" --list 2>&1)
+  list=$("$ROOT/test.sh" --list 2>&1)
   assert_match "--list: names the sections, one per line" "$list" '^bootstrap$'
   assert_match "--list: the slow ones too"               "$list" '^look$'
   assert_nomatch "--list: runs no test"                  "$list" '^(ok|FAIL) '
-  fast=$("$KIT/test.sh" --fast --list 2>&1)
+  fast=$("$ROOT/test.sh" --fast --list 2>&1)
   # shellcheck disable=SC2086 # SLOW is a list of words
   assert_nomatch "--fast: skips the slow sections"       "$fast" "^($(echo $SLOW | tr ' ' '|'))\$"
   # shellcheck disable=SC2086
   assert_eq "--fast: runs every other section" "$(printf '%s\n' "$fast" | wc -l | tr -d ' ')" "$(( $(printf '%s\n' "$list" | wc -l) - $(set -- $SLOW; echo $#) ))"
-  out=$("$KIT/test.sh" --fsat 2>&1; echo "exit=$?")
+  out=$("$ROOT/test.sh" --fsat 2>&1; echo "exit=$?")
   assert_match "an unknown flag is refused"              "$out" "test.sh: unknown flag --fsat"
   assert_match "an unknown flag fails"                   "$out" 'exit=2$'
-  out=$("$KIT/test.sh" lok 2>&1; echo "exit=$?")
+  out=$("$ROOT/test.sh" lok 2>&1; echo "exit=$?")
   assert_match "an unknown section is refused"           "$out" "test.sh: no section named lok"
   assert_match "an unknown section fails"                "$out" 'exit=2$'
-  assert_match "--fast with a slow section named runs it" "$("$KIT/test.sh" --fast --list run 2>&1)" '^run$'
-  assert_match "two sections are refused"                "$("$KIT/test.sh" bootstrap detect 2>&1)" "test.sh: one section at most"
+  assert_match "--fast with a slow section named runs it" "$("$ROOT/test.sh" --fast --list run 2>&1)" '^run$'
+  assert_match "two sections are refused"                "$("$ROOT/test.sh" bootstrap detect 2>&1)" "test.sh: one section at most"
 fi
 
 [ -z "$ONLY" ] || [ "$MATCHED" = 1 ] || { echo "test.sh: no section named $ONLY (./test.sh --list)" >&2; exit 2; }

@@ -1,7 +1,7 @@
 # Lanes never change the task list
 
 tower 0.2.0 lets anyone run `tower add`, `change` and `remove`, and its own
-brief tells an executor to add a task it discovers. In herdr-orchestrate only
+brief tells an executor to add a task it discovers. In an orchestrate run only
 the orchestrator changes the task list: a lane that discovers a task reports
 it with `tower block` or `tower note` and waits. We chose this so the
 boundary is one sentence (the orchestrator plans, lanes execute), so parallel

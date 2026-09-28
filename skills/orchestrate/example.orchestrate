@@ -1,4 +1,4 @@
-# .herdr-orchestrate — what herdr-orchestrate needs to know about this repo.
+# .orchestrate — what the orchestrate skill needs to know about this repo.
 # Plain bash, sourced by the kit from the repo root. Everything is optional;
 # JS repos get a default from package.json when a value is missing. A value
 # set in the environment of a bootstrap or add-lane call wins over this file.
