@@ -994,6 +994,7 @@ if section install; then
   out=$(PATH="$NB" "$P/dist/cli.js" --help 2>&1; echo "exit=$?")
   assert_match "prepare: the built tower runs with node" "$out" 'tower init'
   assert_match "prepare: ... and exits 0"               "$out" 'exit=0$'
+  assert_nomatch "prepare: ... with no warning on stderr (Node >= 22.12)" "$out" 'ExperimentalWarning'
   mkdir -p "$P/dist/bin"; : > "$P/dist/bin/tower-linux-x64"; : > "$P/dist/bin/SHA256SUMS"  # what compile and the release leave
   packed=$(cd "$P" && HOME="$TMP/npmhome" npm_config_update_notifier=false npm pack --dry-run --json --ignore-scripts 2>/dev/null | python3 -c 'import json,sys; [print(f["path"]) for f in json.load(sys.stdin)[0]["files"]]')
   assert_match "pack: ships the built CLI"               "$packed" '^dist/cli\.js$'

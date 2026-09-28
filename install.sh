@@ -30,7 +30,7 @@ ok=1
 # release's SHA256SUMS; anything that does not verify is removed again.
 BIN_DIR="${TOWER_BIN_DIR:-$HOME/.local/bin}"
 RELEASE_URL="${TOWER_RELEASE_URL:-https://github.com/phutschi/tower/releases/download}"
-GIT_INSTALL='npm i -g github:phutschi/tower (Node >= 22)'
+GIT_INSTALL='npm i -g github:phutschi/tower (Node >= 22.12)'
 on_path() {  # a tower in BIN_DIR that runs, though BIN_DIR is not on PATH
   export PATH="$BIN_DIR:$PATH"
   case ":$ORIG_PATH:" in *":$BIN_DIR:"*) ;; *) echo "  note      $BIN_DIR is not on your PATH; add it" ;; esac
