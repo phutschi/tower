@@ -62,7 +62,9 @@ if [ -f .herdr-orchestrate ]; then
   _before="$(compgen -v | sort)"
   . ./.herdr-orchestrate
   for _kv in ${_env[@]+"${_env[@]}"}; do export "$_kv"; done
-  _new="$(comm -13 <(echo "$_before") <(compgen -v | sort) | grep -vE '^(_|PANE_)')"
+  # grep finds nothing when the file adds no names (only pane and suite lines);
+  # that is not an error for a caller running under set -e and pipefail.
+  _new="$(comm -13 <(echo "$_before") <(compgen -v | sort) | { grep -vE '^(_|PANE_)' || true; })"
   for _v in $_new; do
     case " $CONTRACT_VARS " in *" $_v "*) ;; *) echo ".herdr-orchestrate: '$_v' is not a setting the kit reads (see example.herdr-orchestrate)" >&2 ;; esac
   done

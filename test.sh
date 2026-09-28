@@ -215,6 +215,10 @@ if section bootstrap; then
   out=$(boot "$(fixture_repo contract-switches-bad)" "$TMP/run-bad" "Bad" main)
   assert_match "switches: bootstrap refuses a bad value" "$out" "PR must be draft, ready or off"
   [ -e "$TMP/run-bad/panes.txt" ] && bad "switches: a refused run writes no pane map" || ok "switches: a refused run writes no pane map"
+  RUN="$TMP/run-lines"; reset_stub
+  out=$(boot "$(fixture_repo contract-lines)" "$RUN" "Lines only" main; echo "exit=$?")
+  assert_match "a contract with only pane and suite lines: bootstrap finishes" "$out" 'exit=0$'
+  assert_match "a contract with only pane and suite lines: pane map written" "$(cat "$RUN/panes.txt" 2>&1)" '^checks: +pane-[0-9]+ +\(make watch in \.\)$'
   RUN="$TMP/run-fallback"; reset_stub
   out=$(CODEX_STUB=absent boot "$r" "$RUN" "Fallback" main)
   assert_match "reviewer: a fallback is in the pane map" "$(cat "$RUN/panes.txt")" '^reviewer: +kind claude, model claude-fable-5-1 \(fallback: codex is not installed'

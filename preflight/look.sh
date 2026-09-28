@@ -53,9 +53,8 @@ mkdir -p "$FINDINGS_DIR"; FINDINGS_DIR="$(cd "$FINDINGS_DIR" && pwd -P)"
 rm -f "$FINDINGS_DIR/look.json"
 cd "$(git rev-parse --show-toplevel)"
 # The repo contract: STATIC_BASELINE, SUITE_SKIP, the suite steps, CHECK_CMD.
-# detect-stack.sh is written for set -u alone.
 CHECK_CMD_FROM_ENV="${CHECK_CMD:+yes}"
-set +e +o pipefail; . "$KIT/detect-stack.sh"; set -eo pipefail
+. "$KIT/detect-stack.sh"
 MERGE_BASE=$(git merge-base "$BASE" HEAD) || die "look: no merge base between '$BASE' and HEAD"
 
 WORK=$(mktemp -d); trap 'rm -rf "$WORK"' EXIT
