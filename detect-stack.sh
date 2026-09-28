@@ -22,7 +22,9 @@
 #   REVIEWER_MODEL REVIEW_AREAS SUITE_SKIP PR_TEMPLATE   free text, empty by default;
 #                                                        lists are comma-separated
 # A value set in the environment of the bootstrap or add-lane call wins over the
-# file; anything else the file sets is ignored with a note.
+# file, even an empty one (REVIEW_AREAS= clears the file's list); anything else
+# the file sets is ignored with a note. The switches keep their plain names (PR,
+# METHOD, ...), so an unrelated PR or METHOD in the calling shell is read too.
 #
 # Sets: PM PM_EXEC PM_RUN INSTALL_CMD TYPECHECK_TASK CHECK_CMD
 #       EXECUTOR_KIND EXECUTOR_MODEL SPEC_REVIEWER_MODEL QUALITY_REVIEWER_MODEL STALE  (when the file sets them)
@@ -56,11 +58,11 @@ if [ -f .herdr-orchestrate ]; then
   # call's values back. Unknown names in the file are left alone but named,
   # so a typo does not pass silently.
   _env=()
-  for _v in $CONTRACT_VARS; do [ -z "${!_v:-}" ] || _env+=("$_v=${!_v}"); done
+  for _v in $CONTRACT_VARS; do [ -z "${!_v+set}" ] || _env+=("$_v=${!_v}"); done
   _before="$(compgen -v | sort)"
   . ./.herdr-orchestrate
   for _kv in ${_env[@]+"${_env[@]}"}; do export "$_kv"; done
-  _new="$(comm -13 <(echo "$_before") <(compgen -v | sort) | grep -vE '^(_|PANE_|SUITE_|CONTRACT_VARS$|SWITCHES$)')"
+  _new="$(comm -13 <(echo "$_before") <(compgen -v | sort) | grep -vE '^(_|PANE_)')"
   for _v in $_new; do
     case " $CONTRACT_VARS " in *" $_v "*) ;; *) echo ".herdr-orchestrate: '$_v' is not a setting the kit reads (see example.herdr-orchestrate)" >&2 ;; esac
   done
