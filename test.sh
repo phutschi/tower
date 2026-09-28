@@ -438,12 +438,12 @@ fi
 # tower wait, and without tower only watch-lanes.sh is named.
 if section watchline; then
   r=$(fixture_repo contract); reset_stub
-  out=$(cd "$r" && "$KIT/bootstrap.sh" "$TMP/run-wl1" "WL" main 2>&1)
-  assert_match "watch line: tower wait takes the run's stale threshold" "$out" '^watch: +tower wait --timeout 540 --stale 45 +and +.*/watch-lanes\.sh '
+  wl=$(cd "$r" && "$KIT/bootstrap.sh" "$TMP/run-wl1" "WL" main 2>&1 | grep '^watch:')
+  assert_match "watch line: tower wait takes the run's stale threshold" "$wl" '^watch: +tower wait --timeout 540 --stale 45 +and +.*/watch-lanes\.sh '
   r=$(fixture_repo none); reset_stub
-  out=$(cd "$r" && TOWER_STUB=absent "$KIT/bootstrap.sh" "$TMP/run-wl2" "WL" main 2>&1)
-  assert_match "watch line without tower: watch-lanes.sh" "$(printf '%s\n' "$out" | grep '^watch:')" 'watch-lanes\.sh '
-  assert_nomatch "watch line without tower: no tower wait" "$(printf '%s\n' "$out" | grep '^watch:')" 'tower wait'
+  wl=$(cd "$r" && TOWER_STUB=absent "$KIT/bootstrap.sh" "$TMP/run-wl2" "WL" main 2>&1 | grep '^watch:')
+  assert_match "watch line without tower: watch-lanes.sh" "$wl" 'watch-lanes\.sh '
+  assert_nomatch "watch line without tower: no tower wait" "$wl" 'tower wait'
 fi
 
 # --- look --------------------------------------------------------------------
