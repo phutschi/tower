@@ -49,7 +49,8 @@
 # a second apart, while its new pane's shell is not ready yet (executor.sh).
 #
 # Never run this for real to see what it does; use DRY_RUN=1, which answers
-# every herdr and tower call from tests/stub and touches nothing.
+# every herdr, claude and codex call from tests/stub and opens nothing; tower
+# is the real CLI from this checkout and records the run in the run dir.
 set -euo pipefail
 KIT="$(cd "$(dirname "$0")" && pwd)"
 . "$KIT/common.sh"
@@ -87,10 +88,12 @@ fi
 mkdir -p "$RUN_DIR"
 MODELS=(--model "implementer=$EXECUTOR_MODEL" --model "spec-reviewer=$SPEC_REVIEWER_MODEL" --model "quality-reviewer=$QUALITY_REVIEWER_MODEL")
 case "$SOURCE" in
-  "")   tower init --title "$TITLE" --run "$RUN_DIR" "${MODELS[@]}" ;;
+  # No source: an empty stdin, or tower init reads a task list from ours.
+  "")   tower init --title "$TITLE" --run "$RUN_DIR" "${MODELS[@]}" </dev/null ;;
   *.md) tower init --plan "$SOURCE" --title "$TITLE" --run "$RUN_DIR" "${MODELS[@]}" ;;
   *)    tower init --tasks "$SOURCE" --title "$TITLE" --run "$RUN_DIR" "${MODELS[@]}" ;;
 esac
+export TOWER_RUN="$RUN_DIR"  # the calls below are about this run
 if [ -n "${LANES:-}" ]; then
   for spec in $LANES; do tower assign "${spec%%=*}" "${spec#*=}"; done
 elif [ -n "$SOURCE" ]; then

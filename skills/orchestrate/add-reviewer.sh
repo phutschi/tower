@@ -57,7 +57,8 @@
 # a second apart, while its new pane's shell is not ready yet (executor.sh).
 #
 # Never run this for real to see what it does; use DRY_RUN=1, which answers
-# every herdr and tower call from tests/stub and touches nothing.
+# every herdr, claude and codex call from tests/stub and opens nothing; tower
+# is the real CLI from this checkout and records the run in the run dir.
 set -euo pipefail
 KIT="$(cd "$(dirname "$0")" && pwd)"
 . "$KIT/common.sh"
@@ -70,6 +71,8 @@ MAP="$RUN_DIR/panes.txt"
 case "$SLOT" in R1|R2) ;; *) die "slot must be R1 or R2 (got '$SLOT')" ;; esac
 # Absolute, since the rest runs from lane A's checkout.
 RUN_DIR="$(cd "$RUN_DIR" && pwd)"; MAP="$RUN_DIR/panes.txt"
+# Every tower call is about this run, wherever it is called from.
+export TOWER_RUN="$RUN_DIR"
 case "$FINDINGS" in /*) ;; *) FINDINGS="$PWD/$FINDINGS" ;; esac
 # The run's switches, as bootstrap resolved them, unless this call sets one.
 # The line is shell-quoted (detect-stack.sh switches_line); python3 splits it

@@ -226,9 +226,12 @@ are fine.
 
 ## Testing the kit
 
-`./test.sh` runs without herdr, tower, claude, codex, semgrep or gitleaks:
-stubs under `skills/orchestrate/tests/stub/` log what would be called.
-`DRY_RUN=1 skills/orchestrate/bootstrap.sh …` from any directory shows the same for a real repo.
+`./test.sh` runs without herdr, claude, codex, semgrep or gitleaks: stubs
+under `skills/orchestrate/tests/stub/` log what would be called. tower is the
+real CLI from this checkout, run with bun, so a change to tower's commands or
+to `tower state --json` breaks the kit's tests in the same change.
+`DRY_RUN=1 skills/orchestrate/bootstrap.sh …` shows the same for a real repo,
+and records a real run in the run dir you give it.
 `shellcheck -S warning *.sh skills/*/*.sh skills/orchestrate/tests/stub/*` lints
 (`.shellcheckrc` holds the deliberate exceptions). CI runs both on Linux and
 macOS.

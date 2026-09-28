@@ -44,7 +44,8 @@
 # names too.
 #
 # Never run this for real to see what it does; use DRY_RUN=1, which answers
-# every herdr and tower call from tests/stub and touches nothing.
+# every herdr, claude and codex call from tests/stub and opens nothing; tower
+# is the real CLI from this checkout and records the run in the run dir.
 set -uo pipefail
 KIT="$(cd "$(dirname "$0")" && pwd)"
 . "$KIT/common.sh"
