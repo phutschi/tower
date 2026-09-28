@@ -11,9 +11,10 @@
 #                        ~/.codex/skills
 #   install.sh --check   only check
 #
-# Needs: herdr (the terminal), tower (the record and the console; it must run),
-# git, bash, python3 (reads herdr's JSON), node (reads package.json in JS
-# repos). Optional: claude (the plugin), codex (EXECUTOR_KIND=codex lanes),
+# Needs: herdr (the terminal), tower (the record and the console; it must run,
+# and install.sh fetches the release binary into TOWER_BIN_DIR, default
+# ~/.local/bin, when it is missing), git, bash, python3 (reads herdr's JSON),
+# node (reads package.json in JS repos), curl (fetches tower). Optional: claude (the plugin), codex (EXECUTOR_KIND=codex lanes),
 # semgrep and gitleaks (preflight's static baseline). Running it again changes
 # nothing. A claude command that fails is printed as FAILED, and the install
 # exits 1.
@@ -24,6 +25,44 @@ SKILLS="$ROOT/skills"
 CHECK_ONLY=0; [ "${1:-}" = --check ] && CHECK_ONLY=1
 
 ok=1
+# tower is required. When it does not run, install.sh (not --check) fetches the
+# release binary of this version into TOWER_BIN_DIR, verified against the
+# release's SHA256SUMS; anything that does not verify is removed again.
+BIN_DIR="${TOWER_BIN_DIR:-$HOME/.local/bin}"
+RELEASE_URL="${TOWER_RELEASE_URL:-https://github.com/phutschi/tower/releases/download}"
+GIT_INSTALL='npm i -g github:phutschi/tower (Node >= 22)'
+on_path() {  # a tower in BIN_DIR that runs, though BIN_DIR is not on PATH
+  export PATH="$BIN_DIR:$PATH"
+  case ":$ORIG_PATH:" in *":$BIN_DIR:"*) ;; *) echo "  note      $BIN_DIR is not on your PATH; add it" ;; esac
+}
+sha256() { if command -v sha256sum >/dev/null; then sha256sum "$1"; else shasum -a 256 "$1"; fi | awk '{print $1}'; }
+fetch_tower() {
+  local os arch v asset tmp sums want
+  case "$(uname -s)" in Darwin) os=darwin ;; Linux) os=linux ;; *) os="" ;; esac
+  case "$(uname -m)" in arm64|aarch64) arch=arm64 ;; x86_64|amd64) arch=x64 ;; *) arch="" ;; esac
+  [ -n "$os" ] && [ -n "$arch" ] || { echo "  no release binary of tower for $(uname -s) $(uname -m); install it with  $GIT_INSTALL" >&2; return 1; }
+  command -v curl >/dev/null || { echo "  curl is needed to fetch tower; or install it with  $GIT_INSTALL" >&2; return 1; }
+  v=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$ROOT/.claude-plugin/plugin.json") || return 1
+  asset="tower-$os-$arch"
+  sums=$(curl -fsSL "$RELEASE_URL/v$v/SHA256SUMS" 2>/dev/null) || { echo "  release v$v has no SHA256SUMS: refusing an unverified tower; or install it with  $GIT_INSTALL" >&2; return 1; }
+  want=$(printf '%s\n' "$sums" | awk -v a="$asset" '$2 == a || $2 == "*" a { print $1 }')
+  mkdir -p "$BIN_DIR" && tmp=$(mktemp "$BIN_DIR/.tower.XXXXXX") || return 1
+  if ! curl -fsSL -o "$tmp" "$RELEASE_URL/v$v/$asset" 2>/dev/null; then
+    rm -f "$tmp"; echo "  could not download $asset v$v from $RELEASE_URL" >&2; return 1
+  fi
+  if [ -z "$want" ] || [ "$(sha256 "$tmp")" != "$want" ]; then
+    rm -f "$tmp"; echo "  $asset v$v does not match the release's checksum: refused, nothing installed" >&2; return 1
+  fi
+  chmod +x "$tmp" && mv "$tmp" "$BIN_DIR/tower" || { rm -f "$tmp"; return 1; }
+  echo "  fetched   $asset v$v -> $BIN_DIR/tower"
+}
+ORIG_PATH=$PATH
+if ! tower_ok; then
+  echo "tower:"
+  if [ -x "$BIN_DIR/tower" ] && "$BIN_DIR/tower" --help >/dev/null 2>&1; then on_path
+  elif [ "$CHECK_ONLY" = 0 ] && fetch_tower; then on_path
+  fi
+fi
 have() { if command -v "$1" >/dev/null; then printf '  ok        %s\n' "$1"; else printf '  MISSING   %-8s %s\n' "$1" "$2"; ok=0; fi; }
 runs() { if tower_ok; then printf '  ok        tower\n'; else printf '  MISSING   %-8s %s\n' tower "the record and the console, and it must run — $TOWER_POINTER"; ok=0; fi; }
 # opt TOOL WHAT [PROBE-ARG]: with PROBE-ARG, the tool must also run (`TOOL PROBE-ARG`).

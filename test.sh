@@ -926,7 +926,67 @@ if section install; then
   out=$(HOME="$H2" DRY_RUN=0 PATH="$B" "$ROOT/install.sh" --check 2>&1; echo "exit=$?")
   assert_match "check: no tower on PATH is missing"    "$out" 'MISSING +tower'
   assert_match "check: ... and fails"                  "$out" 'exit=1$'
+  : > "$CLAUDE_STUB_STATE"
+  # tower missing: install.sh fetches the release binary for this version.
+  # A fixture release, served over file://, and a fake uname (Linux x86_64).
+  V=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$ROOT/.claude-plugin/plugin.json")
+  REL="$TMP/release"; mkdir -p "$REL/v$V"
+  printf '#!/bin/sh\necho "tower %s (fixture)"\n' "$V" > "$REL/v$V/tower-linux-x64"
+  sums() { (cd "$REL/v$V" && if command -v sha256sum >/dev/null; then sha256sum tower-linux-x64; else shasum -a 256 tower-linux-x64; fi) > "$REL/v$V/SHA256SUMS"; }
+  sums
+  U="$TMP/uname"; mkdir -p "$U"
+  printf '#!/bin/sh\ncase "$1" in -s) echo "${FAKE_OS:-Linux}" ;; -m) echo "${FAKE_ARCH:-x86_64}" ;; *) echo "${FAKE_OS:-Linux}" ;; esac\n' > "$U/uname"; chmod +x "$U/uname"
+  fetch() {  # HOME BIN [VAR=VALUE...]: install.sh with tower not runnable
+    local h=$1 bin=$2; shift 2
+    env HOME="$h" TOWER_BIN_DIR="$bin" TOWER_RELEASE_URL="file://$REL" TOWER_STUB=absent PATH="$U:$PATH" "$@" "$ROOT/install.sh" 2>&1; echo "exit=$?"
+  }
+  H5="$TMP/home5"; BIN="$TMP/bin5"; mkdir -p "$H5"
+  out=$(fetch "$H5" "$BIN")
+  assert_match "fetch: exit 0"                          "$out" 'exit=0$'
+  assert_eq "fetch: the release binary is installed and runs" "$("$BIN/tower" --help 2>&1)" "tower $V (fixture)"
+  assert_match "fetch: says what it installed"          "$out" "tower-linux-x64 v$V"
+  assert_match "fetch: ... and that tower now runs"      "$out" 'ok +tower$'
+  before=$(ls -l "$BIN")
+  out=$(fetch "$H5" "$BIN")
+  assert_match "fetch: a second run exits 0"            "$out" 'exit=0$'
+  assert_nomatch "fetch: a second run fetches nothing"  "$out" 'tower-linux-x64'
+  assert_eq "fetch: ... and leaves the binary as it is" "$(ls -l "$BIN")" "$before"
+  BIN="$TMP/bin6"
+  echo 'tampered' >> "$REL/v$V/tower-linux-x64"
+  out=$(fetch "$H5" "$BIN")
+  assert_match "fetch: a checksum mismatch is refused"  "$out" 'checksum'
+  assert_match "fetch: ... and fails"                   "$out" 'exit=1$'
+  assert_eq "fetch: ... and installs nothing"           "$(ls -A "$BIN" 2>/dev/null)" ""
+  sums; rm "$REL/v$V/SHA256SUMS"
+  out=$(fetch "$H5" "$BIN")
+  assert_match "fetch: a release without SHA256SUMS is refused" "$out" 'SHA256SUMS'
+  assert_match "fetch: ... and fails"                   "$out" 'exit=1$'
+  assert_eq "fetch: ... and installs nothing"           "$(ls -A "$BIN" 2>/dev/null)" ""
+  sums
+  out=$(fetch "$H5" "$BIN" FAKE_OS=SunOS)
+  assert_match "fetch: an unsupported platform is named" "$out" 'SunOS'
+  assert_match "fetch: ... with the git install as the way" "$out" 'npm i(nstall)? -g github:phutschi/tower'
+  assert_match "fetch: ... and fails"                   "$out" 'exit=1$'
+  assert_eq "fetch: ... and installs nothing"           "$(ls -A "$BIN" 2>/dev/null)" ""
+  out=$(env HOME="$H5" TOWER_BIN_DIR="$TMP/bin7" TOWER_RELEASE_URL="file://$REL" PATH="$U:$PATH" "$ROOT/install.sh" 2>&1; echo "exit=$?")
+  assert_eq "fetch: a tower that runs is left alone"    "$(ls -A "$TMP/bin7" 2>/dev/null)" ""
   unset CLAUDE_STUB_STATE
+  # The git install (npm i -g github:phutschi/tower): npm runs prepare, which
+  # builds with Node alone. A copy of the package, and a PATH without bun.
+  P="$TMP/pkg"; mkdir -p "$P"
+  for f in src themes package.json tsconfig.json tsconfig.build.json; do [ -e "$ROOT/$f" ] && cp -R "$ROOT/$f" "$P/"; done
+  ln -s "$ROOT/node_modules" "$P/node_modules"
+  NB="$TMP/nobun"; mkdir -p "$NB"; for t in node npm sh env dirname; do ln -sf "$(command -v $t)" "$NB/$t"; done
+  PATH="$NB" command -v bun >/dev/null && bad "prepare: the PATH has no bun" || ok "prepare: the PATH has no bun"
+  out=$(cd "$P" && HOME="$TMP/npmhome" PATH="$NB" npm_config_update_notifier=false npm run prepare 2>&1; echo "exit=$?")
+  assert_match "prepare: builds with node alone"        "$out" 'exit=0$'
+  [ -x "$P/dist/cli.js" ] && ok "prepare: dist/cli.js is executable" || bad "prepare: dist/cli.js is executable"
+  out=$(PATH="$NB" "$P/dist/cli.js" --help 2>&1; echo "exit=$?")
+  assert_match "prepare: the built tower runs with node" "$out" 'tower init'
+  assert_match "prepare: ... and exits 0"               "$out" 'exit=0$'
+  files=$(cd "$ROOT" && HOME="$TMP/npmhome" npm_config_update_notifier=false npm pack --dry-run --json --ignore-scripts 2>/dev/null | python3 -c 'import json,sys; [print(f["path"]) for f in json.load(sys.stdin)[0]["files"]]')
+  assert_match "pack: ships the CLI"                     "$files" '^package\.json$'
+  assert_nomatch "pack: ships no skill, test.sh or install.sh" "$files" '^(skills/|test\.sh$|install\.sh$)'
 fi
 
 # --- run ---------------------------------------------------------------------
