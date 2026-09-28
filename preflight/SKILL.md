@@ -22,7 +22,8 @@ the act on it: the first round looks at the whole branch, and after fixes
 the next round looks again. Each round `<n>` (from 1) writes into its own
 findings dir, `<preflight-dir>/<n>/`. A look is **red** while it has an
 **open** must-fix finding: one not triaged `accept`, `follow-up` or
-`reject` in an earlier round (the same area, file and title). `look.sh`
+`reject` in an earlier round (the same area, file and title). A finding
+triaged `fix` stays open until a later round no longer finds it. `look.sh`
 exits 1 on any must-fix finding; it does not know the triage.
 
 ## Who does what
@@ -111,8 +112,10 @@ run, the `switches:` line of `panes.txt` has the values the run uses.
    The fix-commit review (a Reviewer from round 2, when its brief asks):
    the brief's `git diff <fix-base>..HEAD` against the findings the fixes
    answer. One verdict row, step `fixes`; each finding takes the area of
-   the finding it re-checks. A finding an earlier round already triaged is
-   not new: leave it out.
+   the finding it re-checks. Every review from round 2: leave out a finding
+   an earlier round triaged `accept`, `follow-up` or `reject`; report a
+   finding triaged `fix` that is still there again, since its fix did not
+   hold.
 5. A Reviewer ends here, with its findings line (see "Who does what").
 
 ### A red look
@@ -156,8 +159,9 @@ must-fix finding is open; carry those outcomes into the final table. After two r
    areas and the fix commits. Inside a run: each fix becomes a task for
    lane A, then the orchestrator starts round `<n+1>`: R1 reruns `look.sh`
    and reviews the fix commits, and Reviewers review those areas plus the
-   ones this round skipped (a red look or a setup error). Its new findings get a new table
-   and a new confirmation. When round 3's triage still has a finding
+   ones this round skipped (a red look or a setup error). Its findings, new
+   ones and fixes that did not hold, get a new table and a new
+   confirmation. When round 3's triage still has a finding
    triaged `fix`, stop and hand it to the human.
 6. **Follow-ups.** One issue per follow-up of every round, in the tracker.
    Keep each issue's link for the PR body.

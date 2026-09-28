@@ -158,8 +158,9 @@ and do it in a lane anyway or suggest doing it without the kit.
     (`git diff <HEAD before the fixes>..HEAD`) against the findings they fix,
     whatever their area; the areas are the ones round `<n>` skipped (a red
     look or a setup error) plus the preflight areas of its findings triaged
-    `fix`. Its new findings get a new table and a new reply. When round 3's
-    triage still has a finding triaged `fix`, stop and hand it to the user.
+    `fix`. Its findings, new ones and fixes that did not hold, get a new
+    table and a new reply. When round 3's triage still has a finding
+    triaged `fix`, stop and hand it to the user.
     `PREFLIGHT=off`: after the fixes a fresh Reviewer re-reviews them
     instead (lane review brief, lane A, fixed point = HEAD before the fixes,
     file `<run-dir>/findings/preflight/fix-<k>.json`, `<k>` from 1), and act
