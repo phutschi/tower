@@ -36,7 +36,7 @@
   },
   "scripts": {
     "dev": "bun run src/cli.ts",
-    "build": "tsc -p tsconfig.build.json && node -e \"require('node:fs').chmodSync('dist/cli.js', 0o755)\"",
+    "build": "tsc -p tsconfig.build.json --noCheck && node -e \"require('node:fs').chmodSync('dist/cli.js', 0o755)\"",
     "compile": "./scripts/compile.sh",
     "format": "prettier --check .",
     "format:fix": "prettier --write .",
@@ -45,7 +45,7 @@
     "test": "bun test",
     "check": "bun run format && bun run lint && bun run typecheck && bun run test",
     "prepublishOnly": "bun run check && bun run build",
-    "prepare": "npm run build"
+    "prepare": "tsc -p tsconfig.build.json --noCheck && node -e \"require('node:fs').chmodSync('dist/cli.js', 0o755)\""
   },
   "dependencies": {
     "ink": "^7.1.1",

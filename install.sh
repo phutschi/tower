@@ -37,25 +37,35 @@ on_path() {  # a tower in BIN_DIR that runs, though BIN_DIR is not on PATH
 }
 sha256() { if command -v sha256sum >/dev/null; then sha256sum "$1"; else shasum -a 256 "$1"; fi | awk '{print $1}'; }
 fetch_tower() {
-  local os arch v asset tmp sums want
+  local os arch v asset sums want rc
   case "$(uname -s)" in Darwin) os=darwin ;; Linux) os=linux ;; *) os="" ;; esac
   case "$(uname -m)" in arm64|aarch64) arch=arm64 ;; x86_64|amd64) arch=x64 ;; *) arch="" ;; esac
   [ -n "$os" ] && [ -n "$arch" ] || { echo "  no release binary of tower for $(uname -s) $(uname -m); install it with  $GIT_INSTALL" >&2; return 1; }
   command -v curl >/dev/null || { echo "  curl is needed to fetch tower; or install it with  $GIT_INSTALL" >&2; return 1; }
   v=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$ROOT/.claude-plugin/plugin.json") || return 1
   asset="tower-$os-$arch"
-  sums=$(curl -fsSL "$RELEASE_URL/v$v/SHA256SUMS" 2>/dev/null) || { echo "  release v$v has no SHA256SUMS: refusing an unverified tower; or install it with  $GIT_INSTALL" >&2; return 1; }
+  # --proto-redir: a redirect never drops to plain http.
+  sums=$(curl -fsSL --proto-redir '=https' "$RELEASE_URL/v$v/SHA256SUMS" 2>/dev/null); rc=$?
+  [ "$rc" = 0 ] || { echo "  could not fetch the SHA256SUMS of release v$v (curl exit $rc; 22 is no such release or no checksums): refusing an unverified tower; or install it with  $GIT_INSTALL" >&2; return 1; }
   want=$(printf '%s\n' "$sums" | awk -v a="$asset" '$2 == a || $2 == "*" a { print $1 }')
-  mkdir -p "$BIN_DIR" && tmp=$(mktemp "$BIN_DIR/.tower.XXXXXX") || return 1
-  if ! curl -fsSL -o "$tmp" "$RELEASE_URL/v$v/$asset" 2>/dev/null; then
-    rm -f "$tmp"; echo "  could not download $asset v$v from $RELEASE_URL" >&2; return 1
+  mkdir -p "$BIN_DIR" && FETCH_TMP=$(mktemp "$BIN_DIR/.tower.XXXXXX") || return 1
+  trap 'rm -f "$FETCH_TMP"' EXIT INT TERM
+  if ! curl -fsSL --proto-redir '=https' -o "$FETCH_TMP" "$RELEASE_URL/v$v/$asset" 2>/dev/null; then
+    echo "  could not download $asset v$v from $RELEASE_URL" >&2; rm -f "$FETCH_TMP"; return 1
   fi
-  if [ -z "$want" ] || [ "$(sha256 "$tmp")" != "$want" ]; then
-    rm -f "$tmp"; echo "  $asset v$v does not match the release's checksum: refused, nothing installed" >&2; return 1
+  if [ -z "$want" ] || [ "$(sha256 "$FETCH_TMP")" != "$want" ]; then
+    echo "  $asset v$v does not match the release's checksum: refused, nothing installed" >&2; rm -f "$FETCH_TMP"; return 1
   fi
-  chmod +x "$tmp" && mv "$tmp" "$BIN_DIR/tower" || { rm -f "$tmp"; return 1; }
+  # A tower already here does not run (install.sh checked): keep it, aside.
+  if [ -e "$BIN_DIR/tower" ]; then
+    mv "$BIN_DIR/tower" "$BIN_DIR/tower.old" && echo "  moved     $BIN_DIR/tower (it does not run) to $BIN_DIR/tower.old"
+  fi
+  chmod +x "$FETCH_TMP" && mv "$FETCH_TMP" "$BIN_DIR/tower" || { rm -f "$FETCH_TMP"; return 1; }
+  trap - EXIT INT TERM
   echo "  fetched   $asset v$v -> $BIN_DIR/tower"
 }
+FETCH_TMP=""
+
 ORIG_PATH=$PATH
 if ! tower_ok; then
   echo "tower:"

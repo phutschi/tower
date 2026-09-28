@@ -931,9 +931,11 @@ if section install; then
   # A fixture release, served over file://, and a fake uname (Linux x86_64).
   V=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$ROOT/.claude-plugin/plugin.json")
   REL="$TMP/release"; mkdir -p "$REL/v$V"
-  printf '#!/bin/sh\necho "tower %s (fixture)"\n' "$V" > "$REL/v$V/tower-linux-x64"
-  sums() { (cd "$REL/v$V" && if command -v sha256sum >/dev/null; then sha256sum tower-linux-x64; else shasum -a 256 tower-linux-x64; fi) > "$REL/v$V/SHA256SUMS"; }
-  sums
+  release() {  # the fixture binary and its SHA256SUMS
+    printf '#!/bin/sh\necho "tower %s (fixture)"\n' "$V" > "$REL/v$V/tower-linux-x64"
+    (cd "$REL/v$V" && if command -v sha256sum >/dev/null; then sha256sum tower-linux-x64; else shasum -a 256 tower-linux-x64; fi) > "$REL/v$V/SHA256SUMS"
+  }
+  release
   U="$TMP/uname"; mkdir -p "$U"
   printf '#!/bin/sh\ncase "$1" in -s) echo "${FAKE_OS:-Linux}" ;; -m) echo "${FAKE_ARCH:-x86_64}" ;; *) echo "${FAKE_OS:-Linux}" ;; esac\n' > "$U/uname"; chmod +x "$U/uname"
   fetch() {  # HOME BIN [VAR=VALUE...]: install.sh with tower not runnable
@@ -957,17 +959,24 @@ if section install; then
   assert_match "fetch: a checksum mismatch is refused"  "$out" 'checksum'
   assert_match "fetch: ... and fails"                   "$out" 'exit=1$'
   assert_eq "fetch: ... and installs nothing"           "$(ls -A "$BIN" 2>/dev/null)" ""
-  sums; rm "$REL/v$V/SHA256SUMS"
+  release; rm "$REL/v$V/SHA256SUMS"
   out=$(fetch "$H5" "$BIN")
   assert_match "fetch: a release without SHA256SUMS is refused" "$out" 'SHA256SUMS'
   assert_match "fetch: ... and fails"                   "$out" 'exit=1$'
   assert_eq "fetch: ... and installs nothing"           "$(ls -A "$BIN" 2>/dev/null)" ""
-  sums
+  release
   out=$(fetch "$H5" "$BIN" FAKE_OS=SunOS)
   assert_match "fetch: an unsupported platform is named" "$out" 'SunOS'
   assert_match "fetch: ... with the git install as the way" "$out" 'npm i(nstall)? -g github:phutschi/tower'
   assert_match "fetch: ... and fails"                   "$out" 'exit=1$'
   assert_eq "fetch: ... and installs nothing"           "$(ls -A "$BIN" 2>/dev/null)" ""
+  B8="$TMP/bin8"; mkdir -p "$B8"; printf '#!/bin/sh\nexit 1\n' > "$B8/tower"; chmod +x "$B8/tower"
+  out=$(fetch "$H5" "$B8")
+  assert_match "fetch: a broken tower in the bin dir is moved aside" "$out" "moved +.*$B8/tower.old"
+  assert_eq "fetch: ... kept as tower.old"              "$(cat "$B8/tower.old")" "$(printf '#!/bin/sh\nexit 1')"
+  assert_eq "fetch: ... and replaced by the release binary" "$("$B8/tower" --help 2>&1)" "tower $V (fixture)"
+  out=$(fetch "$H5" "$TMP/bin9" TOWER_RELEASE_URL="file://$TMP/no-release")
+  assert_match "fetch: a release that cannot be reached is named" "$out" "could not fetch .*SHA256SUMS"
   out=$(env HOME="$H5" TOWER_BIN_DIR="$TMP/bin7" TOWER_RELEASE_URL="file://$REL" PATH="$U:$PATH" "$ROOT/install.sh" 2>&1; echo "exit=$?")
   assert_eq "fetch: a tower that runs is left alone"    "$(ls -A "$TMP/bin7" 2>/dev/null)" ""
   unset CLAUDE_STUB_STATE
@@ -984,6 +993,9 @@ if section install; then
   out=$(PATH="$NB" "$P/dist/cli.js" --help 2>&1; echo "exit=$?")
   assert_match "prepare: the built tower runs with node" "$out" 'tower init'
   assert_match "prepare: ... and exits 0"               "$out" 'exit=0$'
+  packed=$(cd "$P" && HOME="$TMP/npmhome" npm_config_update_notifier=false npm pack --dry-run --json --ignore-scripts 2>/dev/null | python3 -c 'import json,sys; [print(f["path"]) for f in json.load(sys.stdin)[0]["files"]]')
+  assert_match "pack: ships the built CLI"               "$packed" '^dist/cli\.js$'
+  assert_match "pack: ... and the built-in theme"         "$packed" '^themes/airport\.json$'
   files=$(cd "$ROOT" && HOME="$TMP/npmhome" npm_config_update_notifier=false npm pack --dry-run --json --ignore-scripts 2>/dev/null | python3 -c 'import json,sys; [print(f["path"]) for f in json.load(sys.stdin)[0]["files"]]')
   assert_match "pack: ships the CLI"                     "$files" '^package\.json$'
   assert_nomatch "pack: ships no skill, test.sh or install.sh" "$files" '^(skills/|test\.sh$|install\.sh$)'
