@@ -42,6 +42,9 @@
 # stays open after the run: it is the record, and the human quits it with q.
 # Nothing is torn down until the user says so.
 #
+# START_TRIES (environment, default 10): how often an agent start is tried,
+# a second apart, while its new pane's shell is not ready yet (executor.sh).
+#
 # Never run this for real to see what it does; use DRY_RUN=1, which answers
 # every herdr and tower call from tests/stub and touches nothing.
 set -euo pipefail

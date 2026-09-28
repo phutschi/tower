@@ -21,6 +21,9 @@
 # detect-stack.sh) is refused here as in bootstrap.sh; the run's values are the
 # pane map's  switches:  line.
 #
+# START_TRIES (environment, default 10): how often an agent start is tried,
+# a second apart, while its new pane's shell is not ready yet (executor.sh).
+#
 # Never run this for real to see what it does; use DRY_RUN=1, which answers
 # every herdr and tower call from tests/stub and touches nothing.
 set -euo pipefail
@@ -67,9 +70,7 @@ PANE=$(herdr pane move "$WT_PANE" --tab "$HERDR_TAB_ID" --split "$SPLIT" --targe
 # oh-my-zsh dotenv plugin does exactly that when it finds a .env). Same wait
 # as before, from a subshell, with the output kept in the run dir.
 INSTALL_LOG="$RUN_DIR/install-$LANE.log"
-if [ -z "$INSTALL_CMD" ]; then
-  if [ -f "$REPO_ROOT/package.json" ]; then echo "add-lane: no install: INSTALL_CMD is empty"
-  else echo "add-lane: no install: no package.json and no INSTALL_CMD in .herdr-orchestrate"; fi
+if [ -z "$INSTALL_CMD" ]; then echo "add-lane: no install: $INSTALL_WHY"
 elif [ "${DRY_RUN:-0}" = 1 ]; then echo "[dry-run] (cd $WT && $INSTALL_CMD) > $INSTALL_LOG"
 elif ! ( cd "$WT" && eval "$INSTALL_CMD" ) >"$INSTALL_LOG" 2>&1; then
   echo "add-lane: install failed (see $INSTALL_LOG); starting the agent anyway" >&2

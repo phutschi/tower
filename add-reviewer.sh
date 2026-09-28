@@ -46,6 +46,9 @@
 # fell back ("reviewer: fallback: ..."), and the task id with the next step:
 # brief the Reviewer (brief-template.md) and add its agent to watch-lanes.sh.
 #
+# START_TRIES (environment, default 10): how often an agent start is tried,
+# a second apart, while its new pane's shell is not ready yet (executor.sh).
+#
 # Never run this for real to see what it does; use DRY_RUN=1, which answers
 # every herdr and tower call from tests/stub and touches nothing.
 set -euo pipefail

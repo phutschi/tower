@@ -25,7 +25,8 @@ pane checks "bun test --watch"
 # SPEC_REVIEWER_MODEL=sonnet
 # QUALITY_REVIEWER_MODEL=opus
 
-# Minutes of silence before the console flags a lane as stale (default 30).
+# Minutes of silence before the console and tower wait flag a lane as stale
+# (default 30).
 # STALE=30
 
 # The full suite: the repo's thorough checks, run once by preflight on the

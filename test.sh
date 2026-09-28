@@ -6,7 +6,8 @@
 #   ./test.sh            all sections
 #   ./test.sh bootstrap  one section (a word from the "# ---" headings below)
 #   ./test.sh --fast     all sections but the slow ones (SLOW): the check gate's
-#                        mode; the full suite runs them all
+#                        mode; the full suite runs them all. A section named
+#                        with it runs even when slow.
 #   ./test.sh --list     the sections that would run, one per line; runs nothing
 #
 # A new section runs in both modes unless it is added to SLOW.
@@ -31,7 +32,7 @@ assert_nomatch() { printf '%s\n' "$2" | grep -qE -- "$3" && bad "$1" "unexpected
 section() {
   [ -z "$ONLY" ] || [ "$ONLY" = "$1" ] || return 1
   MATCHED=1
-  [ "$FAST" = 0 ] || case " $SLOW " in *" $1 "*) return 1 ;; esac
+  [ "$FAST" = 0 ] || [ -n "$ONLY" ] || case " $SLOW " in *" $1 "*) return 1 ;; esac
   [ "$LIST" = 0 ] || { echo "$1"; return 1; }
 }
 
@@ -342,6 +343,8 @@ if section add-lane; then
   assert_match "no package.json: the line names why"  "$out" '^add-lane: no install: no package.json and no INSTALL_CMD in \.herdr-orchestrate$'
   out=$(cd "$r" && INSTALL_CMD='' TOWER_STUB=absent "$KIT/add-lane.sh" "$RUN3" D feat/d main 5 2>&1)
   assert_match "INSTALL_CMD set empty: no install, and that is the reason" "$out" '^add-lane: no install: INSTALL_CMD is empty$'
+  out=$(cd "$nr" && INSTALL_CMD='' "$KIT/add-lane.sh" "$RUNN" C feat/c main 3 2>&1)
+  assert_match "INSTALL_CMD set empty, no package.json: that is the reason" "$out" '^add-lane: no install: INSTALL_CMD is empty$'
   reset_stub; out=$(cd "$r" && HERDR_STUB_BUSY_STARTS=1 "$KIT/add-lane.sh" "$RUN3" C feat/c main 4 2>&1; echo "exit=$?")
   assert_match "busy pane: add-lane finishes"         "$out" 'exit=0$'
   assert_nomatch "busy pane: add-lane shows no busy error" "$out" 'agent_pane_busy'
@@ -796,6 +799,7 @@ if section runner; then
   out=$("$KIT/test.sh" lok 2>&1; echo "exit=$?")
   assert_match "an unknown section is refused"           "$out" "test.sh: no section named lok"
   assert_match "an unknown section fails"                "$out" 'exit=2$'
+  assert_match "--fast with a slow section named runs it" "$("$KIT/test.sh" --fast --list run 2>&1)" '^run$'
   assert_match "two sections are refused"                "$("$KIT/test.sh" bootstrap detect 2>&1)" "test.sh: one section at most"
 fi
 

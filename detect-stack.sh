@@ -13,7 +13,7 @@
 #   EXECUTOR_MODEL=gpt-6-astra          the lanes' model (executor.sh has the kind's default)
 #   SPEC_REVIEWER_MODEL=sonnet          the two reviewer models tower records for the run
 #   QUALITY_REVIEWER_MODEL=opus
-#   STALE=30                            minutes before the console flags a lane as stale
+#   STALE=30                            minutes before the console and tower wait flag a lane as stale
 #   suite lint "bun run lint" [DIR]     suite NAME "CMD" [DIR]: the full suite as named steps, in order
 # plus PM, TYPECHECK_TASK, TEST_PKG and TEST_FILTER to steer the detection below,
 # and the run switches (default first; a value outside the list is refused):
@@ -29,6 +29,7 @@
 # METHOD, ...), so an unrelated PR or METHOD in the calling shell is read too.
 #
 # Sets: PM PM_EXEC PM_RUN INSTALL_CMD TYPECHECK_TASK CHECK_CMD
+#       INSTALL_WHY  (why INSTALL_CMD is empty, for the one line add-lane.sh prints)
 #       EXECUTOR_KIND EXECUTOR_MODEL SPEC_REVIEWER_MODEL QUALITY_REVIEWER_MODEL STALE  (when the file sets them)
 #       PANE_NAMES PANE_CMDS PANE_DIRS   (parallel arrays; pane_index NAME finds one)
 #       SUITE_NAMES SUITE_CMDS SUITE_DIRS  (parallel arrays in contract order; empty without suite lines)
@@ -90,8 +91,10 @@ case "$PM" in
 esac
 # The lane install: the package manager's, and nothing without a package.json.
 # Set, even empty, it wins.
+INSTALL_WHY="INSTALL_CMD is empty"
 if [ -z "${INSTALL_CMD+set}" ]; then
-  if [ -f package.json ]; then INSTALL_CMD=$_install; else INSTALL_CMD=""; fi
+  if [ -f package.json ]; then INSTALL_CMD=$_install
+  else INSTALL_CMD=""; INSTALL_WHY="no package.json and no INSTALL_CMD in .herdr-orchestrate"; fi
 fi
 unset _install
 

@@ -129,6 +129,8 @@ suite build "make build" web
 
 The same names in the environment of a bootstrap or add-lane call win over
 the file for that call. A name the kit does not read is pointed out on stderr.
+`START_TRIES` (environment only, default 10) is how often an agent start is
+tried, a second apart, while a new pane's shell is not ready yet.
 
 ## Run switches
 
