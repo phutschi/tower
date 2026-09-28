@@ -33,14 +33,15 @@ One unit of the plan, named by an id, owned by at most one lane at a time.
 _Avoid_: item, step, ticket, issue, flight (rendering only)
 
 **Lane**:
-A group of tasks worked in order by one executor. In an orchestrate run a lane
-also has its own branch and checkout, and lanes are lettered A to D.
+A group of tasks worked in order by one executor. In an orchestrate run lanes
+are lettered A to D, and each has its own branch and checkout: lane A the
+checkout the run opens in, the others a worktree each.
 _Avoid_: runway (rendering only), worker, thread, track, stream
 
 **Integration branch**:
 Lane A's branch, the feature branch of an orchestrate run. Lane A works on it
-in the main checkout. The orchestrator merges finished lanes into it, and the
-checks pane runs on it.
+in the checkout the run opens in, which may itself be a worktree. The
+orchestrator merges finished lanes into it, and the checks pane runs on it.
 _Avoid_: main lane, trunk
 
 **Merge point**:
