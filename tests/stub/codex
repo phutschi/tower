@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Stand-in for codex under DRY_RUN=1 and test.sh. Logs argv to HERDR_STUB_LOG.
+# CODEX_STUB=absent refuses to run, so the kind counts as not installed
+# (command -v still finds this stub).
+[ "${CODEX_STUB:-}" = absent ] && { echo "codex: not installed (stub)" >&2; exit 127; }
+printf 'codex %s\n' "$*" >> "${HERDR_STUB_LOG:-/dev/null}"
+case "${1:-}" in
+  --version) echo "codex (stub)" ;;
+esac
