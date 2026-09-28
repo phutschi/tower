@@ -11,7 +11,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
-      # tower runs on Node >= 22.12; the runner's own Node may be older.
+      # tower runs on Node >= 22.12, and the runner's own Node may be older;
+      # npm comes with it (./test.sh runs npm scripts in its fixtures).
       - uses: actions/setup-node@v5
         with:
           node-version: lts/*

@@ -158,12 +158,13 @@ test("CI checks both sides on Linux and macOS", () => {
     expect(ci).toContain(step);
 });
 
-test("the npm package ships the CLI only", () => {
+// npm pack runs no script here: package.json has no prepare or prepack.
+test("the npm package ships no kit files", () => {
   const [pack] = JSON.parse(
     execFileSync("npm", ["pack", "--dry-run", "--json"], {
       cwd: root,
       encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
+      stdio: ["ignore", "pipe", "pipe"],
     }),
   ) as { files: { path: string }[] }[];
   const paths = pack!.files.map((f) => f.path);
