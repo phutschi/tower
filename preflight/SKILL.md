@@ -17,7 +17,10 @@ Words: a **Finding** is one problem with the file and line it cites. A
 **Follow-up** is a finding chosen for later; it becomes an issue. The
 **full suite** is the repo's thorough checks: every test, typecheck, lint
 and build. A **Reviewer** is an agent in a herdr-orchestrate run that
-reviews work it did not write and only reports.
+reviews work it did not write and only reports. A **round** is one look and
+the act on it: the first round looks at the whole branch, and after fixes
+the next round looks again. Each round `<n>` (from 1) writes into its own
+findings dir, `<preflight-dir>/<n>/`.
 
 ## Who does what
 
@@ -48,8 +51,10 @@ run, the `switches:` line of `panes.txt` has the values the run uses.
 
 ## Look
 
-1. **Findings dir.** Alone: `$(git rev-parse --git-dir)/preflight/`; empty
-   it first. A Reviewer: the directory of its findings file.
+1. **Findings dir.** Alone: `<preflight-dir>/<n>/`, where the preflight dir
+   is `$(git rev-parse --git-dir)/preflight/`; empty the preflight dir before
+   round 1 and keep earlier rounds after it. A Reviewer: the directory of
+   its findings file.
 2. **Base.** Run `git fetch origin`. The base branch `<base>` is the name
    the PR goes into, without `origin/`: an open PR's
    (`gh pr view --json baseRefName -q .baseRefName`), else the remote's
@@ -90,7 +95,8 @@ run, the `switches:` line of `panes.txt` has the values the run uses.
    - Alone on codex: the areas one after another, each to
      `<findings-dir>/<area>.json`.
    - A Reviewer: your areas one after another, all into your one findings
-     file.
+     file. A brief with no areas: the findings file holds an empty verdict
+     and no findings.
 
    The review covers `git diff $(git merge-base origin/<base> HEAD)`. An area is
    done when each rule of its file is applied to every changed file and
@@ -104,12 +110,12 @@ Alone, when `look.sh` exits 1: triage the must-fix findings of `look.json`
 round approves fixes only. Fix the ones marked `fix`, commit, and run
 `look.sh` again. Go on to agent review once every must-fix is fixed or
 triaged `accept`, `follow-up` or `reject`; carry those outcomes into the
-final table. After two red rounds, stop and hand the branch to the human.
+final table. After two red looks, stop and hand the branch to the human.
 
 ## Act
 
-1. **Collect** every `*.json` in the findings dir. Inside a run, add the
-   findings you deferred during lane reviews.
+1. **Collect** every `*.json` in this round's findings dir. Inside a run,
+   in round 1 also add the findings you deferred during lane reviews.
 2. **Triage** each finding, adding the fields in `findings.md`:
    - **Validity**: re-read the cited lines yourself. The evidence names the
      lines you read. The reviewer's word is not evidence.
@@ -131,27 +137,29 @@ final table. After two red rounds, stop and hand the branch to the human.
    and scope with their evidence. Ask once. The human's one reply decides
    every outcome and approves the fixes, the follow-up issues, the push and
    the PR. Until that reply, everything stays on this machine.
-5. **Fix.** Alone: fix, commit, then look again on the whole branch:
-   `look.sh`, then the areas look skipped (a red look or a setup error)
-   plus the areas whose files the fixes touched. Inside a run: each fix
-   becomes a task for lane A, then the orchestrator starts the next
-   preflight round, the same look: R1 reruns `look.sh`, and Reviewers
-   review those areas. New findings go into a new table and a new
-   confirmation. After two fix rounds with a finding still open, stop and
-   hand it to the human.
-6. **Follow-ups.** One issue per follow-up, in the tracker. Keep each
-   issue's link for the PR body.
+5. **Fix.** The next round looks at the whole branch again, at the areas
+   of this round's findings triaged `fix` (those among the areas of look
+   step 4). Alone: fix, commit, then round `<n+1>`: `look.sh` ("A red look"
+   when it is red), then those areas. Inside a run: each fix becomes a task
+   for lane A, then the orchestrator starts round `<n+1>`: R1 reruns
+   `look.sh`, and Reviewers review those areas plus the ones this round
+   skipped (a red look or a setup error). Its new findings get a new table
+   and a new confirmation. When round 3's triage still has a finding
+   triaged `fix`, stop and hand it to the human.
+6. **Follow-ups.** One issue per follow-up of every round, in the tracker.
+   Keep each issue's link for the PR body.
 7. **PR body.** Fill `PR_TEMPLATE`, else `templates/pr-body.md`, into
-   `<findings-dir>/pr-body.md`. Its sources: the verdict rows and their
-   `detail`, the findings with their outcomes, the spec, the commits. Every
+   `<preflight-dir>/pr-body.md`. Its sources, from every round's findings
+   dir: the latest verdict row per step or area and its `detail`, the
+   findings with their outcomes, the spec, the commits. Every
    placeholder filled, in a merge-ready tone: a trade-off reads as decided
    and accepted, with its reason.
 8. **Push and PR**, as `PR` says. The title: the spec's title, else a
    summary of the commits.
    - `draft`: `git push -u origin HEAD`, then
-     `gh pr create --draft --base <base> --title "<title>" --body-file <findings-dir>/pr-body.md`.
+     `gh pr create --draft --base <base> --title "<title>" --body-file <preflight-dir>/pr-body.md`.
    - `ready`: the same without `--draft`.
    - `off`: push nothing, open nothing; report the branch ready.
 
    A PR already open for the branch: push, then
-   `gh pr edit --body-file <findings-dir>/pr-body.md`.
+   `gh pr edit --body-file <preflight-dir>/pr-body.md`.

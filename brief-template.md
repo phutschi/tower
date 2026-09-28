@@ -106,6 +106,8 @@ A Reviewer gets its own brief, not a lane's: one message, sent with
 `tower brief` part. Both kinds use the same text. Without tower, drop the
 REPORT paragraph: the findings line is the report. In the empty opening
 there is no plan: name the tasks' titles from the board or `tasks.tsv`.
+`{{ROUND}}` is the preflight round `<n>` (SKILL.md step 11): the directory
+of `{{FINDINGS_FILE}}` is `<run-dir>/findings/preflight/{{ROUND}}/`.
 
 ### Lane review
 
