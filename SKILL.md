@@ -71,12 +71,13 @@ and do it in a lane anyway or suggest doing it without the kit.
    In every brief and prompt, describe the final report's marker in words, as
    the template does: `watch-lanes.sh` reads the marker itself as the report,
    so a prompt that spells it makes an idle lane look finished.
-6. **Watch, in the background.** `tower wait --timeout 540 --stale 30` for
-   task-level attention, and `watch-lanes.sh <run-dir> <agent>...` for the
-   processes, with every lane agent and every live Reviewer agent. Both exit
-   when something needs you; re-run them after acting. Never poll
-   `tower state` or the panes in a loop. Without tower, watch with
-   `watch-lanes.sh` alone; idle after the final report is done.
+6. **Watch, in the background.** The two commands of bootstrap's `watch:`
+   line, which carries the run's stale threshold: `tower wait --timeout 540
+   --stale <STALE>` for task-level attention, and `watch-lanes.sh <run-dir>
+   <agent>...` for the processes, with every lane agent and every live
+   Reviewer agent. Both exit when something needs you; re-run them after
+   acting. Never poll `tower state` or the panes in a loop. Without tower,
+   watch with `watch-lanes.sh` alone; idle after the final report is done.
 7. **Act on attention.** `blocked` → decide, then re-brief with what the lane
    asked for (a discovered task: you add it, then tell the lane). `stale` or
    `idle-unexplained` → read the pane tail, then re-brief or wait. tower

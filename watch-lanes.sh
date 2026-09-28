@@ -6,9 +6,10 @@
 #   env: ROUND_SECONDS (540)  GRACE_SECONDS (45)  POLL_SECONDS (15)
 #
 # Task-level attention (blocked / stale / complete / closed) is tower's job:
-# run  tower wait --timeout 540 --stale 30  beside this. This script covers
-# what tower cannot see, the agent process itself. Without tower it is the
-# only watch, and "done" is a lane idle after its final report.
+# run  tower wait --timeout 540 --stale <STALE>  beside this (bootstrap.sh
+# prints it with the run's threshold). This script covers what tower cannot
+# see, the agent process itself. Without tower it is the only watch, and
+# "done" is a lane idle after its final report.
 #
 # Output starts with one line per lane that needs the orchestrator:
 #   attention: <agent> blocked | idle-after-final-report | idle-unexplained | done | gone

@@ -120,7 +120,7 @@ EXECUTOR_KIND=codex               # the lanes' harness: claude (default) or code
 EXECUTOR_MODEL=gpt-6-astra        # the lanes' model
 SPEC_REVIEWER_MODEL=sonnet        # the reviewer models tower records
 QUALITY_REVIEWER_MODEL=opus
-STALE=30                          # minutes before the console flags a lane as stale
+STALE=30                          # minutes before the console and tower wait flag a lane as stale
 suite lint  "make lint"           # the full suite, as named steps preflight runs in order
 suite test  "make test"
 suite build "make build" web

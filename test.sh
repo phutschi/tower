@@ -433,6 +433,19 @@ if section watch; then
   assert_match "complete board, every agent settled: attention" "$out" '^tower: run complete'
 fi
 
+# --- watchline ---------------------------------------------------------------
+# bootstrap.sh's printed "watch:" line: the run's stale threshold reaches
+# tower wait, and without tower only watch-lanes.sh is named.
+if section watchline; then
+  r=$(fixture_repo contract); reset_stub
+  out=$(cd "$r" && "$KIT/bootstrap.sh" "$TMP/run-wl1" "WL" main 2>&1)
+  assert_match "watch line: tower wait takes the run's stale threshold" "$out" '^watch: +tower wait --timeout 540 --stale 45 +and +.*/watch-lanes\.sh '
+  r=$(fixture_repo none); reset_stub
+  out=$(cd "$r" && TOWER_STUB=absent "$KIT/bootstrap.sh" "$TMP/run-wl2" "WL" main 2>&1)
+  assert_match "watch line without tower: watch-lanes.sh" "$(printf '%s\n' "$out" | grep '^watch:')" 'watch-lanes\.sh '
+  assert_nomatch "watch line without tower: no tower wait" "$(printf '%s\n' "$out" | grep '^watch:')" 'tower wait'
+fi
+
 # --- look --------------------------------------------------------------------
 if section look; then
   # A harmless check gate for the fixtures without suite lines or scripts, so
