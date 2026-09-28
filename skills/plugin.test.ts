@@ -132,3 +132,15 @@ test("orchestrate checks for herdr first, and points to /tower:run", () => {
   expect(first).toContain("HERDR_ENV");
   expect(first).toContain("/tower:run");
 });
+
+test("orchestrate describes no run without tower", () => {
+  for (const file of [
+    "skills/orchestrate/SKILL.md",
+    "skills/orchestrate/brief-template.md",
+    "docs/orchestrate.md",
+  ]) {
+    const text = read(file);
+    expect(text).not.toMatch(/without tower|no tower/i);
+    expect(text).not.toMatch(/tasks\.tsv`? and `?lanes\.txt|run\.txt/);
+  }
+});

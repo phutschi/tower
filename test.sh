@@ -74,9 +74,10 @@ in_kit() { bash -c ". \"\$KIT/common.sh\"; $1" 2>&1; }
 
 # --- common ------------------------------------------------------------------
 if section common; then
-  assert_eq "tower_ok: stub tower 0.2.0 is 0"     "$(in_kit 'tower_ok; echo $?')" 0
-  assert_eq "tower_ok: old tower is 2"           "$(TOWER_STUB=old in_kit 'tower_ok; echo $?')" 2
+  assert_eq "tower_ok: a tower that runs is 0"   "$(in_kit 'tower_ok; echo $?')" 0
   assert_eq "tower_ok: absent tower is 1"        "$(TOWER_STUB=absent in_kit 'tower_ok; echo $?')" 1
+  assert_match "TOWER_POINTER: says how to install tower" "$(in_kit 'echo "$TOWER_POINTER"')" 'github\.com/phutschi/tower'
+  assert_nomatch "TOWER_POINTER: names no version" "$(in_kit 'echo "$TOWER_POINTER"')" '[0-9]+\.[0-9]+'
   assert_match "need names the missing tool"     "$(in_kit 'need git nosuchtool')" "missing dependency: nosuchtool"
   assert_match "in_herdr passes under DRY_RUN"   "$(in_kit 'in_herdr && echo inside')" "^inside$"
   out=$(HERDR_ENV=0 in_kit 'in_herdr && echo inside')
@@ -269,16 +270,15 @@ if section bootstrap; then
   assert_match "a missing source is refused"            "$out" 'no such plan or task file'
 
   RUN="$TMP/run-notower"; reset_stub
-  out=$(TOWER_STUB=absent boot "$r" "$RUN" "No tower" main)
-  assert_match "no tower: info with the pointer"        "$out" 'tower is not installed'
-  assert_eq "no tower: empty tasks.tsv with the header" "$(cat "$RUN/tasks.tsv")" "$(printf '# id\ttitle\tarea\tlane')"
-  assert_eq "no tower: lanes.txt exists and is empty"   "$(cat "$RUN/lanes.txt" | wc -l | tr -d ' ')" 0
-  assert_match "no tower: run.txt records the title"    "$(cat "$RUN/run.txt")" '^title: +No tower$'
-  assert_match "no tower: run.txt has the switches"     "$(cat "$RUN/run.txt")" '^switches: +TASK_REVIEW=on LANE_REVIEW=on .* PR_TEMPLATE=$'
-  assert_nomatch "no tower: no tower note"              "$(cat "$HERDR_STUB_LOG")" '^tower note'
-  assert_match "no tower: run.txt has the reviewer"     "$(cat "$RUN/run.txt")" '^reviewer: +kind codex, model gpt-6-astra$'
-  assert_match "no tower: console shows the git log"    "$(cat "$HERDR_STUB_LOG")" '^herdr pane run pane-3 while true; do clear; .*git log'
-  assert_match "no tower: pane map says so"             "$(cat "$RUN/panes.txt")" '^console: +pane-3 +\(git log'
+  out=$(TOWER_STUB=absent boot "$r" "$RUN" "Refused" main; echo "exit=$?")
+  assert_match "tower not runnable: bootstrap refuses"            "$out" 'exit=1$'
+  assert_match "tower not runnable: ... saying tower is required"  "$out" 'needs tower'
+  assert_match "tower not runnable: ... with the install pointer" "$out" 'github\.com/phutschi/tower'
+  assert_eq "tower not runnable: no run dir is created"           "$([ -e "$RUN" ] && echo made || echo none)" none
+  assert_nomatch "tower not runnable: no pane is opened"          "$(cat "$HERDR_STUB_LOG")" '^herdr (pane|agent|tab|worktree) '
+  RUN="$TMP/run-only-panes"; reset_stub
+  out=$(boot "$r" "$RUN" "Only panes" main "$KIT/example-tasks.tsv")
+  assert_eq "run dir: holds only the pane map"          "$(ls -A "$RUN")" panes.txt
   RUN="$TMP/run-switches"; reset_stub
   out=$(PR=off boot "$(fixture_repo contract-switches)" "$RUN" "Switches" main)
   assert_match "switches: the file and the environment reach the pane map" "$(cat "$RUN/panes.txt")" '^switches: +TASK_REVIEW=off .* PR=off METHOD=plain .* SUITE_SKIP=build '
@@ -300,11 +300,6 @@ if section bootstrap; then
   RUN="$TMP/run-noreview"; reset_stub
   out=$(LANE_REVIEW=off PREFLIGHT=off CODEX_STUB=absent REVIEWER_KIND=codex boot "$r" "$RUN" "No review" main)
   assert_match "reviewer: none when lane review and preflight are off" "$(cat "$RUN/panes.txt")" '^reviewer: +none \(LANE_REVIEW=off, PREFLIGHT=off\)$'
-  out=$(TOWER_STUB=absent boot "$r" "$TMP/run-nt2" "NT2" main "$KIT/example-tasks.tsv")
-  assert_eq "no tower, planned: lane A owns all"        "$(cat "$TMP/run-nt2/lanes.txt")" "A=all"
-  out=$(TOWER_STUB=old boot "$r" "$TMP/run-old" "Old" main)
-  assert_match "old tower is refused"                   "$out" 'older than 0.2.0'
-  [ -d "$TMP/run-old" ] && bad "old tower: nothing created" || ok "old tower: nothing created"
 
   r=$(fixture_repo contract); RUN="$TMP/run-dev"; reset_stub
   out=$(boot "$r" "$RUN" "Dev" main)
@@ -367,16 +362,19 @@ if section add-lane; then
   assert_match "D before B: refused"                  "$(cd "$r" && "$KIT/add-lane.sh" "$RUN2" D feat/d main 5 2>&1)" 'lane D goes under lane B, which does not exist yet'
   assert_match "no pane map: refused"                 "$(cd "$r" && "$KIT/add-lane.sh" "$TMP/nowhere" B feat/b main 2 2>&1)" 'run bootstrap.sh first'
   RUN3="$TMP/run-nt"; reset_stub
-  (cd "$r" && TOWER_STUB=absent "$KIT/bootstrap.sh" "$RUN3" "NT" main "$KIT/example-tasks.tsv" >/dev/null 2>&1)
-  out=$(cd "$r" && TOWER_STUB=absent "$KIT/add-lane.sh" "$RUN3" B feat/b main 2,3 2>&1)
-  assert_eq "no tower: ownership in lanes.txt"        "$(tail -1 "$RUN3/lanes.txt")" "B=2,3"
+  (cd "$r" && "$KIT/bootstrap.sh" "$RUN3" "NT" main "$KIT/example-tasks.tsv" >/dev/null 2>&1)
+  reset_stub; out=$(cd "$r" && TOWER_STUB=absent "$KIT/add-lane.sh" "$RUN3" B feat/b main 2,3 2>&1; echo "exit=$?")
+  assert_match "tower not runnable: add-lane refuses with the pointer" "$out" 'needs tower.*github\.com/phutschi/tower'
+  assert_match "tower not runnable: ... and fails"              "$out" 'exit=1$'
+  assert_nomatch "tower not runnable: no worktree, no agent"    "$(cat "$HERDR_STUB_LOG")" '^herdr (worktree|pane|agent) '
+  assert_eq "tower not runnable: no lane file"                  "$(ls -A "$RUN3")" panes.txt
   nr=$(fixture_repo none); RUNN="$TMP/run-noinstall"; reset_stub
   (cd "$nr" && "$KIT/bootstrap.sh" "$RUNN" "No install" main >/dev/null 2>&1)
   out=$(cd "$nr" && "$KIT/add-lane.sh" "$RUNN" B feat/b main 2 2>&1)
   assert_nomatch "no package.json: no install"        "$out" '\[dry-run\] \(cd .*install'
   assert_eq "no package.json: one line says so"       "$(printf '%s\n' "$out" | grep -c 'no install')" 1
   assert_match "no package.json: the line names why"  "$out" '^add-lane: no install: no package.json and no INSTALL_CMD in \.orchestrate$'
-  out=$(cd "$r" && INSTALL_CMD='' TOWER_STUB=absent "$KIT/add-lane.sh" "$RUN3" D feat/d main 5 2>&1)
+  out=$(cd "$r" && INSTALL_CMD='' "$KIT/add-lane.sh" "$RUN3" B feat/b main 5 2>&1)
   assert_match "INSTALL_CMD set empty: no install, and that is the reason" "$out" '^add-lane: no install: INSTALL_CMD is empty$'
   out=$(cd "$nr" && INSTALL_CMD='' "$KIT/add-lane.sh" "$RUNN" C feat/c main 3 2>&1)
   assert_match "INSTALL_CMD set empty, no package.json: that is the reason" "$out" '^add-lane: no install: INSTALL_CMD is empty$'
@@ -472,14 +470,12 @@ if section add-reviewer; then
   out=$(cd "$RELD" && EXIT_WAIT_SECONDS=0 REVIEWER_KIND=codex "$KIT/add-reviewer.sh" run R2 claude "Rel" run/findings/rel.json 2>&1)
   assert_match "a relative run dir is made absolute" "$(cat "$RELD/run/panes.txt")" "^reviewer R2: .*findings $RELD/run/findings/rel.json\\)$"
   RUN2="$TMP/run-review-nt"; reset_stub
-  (cd "$r" && TOWER_STUB=absent "$KIT/bootstrap.sh" "$RUN2" "NT" main "$KIT/example-tasks.tsv" >/dev/null 2>&1)
-  out=$(cd "$r" && TOWER_STUB=absent "$KIT/add-reviewer.sh" "$RUN2" R1 claude "Lane review A" "$RUN2/findings/a.json" 2>&1)
-  assert_eq "no tower: the review in tasks.tsv"       "$(tail -1 "$RUN2/tasks.tsv")" "$(printf 'R1-1\tLane review A\treview\tR1')"
-  assert_eq "no tower: ownership in lanes.txt"        "$(tail -1 "$RUN2/lanes.txt")" "R1=R1-1"
-  RUN3="$TMP/run-review-md"; reset_stub
-  (cd "$r" && TOWER_STUB=absent "$KIT/bootstrap.sh" "$RUN3" "MD" main "$ROOT/README.md" >/dev/null 2>&1)
-  out=$(cd "$r" && TOWER_STUB=absent "$KIT/add-reviewer.sh" "$RUN3" R1 claude "Lane review A" "$RUN3/findings/a.json" 2>&1)
-  assert_eq "no tower, planned from a .md: tasks.tsv is the header and the review" "$(cat "$RUN3/tasks.tsv")" "$(printf '# id\ttitle\tarea\tlane\nR1-1\tLane review A\treview\tR1')"
+  (cd "$r" && "$KIT/bootstrap.sh" "$RUN2" "NT" main "$KIT/example-tasks.tsv" >/dev/null 2>&1); reset_stub
+  out=$(cd "$r" && TOWER_STUB=absent "$KIT/add-reviewer.sh" "$RUN2" R1 claude "Lane review A" "$RUN2/findings/a.json" 2>&1; echo "exit=$?")
+  assert_match "tower not runnable: add-reviewer refuses with the pointer" "$out" 'needs tower.*github\.com/phutschi/tower'
+  assert_match "tower not runnable: ... and fails"              "$out" 'exit=1$'
+  assert_nomatch "tower not runnable: no tab, no Reviewer"      "$(cat "$HERDR_STUB_LOG")" '^herdr (tab create|pane split|agent start) '
+  assert_eq "tower not runnable: the run dir is unchanged"      "$(ls -A "$RUN2")" panes.txt
   RUNG="$TMP/run-review-gone"; reset_stub
   (cd "$r" && "$KIT/bootstrap.sh" "$RUNG" "Gone" main >/dev/null 2>&1); reset_stub
   echo gone > "$S/pane-0"; before=$(cat "$RUNG/panes.txt")
@@ -488,8 +484,6 @@ if section add-reviewer; then
   assert_match "no orchestrator pane: exits non-zero" "$out" 'exit=1$'
   assert_nomatch "no orchestrator pane: no tab, no board task" "$(cat "$HERDR_STUB_LOG")" '^(herdr tab create|herdr agent start|tower add)'
   assert_eq "no orchestrator pane: the pane map is unchanged" "$(cat "$RUNG/panes.txt")" "$before"
-  out=$(cd "$r" && TOWER_STUB=absent "$KIT/add-reviewer.sh" "$RUNG" R1 claude "Gone" "$RUNG/findings/a.json" 2>&1)
-  [ -e "$RUNG/tasks.tsv" ] && bad "no orchestrator pane, no tower: no tasks.tsv" || ok "no orchestrator pane, no tower: no tasks.tsv"
   rm -f "$S/pane-0"
   grep -v '^orchestrator:' "$RUNG/panes.txt" > "$RUNG/panes.tmp"; mv "$RUNG/panes.tmp" "$RUNG/panes.txt"
   assert_match "a pane map without an orchestrator line is refused" \
@@ -509,16 +503,6 @@ if section add-reviewer; then
   out=$(cd "$r" && TOWER_STUB_ADDED_STATUS=done "$KIT/add-reviewer.sh" "$RUNF" R2 claude "Try again" "$RUNF/findings/b.json" 2>&1; echo "exit=$?")
   assert_match "a task already worked on is not taken over" "$out" 'task R2-1 is done on the board'
   assert_match "that refusal fails"                   "$out" 'exit=1$'
-  RUNFN="$TMP/run-review-failed-nt"; reset_stub
-  (cd "$r" && TOWER_STUB=absent "$KIT/bootstrap.sh" "$RUNFN" "Failed NT" main >/dev/null 2>&1)
-  (cd "$r" && TOWER_STUB=absent HERDR_STUB_BUSY_STARTS=99 START_TRIES=1 "$KIT/add-reviewer.sh" "$RUNFN" R1 claude "Try" "$RUNFN/findings/a.json" >/dev/null 2>&1)
-  out=$(cd "$r" && TOWER_STUB=absent "$KIT/add-reviewer.sh" "$RUNFN" R1 claude "Try again" "$RUNFN/findings/a.json" 2>&1; echo "exit=$?")
-  assert_match "no tower: after a failed start, the same slot works again" "$out" 'exit=0$'
-  assert_eq "no tower: one line for the review in tasks.tsv" "$(grep -c '^R1-1	' "$RUNFN/tasks.tsv")" 1
-  assert_eq "no tower: one ownership line in lanes.txt" "$(grep -c '^R1=R1-1$' "$RUNFN/lanes.txt")" 1
-  printf 'R2-1\tBy hand\treview\tR2\n' >> "$RUNFN/tasks.tsv"
-  out=$(cd "$r" && TOWER_STUB=absent "$KIT/add-reviewer.sh" "$RUNFN" R2 claude "Mine" "$RUNFN/findings/b.json" 2>&1)
-  assert_match "no tower: a line the slot did not write is not taken over" "$out" 'R2-1 is in .*tasks.tsv, but not as R2=R2-1 in .*lanes.txt'
   # A codex-only machine: a codex lane's Reviewer is a fresh codex agent on the
   # reviewed lane's model, as the pane map records it.
   RUNM="$TMP/run-review-model"; reset_stub
@@ -650,7 +634,8 @@ if section watch; then
   assert_nomatch "two lanes: the working one is quiet" "$out" '^attention: a '
   assert_match "tower summary when tower is present"  "$out" '^--- tower'
   out=$(TOWER_STUB=absent watch b)
-  assert_match "no tower: git log instead"            "$out" 'no tower: task state is in git'
+  assert_match "tower not runnable: watch-lanes refuses with the pointer" "$out" 'needs tower.*github\.com/phutschi/tower'
+  assert_nomatch "tower not runnable: never a git log fallback" "$out" 'no tower|git log'
   # A complete board is not attention while a watched agent still works (the
   # lane's final review comes after its last task); a closed run always is.
   echo working > "$S/a"; out=$(ROUND=1 TOWER_STUB_STATE=complete watch a)
@@ -671,15 +656,14 @@ fi
 
 # --- watchline ---------------------------------------------------------------
 # bootstrap.sh's printed "watch:" line: the run's stale threshold reaches
-# tower wait, and without tower only watch-lanes.sh is named.
+# tower wait, and watch-lanes.sh runs beside it, whatever the repo.
 if section watchline; then
   r=$(fixture_repo contract); reset_stub
   wl=$(cd "$r" && "$KIT/bootstrap.sh" "$TMP/run-wl1" "WL" main 2>&1 | grep '^watch:')
   assert_match "watch line: tower wait takes the run's stale threshold" "$wl" '^watch: +tower wait --timeout 540 --stale 45 +and +.*/watch-lanes\.sh '
   r=$(fixture_repo none); reset_stub
-  wl=$(cd "$r" && TOWER_STUB=absent "$KIT/bootstrap.sh" "$TMP/run-wl2" "WL" main 2>&1 | grep '^watch:')
-  assert_match "watch line without tower: watch-lanes.sh" "$wl" 'watch-lanes\.sh '
-  assert_nomatch "watch line without tower: no tower wait" "$wl" 'tower wait'
+  wl=$(cd "$r" && "$KIT/bootstrap.sh" "$TMP/run-wl2" "WL" main 2>&1 | grep '^watch:')
+  assert_match "watch line: always tower wait and watch-lanes.sh" "$wl" '^watch: +tower wait --timeout 540 --stale 30 +and +.*/watch-lanes\.sh '
 fi
 
 # --- look --------------------------------------------------------------------
@@ -914,8 +898,6 @@ if section install; then
   out=$(HOME="$H2" PATH="$KIT/tests/stub:$B" "$ROOT/install.sh" --check 2>&1; echo "exit=$?")
   assert_match "check: a missing dependency is named"  "$out" 'MISSING +node'
   assert_match "check: a missing dependency fails"     "$out" 'exit=1$'
-  out=$(HOME="$H2" TOWER_STUB=old "$ROOT/install.sh" --check 2>&1)
-  assert_match "check: an old tower is called out"    "$out" 'OLD +tower'
 fi
 
 # --- run ---------------------------------------------------------------------

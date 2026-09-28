@@ -20,23 +20,6 @@ orchestrate run it must not: only the orchestrator changes the task
 list. The template below says so in one sentence; keep it in every brief,
 for every kind.
 
-## Without tower
-
-If tower is not installed (bootstrap said so), write the derivable part by
-hand below the separator: the lane's task ids and the tasks file from
-`<run-dir>/run.txt` and `lanes.txt`, the model roles from `run.txt`, and the
-two standing rules. Then substitute the reporting:
-
-| with tower                                   | without                                                     |
-|----------------------------------------------|--------------------------------------------------------------|
-| `tower task <id> in_progress\|done`           | one commit per task, subject starting with the task id       |
-| `tower block <id> "<need>"`                  | stop, and state exactly what you need as your reply         |
-| `tower note --lane X '<text>'`               | say it as your reply; the orchestrator reads the pane       |
-| `tower state --json` (another lane's progress) | `git log <branch> --oneline`                              |
-
-The orchestrator then watches with watch-lanes.sh alone; "idle after the
-final report" is done.
-
 ## Executor kind
 
 panes.txt says which agent runs the lane (`kind claude` or `kind codex`). The
@@ -115,9 +98,8 @@ Stay in this session: another review may follow.
 A Reviewer gets its own brief, not a lane's: one message, sent with
 `herdr agent prompt <reviewer-agent> "$(cat <run-dir>/brief-<task-id>.md)"`
 (add-reviewer.sh prints the agent, the task id and the findings file). No
-`tower brief` part. Both kinds use the same text. Without tower, drop the
-REPORT paragraph: the findings line is the report. In the empty opening
-there is no plan: name the tasks' titles from the board or `tasks.tsv`.
+`tower brief` part. Both kinds use the same text. In the empty opening
+there is no plan: name the tasks' titles from the board.
 `{{ROUND}}` is the preflight round `<n>` (SKILL.md step 11): the directory
 of `{{FINDINGS_FILE}}` is `<run-dir>/findings/preflight/{{ROUND}}/`.
 `{{FIX_BASE}}` is HEAD before the previous round's fixes. R2 is briefed

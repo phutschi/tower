@@ -16,8 +16,8 @@
 # <run-dir>/install-<lane>.log): the repo contract's, else the package manager's
 # when there is a package.json, else nothing, said in one line. .env
 # (gitignored) is copied once the agent owns the pane. The worktree shares the
-# repo's common git dir, so `tower` inside it finds the run with no flags. Without tower, ownership goes to
-# <run-dir>/lanes.txt. A run switch with a value outside its list (see
+# repo's common git dir, so `tower` inside it finds the run with no flags. Without a runnable tower
+# it refuses before anything is created. A run switch with a value outside its list (see
 # detect-stack.sh) is refused here as in bootstrap.sh; the run's values are the
 # pane map's  switches:  line.
 #
@@ -30,6 +30,7 @@ set -euo pipefail
 KIT="$(cd "$(dirname "$0")" && pwd)"
 . "$KIT/common.sh"
 in_herdr; need git python3 node
+need_tower
 [ $# -eq 5 ] || die 'usage: add-lane.sh <run-dir> <B|C|D> <branch> <base-branch> <task-ids>'
 RUN_DIR="$1"; LANE="$2"; BRANCH="$3"; BASE="$4"; TASKS="$5"
 MAP="$RUN_DIR/panes.txt"
@@ -56,9 +57,8 @@ cd "$_here"; unset _here
 NAME="$(agent_name "-lane-$(echo "$LANE" | tr 'A-Z' 'a-z')")"
 
 # Ownership first: tower refuses an unknown id, so a typo stops here, before a
-# worktree exists. Without tower, ownership is a line in <run-dir>/lanes.txt.
-if tower_ok; then HAVE_TOWER=1; tower assign "$LANE" "$TASKS"
-else HAVE_TOWER=0; echo "$LANE=$TASKS" >> "$RUN_DIR/lanes.txt"; fi
+# worktree exists.
+tower assign "$LANE" "$TASKS"
 
 out=$(herdr worktree create --cwd "$REPO_ROOT" --branch "$BRANCH" --base "$BASE" --path "$WT" --label "$NAME" --no-focus)
 WT_PANE=$(echo "$out" | jsonq 'd["result"]["root_pane"]["pane_id"]')
@@ -86,8 +86,4 @@ start_agent_with_trust_retry "$NAME" "$PANE"
 
 printf 'lane %s:         %s   (agent "%s", kind %s, branch %s, checkout %s, model %s)\n' \
   "$LANE" "$PANE" "$NAME" "$EXECUTOR_KIND" "$BRANCH" "$WT" "$EXECUTOR_MODEL" >> "$MAP"
-if [ "$HAVE_TOWER" = 1 ]; then
-  echo "lane $LANE ready: agent $NAME in $PANE — next:  tower brief $LANE > $RUN_DIR/brief-$LANE.md, add the judgement (brief-template.md, with merge points in both briefs), then  herdr agent prompt $NAME \"\$(cat $RUN_DIR/brief-$LANE.md)\""
-else
-  echo "lane $LANE ready: agent $NAME in $PANE — next: write $RUN_DIR/brief-$LANE.md from brief-template.md (\"Without tower\"; tasks $TASKS, merge points in both briefs), then  herdr agent prompt $NAME \"\$(cat $RUN_DIR/brief-$LANE.md)\""
-fi
+echo "lane $LANE ready: agent $NAME in $PANE — next:  tower brief $LANE > $RUN_DIR/brief-$LANE.md, add the judgement (brief-template.md, with merge points in both briefs), then  herdr agent prompt $NAME \"\$(cat $RUN_DIR/brief-$LANE.md)\""

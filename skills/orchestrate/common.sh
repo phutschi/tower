@@ -32,14 +32,9 @@ pane_id()  { jsonq 'd["result"]["pane"]["pane_id"]'; }
 # The main checkout's root, from any worktree of it.
 repo_root() { git rev-parse --path-format=absolute --git-common-dir | sed 's#/\.git$##'; }
 
-TOWER_POINTER='tower 0.2.0 or later: github.com/phutschi/tower (binaries on the releases page; npm i -g @phutschi/tower once published; or ~/.local/bin/tower -> bun run ~/code/tower/src/cli.ts from a checkout)'
-# 0: tower 0.2.0 or later is on PATH; 1: not installed or not runnable;
-# 2: installed but older than 0.2.0 (its usage has no `tower add`).
-tower_ok() {
-  local usage
-  command -v tower >/dev/null || return 1
-  usage=$(tower --help 2>&1) || return 1
-  echo "$usage" | grep -q 'tower add ' && return 0
-  echo "$usage" | grep -q 'tower init' && return 2
-  return 1
-}
+TOWER_POINTER='install tower: github.com/phutschi/tower (install.sh in a checkout sets it up; or a binary from the releases page)'
+# 0: tower is on PATH and runs; 1: not.
+tower_ok() { command -v tower >/dev/null && tower --help >/dev/null 2>&1 || return 1; }
+# An orchestrate run always has tower as its record: refuse before anything
+# is created when it does not run.
+need_tower() { tower_ok || die "tower is not runnable: an orchestrate run needs tower, its record and console. $TOWER_POINTER"; }

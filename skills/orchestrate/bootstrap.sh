@@ -12,9 +12,8 @@
 # from the user's message and writes them with  tower add "<title>" --lane A
 # before briefing anyone. LANES without a source is an error.
 #
-# tower 0.2.0 or later is the record and the console. Missing: the run dir is
-# the record (run.txt, tasks.tsv, lanes.txt) and the console shows the git log.
-# Older: refused.
+# tower is the record and the console. When tower does not run, bootstrap
+# refuses before it creates anything and says how to install it.
 #
 # The layout, one tab (the lane grid grows with add-lane.sh):
 #
@@ -36,7 +35,7 @@
 # Writes <run-dir>/panes.txt, the pane map for the whole run, then prints it
 # with the next step. The pane map's  switches:  line holds every run switch
 # and the value this run uses (detect-stack.sh); the same line goes to the
-# record, as a  tower note  or into run.txt without tower. So does the
+# record as a  tower note . So does the
 #  reviewer:  line: the kind and model that review lane A (executor.sh
 # reviewer_for; in a codex-only run add-reviewer.sh reviews a codex lane on
 # that lane's model when the call names the lane), with the fallback note when
@@ -65,11 +64,7 @@ RUN_DIR="$1"; TITLE="$2"; BRANCH="$3"; SOURCE="${4:-}"
 # what add-lane.sh uses for the worktree location of lanes B-D).
 REPO="$PWD"
 
-HAVE_TOWER=1
-tower_ok || case $? in
-  1) HAVE_TOWER=0; echo "info: tower is not installed — running without the console. The run dir is the record and lanes report through commits and their pane. $TOWER_POINTER" >&2 ;;
-  2) die "tower is older than 0.2.0 (no 'tower add'); bootstrap needs it. $TOWER_POINTER" ;;
-esac
+need_tower
 
 . "$KIT/detect-stack.sh"  # PM, CHECK_CMD, PANE_*, INSTALL_CMD, and .orchestrate's EXECUTOR_*/reviewer models
 . "$KIT/executor.sh"      # EXECUTOR_KIND, EXECUTOR_MODEL, agent_name, start_agent*
@@ -90,42 +85,19 @@ fi
 
 # --- the record --------------------------------------------------------------
 mkdir -p "$RUN_DIR"
-if [ "$HAVE_TOWER" = 1 ]; then
-  MODELS=(--model "implementer=$EXECUTOR_MODEL" --model "spec-reviewer=$SPEC_REVIEWER_MODEL" --model "quality-reviewer=$QUALITY_REVIEWER_MODEL")
-  case "$SOURCE" in
-    "")   tower init --title "$TITLE" --run "$RUN_DIR" "${MODELS[@]}" ;;
-    *.md) tower init --plan "$SOURCE" --title "$TITLE" --run "$RUN_DIR" "${MODELS[@]}" ;;
-    *)    tower init --tasks "$SOURCE" --title "$TITLE" --run "$RUN_DIR" "${MODELS[@]}" ;;
-  esac
-  if [ -n "${LANES:-}" ]; then
-    for spec in $LANES; do tower assign "${spec%%=*}" "${spec#*=}"; done
-  elif [ -n "$SOURCE" ]; then
-    tower assign A "$(tower state --json | jsonq '",".join(t["id"] for t in d["tasks"])')"
-  fi
-  tower note "switches: $(switches_line)"
-  tower note "reviewer: $REVIEWER"
-else
-  case "$SOURCE" in
-    "")   printf '# id\ttitle\tarea\tlane\n' > "$RUN_DIR/tasks.tsv" ;;
-    *.md) cp "$SOURCE" "$RUN_DIR/plan.md" ;;
-    *)    cp "$SOURCE" "$RUN_DIR/tasks.tsv" ;;
-  esac
-  if [ -n "${LANES:-}" ]; then printf '%s\n' $LANES > "$RUN_DIR/lanes.txt"
-  elif [ -n "$SOURCE" ]; then echo "A=all" > "$RUN_DIR/lanes.txt"
-  else : > "$RUN_DIR/lanes.txt"
-  fi
-  cat > "$RUN_DIR/run.txt" <<TXT
-title:            $TITLE
-repo:             $REPO
-branch:           $BRANCH
-tasks:            $RUN_DIR/$(case "$SOURCE" in *.md) echo plan.md ;; *) echo tasks.tsv ;; esac)
-implementer:      $EXECUTOR_MODEL ($EXECUTOR_KIND)
-spec-reviewer:    $SPEC_REVIEWER_MODEL
-quality-reviewer: $QUALITY_REVIEWER_MODEL
-switches:         $(switches_line)
-reviewer:         $REVIEWER
-TXT
+MODELS=(--model "implementer=$EXECUTOR_MODEL" --model "spec-reviewer=$SPEC_REVIEWER_MODEL" --model "quality-reviewer=$QUALITY_REVIEWER_MODEL")
+case "$SOURCE" in
+  "")   tower init --title "$TITLE" --run "$RUN_DIR" "${MODELS[@]}" ;;
+  *.md) tower init --plan "$SOURCE" --title "$TITLE" --run "$RUN_DIR" "${MODELS[@]}" ;;
+  *)    tower init --tasks "$SOURCE" --title "$TITLE" --run "$RUN_DIR" "${MODELS[@]}" ;;
+esac
+if [ -n "${LANES:-}" ]; then
+  for spec in $LANES; do tower assign "${spec%%=*}" "${spec#*=}"; done
+elif [ -n "$SOURCE" ]; then
+  tower assign A "$(tower state --json | jsonq '",".join(t["id"] for t in d["tasks"])')"
 fi
+tower note "switches: $(switches_line)"
+tower note "reviewer: $REVIEWER"
 
 # --- the layout --------------------------------------------------------------
 split() { herdr pane split "$@" --cwd "$REPO" --no-focus | pane_id; }
@@ -145,9 +117,7 @@ else
 fi
 run_in "$CHECKS_PANE" "${PANE_DIRS[$CHECKS_I]}" "${PANE_CMDS[$CHECKS_I]}"
 [ "$NO_RUNNER" = 0 ] || echo 'info: no test runner detected: the checks pane has nothing to run; declare  pane checks "<cmd>"  in .orchestrate' >&2
-GITLOG_CMD='while true; do clear; date +%H:%M:%S; git log --color=always --oneline --graph --decorate=short --branches="*" -14 | cut -c1-$(( $(tput cols) + 60 )); sleep 5; done'
-if [ "$HAVE_TOWER" = 1 ]; then herdr pane run "$CONSOLE_PANE" "tower --stale $STALE" >/dev/null
-else herdr pane run "$CONSOLE_PANE" "$GITLOG_CMD" >/dev/null; fi
+herdr pane run "$CONSOLE_PANE" "tower --stale $STALE" >/dev/null
 
 # --- the pane map, before the agent start so add-lane and the brief have it even if that fails
 {
@@ -156,8 +126,7 @@ else herdr pane run "$CONSOLE_PANE" "$GITLOG_CMD" >/dev/null; fi
   echo "lane A:         $LANE_A_PANE   (agent \"$LANE_A\", kind $EXECUTOR_KIND, branch $BRANCH, checkout $REPO, model $EXECUTOR_MODEL)"
   echo "checks:         $CHECKS_PANE   (${PANE_CMDS[$CHECKS_I]} in ${PANE_DIRS[$CHECKS_I]})"
   [ -z "$DEV_PANE" ] || echo "dev:            $DEV_PANE   (${PANE_CMDS[$DEV_I]} in ${PANE_DIRS[$DEV_I]})"
-  if [ "$HAVE_TOWER" = 1 ]; then echo "console:        $CONSOLE_PANE   (tower; the record — stays open, the human quits it with q)"
-  else echo "console:        $CONSOLE_PANE   (git log; no tower — the run dir is the record: run.txt, tasks.tsv, lanes.txt)"; fi
+  echo "console:        $CONSOLE_PANE   (tower; the record — stays open, the human quits it with q)"
   echo "check gate:     $CHECK_CMD"
   echo "switches:       $(switches_line)"
   echo "reviewer:       $REVIEWER"
@@ -170,14 +139,12 @@ start_agent_with_trust_retry "$LANE_A" "$LANE_A_PANE"
 cat "$RUN_DIR/panes.txt"
 echo
 if [ -n "$SOURCE" ]; then
-  echo "next:  brief lane A (brief-template.md; with tower: tower brief A > $RUN_DIR/brief-A.md first), then"
+  echo "next:  brief lane A (tower brief A > $RUN_DIR/brief-A.md, then brief-template.md), then"
 else
   echo "next:  the task list — derive it from the user's message, then"
-  if [ "$HAVE_TOWER" = 1 ]; then echo "       tower add \"<title>\" --area <area> --lane A   per task (lanes B-D: add-lane.sh, then --lane B …)"
-  else echo "       append  id<TAB>title<TAB>area<TAB>lane  lines to $RUN_DIR/tasks.tsv and  A=<ids>  to lanes.txt"; fi
+  echo "       tower add \"<title>\" --area <area> --lane A   per task (lanes B-D: add-lane.sh, then --lane B …)"
   echo "       brief lane A (brief-template.md), then"
 fi
 echo "       herdr agent prompt $LANE_A \"\$(cat $RUN_DIR/brief-A.md)\""
 echo "more lanes:  $KIT/add-lane.sh $RUN_DIR B <branch> $BRANCH <ids>"
-if [ "$HAVE_TOWER" = 1 ]; then echo "watch:       tower wait --timeout 540 --stale $STALE   and   $KIT/watch-lanes.sh $RUN_DIR $LANE_A   (both in the background)"
-else echo "watch:       $KIT/watch-lanes.sh $RUN_DIR $LANE_A   (in the background)"; fi
+echo "watch:       tower wait --timeout 540 --stale $STALE   and   $KIT/watch-lanes.sh $RUN_DIR $LANE_A   (both in the background)"

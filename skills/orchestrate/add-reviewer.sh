@@ -32,15 +32,13 @@
 # until herdr no longer knows it.
 #
 # In order, it writes:
-#   the board task, before anything opens: with tower
+#   the board task, before anything opens:
 #     tower add "<title>" --id R1-<n> --area review --lane R1
-#   without tower a line in <run-dir>/tasks.tsv (id R1-<n>, area review; the
-#   file is created with its header if the run has none) and R1=R1-<n> in
-#   <run-dir>/lanes.txt. When that id is already there (an earlier call for the
+#   When that id is already there (an earlier call for the
 #   slot added it, then its Reviewer did not start), the task is reused under
 #   this call's title and "reusing task <id>: ..." is printed: a failed call can
-#   simply be run again. A task someone worked on (not pending on the board;
-#   without tower, no R1=R1-<n> line) is refused instead;
+#   simply be run again. A task someone worked on (not pending on the board)
+#   is refused instead;
 #   the pane map (<run-dir>/panes.txt):
 #     review tab:     <tab-id>   (R1 <pane-id>, R2 <pane-id>)   once, on the first call
 #     reviewer R1:    <pane-id>   (agent "<name>", kind <kind>, model <model>, review "<title>", findings <file>)
@@ -64,6 +62,7 @@ set -euo pipefail
 KIT="$(cd "$(dirname "$0")" && pwd)"
 . "$KIT/common.sh"
 in_herdr; need git python3 node
+need_tower
 [ $# -eq 5 ] || [ $# -eq 6 ] || die 'usage: add-reviewer.sh <run-dir> <R1|R2> <lane-kind> "<review title>" <findings-file> [lane]'
 RUN_DIR="$1"; SLOT="$2"; LANE_KIND="$3"; TITLE="$4"; FINDINGS="$5"; LANE="${6:-}"
 MAP="$RUN_DIR/panes.txt"
@@ -161,28 +160,14 @@ fi
 # --- the review on the board: a refusal stops before anything opens ----------
 # The id can already be there: an earlier call for this slot added it, then its
 # Reviewer did not start, so no reviewer line counted it. That task is reused,
-# under this call's title, while nobody has worked on it: pending on the board,
-# or without tower a tasks.tsv line with this slot's lanes.txt line.
+# under this call's title, while nobody has worked on it: pending on the board.
 REUSED=0
-if tower_ok; then
-  if ! out=$(tower add "$TITLE" --id "$ID" --area review --lane "$SLOT" 2>&1); then
-    case "$out" in *"task \"$ID\" already exists"*) ;; *) die "$out" ;; esac
-    status=$(tower state --json | jsonq "next((t.get('status', '?') for t in d['tasks'] if t['id'] == '$ID'), 'missing')")
-    [ "$status" = pending ] || die "task $ID is $status on the board, so not a failed start: check it, or  tower remove $ID  and rerun"
-    tower change "$ID" --title "$TITLE" >/dev/null
-    REUSED=1
-  fi
-else
-  [ -f "$RUN_DIR/tasks.tsv" ] || printf '# id\ttitle\tarea\tlane\n' > "$RUN_DIR/tasks.tsv"
-  if grep -q "^$ID	" "$RUN_DIR/tasks.tsv"; then
-    grep -qx "$SLOT=$ID" "$RUN_DIR/lanes.txt" 2>/dev/null \
-      || die "$ID is in $RUN_DIR/tasks.tsv, but not as $SLOT=$ID in $RUN_DIR/lanes.txt: not this slot's; check it and rerun"
-    { grep -v "^$ID	" "$RUN_DIR/tasks.tsv" || [ $? -eq 1 ]; } > "$RUN_DIR/tasks.tsv.tmp"
-    mv "$RUN_DIR/tasks.tsv.tmp" "$RUN_DIR/tasks.tsv"
-    REUSED=1
-  fi
-  printf '%s\t%s\treview\t%s\n' "$ID" "$TITLE" "$SLOT" >> "$RUN_DIR/tasks.tsv"
-  grep -qx "$SLOT=$ID" "$RUN_DIR/lanes.txt" 2>/dev/null || echo "$SLOT=$ID" >> "$RUN_DIR/lanes.txt"
+if ! out=$(tower add "$TITLE" --id "$ID" --area review --lane "$SLOT" 2>&1); then
+  case "$out" in *"task \"$ID\" already exists"*) ;; *) die "$out" ;; esac
+  status=$(tower state --json | jsonq "next((t.get('status', '?') for t in d['tasks'] if t['id'] == '$ID'), 'missing')")
+  [ "$status" = pending ] || die "task $ID is $status on the board, so not a failed start: check it, or  tower remove $ID  and rerun"
+  tower change "$ID" --title "$TITLE" >/dev/null
+  REUSED=1
 fi
 [ "$REUSED" = 0 ] || echo "reusing task $ID: an earlier call for $SLOT added it, but its Reviewer did not start"
 

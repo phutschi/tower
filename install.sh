@@ -11,7 +11,7 @@
 #   install.sh --check   only check
 #
 # Needs: herdr (the terminal), git, bash, python3 (reads herdr's JSON), node
-# (reads package.json in JS repos). Optional: claude (the plugin), tower 0.2.0+
+# (reads package.json in JS repos). Optional: claude (the plugin), tower
 # (the record and the console), codex (EXECUTOR_KIND=codex lanes), semgrep and
 # gitleaks (preflight's static baseline). Running it again changes nothing.
 set -u
@@ -35,9 +35,6 @@ opt  tower   "the record and the console — $TOWER_POINTER"
 opt  codex   "lanes with EXECUTOR_KIND=codex"
 opt  semgrep "preflight's static baseline (a warn row without it)" --version
 opt  gitleaks "preflight's secret scan (a warn row without it)" version
-if command -v tower >/dev/null; then
-  tower_ok; case $? in 2) printf '  OLD       tower    0.2.0 or later is required — %s\n' "$TOWER_POINTER" ;; esac
-fi
 [ "$ok" = 1 ] || { echo "install the missing dependencies first" >&2; exit 1; }
 [ "$CHECK_ONLY" = 1 ] && exit 0
 

@@ -3,7 +3,7 @@
 The `tower` plugin's skills for planning and running a multi-task
 implementation inside [herdr](https://herdr.dev): one orchestrating session
 and one to four executing lanes. [tower](https://github.com/phutschi/tower)
-keeps the record if you have it; it is optional.
+keeps the record: every run has its board and transcript.
 
 | Skill                 | What it does                                                                            |
 | --------------------- | --------------------------------------------------------------------------------------- |
@@ -64,7 +64,7 @@ git clone git@github.com:phutschi/tower.git ~/tools/tower
 ```
 
 That checks the dependencies (herdr, git, bash, python3, node; claude,
-tower 0.2.0+, codex, semgrep and gitleaks optional), adds this repo as the
+tower, codex, semgrep and gitleaks optional), adds this repo as the
 `phutschi-tower` marketplace in Claude Code and installs the `tower` plugin
 from it. For codex it links `orchestrate`, `spec-to-plan` and `preflight`
 into `~/.agents/skills`, and `preflight` into `~/.codex/skills` (codex
@@ -116,8 +116,8 @@ One tab:
 - **checks** runs your test runner in watch mode, **dev** your development
   server if you declare one. Both run in lane A's checkout.
 - **console** is tower's live board, the record of the run. It stays open
-  after the run; you quit it with `q`. Without tower it shows the git log,
-  and the run dir holds the record. Console is tower's minimum width, 60
+  after the run; you quit it with `q`. The run dir holds only the pane map
+  and the briefs. Console is tower's minimum width, 60
   columns; the bottom row always spans the full tab so it always gets them.
 
 Nothing is closed until you say so.
@@ -222,12 +222,6 @@ its runs to codex in `.orchestrate` (`EXECUTOR_KIND=codex`, model
 `gpt-6-astra`; `EXECUTOR_MODEL` overrides either), and a single lane can
 differ: `EXECUTOR_KIND=codex` in that bootstrap or add-lane call. Mixed runs
 are fine.
-
-## Without tower
-
-Everything works; you lose the board, `tower wait`, and `tower brief`. The
-run dir carries `tasks.tsv`, `lanes.txt` and `run.txt`, lanes report
-through commits and their pane, and the console shows the git log.
 
 ## Testing the kit
 

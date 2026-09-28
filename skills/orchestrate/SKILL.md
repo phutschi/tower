@@ -12,9 +12,9 @@ behalf.** The kit lives in this directory; every script's header is its
 manual. Vocabulary: `CONTEXT.md` at the plugin root (`../../CONTEXT.md`). Read
 `bootstrap.sh`'s header before the first command.
 
-tower 0.2.0+ (github.com/phutschi/tower) is the record and the console when
-installed. Without it the run dir is the record and the console shows the
-git log; the scripts say so when it happens.
+tower is the record and the console: its board and transcript are the only
+record of a run. Every script refuses to start when tower does not run, and
+says how to install it.
 
 ## First: herdr
 
@@ -60,11 +60,9 @@ and do it in a lane anyway or suggest doing it without the kit.
    holds the switch values this run uses, `reviewer:` who reviews a lane of
    lane A's kind, with any fallback. Tell the user a fallback. Record the
    run base, lane A's fixed point:
-   `tower note "run base: $(git rev-parse HEAD)"` (no tower: a
-   `run base:` line in `run.txt`).
+   `tower note "run base: $(git rev-parse HEAD)"`.
 3. **The task list.** With a source it is loaded. Without: one
-   `tower add "<title>" --area <area> --lane <X>` per task (no tower: append
-   to `tasks.tsv` and `lanes.txt`). Group by area and dependency: one lane per
+   `tower add "<title>" --area <area> --lane <X>` per task. Group by area and dependency: one lane per
    independent area, at most four; a dependency between lanes is a merge
    point, not a reason to share a lane. The user's message may name the lane
    count.
@@ -76,17 +74,15 @@ and do it in a lane anyway or suggest doing it without the kit.
    the judgement from `brief-template.md` above it (method, other lanes,
    merge points, the boundary sentence, the review tail for the lane's kind).
    Send with `herdr agent prompt <agent> "$(cat <run-dir>/brief-<X>.md)"`.
-   Without tower, write the derivable part yourself (template, "Without tower").
    In every brief and prompt, describe the final report's marker in words,
    its round tag included, as the template does: `watch-lanes.sh` reads the
    marker itself as the report, so a prompt that spells it makes an idle lane
    look finished.
 6. **Watch, in the background.** Run what bootstrap's `watch:` line prints;
-   it carries the run's stale threshold. With tower that is
+   it carries the run's stale threshold:
    `tower wait --timeout 540 --stale <STALE>` for task-level attention and
    `watch-lanes.sh <run-dir> <agent>[:<n>]...` for the processes (`<n>`: the
-   lane's report round, step 8; a bare name is round 1); without tower,
-   `watch-lanes.sh` alone, and idle after the final report is done. Pass
+   lane's report round, step 8; a bare name is round 1). Pass
    every lane agent and every live Reviewer agent. Both exit when something
    needs you; re-run them after acting. Never poll `tower state` or the
    panes in a loop.
@@ -197,8 +193,7 @@ and do it in a lane anyway or suggest doing it without the kit.
     the PR as `PR` says, its body in `<run-dir>/findings/preflight/pr-body.md`
     from the skill's template or `PR_TEMPLATE`, drawn from every findings
     file act read.
-13. **Close.** `tower close "<how it ended>"` (no tower: a line in
-    `<run-dir>/run.txt`). Tear nothing down until the user says so; the
+13. **Close.** `tower close "<how it ended>"`. Tear nothing down until the user says so; the
     console, the review tab and its panes stay open, the human quits them.
 
 ## Switches
