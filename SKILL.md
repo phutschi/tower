@@ -133,11 +133,14 @@ and do it in a lane anyway or suggest doing it without the kit.
       and its checkout to be clean again (R1 puts back what the suite
       changed):
       ```
-      d=<run-dir>/findings/preflight/<n>; until { [ -e $d/look.json ] || [ -e $d/R1.json ]; } && [ -z "$(git -C <lane-A-checkout> status --short --untracked-files=no)" ]; do sleep 20; done
+      d=<run-dir>/findings/preflight/<n>; until { python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$d/look.json" 2>/dev/null || [ -e "$d/R1.json" ]; } && [ -z "$(git -C <lane-A-checkout> status --short --untracked-files=no)" ]; do sleep 20; done
       ```
       Then `look.json` with no must-fix finding: add and brief R2. A
       must-fix finding (red) or no `look.json` (a setup error): no R2 this
-      round; its areas count as skipped in step 12.
+      round; its areas count as skipped in step 12, and its table names
+      them as skipped with the reason. When the watch reports R1 `gone` or
+      `blocked` first, stop this wait and act on R1 (step 7); a round whose
+      look never finishes is a setup error.
 
     `REVIEW_AREAS` narrows the areas; split what is left over the two
     slots. From round 2 the areas are the ones step 12 names, each in its
