@@ -12,11 +12,11 @@ read docs/agents.md instead.
   Node ≥ 22 and Bun must both run the built CLI. Users never need Bun.
 - Toolchain: Bun. `bun run check` = format + lint + typecheck + test, and is
   what CI runs. Run it before every push.
-- The kit's check: `./test.sh` (sections by `# ---` heading, `--fast` for the
-  quick ones) and
-  `shellcheck -S warning *.sh skills/*/*.sh skills/orchestrate/tests/stub/*`.
+- The kit's check: `./test.sh [section…]` (`--fast` skips the slow sections),
+  then `shellcheck -S warning *.sh skills/*/*.sh skills/orchestrate/tests/stub/*`.
   Run both when you touch `skills/` or a root script. The tests fake herdr,
-  claude, codex, semgrep and gitleaks, and run the tower from this checkout.
+  claude, codex, semgrep and gitleaks, and run the tower CLI from this
+  checkout. They need git and python3.
 - Tests: `bun:test`, colocated as `*.test.ts`. The fold (`src/state.ts`) is
   pure and table-driven; the screen (`src/ui/rows.ts`) is pure rows; commands
   take an injected `Io` (`src/testing.ts` has the fake).

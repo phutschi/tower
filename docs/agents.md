@@ -32,9 +32,9 @@ An executor that discovers a task the plan does not have adds it before
 starting it — `tower add "<title>" --lane <yours>` prints the new id, and the
 executor reports against that. `tower change` and `tower remove` (anyone,
 any time) edit and retire tasks the same way; the console picks them up
-without a restart. In a `/tower:orchestrate` run the lane's brief overrides
-this: only the orchestrator changes the tasks, and a lane reports what it
-found with `tower note` or `tower block` and waits
+without a restart. In a `/tower:orchestrate` run the executor's brief
+overrides this: only the orchestrator changes the tasks, and the executor
+reports what it found with `tower note` or `tower block` and waits
 ([ADR 0008](adr/0008-lanes-never-change-the-task-list.md)).
 
 If an agent runs bare `tower` in a tool call, it gets one text snapshot of the

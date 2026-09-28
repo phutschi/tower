@@ -27,8 +27,9 @@ You never need Bun to use tower.
 `tower-<os>-<arch>` (`darwin-arm64`, `darwin-x64`, `linux-x64` or
 `linux-arm64`) from the [releases](https://github.com/phutschi/tower/releases),
 check it against the release's checksums, and put it on your `PATH` as
-`tower`. In a checkout, `./install.sh` fetches it for you when tower is
-missing, then installs the plugin below.
+`tower`. In a clone of tower, `./install.sh` fetches the binary when tower is
+missing and installs the plugin below. It also checks what `/tower:orchestrate`
+needs, herdr among them ([docs/orchestrate.md](docs/orchestrate.md)).
 
 **From git**, with Node ≥ 22:
 
