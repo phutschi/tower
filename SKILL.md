@@ -93,10 +93,11 @@ and do it in a lane anyway or suggest doing it without the kit.
    lane waiting for a free slot.
 8. **Lane review.** Every lane, lane A included. Start it with
    ```
-   <kit>/add-reviewer.sh <run-dir> <R1|R2> <lane-kind> "Lane review <X>, round <n>" <run-dir>/findings/lane-<X>-<n>.json
+   <kit>/add-reviewer.sh <run-dir> <R1|R2> <lane-kind> "Lane review <X>, round <n>" <run-dir>/findings/lane-<X>-<n>.json <X>
    ```
-   `<lane-kind>` is the lane's `kind` in the pane map; the script picks the
-   other kind and prints the Reviewer's agent and task id. The first call
+   `<lane-kind>` is the lane's `kind` in the pane map, and `<X>` the lane,
+   whose model a codex Reviewer of a codex lane runs on; the script picks
+   the other kind and prints the Reviewer's agent and task id. The first call
    opens the review tab. Add the agent to `watch-lanes.sh`, then brief it
    with the lane review brief (`brief-template.md`). The fixed point is the
    lane's base: the commit it forked from; for lane A the run base (step 2),
