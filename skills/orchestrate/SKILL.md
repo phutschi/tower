@@ -245,12 +245,12 @@ is still working. The next `FINDINGS WRITTEN` frees a slot.
 - Do not implement. A stuck lane gets a better brief, not your edit. A merge
   that conflicts is aborted (`git merge --abort`) and becomes a task for
   lane A.
-- Only the orchestrator changes the task list (ADR 0001). Lanes never
+- Only the orchestrator changes the task list (ADR 0008). Lanes never
   `tower add|change|remove`; the brief says so.
 - Only the executor reports its own tasks (`tower task|block|note`).
 - `tower note` is your voice on the board: merges, escalations, decisions.
 - Merging a reviewed lane is your job, right away, not lane A's.
-- Executors and Reviewers never push and never open a PR (ADR 0003). You
+- Executors and Reviewers never push and never open a PR (ADR 0010). You
   push and open the PR after the user's reply to the triage table; until
   then everything stays on this machine.
 - Reviewers only report; their findings go through you.

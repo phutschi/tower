@@ -13,7 +13,7 @@ Then add, above it, only what tower cannot know, and send the whole file:
 
 The agent names and pane ids are in `<run-dir>/panes.txt`.
 
-## The boundary (ADR 0001)
+## The boundary (ADR 0008)
 
 tower's own brief tells an executor to `tower add` a task it discovers. In an
 orchestrate run it must not: only the orchestrator changes the task

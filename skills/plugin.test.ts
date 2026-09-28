@@ -4,7 +4,7 @@
  * herdr-orchestrate repo) is left behind.
  */
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
 
@@ -143,4 +143,22 @@ test("orchestrate describes no run without tower", () => {
     expect(text).not.toMatch(/without tower|no tower/i);
     expect(text).not.toMatch(/tasks\.tsv`? and `?lanes\.txt|run\.txt/);
   }
+});
+
+test("every ADR a skill cites exists in docs/adr", () => {
+  const adrs = new Set(
+    readdirSync(join(root, "docs/adr")).map((f) => f.slice(0, 4)),
+  );
+  const missing: string[] = [];
+  for (const file of files.filter((f) => f.startsWith("skills/"))) {
+    let text: string;
+    try {
+      text = read(file);
+    } catch {
+      continue; // listed but deleted in the working tree
+    }
+    for (const [cite, number] of text.matchAll(/ADR (\d{4})/g))
+      if (!adrs.has(number!)) missing.push(`${file}: ${cite}`);
+  }
+  expect(missing).toEqual([]);
 });

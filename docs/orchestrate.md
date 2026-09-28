@@ -264,5 +264,5 @@ install.sh, test.sh    install and test the kit
 ## Design
 
 `CONTEXT.md` is the glossary. `docs/adr/` holds the decisions: lanes never
-change the task list, tower is the record, Reviewers report and the
-orchestrator decides.
+change the task list (0008), orchestrate requires tower (0011, which
+supersedes 0009), and Reviewers report and the orchestrator decides (0010).
