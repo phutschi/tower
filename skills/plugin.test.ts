@@ -145,11 +145,12 @@ test("orchestrate describes no run without tower", () => {
   }
 });
 
-test("every ADR a skill cites exists in docs/adr", () => {
-  const adrs = new Set(
-    readdirSync(join(root, "docs/adr")).map((f) => f.slice(0, 4)),
-  );
-  const missing: string[] = [];
+// A skill cites an ADR that exists and still holds: superseded ones point on.
+test("every ADR a skill cites exists in docs/adr and is not superseded", () => {
+  const adrs = new Map<string, string>();
+  for (const f of readdirSync(join(root, "docs/adr")))
+    if (/^\d{4}-/.test(f)) adrs.set(f.slice(0, 4), read(`docs/adr/${f}`));
+  const bad: string[] = [];
   for (const file of files.filter((f) => f.startsWith("skills/"))) {
     let text: string;
     try {
@@ -157,8 +158,13 @@ test("every ADR a skill cites exists in docs/adr", () => {
     } catch {
       continue; // listed but deleted in the working tree
     }
-    for (const [cite, number] of text.matchAll(/ADR (\d{4})/g))
-      if (!adrs.has(number!)) missing.push(`${file}: ${cite}`);
+    if (text.includes("\0")) continue;
+    for (const [cite, number] of text.matchAll(/\bADRs?[\s-]+(\d{4})/g)) {
+      const adr = adrs.get(number!);
+      if (!adr) bad.push(`${file}: ${cite} does not exist`);
+      else if (/^status: superseded/m.test(adr))
+        bad.push(`${file}: ${cite} is superseded`);
+    }
   }
-  expect(missing).toEqual([]);
+  expect(bad).toEqual([]);
 });
