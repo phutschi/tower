@@ -70,20 +70,24 @@ and do it in a lane anyway or suggest doing it without the kit.
    merge points, the boundary sentence, the review tail for the lane's kind).
    Send with `herdr agent prompt <agent> "$(cat <run-dir>/brief-<X>.md)"`.
    Without tower, write the derivable part yourself (template, "Without tower").
-   In every brief and prompt, describe the final report's marker in words, as
-   the template does: `watch-lanes.sh` reads the marker itself as the report,
-   so a prompt that spells it makes an idle lane look finished.
+   In every brief and prompt, describe the final report's marker in words,
+   its round tag included, as the template does: `watch-lanes.sh` reads the
+   marker itself as the report, so a prompt that spells it makes an idle lane
+   look finished.
 6. **Watch, in the background.** Run what bootstrap's `watch:` line prints;
    it carries the run's stale threshold. With tower that is
    `tower wait --timeout 540 --stale <STALE>` for task-level attention and
-   `watch-lanes.sh <run-dir> <agent>...` for the processes; without tower,
+   `watch-lanes.sh <run-dir> <agent>[:<n>]...` for the processes (`<n>`: the
+   lane's report round, step 8; a bare name is round 1); without tower,
    `watch-lanes.sh` alone, and idle after the final report is done. Pass
    every lane agent and every live Reviewer agent. Both exit when something
    needs you; re-run them after acting. Never poll `tower state` or the
    panes in a loop.
 7. **Act on attention.** `blocked` → decide, then re-brief with what the lane
    asked for (a discovered task: you add it, then tell the lane). `stale` or
-   `idle-unexplained` → read the pane tail, then re-brief or wait. tower
+   `idle-unexplained` → read the pane tail, then re-brief or wait. A re-brief
+   asks for no new end line, so it keeps the lane's report round: watch it
+   as before. tower
    wait's `complete` → keep `watch-lanes.sh` running: a lane's final review
    comes after its last task, and the watch prints `tower: run complete` once
    no watched agent is working. tower wait returns at once on a complete
@@ -100,14 +104,20 @@ and do it in a lane anyway or suggest doing it without the kit.
    `<lane-kind>` is the lane's `kind` in the pane map, and `<X>` the lane,
    whose model a codex Reviewer of a codex lane runs on; the script picks
    the other kind and prints the Reviewer's agent and task id. The first call
-   opens the review tab. Add the agent to `watch-lanes.sh`, then brief it
+   opens the review tab. Add the agent to `watch-lanes.sh` by its bare
+   name (a Reviewer only ever has round 1), then brief it
    with the lane review brief (`brief-template.md`). The fixed point is the
    lane's base: the commit it forked from; for lane A the run base (step 2),
    leaving out the commits of the other lanes. Triage the findings alone
-   (see "Triage"). Fix tasks → the lane fixes (the prompt asks it to end
-   with its final report's marker again, in words) → a new round with a fresh
-   Reviewer and the next `<n>`. The review is clean when no finding triaged
-   fix is left → step 9.
+   (see "Triage"). Fix tasks → one fix prompt to the lane
+   (`brief-template.md`, "Fix prompts"). Each fix prompt starts the lane's
+   next report round `<n>` (the brief is round 1) and asks, in words, for
+   the lane's final report's marker with the round tag `r<n>` inside the
+   brackets. Re-run `watch-lanes.sh` with `<agent>:<n>` for that lane, so
+   an earlier report's marker still in its pane never reads as done. When
+   the lane reports round `<n>`, lane review round `<n>` follows with a
+   fresh Reviewer: the two rounds share their number. The review is clean
+   when no finding triaged fix is left → step 9.
 9. **Merge the lane** into the integration branch, note it
    (`tower note --lane <X> 'merged into <branch>'`), and tell lane A if it
    was waiting. Lane A is the integration branch: its clean review is its
@@ -155,7 +165,9 @@ and do it in a lane anyway or suggest doing it without the kit.
     `<run-dir>/findings/preflight/<n>/*.json`; in round 1 also on the
     deferred lane-review findings: those in `<run-dir>/findings/lane-*.json`
     without an `outcome`. One triage table, one reply from the user. Fixes
-    become lane A tasks; after them, round `<n+1>` (step 11) on the whole
+    become lane A tasks, sent in one fix prompt that starts lane A's next
+    report round, counting on from its last one (step 8): watch lane A as
+    `<agent>:<that round>`. After them, round `<n+1>` (step 11) on the whole
     branch: R1 reruns `look.sh` and reviews the fix commits
     (`git diff <HEAD before the fixes>..HEAD`) against the findings they fix,
     whatever their area; the areas are the ones round `<n>` skipped (a red
@@ -216,7 +228,8 @@ preflight table. Per finding, in its findings file (the fields of
   the preflight table.
 
 A fix loop stops after two rounds: a finding still open after the second
-re-review goes to the user, and the lane waits unmerged for the answer.
+re-review (lane review round 3) goes to the user, and the lane waits
+unmerged for the answer.
 
 Two review slots, R1 and R2. A lane that reports ready while both hold a
 working Reviewer waits idle; `add-reviewer.sh` refuses a slot whose Reviewer
@@ -259,3 +272,4 @@ is still working. The next `FINDINGS WRITTEN` frees a slot.
 | Asking the user about each lane-review finding | Triage alone; deferred findings wait for the one preflight table |
 | Reusing a Reviewer for a second review | `add-reviewer.sh` again: every review gets a fresh agent |
 | One findings file for every round of a lane | `lane-<X>-<n>.json`: a new round never overwrites deferred findings |
+| Watching a lane by its bare name after a fix prompt | `<agent>:<n>`, the fix prompt's report round: the old marker still in the pane reads as done otherwise |
