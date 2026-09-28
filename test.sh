@@ -218,6 +218,10 @@ if section bootstrap; then
   assert_nomatch "pane map: no dev line by default"     "$map" '^dev:'
   assert_match "output: the pane map is printed"        "$out" '^lane A: '
   assert_match "output: next step for the empty opening" "$out" 'tower add'
+  assert_nomatch "output: a detected runner needs no note" "$out" 'no test runner detected'
+  out=$(boot "$(fixture_repo pnpm-notest)" "$TMP/run-norunner" "No runner" main)
+  assert_eq "output: no test runner detected, said once" "$(printf '%s\n' "$out" | grep -c '^info: no test runner detected')" 1
+  assert_match "output: the note says how to declare one" "$out" '^info: no test runner detected: the checks pane has nothing to run; declare  pane checks "<cmd>"  in \.herdr-orchestrate$'
   assert_match "switches: pane map has every switch"    "$map" '^switches: +TASK_REVIEW=on LANE_REVIEW=on PREFLIGHT=on STATIC_BASELINE=on PR=draft METHOD=tdd REVIEWER_KIND=other REVIEWER_MODEL= REVIEW_AREAS= SUITE_SKIP= PR_TEMPLATE=$'
   assert_match "switches: the record gets a tower note" "$log" '^tower note switches: TASK_REVIEW=on LANE_REVIEW=on .* PR_TEMPLATE=$'
   assert_match "switches: printed with the pane map"    "$out" '^switches: +TASK_REVIEW=on '

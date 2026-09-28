@@ -33,6 +33,8 @@
 #       INSTALL_WHY  (why INSTALL_CMD is empty, for the one line add-lane.sh prints)
 #       EXECUTOR_KIND EXECUTOR_MODEL SPEC_REVIEWER_MODEL QUALITY_REVIEWER_MODEL STALE  (when the file sets them)
 #       PANE_NAMES PANE_CMDS PANE_DIRS   (parallel arrays; pane_index NAME finds one)
+#       NO_RUNNER   1 when no checks pane is declared and no test runner is detected
+#                   (the checks pane then only echoes a note), else 0
 #       SUITE_NAMES SUITE_CMDS SUITE_DIRS  (parallel arrays in contract order; empty without suite lines)
 #       every switch above, exported; switches_line prints them all on one line,
 #       NAME=value, a value with spaces or quotes single-quoted the shell's way
@@ -154,10 +156,14 @@ herdr_default_test_cmd() {  # $1 = test filter; run from the package directory
   })());
   ' 2>/dev/null || true   # no node: no runner detected, not an error
 }
+NO_RUNNER=0
 if [ -z "$(pane_index checks)" ]; then
   TEST_PKG="${TEST_PKG:-.}"
   _cmd="$( cd "$TEST_PKG" 2>/dev/null || cd .; herdr_default_test_cmd "${TEST_FILTER:-}" )"
-  [ -n "$_cmd" ] || _cmd="echo 'herdr-orchestrate: no test runner detected; declare  pane checks \"<cmd>\"  in .herdr-orchestrate'"
+  if [ -z "$_cmd" ]; then
+    NO_RUNNER=1
+    _cmd="echo 'herdr-orchestrate: no test runner detected; declare  pane checks \"<cmd>\"  in .herdr-orchestrate'"
+  fi
   pane checks "$_cmd" "$TEST_PKG"
   unset _cmd
 fi
