@@ -31,7 +31,7 @@ mkdir -p "$HERDR_STUB_STATES_DIR"
 # test touching the real herdr or tower (this happened once: HERDR_ENV=1 is
 # inherited from the orchestrating pane, so `in_herdr` alone does not stop a
 # script run outside test.sh and outside DRY_RUN=1 from driving real panes).
-for _tool in herdr tower claude codex; do
+for _tool in herdr tower claude codex semgrep gitleaks; do
   _which=$(bash -c ". \"$KIT/common.sh\"; command -v $_tool" 2>/dev/null || true)
   [ "$_which" = "$KIT/tests/stub/$_tool" ] || { echo "test.sh: $_tool resolves to '$_which', not the stub ($KIT/tests/stub/$_tool) — refusing to run" >&2; exit 1; }
 done
@@ -384,6 +384,148 @@ if section watch; then
   assert_match "no tower: git log instead"            "$out" 'no tower: task state is in git'
 fi
 
+# --- look --------------------------------------------------------------------
+if section look; then
+  # A harmless check gate for the fixtures without suite lines or scripts, so
+  # the suite part of the look is green unless a test says otherwise.
+  export CHECK_CMD=true
+  # Settings the caller's shell may carry; the fixtures decide them here.
+  unset STATIC_BASELINE SUITE_SKIP PR METHOD REVIEWER_KIND TYPECHECK_TASK PM
+  # A fixture repo on a branch: tag base, then one commit that changes app.js,
+  # adds new.py and deletes old.txt; kept.txt is untouched.
+  look_repo() {  # FIXTURE NAME
+    local r="$TMP/repos/look-$2"
+    mkdir -p "$r"; [ -d "$KIT/tests/fixtures/$1" ] && cp -R "$KIT/tests/fixtures/$1/." "$r/"
+    git -C "$r" init -q
+    printf 'x\n' > "$r/kept.txt"; printf 'x\n' > "$r/old.txt"; printf 'a\n' > "$r/app.js"
+    git -C "$r" add -A && git -C "$r" commit -qm base && git -C "$r" tag base
+    git -C "$r" checkout -qb feat
+    printf 'b\n' >> "$r/app.js"; printf 'y\n' > "$r/new.py"; git -C "$r" rm -q old.txt
+    git -C "$r" add -A && git -C "$r" commit -qm change
+    echo "$r"
+  }
+  # One line per finding in a look.json: "area severity file:line title | evidence".
+  findings() { python3 -c "import json,sys
+for f in json.load(open(sys.argv[1]))['findings']: print('%s %s %s:%s %s | %s' % (f['area'], f['severity'], f['file'], f['line'], f['title'], f['evidence']))" "$1"; }
+  # One line per verdict row: "step status note".
+  verdict() { python3 -c "import json,sys
+for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'], v['status'], v['note']))" "$1"; }
+  look() { (cd "$1" && shift && "$KIT/preflight/look.sh" "$@" 2>&1; echo "exit=$?"); }
+  r=$(look_repo none plain); F="$TMP/findings-look"; reset_stub
+  out=$(look "$r" base "$F"); log=$(cat "$HERDR_STUB_LOG")
+  assert_match "look: semgrep scans the changed files"   "$log" '^semgrep scan .* app\.js new\.py$'
+  assert_nomatch "look: an untouched file is not scanned" "$log" '^semgrep .*kept\.txt'
+  assert_nomatch "look: a deleted file is not scanned"   "$log" '^semgrep .*old\.txt'
+  assert_match "look: semgrep runs its default rules"    "$log" '^semgrep scan --config p/default '
+  assert_match "look: semgrep reports only results new since the merge base" "$log" "^semgrep scan .* --baseline-commit $(git -C "$r" rev-parse base) "
+  assert_nomatch "look: no .semgrep/, no repo rules"     "$log" '--config \.semgrep'
+  assert_match "look: gitleaks scans the branch's commits since the base" "$log" "^gitleaks git --log-opts=$(git -C "$r" rev-parse base)\\.\\.HEAD "
+  r=$(look_repo none findings); reset_stub
+  out=$(SEMGREP_STUB=finding GITLEAKS_STUB=finding look "$r" base "$F")
+  f=$(findings "$F/look.json")
+  assert_match "look: a semgrep result is a finding"     "$f" '^security must-fix new\.py:3 stub\.rule \| semgrep ERROR$'
+  assert_nomatch "look: semgrep's matched code and message are not copied (they may quote a secret)" "$(cat "$F/look.json")" 'AKIASTUBSECRET'
+  assert_nomatch "look: gitleaks runs with its secrets redacted" "$(cat "$F/look.json")" 'GLSTUBSECRET'
+  assert_match "look: a gitleaks result is a finding"    "$f" '^security must-fix app\.js:2 Generic API Key \| gitleaks generic-api-key in commit abc1234: key = REDACTED$'
+  assert_match "look: the review is named look"          "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["review"])' "$F/look.json")" '^look$'
+  v=$(verdict "$F/look.json")
+  assert_match "look: a scanner with findings fails its verdict row" "$v" '^semgrep fail 1 finding$'
+  assert_match "look: gitleaks has its own verdict row"  "$v" '^gitleaks fail 1 finding$'
+  r=$(look_repo none clean); reset_stub; out=$(look "$r" base "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: a clean scanner passes"            "$v" '^semgrep pass $'
+  assert_eq "look: a clean branch has no findings"       "$(findings "$F/look.json")" ""
+  reset_stub; out=$(SEMGREP_STUB=absent look "$r" base "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: a missing scanner is a warn row"   "$v" '^semgrep warn semgrep is not installed'
+  assert_match "look: the run continues past a missing scanner" "$v" '^gitleaks pass $'
+  assert_match "look: a missing scanner is not a failure" "$out" 'exit=0$'
+  reset_stub; out=$(SEMGREP_STUB=error look "$r" base "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: semgrep's error reason is in its warn row" "$v" '^semgrep warn semgrep exited 2: Invalid scanning root: gone\.js$'
+  reset_stub; out=$(SEMGREP_STUB=garbage look "$r" base "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: unreadable scanner output is a warn row" "$v" '^semgrep warn could not read semgrep output$'
+  assert_match "look: unreadable scanner output does not stop the run" "$v" '^gitleaks pass $'
+  reset_stub; out=$(GITLEAKS_STUB=error look "$r" base "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: a scanner that errors is a warn row with its message" "$v" '^gitleaks warn gitleaks exited 2: gitleaks: not a git repository \(stub\)$'
+  reset_stub; out=$(STATIC_BASELINE=off SEMGREP_STUB=finding look "$r" base "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: STATIC_BASELINE=off skips semgrep and says so" "$v" '^semgrep skip STATIC_BASELINE=off$'
+  assert_match "look: STATIC_BASELINE=off skips gitleaks and says so" "$v" '^gitleaks skip STATIC_BASELINE=off$'
+  assert_nomatch "look: STATIC_BASELINE=off runs no scanner" "$(cat "$HERDR_STUB_LOG")" '^(semgrep|gitleaks) '
+  r=$(look_repo none same); reset_stub; out=$(SEMGREP_STUB=finding GITLEAKS_STUB=finding look "$r" feat "$F"); v=$(verdict "$F/look.json")
+  assert_nomatch "look: no changed files, no scan"       "$(cat "$HERDR_STUB_LOG")" '^(semgrep|gitleaks) (scan|git)'
+  assert_match "look: no changed files is a skip row"    "$v" '^semgrep skip no changed files$'
+  assert_match "look: no commits, gitleaks is a skip row" "$v" '^gitleaks skip no commits since the base$'
+  assert_eq "look: no changed files, no findings"        "$(findings "$F/look.json")" ""
+  r=$(look_repo none added-then-deleted)
+  printf 'k\n' > "$r/leak.js"; git -C "$r" add leak.js; git -C "$r" commit -qm leak
+  git -C "$r" rm -q leak.js new.py; git -C "$r" checkout -q base -- app.js; git -C "$r" commit -qm unleak
+  reset_stub; out=$(look "$r" base "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: no net change still scans the commits for secrets" "$(cat "$HERDR_STUB_LOG")" '^gitleaks git '
+  assert_match "look: no net change skips semgrep"       "$v" '^semgrep skip no changed files$'
+  r=$(look_repo none odd-names)
+  printf 'z\n' > "$r/café app.js"; git -C "$r" add -A; git -C "$r" commit -qm odd
+  rm "$r/new.py"
+  reset_stub; out=$(look "$r" base "$F"); log=$(cat "$HERDR_STUB_LOG")
+  assert_match "look: a file name with spaces and accents is passed as is" "$log" '^semgrep scan .* -- app\.js café app\.js$'
+  assert_nomatch "look: a file missing from the checkout is not scanned" "$log" '^semgrep .*new\.py'
+  mkdir -p "$r/sub"; reset_stub
+  out=$(cd "$r/sub" && "$KIT/preflight/look.sh" base rel-findings 2>&1; echo "exit=$?")
+  assert_match "look: runs from a subdirectory"          "$(cat "$HERDR_STUB_LOG")" '^semgrep scan .* -- app\.js café app\.js$'
+  assert_eq "look: a relative findings dir is relative to where it was called" "$(verdict "$r/sub/rel-findings/look.json" | head -1)" "semgrep pass "
+  out=$(look "$r" nosuchref "$F")
+  assert_match "look: an unknown base is refused"        "$out" "no merge base between 'nosuchref' and HEAD"
+  assert_match "look: a setup error exits 2, not 1 (must-fix)" "$out" 'exit=2$'
+  assert_eq "look: a setup error leaves no stale look.json" "$([ -e "$F/look.json" ] && echo stale || echo none)" none
+  out=$(PR=maybe look "$r" base "$F")
+  assert_match "look: a bad switch is refused"          "$out" "^PR must be draft, ready or off"
+  assert_match "look: a bad switch is a setup error"     "$out" "exit=2$"
+  r=$(look_repo none clean2); reset_stub
+  out=$(SEMGREP_STUB=finding look "$r" base "$F")
+  assert_match "look: a must-fix finding exits 1"        "$out" 'exit=1$'
+  assert_match "look: the verdict table is printed"      "$out" '^semgrep +fail +1 finding$'
+  out=$(look "$r" base "$F")
+  assert_match "look: no must-fix finding exits 0"       "$out" 'exit=0$'
+  assert_match "look: the table names the findings file" "$out" "findings: $F/look.json"
+  r=$(look_repo suite suite); export SUITE_ORDER="$TMP/suite-order"; : > "$SUITE_ORDER"
+  out=$(SUITE_SKIP='' look "$r" base "$F")
+  assert_eq "look: every suite step runs in its DIR, in contract order" "$(cat "$SUITE_ORDER")" "$(printf 'lint %s\ntest %s\nbuild %s/web' "$r" "$r" "$r")"
+  v=$(verdict "$F/look.json")
+  assert_match "look: a passing step is a pass row"      "$v" '^lint pass '
+  assert_match "look: a failing step is a fail row"      "$v" '^test fail exit 3'
+  assert_match "look: a failing step does not stop the next one" "$v" '^build pass '
+  f=$(findings "$F/look.json")
+  assert_match "look: a failing step is a must-fix finding" "$f" '^suite must-fix .* suite step test failed \(exit 3\) \|'
+  assert_match "look: the finding carries the output tail" "$(python3 -c "import json,sys; print([x['evidence'] for x in json.load(open(sys.argv[1]))['findings'] if x['area'] == 'suite'][0])" "$F/look.json")" 'line-25'
+  assert_nomatch "look: only the tail, not the whole output" "$(python3 -c "import json,sys; print([x['evidence'] for x in json.load(open(sys.argv[1]))['findings'] if x['area'] == 'suite'][0])" "$F/look.json")" 'line-1$'
+  assert_match "look: a red step exits 1"                "$out" 'exit=1$'
+  : > "$SUITE_ORDER"; out=$(look "$r" base "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: SUITE_SKIP from the file skips that step" "$v" '^lint skip SUITE_SKIP$'
+  assert_nomatch "look: a skipped step does not run"     "$(cat "$SUITE_ORDER")" '^lint'
+  : > "$SUITE_ORDER"; out=$(SUITE_SKIP=build look "$r" base "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: SUITE_SKIP from the environment wins over the file" "$v" '^build skip SUITE_SKIP$'
+  assert_match "look: ... and the file's skip no longer applies" "$v" '^lint pass '
+  : > "$SUITE_ORDER"; out=$(SUITE_SKIP='build, lint' look "$r" base "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: SUITE_SKIP is a comma list, spaces allowed" "$v" '^lint skip SUITE_SKIP$'
+  assert_match "look: ... every name in it is skipped"   "$v" '^build skip SUITE_SKIP$'
+  out=$(SUITE_SKIP=biuld look "$r" base "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: a SUITE_SKIP name with no step is a warn row" "$v" "^SUITE_SKIP warn no suite step named biuld$"
+  r=$(look_repo suite-detected detected); out=$(look "$r" base "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: without suite lines the detected typecheck runs" "$v" '^typecheck pass npm run typecheck$'
+  assert_match "look: without suite lines the detected test runs" "$v" '^test pass npm run test$'
+  r=$(look_repo none nosuite); out=$(CHECK_CMD='echo checked' look "$r" base "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: with neither, CHECK_CMD is the one step" "$v" '^check pass echo checked$'
+  assert_nomatch "look: with neither, no typecheck step" "$v" '^typecheck '
+  out=$(CHECK_CMD=$'true\ntrue' look "$r" base "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: a multi-line command stays one verdict row" "$v" '^check pass true true$'
+  assert_match "look: a multi-line command does not break the run" "$out" 'exit=0$'
+  out=$(unset CHECK_CMD; look "$r" base "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: no package.json and no CHECK_CMD is a skip row, not a red npm step" "$v" '^check skip no suite lines, no package.json scripts, no CHECK_CMD$'
+  assert_match "look: ... and not a failure"             "$out" 'exit=0$'
+  r=$(look_repo suite-noscripts noscripts); out=$(unset CHECK_CMD; look "$r" base "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: a package.json without scripts and no CHECK_CMD is a skip row" "$v" '^check skip no suite lines, no package.json scripts, no CHECK_CMD$'
+  r=$(look_repo semgrep-rules rules); reset_stub; out=$(look "$r" base "$F")
+  assert_match "look: the repo's .semgrep/ rules are added" "$(cat "$HERDR_STUB_LOG")" '^semgrep scan --config p/default --config \.semgrep '
+  unset CHECK_CMD SUITE_ORDER; unset -f look_repo findings verdict look
+fi
+
 # --- install -----------------------------------------------------------------
 if section install; then
   H="$TMP/home"; mkdir -p "$H"
@@ -394,8 +536,29 @@ if section install; then
   assert_match "install: lists herdr as ok (stub)"    "$out" 'ok +herdr'
   assert_match "install: tower optional"              "$out" 'tower'
   assert_match "install: prints the two openings"     "$out" 'with a plan'
+  for d in .claude/skills .agents/skills .codex/skills; do
+    assert_eq "install: preflight linked into ~/$d"   "$(readlink "$H/$d/preflight")" "$KIT/preflight"
+  done
+  assert_match "install: semgrep is optional"         "$out" 'semgrep.*optional'
+  assert_match "install: gitleaks is optional"        "$out" 'gitleaks.*optional'
+  links() { find "$H" -type l -exec sh -c 'printf "%s -> %s\n" "$1" "$(readlink "$1")"' _ {} \; | sort; }
+  before=$(links)
   out=$(HOME="$H" "$KIT/install.sh" 2>&1; echo "exit=$?")
   assert_match "install: idempotent"                  "$out" 'exit=0$'
+  assert_eq "install: a second run changes no link"   "$(links)" "$before"
+  assert_nomatch "install: a second run skips nothing" "$out" 'SKIPPED'
+  out=$(HOME="$H" "$H/.claude/skills/herdr-orchestrate/install.sh" 2>&1; echo "exit=$?")
+  assert_eq "install: run through its own link, the links still point at the kit" "$(links)" "$before"
+  out=$("$H/.claude/skills/preflight/look.sh" 2>&1; echo "exit=$?")
+  assert_match "install: look.sh runs through the installed link" "$out" '^usage: preflight/look.sh'
+  assert_match "install: ... and finds the kit behind it" "$out" 'exit=2$'
+  H3="$TMP/home3"; mkdir -p "$H3/.codex/skills/preflight"
+  out=$(HOME="$H3" SEMGREP_STUB=absent GITLEAKS_STUB=absent "$KIT/install.sh" 2>&1; echo "exit=$?")
+  assert_match "install: a real dir in the way is skipped" "$out" "SKIPPED +$H3/.codex/skills/preflight exists"
+  assert_eq "install: ... and left as it is"          "$([ -L "$H3/.codex/skills/preflight" ] && echo link || echo dir)" dir
+  assert_match "install: a missing semgrep is optional" "$out" 'optional +semgrep'
+  assert_match "install: a missing gitleaks is optional" "$out" 'optional +gitleaks'
+  assert_match "install: missing scanners do not fail it" "$out" 'exit=0$'
   H2="$TMP/home2"; mkdir -p "$H2"
   out=$(HOME="$H2" "$KIT/install.sh" --check 2>&1; echo "exit=$?")
   assert_match "check: exit 0"                        "$out" 'exit=0$'

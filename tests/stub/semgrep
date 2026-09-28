@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Stand-in for semgrep under DRY_RUN=1 and test.sh. Logs argv to HERDR_STUB_LOG
+# and answers `semgrep scan --json` with no results. SEMGREP_STUB=finding (one
+# ERROR result on the last file it was given, its message quoting a secret the
+# way a rule's metavariables can), =error (exit 2, the reason in the JSON's
+# errors like real semgrep), =garbage (exit 0, not JSON) and =absent (refuses
+# to run, so it counts as not installed).
+[ "${SEMGREP_STUB:-}" = absent ] && { echo "semgrep: not installed (stub)" >&2; exit 127; }
+printf 'semgrep %s\n' "$*" >> "${HERDR_STUB_LOG:-/dev/null}"
+case "${1:-}" in
+  --version) echo "1.0.0 (stub)"; exit 0 ;;
+esac
+case "${SEMGREP_STUB:-}" in
+  error)   echo '{"results":[],"errors":[{"message":"Invalid scanning root: gone.js"}]}'; exit 2 ;;
+  garbage) echo "not json" ;;
+  finding) file="${*: -1}"
+           printf '{"results":[{"check_id":"stub.rule","path":"%s","start":{"line":3},"extra":{"severity":"ERROR","message":"hardcoded key AKIASTUBSECRET","lines":"key = AKIASTUBSECRET"}}],"errors":[]}\n' "$file" ;;
+  *)       echo '{"results":[],"errors":[]}' ;;
+esac
