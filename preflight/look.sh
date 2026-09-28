@@ -21,9 +21,11 @@
 # read is a warn row and the run goes on. semgrep can exit 0 and still list
 # errors in its JSON (a file it could not parse): that scan is incomplete, so
 # its row is warn, or fail with its findings kept, and the note says
-# "scan incomplete" with the first error. (Not --strict: that turns those
-# errors into a non-zero exit, which would drop the findings.) Findings never quote the matched
-# code: semgrep does not redact it. A red suite step is a fail row and a
+# "scan incomplete" with the count and the first error's type and file. (Not
+# --strict: that turns those errors into a non-zero exit, which would drop the
+# findings.) Findings and notes never quote the matched code, nor a scanner's
+# error message when its type and file say enough: semgrep does not redact
+# either. A red suite step is a fail row and a
 # must-fix finding (area suite, file = the step's DIR, line null) carrying the
 # last 20 lines of its output, unredacted: it is the repo's own test output.
 # Steps get no stdin and no timeout. A SUITE_SKIP name that matches no step is
@@ -82,6 +84,18 @@ verdict() {  # STEP STATUS NOTE; tabs and newlines in NOTE become spaces
 PY=$(cat <<'PY'
 import json, sys
 mode = sys.argv[1]
+def describe(e):
+    # One scanner error in a few words. Its type and file, when semgrep gives
+    # them: the message is free text that can quote the scanned code. Never
+    # raises; an error of an unknown shape still counts.
+    if not isinstance(e, dict):
+        return "an error"
+    kind = e.get("type")
+    kind = kind[0] if isinstance(kind, list) and kind else kind
+    if isinstance(kind, str) and isinstance(e.get("path"), str):
+        return "%s in %s" % (kind, e["path"])
+    lines = str(e.get("message") or "").splitlines()
+    return lines[0] if lines and lines[0].strip() else "an error"
 def finding(severity, file, line, title, evidence):
     print(json.dumps({"area": "security", "severity": severity, "file": file,
                       "line": line, "title": title, "evidence": evidence}))
@@ -96,17 +110,17 @@ if mode == "semgrep":
                 r["check_id"], "semgrep " + severity)
 elif mode == "reason":  # why a scanner failed, from its JSON errors (semgrep puts them there)
     try:
-        print(json.load(sys.stdin)["errors"][0]["message"].splitlines()[0])
+        print(describe(json.load(sys.stdin)["errors"][0]))
     except Exception:
         pass
-elif mode == "errors":  # errors a scanner reports beside a successful exit
+elif mode == "errors":  # errors semgrep reports beside a successful exit
     try:
         errors = json.load(sys.stdin).get("errors") or []
     except Exception:
         errors = []
-    if errors:
+    if isinstance(errors, list) and errors:
         print("scan incomplete, %d error%s: %s" % (len(errors), "" if len(errors) == 1 else "s",
-              str(errors[0].get("message", "")).splitlines()[0]))
+              describe(errors[0])))
 elif mode == "gitleaks":
     for r in json.load(sys.stdin) or []:
         finding("must-fix", r["File"], r["StartLine"], r["Description"],
@@ -158,7 +172,7 @@ scan() {
     || { verdict "$step" warn "could not read $step output"; return; }
   cat "$WORK/$step.findings" >> "$FINDINGS"
   n=$(wc -l < "$WORK/$step.findings" | tr -d ' ')
-  errors=$(py errors < "$WORK/$step.json")
+  errors=$(py errors < "$WORK/$step.json" 2>/dev/null || true)
   case "$n" in
     0) if [ -n "$errors" ]; then verdict "$step" warn "$errors"; else verdict "$step" pass ""; fi ;;
     1) verdict "$step" fail "1 finding${errors:+; $errors}" ;;
