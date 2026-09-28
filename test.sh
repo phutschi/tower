@@ -768,11 +768,11 @@ if section run; then
   assert_match "run: the pane map shows the new R1 Reviewer in the same pane" "$(cat "$RUN/panes.txt")" "^reviewer R1: +$r1 +\\(agent \"suite-r1-2\", .*round 2"
 
   echo gone > "$S/suite-r1-2"; echo gone > "$S/suite-r2-1"
-  review R1 claude "Preflight R1" "$RUN/findings/preflight/R1.json" >/dev/null
-  review R2 codex  "Preflight R2" "$RUN/findings/preflight/R2.json" >/dev/null
+  review R1 claude "Preflight R1, round 1" "$RUN/findings/preflight/1/R1.json" >/dev/null
+  review R2 codex  "Preflight R2, round 1" "$RUN/findings/preflight/1/R2.json" >/dev/null
   map=$(cat "$RUN/panes.txt")
-  assert_match "run: preflight in a mixed run: R1 is a codex Reviewer" "$map" '^reviewer R1: .*kind codex, .*review "Preflight R1"'
-  assert_match "run: preflight in a mixed run: R2 is a claude Reviewer" "$map" '^reviewer R2: .*kind claude, .*review "Preflight R2"'
+  assert_match "run: preflight in a mixed run: R1 is a codex Reviewer" "$map" '^reviewer R1: .*kind codex, .*review "Preflight R1, round 1"'
+  assert_match "run: preflight in a mixed run: R2 is a claude Reviewer" "$map" '^reviewer R2: .*kind claude, .*review "Preflight R2, round 1"'
 
   log=$(cat "$HERDR_STUB_LOG")
   assert_eq "run: one board task per review" "$(grep -c '^tower add .* --area review --lane R[12]$' "$HERDR_STUB_LOG")" 5
@@ -780,9 +780,9 @@ if section run; then
   assert_match "run: the second round is its own task" "$log" '^tower add Lane review A, round 2 --id R1-2 --area review --lane R1$'
 
   export SUITE_ORDER="$TMP/run-suite-order"; : > "$SUITE_ORDER"
-  out=$(in_repo "$KIT/preflight/look.sh" base "$RUN/findings/preflight")
-  assert_match "run: look.sh names the findings file it wrote" "$out" "$RUN/findings/preflight/look.json"
-  steps=$(python3 -c "import json,sys; print(' '.join(v['step']+':'+v['status'] for v in json.load(open(sys.argv[1]))['verdict']))" "$RUN/findings/preflight/look.json" 2>&1)
+  out=$(in_repo "$KIT/preflight/look.sh" base "$RUN/findings/preflight/1")
+  assert_match "run: look.sh names the findings file it wrote" "$out" "$RUN/findings/preflight/1/look.json"
+  steps=$(python3 -c "import json,sys; print(' '.join(v['step']+':'+v['status'] for v in json.load(open(sys.argv[1]))['verdict']))" "$RUN/findings/preflight/1/look.json" 2>&1)
   assert_eq "run: look.json has a row for each scanner and every suite step" "$steps" "semgrep:pass gitleaks:pass lint:skip test:fail build:pass"
   unset SUITE_ORDER
 

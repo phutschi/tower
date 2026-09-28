@@ -131,11 +131,14 @@ final table. After two red rounds, stop and hand the branch to the human.
    and scope with their evidence. Ask once. The human's one reply decides
    every outcome and approves the fixes, the follow-up issues, the push and
    the PR. Until that reply, everything stays on this machine.
-5. **Fix.** Alone: fix, commit, run `look.sh` again and the areas whose
-   files the fixes touched. Inside a run: each fix becomes a task for lane
-   A, and a Reviewer re-reviews. New findings go into a new table and a new
-   confirmation. After two rounds with a finding still open, stop and hand
-   it to the human.
+5. **Fix.** Alone: fix, commit, then look again on the whole branch:
+   `look.sh`, then the areas look skipped (a red look or a setup error)
+   plus the areas whose files the fixes touched. Inside a run: each fix
+   becomes a task for lane A, then the orchestrator starts the next
+   preflight round, the same look: R1 reruns `look.sh`, and Reviewers
+   review those areas. New findings go into a new table and a new
+   confirmation. After two fix rounds with a finding still open, stop and
+   hand it to the human.
 6. **Follow-ups.** One issue per follow-up, in the tracker. Keep each
    issue's link for the PR body.
 7. **PR body.** Fill `PR_TEMPLATE`, else `templates/pr-body.md`, into

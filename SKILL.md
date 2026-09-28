@@ -111,14 +111,14 @@ and do it in a lane anyway or suggest doing it without the kit.
    merge.
 10. **Merge `origin/main`.** After the last lane: `git fetch origin`, then
     `git merge origin/main` in lane A's checkout, and run the check gate.
-11. **Preflight** (`PREFLIGHT=off`: step 12 with the lane-review findings
-    alone). Lane A's checkout first has a clean tracked tree
-    (`git status --short --untracked-files=no` prints nothing): `look.sh`
-    refuses any other. Two Reviewers, one findings dir apart from the lane
-    reviews':
+11. **Preflight**, in rounds `<n>` from 1 (`PREFLIGHT=off`: step 12 with
+    the lane-review findings alone). Lane A's checkout first has a clean
+    tracked tree (`git status --short --untracked-files=no` prints nothing):
+    `look.sh` refuses any other. Two Reviewers, one findings dir per round,
+    apart from the lane reviews':
     ```
-    <kit>/add-reviewer.sh <run-dir> R1 <kind> "Preflight R1" <run-dir>/findings/preflight/R1.json
-    <kit>/add-reviewer.sh <run-dir> R2 <kind> "Preflight R2" <run-dir>/findings/preflight/R2.json
+    <kit>/add-reviewer.sh <run-dir> R1 <kind> "Preflight R1, round <n>" <run-dir>/findings/preflight/<n>/R1.json
+    <kit>/add-reviewer.sh <run-dir> R2 <kind> "Preflight R2, round <n>" <run-dir>/findings/preflight/<n>/R2.json
     ```
     `<kind>`: in a single-kind run the lanes' kind, for both; in a mixed run
     `claude` for R1 and `codex` for R2, so one Reviewer of each kind
@@ -129,17 +129,20 @@ and do it in a lane anyway or suggest doing it without the kit.
     - R2: `security`, `performance`, `error-handling`.
 
     `REVIEW_AREAS` narrows the areas; split what is left over the two
-    slots.
+    slots. From round 2 the areas are the ones step 12 names; a slot with
+    none gets no Reviewer. R1 runs `look.sh` in every round.
 12. **Act.** Load the `preflight` skill and run its act half on
-    `<run-dir>/findings/preflight/*.json` plus the deferred lane-review
-    findings: those in `<run-dir>/findings/lane-*.json` without an
-    `outcome`. One triage table, one reply from the user. Fixes become lane
-    A tasks; after them a fresh Reviewer re-reviews (lane review brief, lane
-    A, fixed point = HEAD before the fixes, file
-    `<run-dir>/findings/preflight/fix-<n>.json`). A new finding there gets a
-    new table and a new reply. Then the follow-up issues (tracker in
-    `docs/agents/issue-tracker.md`; none: ask in the table), the push, and
-    the PR as `PR` says, with the body from the skill's template or
+    `<run-dir>/findings/preflight/<n>/*.json`, in round 1 plus the deferred
+    lane-review findings: those in `<run-dir>/findings/lane-*.json` without
+    an `outcome`. One triage table, one reply from the user. Fixes become
+    lane A tasks; after them, preflight round `<n+1>` (step 11) on the whole
+    branch: R1 reruns `look.sh`, and the areas are the ones round `<n>`
+    skipped (a red look or a setup error) plus the ones whose files the
+    fixes touched. A new finding there gets a new table and a new reply.
+    After two fix rounds with a finding still open, stop and hand it to the
+    user. Once a round leaves nothing to fix: the follow-up issues (tracker
+    in `docs/agents/issue-tracker.md`; none: ask in the table), the push,
+    and the PR as `PR` says, with the body from the skill's template or
     `PR_TEMPLATE`.
 13. **Close.** `tower close "<how it ended>"` (no tower: a line in
     `<run-dir>/run.txt`). Tear nothing down until the user says so; the
