@@ -14,12 +14,16 @@
 #   the full suite, one row per step, in order, every step even when one fails:
 #             the repo contract's `suite NAME "CMD" [DIR]` lines (run in DIR);
 #             without them the detected typecheck and test scripts
-#             (package.json); with neither, CHECK_CMD as the step `check`
+#             (package.json); with neither, CHECK_CMD as the step `check`,
+#             or a skip row when neither the repo nor the call set CHECK_CMD
+#             and there is no package.json
 # A scanner that is not installed, exits non-zero or prints what look.sh cannot
 # read is a warn row and the run goes on. Findings never quote the matched
 # code: semgrep does not redact it. A red suite step is a fail row and a
 # must-fix finding (area suite, file = the step's DIR, line null) carrying the
-# last 20 lines of its output.
+# last 20 lines of its output, unredacted: it is the repo's own test output.
+# Steps get no stdin and no timeout. A SUITE_SKIP name that matches no step is
+# a warn row.
 #
 # Settings (environment > .herdr-orchestrate, read through detect-stack.sh):
 #   STATIC_BASELINE=off   skip both scanners; their rows say so
@@ -33,25 +37,33 @@
 #     "findings": [ { "area", "severity": must-fix|should-fix|watchpoint,
 #                     "file", "line", "title", "evidence" } ] }
 # Prints each suite step as it starts (stderr), the verdict table and the
-# findings file. Exit 0 when no finding is must-fix, 1 when one is.
+# findings file. Exit 0 when no finding is must-fix, 1 when one is, 2 on a
+# setup error (usage, unknown base, a refused repo contract); look.json is
+# removed first, so after exit 2 there is none.
 set -euo pipefail
 LOOK_DIR="$(cd "$(dirname "$0")" && pwd -P)"
 KIT="$(dirname "$LOOK_DIR")"
 . "$KIT/common.sh"
+die() { echo "$*" >&2; exit 2; }  # a setup error, apart from exit 1 (must-fix found)
 
 [ $# -eq 2 ] || die "usage: preflight/look.sh <base-ref> <findings-dir>"
 BASE="$1"; FINDINGS_DIR="$2"
 need git python3
 mkdir -p "$FINDINGS_DIR"; FINDINGS_DIR="$(cd "$FINDINGS_DIR" && pwd -P)"
+rm -f "$FINDINGS_DIR/look.json"
 cd "$(git rev-parse --show-toplevel)"
 # The repo contract: STATIC_BASELINE, SUITE_SKIP, the suite steps, CHECK_CMD.
 # detect-stack.sh is written for set -u alone.
+CHECK_CMD_FROM_ENV="${CHECK_CMD:+yes}"
 set +e +o pipefail; . "$KIT/detect-stack.sh"; set -eo pipefail
 MERGE_BASE=$(git merge-base "$BASE" HEAD) || die "look: no merge base between '$BASE' and HEAD"
 
 WORK=$(mktemp -d); trap 'rm -rf "$WORK"' EXIT
 VERDICT="$WORK/verdict.tsv"; FINDINGS="$WORK/findings.jsonl"; : > "$VERDICT"; : > "$FINDINGS"
-verdict() { printf '%s\t%s\t%s\n' "$1" "$2" "${3//$'\t'/ }" >> "$VERDICT"; }
+verdict() {  # STEP STATUS NOTE; tabs and newlines in NOTE become spaces
+  local note="${3//$'\t'/ }"
+  printf '%s\t%s\t%s\n' "$1" "$2" "${note//$'\n'/ }" >> "$VERDICT"
+}
 
 # Turns a scanner's JSON (stdin) into findings (JSON lines on stdout), and the
 # collected verdict rows and findings into look.json.
@@ -161,11 +173,23 @@ else
     console.log([process.env.TYPECHECK_TASK, "test"].filter(n => s[n]).join(" "));' 2>/dev/null); do
     case "$s" in test) step test "$PM_RUN test" . ;; *) step typecheck "$PM_RUN $s" . ;; esac
   done
-  [ "${#STEP_NAMES[@]}" -gt 0 ] || step check "$CHECK_CMD" .
+  # detect-stack's CHECK_CMD without a package.json is an npm call that can
+  # only fail; only a CHECK_CMD the repo or the call declared is a step.
+  if [ "${#STEP_NAMES[@]}" = 0 ]; then
+    if [ -f package.json ] || [ -n "$CHECK_CMD_FROM_ENV" ] || [ "$CHECK_CMD" != "$PM_RUN $TYPECHECK_TASK" ]; then
+      step check "$CHECK_CMD" .
+    else
+      verdict check skip "no suite lines, no package.json scripts, no CHECK_CMD"
+    fi
+  fi
 fi
-for i in "${!STEP_NAMES[@]}"; do
+SKIP=",${SUITE_SKIP// /},"
+for name in ${SUITE_SKIP//,/ }; do
+  case " ${STEP_NAMES[*]:-} " in *" $name "*) ;; *) verdict SUITE_SKIP warn "no suite step named $name" ;; esac
+done
+for i in ${STEP_NAMES[@]+"${!STEP_NAMES[@]}"}; do
   name="${STEP_NAMES[$i]}"; cmd="${STEP_CMDS[$i]}"; dir="${STEP_DIRS[$i]}"
-  case ",${SUITE_SKIP// /}," in *",$name,"*) verdict "$name" skip SUITE_SKIP; continue ;; esac
+  case "$SKIP" in *",$name,"*) verdict "$name" skip SUITE_SKIP; continue ;; esac
   echo "look: suite step $name: $cmd" >&2
   rc=0; (cd "$dir" && bash -c "$cmd") < /dev/null > "$WORK/step.out" 2>&1 || rc=$?
   if [ "$rc" = 0 ]; then

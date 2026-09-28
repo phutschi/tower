@@ -374,6 +374,7 @@ for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'],
   assert_nomatch "look: no changed files, no scan"       "$(cat "$HERDR_STUB_LOG")" '^(semgrep|gitleaks) (scan|git)'
   assert_match "look: no changed files is a skip row"    "$v" '^semgrep skip no changed files$'
   assert_match "look: no commits, gitleaks is a skip row" "$v" '^gitleaks skip no commits since the base$'
+  assert_eq "look: no changed files, no findings"        "$(findings "$F/look.json")" ""
   r=$(look_repo none added-then-deleted)
   printf 'k\n' > "$r/leak.js"; git -C "$r" add leak.js; git -C "$r" commit -qm leak
   git -C "$r" rm -q leak.js new.py; git -C "$r" checkout -q base -- app.js; git -C "$r" commit -qm unleak
@@ -392,8 +393,11 @@ for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'],
   assert_eq "look: a relative findings dir is relative to where it was called" "$(verdict "$r/sub/rel-findings/look.json" | head -1)" "semgrep pass "
   out=$(look "$r" nosuchref "$F")
   assert_match "look: an unknown base is refused"        "$out" "no merge base between 'nosuchref' and HEAD"
-  assert_match "look: an unknown base exits 1"           "$out" 'exit=1$'
-  assert_eq "look: no changed files, no findings"        "$(findings "$F/look.json")" ""
+  assert_match "look: a setup error exits 2, not 1 (must-fix)" "$out" 'exit=2$'
+  assert_eq "look: a setup error leaves no stale look.json" "$([ -e "$F/look.json" ] && echo stale || echo none)" none
+  out=$(PR=maybe look "$r" base "$F")
+  assert_match "look: a bad switch is refused"          "$out" "^PR must be draft, ready or off"
+  assert_match "look: a bad switch is a setup error"     "$out" "exit=2$"
   r=$(look_repo none clean2); reset_stub
   out=$(SEMGREP_STUB=finding look "$r" base "$F")
   assert_match "look: a must-fix finding exits 1"        "$out" 'exit=1$'
@@ -410,8 +414,8 @@ for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'],
   assert_match "look: a failing step does not stop the next one" "$v" '^build pass '
   f=$(findings "$F/look.json")
   assert_match "look: a failing step is a must-fix finding" "$f" '^suite must-fix .* suite step test failed \(exit 3\) \|'
-  assert_match "look: the finding carries the output tail" "$(python3 -c "import json,sys; print([x['evidence'] for x in json.load(open(sys.argv[1]))['findings']][0])" "$F/look.json")" 'line-25'
-  assert_nomatch "look: only the tail, not the whole output" "$(python3 -c "import json,sys; print([x['evidence'] for x in json.load(open(sys.argv[1]))['findings']][0])" "$F/look.json")" 'line-1$'
+  assert_match "look: the finding carries the output tail" "$(python3 -c "import json,sys; print([x['evidence'] for x in json.load(open(sys.argv[1]))['findings'] if x['area'] == 'suite'][0])" "$F/look.json")" 'line-25'
+  assert_nomatch "look: only the tail, not the whole output" "$(python3 -c "import json,sys; print([x['evidence'] for x in json.load(open(sys.argv[1]))['findings'] if x['area'] == 'suite'][0])" "$F/look.json")" 'line-1$'
   assert_match "look: a red step exits 1"                "$out" 'exit=1$'
   : > "$SUITE_ORDER"; out=$(look "$r" base "$F"); v=$(verdict "$F/look.json")
   assert_match "look: SUITE_SKIP from the file skips that step" "$v" '^lint skip SUITE_SKIP$'
@@ -419,12 +423,23 @@ for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'],
   : > "$SUITE_ORDER"; out=$(SUITE_SKIP=build look "$r" base "$F"); v=$(verdict "$F/look.json")
   assert_match "look: SUITE_SKIP from the environment wins over the file" "$v" '^build skip SUITE_SKIP$'
   assert_match "look: ... and the file's skip no longer applies" "$v" '^lint pass '
+  : > "$SUITE_ORDER"; out=$(SUITE_SKIP='build, lint' look "$r" base "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: SUITE_SKIP is a comma list, spaces allowed" "$v" '^lint skip SUITE_SKIP$'
+  assert_match "look: ... every name in it is skipped"   "$v" '^build skip SUITE_SKIP$'
+  out=$(SUITE_SKIP=biuld look "$r" base "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: a SUITE_SKIP name with no step is a warn row" "$v" "^SUITE_SKIP warn no suite step named biuld$"
   r=$(look_repo suite-detected detected); out=$(look "$r" base "$F"); v=$(verdict "$F/look.json")
   assert_match "look: without suite lines the detected typecheck runs" "$v" '^typecheck pass npm run typecheck$'
   assert_match "look: without suite lines the detected test runs" "$v" '^test pass npm run test$'
   r=$(look_repo none nosuite); out=$(CHECK_CMD='echo checked' look "$r" base "$F"); v=$(verdict "$F/look.json")
   assert_match "look: with neither, CHECK_CMD is the one step" "$v" '^check pass echo checked$'
   assert_nomatch "look: with neither, no typecheck step" "$v" '^typecheck '
+  out=$(CHECK_CMD=$'true\ntrue' look "$r" base "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: a multi-line command stays one verdict row" "$v" '^check pass true true$'
+  assert_match "look: a multi-line command does not break the run" "$out" 'exit=0$'
+  out=$(unset CHECK_CMD; look "$r" base "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: no package.json and no CHECK_CMD is a skip row, not a red npm step" "$v" '^check skip no suite lines, no package.json scripts, no CHECK_CMD$'
+  assert_match "look: ... and not a failure"             "$out" 'exit=0$'
   r=$(look_repo semgrep-rules rules); reset_stub; out=$(look "$r" base "$F")
   assert_match "look: the repo's .semgrep/ rules are added" "$(cat "$HERDR_STUB_LOG")" '^semgrep scan --config p/default --config \.semgrep '
   unset CHECK_CMD SUITE_ORDER
