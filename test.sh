@@ -618,13 +618,11 @@ for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'],
   assert_match "look: no net change skips semgrep"       "$v" '^semgrep skip no changed files$'
   r=$(look_repo none odd-names)
   printf 'z\n' > "$r/café app.js"; git -C "$r" add -A; git -C "$r" commit -qm odd
-  git -C "$r" rm -q new.py; git -C "$r" commit -qm gone
   reset_stub; out=$(look "$r" base "$F"); log=$(cat "$HERDR_STUB_LOG")
-  assert_match "look: a file name with spaces and accents is passed as is" "$log" '^semgrep scan .* -- app\.js café app\.js$'
-  assert_nomatch "look: a file a later commit deleted is not scanned" "$log" '^semgrep .*new\.py'
+  assert_match "look: a file name with spaces and accents is passed as is" "$log" '^semgrep scan .* -- app\.js café app\.js new\.py$'
   mkdir -p "$r/sub"; reset_stub
   out=$(cd "$r/sub" && "$KIT/preflight/look.sh" base rel-findings 2>&1; echo "exit=$?")
-  assert_match "look: runs from a subdirectory"          "$(cat "$HERDR_STUB_LOG")" '^semgrep scan .* -- app\.js café app\.js$'
+  assert_match "look: runs from a subdirectory"          "$(cat "$HERDR_STUB_LOG")" '^semgrep scan .* -- app\.js café app\.js new\.py$'
   assert_eq "look: a relative findings dir is relative to where it was called" "$(verdict "$r/sub/rel-findings/look.json" | head -1)" "semgrep pass "
   out=$(look "$r" nosuchref "$F")
   assert_match "look: an unknown base is refused"        "$out" "no merge base between 'nosuchref' and HEAD"
@@ -688,7 +686,9 @@ for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'],
   assert_match "look: ... as a setup error"              "$out" 'exit=2$'
   assert_nomatch "look: ... before any step runs"        "$(cat "$HERDR_STUB_LOG")" '^(semgrep|gitleaks) '
   assert_match "look: ... and the edits are still there" "$(cat "$r/app.js")" 'my edit'
-  git -C "$r" checkout -q -- app.js; reset_stub; out=$(look "$r" base "$F")
+  git -C "$r" add app.js; out=$(look "$r" base "$F")
+  assert_match "look: a staged edit is refused too"      "$out" 'exit=2$'
+  git -C "$r" reset -q; git -C "$r" checkout -q -- app.js; reset_stub; out=$(look "$r" base "$F")
   assert_match "look: an untracked file alone is no refusal" "$out" 'exit=0$'
   unset CHECK_CMD SUITE_ORDER; unset -f look_repo findings verdict look
 fi

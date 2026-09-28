@@ -112,7 +112,10 @@ and do it in a lane anyway or suggest doing it without the kit.
 10. **Merge `origin/main`.** After the last lane: `git fetch origin`, then
     `git merge origin/main` in lane A's checkout, and run the check gate.
 11. **Preflight** (`PREFLIGHT=off`: step 12 with the lane-review findings
-    alone). Two Reviewers, one findings dir apart from the lane reviews':
+    alone). Lane A's checkout first has a clean tracked tree
+    (`git status --short --untracked-files=no` prints nothing): `look.sh`
+    refuses any other. Two Reviewers, one findings dir apart from the lane
+    reviews':
     ```
     <kit>/add-reviewer.sh <run-dir> R1 <kind> "Preflight R1" <run-dir>/findings/preflight/R1.json
     <kit>/add-reviewer.sh <run-dir> R2 <kind> "Preflight R2" <run-dir>/findings/preflight/R2.json

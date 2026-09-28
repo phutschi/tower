@@ -59,7 +59,7 @@ rm -f "$FINDINGS_DIR/look.json"
 cd "$(git rev-parse --show-toplevel)"
 # A clean tree, so what the suite changes is all the suite's: putting it back
 # (git checkout) then touches nothing else. Untracked files may stay.
-DIRTY=$(git status --porcelain --untracked-files=no | cut -c4- | tr '\n' ' ')
+DIRTY=$(git status --porcelain --untracked-files=no | cut -c4- | tr '\n' ' ') || die "look: git status failed"
 [ -z "$DIRTY" ] || die "look: uncommitted changes to tracked files: ${DIRTY% }. Commit or stash them, then run look again."
 # The repo contract: STATIC_BASELINE, SUITE_SKIP, the suite steps, CHECK_CMD.
 CHECK_CMD_FROM_ENV="${CHECK_CMD:+yes}"
@@ -122,7 +122,8 @@ PY
 )
 py() { python3 -c "$PY" "$@"; }
 
-# Changed files that are still in the checkout; -z keeps odd names unquoted.
+# Changed files that are still in the checkout (a sparse checkout can lack
+# some); -z keeps odd names unquoted.
 FILES=()
 while IFS= read -r -d '' f; do [ -e "$f" ] && FILES+=("$f"); done < <(git diff -z --name-only --diff-filter=d "$MERGE_BASE" HEAD)
 COMMITS=$(git rev-list --count "$MERGE_BASE..HEAD")
