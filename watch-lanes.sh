@@ -2,7 +2,7 @@
 # One round of process-level watching. Run it in the background from the
 # orchestrator right after `herdr agent prompt`, and re-run it after each exit.
 #
-#   watch-lanes.sh <run-dir> <agent-name>...
+#   watch-lanes.sh <run-dir> <agent-name>...     lane and Reviewer agents alike
 #   env: ROUND_SECONDS (540)  GRACE_SECONDS (45)  POLL_SECONDS (15)
 #
 # Task-level attention (blocked / stale / complete / closed) is tower's job:
@@ -19,7 +19,10 @@
 # review subagent, reads idle for a moment. So idle counts only after
 # GRACE_SECONDS and only when seen on two consecutive polls, and the reason
 # says whether the pane tail shows the brief's final report (ALL DONE, ready
-# to merge) or not.
+# to merge, or a Reviewer's FINDINGS WRITTEN <file>) or not.
+#
+# Reviewer agents (add-reviewer.sh) are watched like lane agents: pass their
+# names too.
 #
 # Never run this for real to see what it does; use DRY_RUN=1, which answers
 # every herdr and tower call from tests/stub and touches nothing.
@@ -35,7 +38,7 @@ state_of() { herdr agent get "$1" 2>/dev/null | jsonq 'd["result"]["agent"]["age
 tail_of()  { herdr agent read "$1" --source recent-unwrapped --lines 40 2>/dev/null | grep -v '^[[:space:]]*$' | tail -12; }
 reason_for() {  # $1 name, $2 state
   case "$2" in
-    idle) if tail_of "$1" | grep -qE 'ALL DONE|ready to merge'; then echo idle-after-final-report; else echo idle-unexplained; fi ;;
+    idle) if tail_of "$1" | grep -qE 'ALL DONE|ready to merge|FINDINGS WRITTEN'; then echo idle-after-final-report; else echo idle-unexplained; fi ;;
     *)    echo "$2" ;;
   esac
 }
