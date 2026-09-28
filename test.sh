@@ -23,6 +23,11 @@ export DRY_RUN=1 HERDR_STUB_LOG="$TMP/log" HERDR_STUB_COUNTER="$TMP/counter" HER
 # otherwise leak this pane's real ids into every assertion instead of the
 # pane-0/tab-0 the plan's assertions expect.
 unset HERDR_PANE_ID HERDR_TAB_ID
+# The repo contract's names and the run switches: the fixtures decide them,
+# not the shell test.sh is started from (a codex lane exports EXECUTOR_KIND).
+unset EXECUTOR_KIND EXECUTOR_MODEL SPEC_REVIEWER_MODEL QUALITY_REVIEWER_MODEL STALE PM TYPECHECK_TASK \
+  CHECK_CMD TEST_PKG TEST_FILTER LANES TASK_REVIEW LANE_REVIEW PREFLIGHT STATIC_BASELINE PR METHOD \
+  REVIEWER_KIND REVIEWER_MODEL REVIEW_AREAS SUITE_SKIP PR_TEMPLATE
 mkdir -p "$HERDR_STUB_STATES_DIR"
 
 # Guard: every section below runs herdr/tower/claude/codex calls through common.sh's
@@ -604,18 +609,19 @@ if section run; then
   assert_match "run: the pane map has the review tab"  "$map" '^review tab: +tab-[0-9]+ +\(R1 pane-[0-9]+, R2 pane-[0-9]+\)$'
   assert_match "run: lane A is reviewed by codex in R1" "$map" '^reviewer R1: .*kind codex, model gpt-6-astra, review "Lane review A, round 1"'
   assert_match "run: lane B is reviewed by claude in R2" "$map" '^reviewer R2: .*kind claude, model claude-opus-5-5, review "Lane review B, round 1"'
+  r1=$(sed -nE 's/^review tab: .*\(R1 ([^,]+),.*/\1/p' "$RUN/panes.txt")
 
   echo gone > "$S/suite-r1-1"
   review R1 claude "Lane review A, round 2" "$RUN/findings/lane-A-2.json" >/dev/null
-  r1=$(sed -nE 's/^review tab: .*\(R1 ([^,]+),.*/\1/p' "$RUN/panes.txt")
   assert_match "run: the second review in R1 is a new agent in the same slot" "$(cat "$HERDR_STUB_LOG")" "^herdr agent start suite-r1-2 --kind codex --pane $r1 "
-  assert_match "run: the pane map shows the new R1 Reviewer" "$(cat "$RUN/panes.txt")" '^reviewer R1: .*agent "suite-r1-2", .*round 2'
+  assert_match "run: the pane map shows the new R1 Reviewer in the same pane" "$(cat "$RUN/panes.txt")" "^reviewer R1: +$r1 +\\(agent \"suite-r1-2\", .*round 2"
 
   echo gone > "$S/suite-r1-2"; echo gone > "$S/suite-r2-1"
   review R1 claude "Preflight R1" "$RUN/findings/preflight/R1.json" >/dev/null
   review R2 codex  "Preflight R2" "$RUN/findings/preflight/R2.json" >/dev/null
-  kinds=$(sed -nE 's/^reviewer R[12]: .*kind ([a-z]+), .*review "Preflight R[12]".*/\1/p' "$RUN/panes.txt" | sort | tr '\n' ' ')
-  assert_eq "run: preflight in a mixed run has one claude and one codex Reviewer" "$kinds" "claude codex "
+  map=$(cat "$RUN/panes.txt")
+  assert_match "run: preflight in a mixed run: R1 is a codex Reviewer" "$map" '^reviewer R1: .*kind codex, .*review "Preflight R1"'
+  assert_match "run: preflight in a mixed run: R2 is a claude Reviewer" "$map" '^reviewer R2: .*kind claude, .*review "Preflight R2"'
 
   log=$(cat "$HERDR_STUB_LOG")
   assert_eq "run: one board task per review" "$(grep -c '^tower add .* --area review --lane R[12]$' "$HERDR_STUB_LOG")" 5
@@ -624,6 +630,7 @@ if section run; then
 
   export SUITE_ORDER="$TMP/run-suite-order"; : > "$SUITE_ORDER"
   out=$(in_repo "$KIT/preflight/look.sh" base "$RUN/findings/preflight")
+  assert_match "run: look.sh names the findings file it wrote" "$out" "$RUN/findings/preflight/look.json"
   steps=$(python3 -c "import json,sys; print(' '.join(v['step']+':'+v['status'] for v in json.load(open(sys.argv[1]))['verdict']))" "$RUN/findings/preflight/look.json" 2>&1)
   assert_eq "run: look.json has a row for each scanner and every suite step" "$steps" "semgrep:pass gitleaks:pass lint:skip test:fail build:pass"
   unset SUITE_ORDER
@@ -632,6 +639,7 @@ if section run; then
   assert_eq "run: one reviewer line in the pane map" "$(grep -c '^reviewer:' "$RUN/panes.txt")" 1
   assert_eq "run: one switches note in the record"   "$(grep -c '^tower note switches:' "$HERDR_STUB_LOG")" 1
   assert_eq "run: one reviewer note in the record"   "$(grep -c '^tower note reviewer:' "$HERDR_STUB_LOG")" 1
+  unset -f in_repo review
 fi
 
 echo; echo "$pass passed, $fail failed"
