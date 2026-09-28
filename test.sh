@@ -424,6 +424,13 @@ for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'],
   assert_match "look: semgrep reports only results new since the merge base" "$log" "^semgrep scan .* --baseline-commit $(git -C "$r" rev-parse base) "
   assert_nomatch "look: no .semgrep/, no repo rules"     "$log" '--config \.semgrep'
   assert_match "look: gitleaks scans the branch's commits since the base" "$log" "^gitleaks git --log-opts=$(git -C "$r" rev-parse base)\\.\\.HEAD "
+  # No node on the machine (a node that cannot run answers 127, like a missing
+  # one), a contract of suite lines only: detect-stack.sh must not end look.sh.
+  NB="$TMP/no-node"; mkdir -p "$NB"; printf '#!/bin/sh\nexit 127\n' > "$NB/node"; chmod +x "$NB/node"
+  r=$(look_repo none no-node); printf 'suite ok "true"\n' > "$r/.herdr-orchestrate"; reset_stub
+  out=$(PATH="$NB:$PATH" look "$r" base "$TMP/findings-no-node")
+  assert_match "look: no node and only suite lines, exit 0" "$out" 'exit=0$'
+  assert_match "look: no node and only suite lines, the suite step runs" "$(verdict "$TMP/findings-no-node/look.json" 2>&1)" '^ok pass'
   r=$(look_repo none findings); reset_stub
   out=$(SEMGREP_STUB=finding GITLEAKS_STUB=finding look "$r" base "$F")
   f=$(findings "$F/look.json")

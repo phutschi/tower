@@ -140,7 +140,7 @@ herdr_default_test_cmd() {  # $1 = test filter; run from the package directory
     if (PM === "bun")                           return `bun test --watch${filter}`;
     return "";
   })());
-  ' 2>/dev/null
+  ' 2>/dev/null || true   # no node: no runner detected, not an error
 }
 if [ -z "$(pane_index checks)" ]; then
   TEST_PKG="${TEST_PKG:-.}"
