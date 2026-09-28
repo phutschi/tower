@@ -583,5 +583,56 @@ if section install; then
   assert_match "check: an old tower is called out"    "$out" 'OLD +tower'
 fi
 
+# --- run ---------------------------------------------------------------------
+# One whole run through the stubs: bootstrap, a codex lane B, a lane review per
+# lane, a second round in R1, preflight in both slots, and the look runner, all
+# on one fixture repo and one pane map.
+if section run; then
+  S="$HERDR_STUB_STATES_DIR"
+  r=$(fixture_repo suite); git -C "$r" tag base; git -C "$r" checkout -qb feat
+  printf 'a\n' > "$r/app.sh"; git -C "$r" add -A; git -C "$r" commit -qm change
+  RUN="$TMP/run-whole"; reset_stub
+  in_repo() { (cd "$r" && "$@" 2>&1); }
+  in_repo "$KIT/bootstrap.sh" "$RUN" "Whole run" feat "$KIT/example-tasks.tsv" >/dev/null
+  in_repo env EXECUTOR_KIND=codex "$KIT/add-lane.sh" "$RUN" B feat-b feat 2,3 >/dev/null
+  review() { in_repo env EXIT_WAIT_SECONDS=0 "$KIT/add-reviewer.sh" "$RUN" "$@"; }
+  review R1 claude "Lane review A, round 1" "$RUN/findings/lane-A-1.json" >/dev/null
+  review R2 codex  "Lane review B, round 1" "$RUN/findings/lane-B-1.json" >/dev/null
+  map=$(cat "$RUN/panes.txt")
+  assert_match "run: the pane map has lane A"          "$map" '^lane A: +pane-[0-9]+ +\(agent "suite-lane-a", kind claude, '
+  assert_match "run: the pane map has lane B on codex" "$map" '^lane B: +pane-[0-9]+ +\(agent "suite-lane-b", kind codex, '
+  assert_match "run: the pane map has the review tab"  "$map" '^review tab: +tab-[0-9]+ +\(R1 pane-[0-9]+, R2 pane-[0-9]+\)$'
+  assert_match "run: lane A is reviewed by codex in R1" "$map" '^reviewer R1: .*kind codex, model gpt-6-astra, review "Lane review A, round 1"'
+  assert_match "run: lane B is reviewed by claude in R2" "$map" '^reviewer R2: .*kind claude, model claude-opus-5-5, review "Lane review B, round 1"'
+
+  echo gone > "$S/suite-r1-1"
+  review R1 claude "Lane review A, round 2" "$RUN/findings/lane-A-2.json" >/dev/null
+  r1=$(sed -nE 's/^review tab: .*\(R1 ([^,]+),.*/\1/p' "$RUN/panes.txt")
+  assert_match "run: the second review in R1 is a new agent in the same slot" "$(cat "$HERDR_STUB_LOG")" "^herdr agent start suite-r1-2 --kind codex --pane $r1 "
+  assert_match "run: the pane map shows the new R1 Reviewer" "$(cat "$RUN/panes.txt")" '^reviewer R1: .*agent "suite-r1-2", .*round 2'
+
+  echo gone > "$S/suite-r1-2"; echo gone > "$S/suite-r2-1"
+  review R1 claude "Preflight R1" "$RUN/findings/preflight/R1.json" >/dev/null
+  review R2 codex  "Preflight R2" "$RUN/findings/preflight/R2.json" >/dev/null
+  kinds=$(sed -nE 's/^reviewer R[12]: .*kind ([a-z]+), .*review "Preflight R[12]".*/\1/p' "$RUN/panes.txt" | sort | tr '\n' ' ')
+  assert_eq "run: preflight in a mixed run has one claude and one codex Reviewer" "$kinds" "claude codex "
+
+  log=$(cat "$HERDR_STUB_LOG")
+  assert_eq "run: one board task per review" "$(grep -c '^tower add .* --area review --lane R[12]$' "$HERDR_STUB_LOG")" 5
+  assert_match "run: each review is owned by its slot" "$log" '^tower add Lane review B, round 1 --id R2-1 --area review --lane R2$'
+  assert_match "run: the second round is its own task" "$log" '^tower add Lane review A, round 2 --id R1-2 --area review --lane R1$'
+
+  export SUITE_ORDER="$TMP/run-suite-order"; : > "$SUITE_ORDER"
+  out=$(in_repo "$KIT/preflight/look.sh" base "$RUN/findings/preflight")
+  steps=$(python3 -c "import json,sys; print(' '.join(v['step']+':'+v['status'] for v in json.load(open(sys.argv[1]))['verdict']))" "$RUN/findings/preflight/look.json" 2>&1)
+  assert_eq "run: look.json has a row for each scanner and every suite step" "$steps" "semgrep:pass gitleaks:pass lint:skip test:fail build:pass"
+  unset SUITE_ORDER
+
+  assert_eq "run: one switches line in the pane map" "$(grep -c '^switches:' "$RUN/panes.txt")" 1
+  assert_eq "run: one reviewer line in the pane map" "$(grep -c '^reviewer:' "$RUN/panes.txt")" 1
+  assert_eq "run: one switches note in the record"   "$(grep -c '^tower note switches:' "$HERDR_STUB_LOG")" 1
+  assert_eq "run: one reviewer note in the record"   "$(grep -c '^tower note reviewer:' "$HERDR_STUB_LOG")" 1
+fi
+
 echo; echo "$pass passed, $fail failed"
 [ "$fail" = 0 ]
