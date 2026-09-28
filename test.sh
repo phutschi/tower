@@ -922,7 +922,9 @@ if section install; then
   ln -s "$PWD" "$TMP/here"
   printf 'marketplace phutschi-tower\nplugin tower@phutschi-tower local %s\n' "$TMP/here" > "$CLAUDE_STUB_STATE"
   reset_stub; out=$(HOME="$H4" "$ROOT/install.sh" 2>&1; echo "exit=$?")
-  assert_match "scopes: a local install of this directory is updated there" "$(cat "$TMP/log")" '^claude plugin update tower@phutschi-tower --scope local$'
+  assert_match "scopes: a local install of this directory installs fine" "$out" 'exit=0$'
+  assert_match "scopes: ... is updated there"           "$(cat "$TMP/log")" '^claude plugin update tower@phutschi-tower --scope local$'
+  assert_eq "scopes: ... and claude still has it there" "$(sort "$CLAUDE_STUB_STATE")" "$(printf 'marketplace phutschi-tower\nplugin tower@phutschi-tower local %s' "$TMP/here")"
   assert_nomatch "scopes: ... and not installed again"   "$(cat "$TMP/log")" '^claude plugin install '
   # claude cannot say what is installed: the install fails and guesses nothing.
   for how in CLAUDE_STUB_FAIL=list "CLAUDE_STUB_FAIL=marketplace list" CLAUDE_STUB_GARBAGE=1 CLAUDE_STUB_GARBAGE=list; do

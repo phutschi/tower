@@ -22,6 +22,9 @@ json() {  # KIND: the state's lines of that kind as claude's --json list
     kind != "plugin" { printf "{\"name\":\"%s\",\"source\":\"directory\"}", $1 }
     END { print (NR ? "]" : "[]") }'
 }
+# row ID SCOPE: the plugin row with that id and scope, whatever its path (claude
+# acts on the current directory's project or local install).
+row() { awk -v id="$1" -v sc="$2" '$1 == "plugin" && $2 == id && $3 == sc { print; exit }' "$state" 2>/dev/null; }
 scope() { local s=user; while [ $# -gt 0 ]; do [ "$1" = --scope ] && s=$2; shift; done; echo "$s"; }
 cmd="${1:-} ${2:-}"; [ "$cmd" = "plugin marketplace" ] && cmd="$cmd ${3:-}"
 case "$cmd" in
@@ -40,6 +43,6 @@ case "$cmd" in
   "plugin list")                     case "${CLAUDE_STUB_GARBAGE:-}" in "") json plugin ;; list) echo "[1, 2]" ;; *) echo "not json" ;; esac ;;
   "plugin install")                  has "marketplace ${arg#*@}" || { echo "claude: marketplace ${arg#*@} not found (stub)" >&2; exit 1; }
                                      put "plugin $arg $(scope "$@")" ;;
-  "plugin uninstall"|"plugin remove") drop "plugin $arg $(scope "$@")" ;;
-  "plugin update")                   has "plugin $arg $(scope "$@")" || { echo "claude: plugin $arg not installed in $(scope "$@") scope (stub)" >&2; exit 1; } ;;
+  "plugin uninstall"|"plugin remove") r=$(row "$arg" "$(scope "$@")"); drop "${r:-plugin $arg $(scope "$@")}" ;;
+  "plugin update")                   [ -n "$(row "$arg" "$(scope "$@")")" ] || { echo "claude: plugin $arg not installed in $(scope "$@") scope (stub)" >&2; exit 1; } ;;
 esac
