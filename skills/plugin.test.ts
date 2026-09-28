@@ -158,10 +158,10 @@ test("CI checks both sides on Linux and macOS", () => {
     expect(ci).toContain(step);
 });
 
-// npm pack runs no script here: package.json has no prepare or prepack.
+// --ignore-scripts: the file list is the question here, not the prepare build.
 test("the npm package ships no kit files", () => {
   const [pack] = JSON.parse(
-    execFileSync("npm", ["pack", "--dry-run", "--json"], {
+    execFileSync("npm", ["pack", "--dry-run", "--json", "--ignore-scripts"], {
       cwd: root,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
