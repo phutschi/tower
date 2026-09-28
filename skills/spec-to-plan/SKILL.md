@@ -18,8 +18,9 @@ path, stop.
 ## 1. Gather
 
 The spec is the argument (a path or tracker URL) or the one already in the
-conversation. Without either, ask for it. A spec named only by its number
-lives in the tracker `docs/agents/issue-tracker.md` names.
+conversation. Without either, ask for it. For a spec named only by its
+number, look it up in the tracker `docs/agents/issue-tracker.md` names, if
+the repo has that file.
 
 Read the repo: `CONTEXT.md` and `docs/adr/` if present, then the modules the
 spec touches, far enough to name real files and existing seams. Use the

@@ -2,8 +2,8 @@
 
 The `tower` plugin's skills for planning and running a multi-task
 implementation inside [herdr](https://herdr.dev): one orchestrating session
-and one to four executing lanes. [tower](https://github.com/phutschi/tower) keeps the record
-if you have it; it is optional.
+and one to four executing lanes. [tower](https://github.com/phutschi/tower)
+keeps the record if you have it; it is optional.
 
 | Skill                 | What it does                                                                            |
 | --------------------- | --------------------------------------------------------------------------------------- |

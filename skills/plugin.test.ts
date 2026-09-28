@@ -58,23 +58,21 @@ const STALE: { name: string; pattern: RegExp; migration: boolean }[] = [
   // phutschi-tower, phutschi/tower and @phutschi/tower are tower's own.
   {
     name: "phutschi as a plugin name",
-    pattern: /(?<![@/\w-])phutschi(?![-/@\w])/,
+    pattern: /(?<![/\w-])phutschi(?![-/@\w])/,
     migration: true,
   },
 ];
 
-const files = execFileSync("git", ["ls-files", "--cached", "--others"], {
-  cwd: root,
-  encoding: "utf8",
-})
+const files = execFileSync(
+  "git",
+  ["ls-files", "--cached", "--others", "--exclude-standard"],
+  {
+    cwd: root,
+    encoding: "utf8",
+  },
+)
   .split("\n")
-  .filter(
-    (f) =>
-      f &&
-      !HISTORY.test(f) &&
-      !f.startsWith("node_modules/") &&
-      f !== "skills/plugin.test.ts",
-  );
+  .filter((f) => f && !HISTORY.test(f) && f !== "skills/plugin.test.ts");
 
 test("no stale name from the kit's old home is left", () => {
   const hits: string[] = [];
@@ -96,13 +94,14 @@ test("no stale name from the kit's old home is left", () => {
 });
 
 test("orchestrate triggers on /tower:orchestrate and plans with /tower:spec-to-plan", () => {
-  const frontmatter = read("skills/orchestrate/SKILL.md").split("---")[1]!;
+  const frontmatter = read("skills/orchestrate/SKILL.md").split("---")[1] ?? "";
   expect(frontmatter).toContain("/tower:orchestrate <plan>");
   expect(frontmatter).toContain("/tower:spec-to-plan");
 });
 
 test("spec-to-plan is invoked by the user only", () => {
-  const frontmatter = read("skills/spec-to-plan/SKILL.md").split("---")[1]!;
+  const frontmatter =
+    read("skills/spec-to-plan/SKILL.md").split("---")[1] ?? "";
   expect(frontmatter).toMatch(/^disable-model-invocation: true$/m);
 });
 
@@ -112,6 +111,8 @@ test("specs and follow-ups go to tower's own issues", () => {
   expect(tracker).toContain("gh issue create -R phutschi/tower ");
 });
 
+// A guard against home paths and for the acme example; the titles themselves
+// are left to review.
 test("the example tasks and fixtures are neutral", () => {
   const neutral = files.filter(
     (f) =>
