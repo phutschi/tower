@@ -14,6 +14,10 @@
 #   attention: <agent> blocked | idle-after-final-report | idle-unexplained | done | gone
 # then the state table with the pane tails, then the tower summary (or the git
 # log without tower). Exit 0 with attention, 3 when everyone is still working.
+# With tower, a closed run is attention too (`tower: run closed`), and so is a
+# complete board once no watched agent is working (`tower: run complete`): a
+# complete board alone is not, since a lane's final review, preflight and the
+# PR come after its last task.
 #
 # Idle is ambiguous: a lane that was just prompted, or is waiting on its own
 # review subagent, reads idle for a moment. So idle counts only after
@@ -42,15 +46,18 @@ reason_for() {  # $1 name, $2 state
     *)    echo "$2" ;;
   esac
 }
-finished() { tower_ok && tower state --json --run "$RUN_DIR" 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); sys.exit(0 if d["summary"]["complete"] or d["closed"] else 1)' 2>/dev/null; }
+board()    { tower_ok && tower state --json --run "$RUN_DIR" 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); print("closed" if d["closed"] else "complete" if d["summary"]["complete"] else "open")' 2>/dev/null; }
+# $1: 1 while any watched agent is still working. A complete board is not the
+# end while an agent works on (its final review, preflight, the PR); closed is.
+finished() { case "$(board)" in closed) return 0 ;; complete) [ "$1" = 0 ] ;; *) return 1 ;; esac; }
 
 IDLE_SEEN=(); i=0; for _ in "$@"; do IDLE_SEEN[$i]=0; i=$((i+1)); done
 started=$(date +%s)
 while [ $(( $(date +%s) - started )) -lt "$ROUND" ]; do
-  settled=0; i=0
+  settled=0; working=0; i=0
   for name in "$@"; do
     case "$(state_of "$name")" in
-      working|unknown) IDLE_SEEN[$i]=0 ;;
+      working|unknown) IDLE_SEEN[$i]=0; working=1 ;;
       idle) if [ $(( $(date +%s) - started )) -ge "$GRACE" ]; then
               IDLE_SEEN[$i]=$(( IDLE_SEEN[$i] + 1 )); [ "${IDLE_SEEN[$i]}" -ge 2 ] && settled=1
             fi ;;
@@ -59,7 +66,7 @@ while [ $(( $(date +%s) - started )) -lt "$ROUND" ]; do
     i=$((i+1))
   done
   [ "$settled" = 1 ] && break
-  finished && break
+  finished "$working" && break
   sleep "$POLL"
 done
 
@@ -75,9 +82,10 @@ for name in "$@"; do
   esac
   i=$((i+1))
 done
-i=0
+i=0; working=0
 for name in "$@"; do
   state=$(state_of "$name")
+  case "$state" in working|unknown) working=1 ;; esac
   printf '%-22s %s\n' "$name" "$state"
   case "$state" in
     blocked|done) tail_of "$name" | sed 's/^/    │ /' ;;
@@ -86,7 +94,7 @@ for name in "$@"; do
   i=$((i+1))
 done
 if tower_ok; then
-  if finished; then echo "tower: run complete or closed"; alert=1; fi
+  if finished "$working"; then echo "tower: run $(board)"; alert=1; fi
   echo "--- tower"
   tower state --json --run "$RUN_DIR" 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["summary"], "attention:", d["attention"])' 2>/dev/null || true
 else

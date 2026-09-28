@@ -400,6 +400,16 @@ if section watch; then
   assert_match "tower summary when tower is present"  "$out" '^--- tower'
   out=$(TOWER_STUB=absent watch b)
   assert_match "no tower: git log instead"            "$out" 'no tower: task state is in git'
+  # A complete board is not attention while a watched agent still works (the
+  # lane's final review comes after its last task); a closed run always is.
+  echo working > "$S/a"; out=$(ROUND=1 TOWER_STUB_STATE=complete watch a)
+  assert_match "complete board, lane working: exit 3"  "$out" 'exit=3$'
+  assert_nomatch "complete board, lane working: no tower attention" "$out" '^tower: run'
+  echo working > "$S/a"; out=$(ROUND=1 TOWER_STUB_STATE=closed watch a)
+  assert_match "closed run, lane working: attention"   "$out" '^tower: run closed'
+  assert_match "closed run, lane working: exit 0"      "$out" 'exit=0$'
+  echo idle > "$S/a"; printf 'Running tests...\n' > "$S/a.tail"; out=$(TOWER_STUB_STATE=complete watch a)
+  assert_match "complete board, every agent idle: attention" "$out" '^tower: run complete'
 fi
 
 # --- look --------------------------------------------------------------------
