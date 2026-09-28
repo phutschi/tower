@@ -88,6 +88,12 @@ the orchestrator decides what becomes a fix task and which lane does it
 _Avoid_: review lane, reviewer model (the spec and quality reviewer roles
 inside a lane)
 
+**Reviewer slot**:
+One of two places a Reviewer runs, R1 and R2. Each review in a slot is a task
+on the board, `R<n>-<k>` in lane `R<n>` with area `review`. A lane that
+reports ready while both slots are busy waits.
+_Avoid_: review lane, reviewer pane
+
 **Runner**:
 Whatever starts and hosts executor sessions — panes, worktrees, processes.
 herdr is one, and `/tower:orchestrate` drives it. The CLI and `/tower:run`

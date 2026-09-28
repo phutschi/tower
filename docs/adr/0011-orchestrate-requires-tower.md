@@ -14,8 +14,8 @@ branch but a second design: its own brief section, its own console, its own
 tests, all kept in step with the first. We deleted it. An orchestrate run's
 record is tower's board and transcript, and nothing else. If tower does not
 run, `/tower:orchestrate` refuses before it creates anything and says how to
-install it. The run dir holds only the pane map and the briefs. This
-supersedes ADR 0009.
+install it. The run dir holds the pane map, the briefs and the review
+findings; none of them is a record. This supersedes ADR 0009.
 
 ## Consequences
 
