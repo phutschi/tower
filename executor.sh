@@ -13,7 +13,7 @@
 #
 # Expects `set -u`; provides agent_name SUFFIX, start_agent NAME PANE,
 # start_agent_with_trust_retry NAME PANE, kind_installed KIND and
-# reviewer_for LANE_KIND (the Reviewer's kind and model; see below).
+# reviewer_for LANE_KIND [LANE_MODEL] (the Reviewer's kind and model; see below).
 # START_TRIES (default 10) is how often an agent start is tried, a second apart,
 # while herdr answers agent_pane_busy (a new pane's shell is not ready yet).
 
@@ -99,17 +99,17 @@ start_agent_with_trust_retry() {
 # under a second; keep the probe that cheap (macOS has no timeout(1)).
 kind_installed() { command -v "$1" >/dev/null && "$1" --version >/dev/null 2>&1; }
 
-# Who reviews a lane of LANE_KIND (ADR 0003). Prints one line:
+# Who reviews a lane of LANE_KIND [on LANE_MODEL] (ADR 0003). Prints one line:
 #   <kind>\t<model>\t<fallback note, or empty>
 # The other kind when it is installed: codex on gpt-6-astra, claude on
 # claude-opus-5-5. Otherwise the lane's own kind: claude on claude-fable-5-1,
-# codex on the executor's model (a fresh agent), with a fallback note. The
-# lane's model is EXECUTOR_MODEL only when EXECUTOR_KIND is LANE_KIND;
-# otherwise a codex Reviewer of a codex lane gets gpt-6-astra.
+# codex on the lane's model (a fresh agent), with a fallback note. The lane's
+# model is LANE_MODEL when given (add-reviewer.sh reads it from the pane map),
+# else EXECUTOR_MODEL when EXECUTOR_KIND is LANE_KIND, else gpt-6-astra.
 # REVIEWER_KIND=claude|codex forces the kind (refused when not installed);
 # REVIEWER_MODEL replaces the model the rules picked.
 reviewer_for() {
-  local lane="$1" other kind model note=""
+  local lane="$1" lane_model="${2:-}" other kind model note=""
   other=$([ "$lane" = claude ] && echo codex || echo claude)
   case "${REVIEWER_KIND:-other}" in
     other)
@@ -132,7 +132,10 @@ reviewer_for() {
     codex:claude)  model=gpt-6-astra ;;
     claude:codex)  model=claude-opus-5-5 ;;
     claude:claude) model=claude-fable-5-1 ;;
-    codex:codex)   model=$([ "$EXECUTOR_KIND" = codex ] && echo "$EXECUTOR_MODEL" || echo gpt-6-astra) ;;
+    codex:codex)
+      if [ -n "$lane_model" ]; then model=$lane_model
+      elif [ "$EXECUTOR_KIND" = codex ]; then model=$EXECUTOR_MODEL
+      else model=gpt-6-astra; fi ;;
   esac
   model="${REVIEWER_MODEL:-$model}"
   printf '%s\t%s\t%s\n' "$kind" "$model" "$note"

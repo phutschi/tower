@@ -3,12 +3,15 @@
 # on the board as a task owned by that slot.
 #
 #   [REVIEWER_KIND=other|claude|codex] [REVIEWER_MODEL=<model>] \
-#     add-reviewer.sh <run-dir> <R1|R2> <lane-kind> "<review title>" <findings-file>
+#     add-reviewer.sh <run-dir> <R1|R2> <lane-kind> "<review title>" <findings-file> [lane]
 #
 # Run it from the orchestrator's pane after bootstrap.sh. lane-kind is the kind
 # (claude | codex) of the lane under review; for a preflight slot, the kind
-# whose other kind should review. The Reviewer's kind and model come from
-# executor.sh reviewer_for (REVIEWER_KIND and REVIEWER_MODEL from the
+# whose other kind should review. [lane] (A-D) names the lane under review; its
+# pane map line must be of lane-kind, and its model is the one a codex Reviewer
+# of a codex lane runs on when claude is not installed. Without it, the first
+# lane of lane-kind in the pane map stands in. The Reviewer's kind and model
+# come from executor.sh reviewer_for (REVIEWER_KIND and REVIEWER_MODEL from the
 # pane map's switches: line, the run's values from bootstrap; this call's
 # environment wins over them). It works in lane A's checkout, read from the
 # pane map. <run-dir> and <findings-file> may be relative to where it is
@@ -59,8 +62,8 @@ set -euo pipefail
 KIT="$(cd "$(dirname "$0")" && pwd)"
 . "$KIT/common.sh"
 in_herdr; need git python3 node
-[ $# -eq 5 ] || die 'usage: add-reviewer.sh <run-dir> <R1|R2> <lane-kind> "<review title>" <findings-file>'
-RUN_DIR="$1"; SLOT="$2"; LANE_KIND="$3"; TITLE="$4"; FINDINGS="$5"
+[ $# -eq 5 ] || [ $# -eq 6 ] || die 'usage: add-reviewer.sh <run-dir> <R1|R2> <lane-kind> "<review title>" <findings-file> [lane]'
+RUN_DIR="$1"; SLOT="$2"; LANE_KIND="$3"; TITLE="$4"; FINDINGS="$5"; LANE="${6:-}"
 MAP="$RUN_DIR/panes.txt"
 [ -f "$MAP" ] || die "no pane map at $MAP: run bootstrap.sh first"
 case "$SLOT" in R1|R2) ;; *) die "slot must be R1 or R2 (got '$SLOT')" ;; esac
@@ -86,12 +89,23 @@ case "$LANE_KIND" in claude|codex) ;; *) die "lane kind must be claude or codex 
 # repo contract lives too.
 REPO=$(sed -nE 's/^lane A: .* checkout (.*), model .*/\1/p' "$MAP")
 [ -n "$REPO" ] || die "no lane A in $MAP: run bootstrap.sh first"
+# The lane under review, for its model: the one named, else the first of lane-kind.
+if [ -n "$LANE" ]; then
+  case "$LANE" in A|B|C|D) ;; *) die "lane must be A, B, C or D (got '$LANE')" ;; esac
+  _line=$(grep -E "^lane $LANE: " "$MAP" || true)
+  [ -n "$_line" ] || die "no lane $LANE in $MAP"
+  _kind=$(echo "$_line" | sed -nE 's/.*, kind ([a-z]+), .*/\1/p')
+  [ "$_kind" = "$LANE_KIND" ] || die "lane $LANE is $_kind, not $LANE_KIND: pass the lane's own kind"
+else
+  _line=$(grep -E "^lane [A-D]: .*, kind $LANE_KIND, " "$MAP" | head -1 || true)
+fi
+LANE_MODEL=$(echo "$_line" | sed -nE 's/.*, model (.*)\)$/\1/p'); unset _line _kind
 
 _here="$PWD"; cd "$REPO"
 . "$KIT/detect-stack.sh"   # REVIEWER_KIND, REVIEWER_MODEL (the environment wins)
 . "$KIT/executor.sh"       # reviewer_for, agent_name, start_agent*
 cd "$_here"; unset _here
-_rev=$(reviewer_for "$LANE_KIND")
+_rev=$(reviewer_for "$LANE_KIND" "$LANE_MODEL")
 IFS=$'\t' read -r R_KIND R_MODEL R_NOTE <<< "$_rev"; unset _rev
 # start_agent starts EXECUTOR_KIND on EXECUTOR_MODEL: here, the Reviewer.
 EXECUTOR_KIND=$R_KIND; EXECUTOR_MODEL=$R_MODEL

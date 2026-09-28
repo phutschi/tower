@@ -483,6 +483,18 @@ if section add-reviewer; then
   printf 'R2-1\tBy hand\treview\tR2\n' >> "$RUNFN/tasks.tsv"
   out=$(cd "$r" && TOWER_STUB=absent "$KIT/add-reviewer.sh" "$RUNFN" R2 claude "Mine" "$RUNFN/findings/b.json" 2>&1)
   assert_match "no tower: a line the slot did not write is not taken over" "$out" 'R2-1 is in .*tasks.tsv, but not as R2=R2-1 in .*lanes.txt'
+  # A codex-only machine: a codex lane's Reviewer is a fresh codex agent on the
+  # reviewed lane's model, as the pane map records it.
+  RUNM="$TMP/run-review-model"; reset_stub
+  (cd "$r" && CLAUDE_STUB=absent EXECUTOR_KIND=codex EXECUTOR_MODEL=gpt-6-astra-a "$KIT/bootstrap.sh" "$RUNM" "Model" main "$KIT/example-tasks.tsv" >/dev/null 2>&1)
+  (cd "$r" && CLAUDE_STUB=absent EXECUTOR_KIND=codex EXECUTOR_MODEL=gpt-6-astra-b "$KIT/add-lane.sh" "$RUNM" B feat/mb main 2 >/dev/null 2>&1)
+  reset_stub; out=$(cd "$r" && CLAUDE_STUB=absent "$KIT/add-reviewer.sh" "$RUNM" R1 codex "Lane B" "$RUNM/findings/b.json" B 2>&1)
+  assert_match "codex only: the Reviewer of lane B runs on lane B's model" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-r1-1 --kind codex --pane [^ ]+ -- -m gpt-6-astra-b '
+  assert_match "codex only: the pane map's reviewer line has that model" "$(cat "$RUNM/panes.txt")" '^reviewer R1: .*kind codex, model gpt-6-astra-b,'
+  reset_stub; out=$(cd "$r" && CLAUDE_STUB=absent "$KIT/add-reviewer.sh" "$RUNM" R2 codex "Preflight" "$RUNM/findings/p.json" 2>&1)
+  assert_match "codex only, no lane named: the first codex lane's model (lane A)" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-r2-1 --kind codex --pane [^ ]+ -- -m gpt-6-astra-a '
+  assert_match "a lane of another kind than lane-kind is refused" "$(cd "$r" && "$KIT/add-reviewer.sh" "$RUNM" R1 claude "X" "$RUNM/findings/x.json" B 2>&1)" "lane B is codex, not claude"
+  assert_match "a lane not in the pane map is refused" "$(cd "$r" && "$KIT/add-reviewer.sh" "$RUNM" R1 codex "X" "$RUNM/findings/x.json" D 2>&1)" "no lane D in $RUNM/panes.txt"
   RUN4="$TMP/run-review-busy"; reset_stub
   (cd "$r" && "$KIT/bootstrap.sh" "$RUN4" "Busy" main >/dev/null 2>&1); reset_stub
   out=$(cd "$r" && HERDR_STUB_BUSY_STARTS=1 "$KIT/add-reviewer.sh" "$RUN4" R1 claude "Busy" "$RUN4/findings/a.json" 2>&1; echo "exit=$?")
