@@ -28,9 +28,10 @@
 #
 # checks and dev come from .herdr-orchestrate (see example.herdr-orchestrate)
 # or the JS default (detect-stack.sh); both run in lane A's checkout. With no
-# checks pane declared and no test runner detected, one info: line says so. Lane A is
-# EXECUTOR_KIND (claude | codex) on EXECUTOR_MODEL: .herdr-orchestrate sets the
-# run's default, the environment of this call overrides it (executor.sh).
+# checks pane declared and no test runner detected, one info: line on stderr
+# says so. Lane A is EXECUTOR_KIND (claude | codex) on EXECUTOR_MODEL:
+# .herdr-orchestrate sets the run's default, the environment of this call
+# overrides it (executor.sh).
 #
 # Writes <run-dir>/panes.txt, the pane map for the whole run, then prints it
 # with the next step. The pane map's  switches:  line holds every run switch
@@ -142,7 +143,7 @@ else
   CONSOLE_PANE=$(split --pane "$BOTTOM" --direction right --ratio 0.5)
 fi
 run_in "$CHECKS_PANE" "${PANE_DIRS[$CHECKS_I]}" "${PANE_CMDS[$CHECKS_I]}"
-[ "$NO_RUNNER" = 0 ] || echo 'info: no test runner detected: the checks pane has nothing to run; declare  pane checks "<cmd>"  in .herdr-orchestrate'
+[ "$NO_RUNNER" = 0 ] || echo 'info: no test runner detected: the checks pane has nothing to run; declare  pane checks "<cmd>"  in .herdr-orchestrate' >&2
 GITLOG_CMD='while true; do clear; date +%H:%M:%S; git log --color=always --oneline --graph --decorate=short --branches="*" -14 | cut -c1-$(( $(tput cols) + 60 )); sleep 5; done'
 if [ "$HAVE_TOWER" = 1 ]; then herdr pane run "$CONSOLE_PANE" "tower --stale $STALE" >/dev/null
 else herdr pane run "$CONSOLE_PANE" "$GITLOG_CMD" >/dev/null; fi

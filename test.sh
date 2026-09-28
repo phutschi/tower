@@ -136,6 +136,11 @@ if section detect; then
   r=$(fixture_repo pnpm-notest)
   assert_eq "detect: check-types, no test script"   "$(detect_in "$r" 'echo "$CHECK_CMD"')" "pnpm run check-types"
   assert_match "detect: no runner gives a note, not a broken pane" "$(detect_in "$r" 'echo "${PANE_CMDS[0]}"')" "no test runner detected"
+  assert_eq "detect: NO_RUNNER=1 without a runner"  "$(detect_in "$r" 'echo $NO_RUNNER')" 1
+  assert_eq "detect: NO_RUNNER=0 with a detected runner" "$(detect_in "$(fixture_repo bun-vitest)" 'echo $NO_RUNNER')" 0
+  printf 'pane checks "make test"\n' > "$r/.herdr-orchestrate"
+  assert_eq "detect: NO_RUNNER=0 with a declared checks pane" "$(detect_in "$r" 'echo $NO_RUNNER')" 0
+  rm "$r/.herdr-orchestrate"
   assert_eq "install: the package manager's install with a package.json" "$(detect_in "$(fixture_repo bun-vitest)" 'echo "$INSTALL_CMD"')" "bun install"
   assert_eq "install: none without a package.json"  "$(detect_in "$(fixture_repo none)" 'echo "[$INSTALL_CMD]"')" "[]"
   ir="$TMP/repos/install-contract"; mkdir -p "$ir"; echo 'INSTALL_CMD="make deps"' > "$ir/.herdr-orchestrate"
@@ -221,6 +226,7 @@ if section bootstrap; then
   assert_nomatch "output: a detected runner needs no note" "$out" 'no test runner detected'
   out=$(boot "$(fixture_repo pnpm-notest)" "$TMP/run-norunner" "No runner" main)
   assert_eq "output: no test runner detected, said once" "$(printf '%s\n' "$out" | grep -c '^info: no test runner detected')" 1
+  assert_nomatch "output: the note is on stderr, not stdout" "$(cd "$(fixture_repo pnpm-notest)" && "$KIT/bootstrap.sh" "$TMP/run-norunner2" "No runner" main 2>/dev/null)" '^info: no test runner detected'
   assert_match "output: the note says how to declare one" "$out" '^info: no test runner detected: the checks pane has nothing to run; declare  pane checks "<cmd>"  in \.herdr-orchestrate$'
   assert_match "switches: pane map has every switch"    "$map" '^switches: +TASK_REVIEW=on LANE_REVIEW=on PREFLIGHT=on STATIC_BASELINE=on PR=draft METHOD=tdd REVIEWER_KIND=other REVIEWER_MODEL= REVIEW_AREAS= SUITE_SKIP= PR_TEMPLATE=$'
   assert_match "switches: the record gets a tower note" "$log" '^tower note switches: TASK_REVIEW=on LANE_REVIEW=on .* PR_TEMPLATE=$'
