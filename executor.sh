@@ -14,6 +14,8 @@
 # Expects `set -u`; provides agent_name SUFFIX, start_agent NAME PANE,
 # start_agent_with_trust_retry NAME PANE, kind_installed KIND and
 # reviewer_for LANE_KIND (the Reviewer's kind and model; see below).
+# START_TRIES (default 10) is how often an agent start is tried, a second apart,
+# while herdr answers agent_pane_busy (a new pane's shell is not ready yet).
 
 EXECUTOR_KIND="${EXECUTOR_KIND:-claude}"
 case "$EXECUTOR_KIND" in
@@ -63,24 +65,30 @@ start_agent() {
   esac
 }
 
+# A new pane's shell may not be ready yet when the agent starts: herdr answers
+# agent_pane_busy. Try again once a second, START_TRIES times in all (default 10).
 # A fresh checkout shows the agent's trust prompt, which herdr reports as
 # "blocked during startup". Claude's prompt wants Down Enter ("Yes, I trust this
 # folder" is the second option); codex's wants Enter ("Yes, continue" is the
 # first). Answer it and try once more.
 start_agent_with_trust_retry() {
-  local name="$1" pane="$2" out
-  if ! out=$(start_agent "$name" "$pane" 2>&1); then
-    if echo "$out" | grep -q "blocked during startup"; then
+  local name="$1" pane="$2" out tries=1
+  until out=$(start_agent "$name" "$pane" 2>&1); do
+    if echo "$out" | grep -q agent_pane_busy && [ "$tries" -lt "${START_TRIES:-10}" ]; then
+      tries=$((tries+1))
+      [ "${DRY_RUN:-0}" = 1 ] || sleep 1
+    elif echo "$out" | grep -q "blocked during startup"; then
       case "$EXECUTOR_KIND" in
         claude) herdr pane send-keys "$pane" Down Enter >/dev/null ;;
         codex)  herdr pane send-keys "$pane" Enter >/dev/null ;;
       esac
       sleep 3
       herdr agent get "$name" >/dev/null 2>&1 || start_agent "$name" "$pane" >/dev/null
+      return
     else
       echo "$out" >&2; return 1
     fi
-  fi
+  done
 }
 
 # Is KIND (claude | codex) installed and runnable? --version answers in well

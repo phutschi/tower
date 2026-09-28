@@ -41,7 +41,7 @@ for _tool in herdr tower claude codex semgrep gitleaks; do
   [ "$_which" = "$KIT/tests/stub/$_tool" ] || { echo "test.sh: $_tool resolves to '$_which', not the stub ($KIT/tests/stub/$_tool) — refusing to run" >&2; exit 1; }
 done
 unset _tool _which
-reset_stub() { : > "$HERDR_STUB_LOG"; rm -f "$HERDR_STUB_COUNTER"; }
+reset_stub() { : > "$HERDR_STUB_LOG"; rm -f "$HERDR_STUB_COUNTER" "$HERDR_STUB_COUNTER.busy"; }
 # A git repo built from tests/fixtures/<name> (or empty). Prints its path.
 fixture_repo() {
   local d="$TMP/repos/$1"
@@ -259,6 +259,18 @@ if section bootstrap; then
   boot "$wt" "$RUN" "Worktree" wt-branch >/dev/null
   assert_match "worktree: lane A checkout is where bootstrap ran, not repo_root" "$(cat "$RUN/panes.txt")" '^lane A: +pane-2 +\(agent "[^"]+", kind claude, branch wt-branch, checkout '"$wt"', model '
   assert_match "worktree: checks pane cds into the worktree"  "$(cat "$HERDR_STUB_LOG")" "^herdr pane run pane-1 cd '$wt/.' && "
+
+  # A new pane's shell may not be ready when the agent starts: herdr answers
+  # agent_pane_busy, and the start is tried again.
+  RUN="$TMP/run-busy"; reset_stub
+  out=$(HERDR_STUB_BUSY_STARTS=1 boot "$r" "$RUN" "Busy" main; echo "exit=$?")
+  assert_match "busy pane: bootstrap finishes"          "$out" 'exit=0$'
+  assert_eq "busy pane: lane A's start is tried again"  "$(grep -c '^herdr agent start bun-vitest-lane-a ' "$HERDR_STUB_LOG")" 2
+  RUN="$TMP/run-busy-long"; reset_stub
+  out=$(HERDR_STUB_BUSY_STARTS=99 START_TRIES=3 boot "$r" "$RUN" "Busy long" main; echo "exit=$?")
+  assert_eq "busy pane: START_TRIES starts, then it gives up" "$(grep -c '^herdr agent start bun-vitest-lane-a ' "$HERDR_STUB_LOG")" 3
+  assert_match "busy pane: giving up shows herdr's answer" "$out" 'agent_pane_busy'
+  assert_match "busy pane: giving up fails bootstrap"    "$out" 'exit=1$'
 fi
 
 # --- add-lane ----------------------------------------------------------------
@@ -291,6 +303,9 @@ if section add-lane; then
   (cd "$r" && TOWER_STUB=absent "$KIT/bootstrap.sh" "$RUN3" "NT" main "$KIT/example-tasks.tsv" >/dev/null 2>&1)
   out=$(cd "$r" && TOWER_STUB=absent "$KIT/add-lane.sh" "$RUN3" B feat/b main 2,3 2>&1)
   assert_eq "no tower: ownership in lanes.txt"        "$(tail -1 "$RUN3/lanes.txt")" "B=2,3"
+  reset_stub; out=$(cd "$r" && HERDR_STUB_BUSY_STARTS=1 "$KIT/add-lane.sh" "$RUN3" C feat/c main 4 2>&1; echo "exit=$?")
+  assert_match "busy pane: add-lane finishes"         "$out" 'exit=0$'
+  assert_eq "busy pane: the lane's start is tried again" "$(grep -c '^herdr agent start bun-vitest-lane-c ' "$HERDR_STUB_LOG")" 2
 fi
 
 # --- add-reviewer ------------------------------------------------------------
@@ -372,6 +387,11 @@ if section add-reviewer; then
   (cd "$r" && TOWER_STUB=absent "$KIT/bootstrap.sh" "$RUN3" "MD" main "$KIT/README.md" >/dev/null 2>&1)
   out=$(cd "$r" && TOWER_STUB=absent "$KIT/add-reviewer.sh" "$RUN3" R1 claude "Lane review A" "$RUN3/findings/a.json" 2>&1)
   assert_eq "no tower, planned from a .md: tasks.tsv is the header and the review" "$(cat "$RUN3/tasks.tsv")" "$(printf '# id\ttitle\tarea\tlane\nR1-1\tLane review A\treview\tR1')"
+  RUN4="$TMP/run-review-busy"; reset_stub
+  (cd "$r" && "$KIT/bootstrap.sh" "$RUN4" "Busy" main >/dev/null 2>&1); reset_stub
+  out=$(cd "$r" && HERDR_STUB_BUSY_STARTS=1 "$KIT/add-reviewer.sh" "$RUN4" R1 claude "Busy" "$RUN4/findings/a.json" 2>&1; echo "exit=$?")
+  assert_match "busy pane: add-reviewer finishes"     "$out" 'exit=0$'
+  assert_eq "busy pane: the Reviewer's start is tried again" "$(grep -c '^herdr agent start bun-vitest-r1-1 ' "$HERDR_STUB_LOG")" 2
 fi
 
 # --- watch -------------------------------------------------------------------

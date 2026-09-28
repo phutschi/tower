@@ -4,7 +4,9 @@
 # tree through HERDR_STUB_COUNTER. Agent states come from
 # HERDR_STUB_STATES_DIR/<name> (a status word, or "gone"; with several lines,
 # each `agent get` answers the first and drops it, the last one stays), pane
-# tails from HERDR_STUB_STATES_DIR/<name>.tail.
+# tails from HERDR_STUB_STATES_DIR/<name>.tail. HERDR_STUB_BUSY_STARTS=N answers
+# the first N `agent start` calls with agent_pane_busy (a pane whose shell is not
+# ready yet), counted through HERDR_STUB_COUNTER.busy.
 printf 'herdr %s\n' "$*" >> "${HERDR_STUB_LOG:-/dev/null}"
 counter="${HERDR_STUB_COUNTER:-${TMPDIR:-/tmp}/herdr-stub-counter}"
 next_id() { local n; n=$(cat "$counter" 2>/dev/null || echo 0); n=$((n+1)); echo "$n" > "$counter"; echo "pane-$n"; }
@@ -15,7 +17,14 @@ case "${1:-} ${2:-}" in
   "tab create")      p=$(next_id); echo "{\"result\":{\"tab\":{\"tab_id\":\"tab-${p#pane-}\"},\"root_pane\":{\"pane_id\":\"$p\"}}}" ;;
   "pane move")       echo "{\"result\":{\"move_result\":{\"pane\":{\"pane_id\":\"$(next_id)\"}}}}" ;;
   "pane list")       echo '{"result":{"panes":[]}}' ;;
-  "agent start")     echo '{"result":{"agent":{"agent_status":"idle"}}}' ;;
+  "agent start")
+    busy=$(cat "$counter.busy" 2>/dev/null || echo 0)
+    if [ "$busy" -lt "${HERDR_STUB_BUSY_STARTS:-0}" ]; then
+      echo $((busy+1)) > "$counter.busy"
+      pane=$(printf '%s\n' "$@" | sed -n '/^--pane$/{n;p;q;}')
+      echo "{\"error\":{\"code\":\"agent_pane_busy\",\"message\":\"agent target pane $pane is not an available shell\"}}"; exit 1
+    fi
+    echo '{"result":{"agent":{"agent_status":"idle"}}}' ;;
   "agent get")
     status=working
     if [ -n "$states" ] && [ -f "$states/$3" ]; then
