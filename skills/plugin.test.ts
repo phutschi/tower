@@ -124,3 +124,11 @@ test("the example tasks and fixtures are neutral", () => {
     expect(read(file)).not.toMatch(/\/Users\/|\/home\/|~\/(code|tools)\//);
   expect(read("skills/orchestrate/example-tasks.tsv")).toMatch(/^# .*acme/);
 });
+
+test("orchestrate checks for herdr first, and points to /tower:run", () => {
+  const body = read("skills/orchestrate/SKILL.md").split("\n## ");
+  const first = body[1] ?? "";
+  expect(first).toMatch(/^First: /);
+  expect(first).toContain("HERDR_ENV");
+  expect(first).toContain("/tower:run");
+});

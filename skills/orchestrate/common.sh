@@ -14,10 +14,16 @@ if [ "${DRY_RUN:-0}" = 1 ]; then
   [ -x "$KIT/tests/stub/herdr" ] || die "DRY_RUN=1 but $KIT/tests/stub/herdr is missing or not executable — refusing to fall through to the real herdr"
   export PATH="$KIT/tests/stub:$PATH"
   export HERDR_STUB_LOG="${HERDR_STUB_LOG:-/dev/stderr}"
-  export HERDR_ENV=1 HERDR_PANE_ID="${HERDR_PANE_ID:-pane-0}" HERDR_TAB_ID="${HERDR_TAB_ID:-tab-0}"
+  # Inside herdr unless the caller says otherwise (HERDR_ENV=0 tests the refusal).
+  export HERDR_ENV="${HERDR_ENV-1}" HERDR_PANE_ID="${HERDR_PANE_ID:-pane-0}" HERDR_TAB_ID="${HERDR_TAB_ID:-tab-0}"
 fi
 
-in_herdr() { [ "${HERDR_ENV:-}" = 1 ] || die "not inside herdr: run this from a herdr pane (HERDR_ENV=1), or with DRY_RUN=1 to see what it would do"; }
+# The orchestrate skill is herdr-only: it runs from a herdr pane with herdr
+# runnable, or it refuses before touching anything.
+in_herdr() {
+  [ "${HERDR_ENV:-}" = 1 ] && herdr --version >/dev/null 2>&1 && return 0
+  die "not inside herdr: the orchestrate skill needs herdr (https://herdr.dev) and runs from a herdr pane (HERDR_ENV=1). Without herdr, use /tower:run, which works with any runner. DRY_RUN=1 shows what this script would do."
+}
 need()     { local c; for c in "$@"; do command -v "$c" >/dev/null || die "missing dependency: $c"; done; }
 jsonq()    { python3 -c "import json,sys; d=json.load(sys.stdin); print($1)"; }
 pane_id()  { jsonq 'd["result"]["pane"]["pane_id"]'; }

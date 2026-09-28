@@ -79,6 +79,12 @@ if section common; then
   assert_eq "tower_ok: absent tower is 1"        "$(TOWER_STUB=absent in_kit 'tower_ok; echo $?')" 1
   assert_match "need names the missing tool"     "$(in_kit 'need git nosuchtool')" "missing dependency: nosuchtool"
   assert_match "in_herdr passes under DRY_RUN"   "$(in_kit 'in_herdr && echo inside')" "^inside$"
+  out=$(HERDR_ENV=0 in_kit 'in_herdr && echo inside')
+  assert_nomatch "in_herdr: outside herdr it refuses" "$out" "^inside$"
+  assert_match "in_herdr: ... saying the skill needs herdr" "$out" "needs herdr"
+  assert_match "in_herdr: ... and pointing to /tower:run" "$out" "/tower:run"
+  out=$(HERDR_STUB=absent in_kit 'in_herdr && echo inside')
+  assert_match "in_herdr: without a runnable herdr it refuses the same way" "$out" "needs herdr.*/tower:run"
   assert_match "DRY_RUN puts the stubs on PATH"  "$(in_kit 'command -v herdr')" "tests/stub/herdr$"
   reset_stub
   assert_eq "pane_id reads herdr's split answer" "$(in_kit 'herdr pane split --current | pane_id')" pane-1
@@ -230,6 +236,15 @@ if section bootstrap; then
   assert_match "output: the pane map is printed"        "$out" '^lane A: '
   assert_match "output: next step for the empty opening" "$out" 'tower add'
   assert_nomatch "output: a detected runner needs no note" "$out" 'no test runner detected'
+  for outside in HERDR_ENV=0 HERDR_STUB=absent; do
+    RUN="$TMP/run-outside-${outside%%=*}"; reset_stub
+    out=$(env "$outside" bash -c 'cd "$1" && shift && "$KIT/bootstrap.sh" "$@" 2>&1' _ "$r" "$RUN" "Outside" main; echo "exit=$?")
+    assert_match "outside herdr ($outside): bootstrap refuses, pointing to /tower:run" "$out" "needs herdr.*/tower:run"
+    assert_match "outside herdr ($outside): ... and fails"          "$out" 'exit=1$'
+    assert_eq "outside herdr ($outside): no run dir is created"     "$([ -e "$RUN" ] && echo made || echo none)" none
+    assert_nomatch "outside herdr ($outside): no pane is opened"    "$(cat "$HERDR_STUB_LOG")" '^herdr (pane|agent|tab|worktree) '
+    assert_nomatch "outside herdr ($outside): tower is not touched" "$(cat "$HERDR_STUB_LOG")" '^tower '
+  done
   out=$(boot "$(fixture_repo pnpm-notest)" "$TMP/run-norunner" "No runner" main)
   assert_eq "output: no test runner detected, said once" "$(printf '%s\n' "$out" | grep -c '^info: no test runner detected')" 1
   assert_nomatch "output: the note is on stderr, not stdout" "$(cd "$(fixture_repo pnpm-notest)" && "$KIT/bootstrap.sh" "$TMP/run-norunner2" "No runner" main 2>/dev/null)" '^info: no test runner detected'

@@ -1,6 +1,6 @@
 ---
 name: orchestrate
-description: Use when asked to implement a plan or a piece of work with separate executor agents inside herdr ("/tower:orchestrate <plan>", "implement this plan with orchestrate", "spin up orchestrate", "orchestrate this", "run this with lanes"). The plan usually comes from /tower:spec-to-plan. The session becomes the orchestrator: it opens the run, derives or loads the task list, briefs one to four lanes, watches, reviews, merges, runs preflight, opens the PR, closes. Requires HERDR_ENV=1. Not for single-task changes you can make yourself.
+description: Use when asked to implement a plan or a piece of work with separate executor agents inside herdr ("/tower:orchestrate <plan>", "implement this plan with orchestrate", "spin up orchestrate", "orchestrate this", "run this with lanes"). The plan usually comes from /tower:spec-to-plan. The session becomes the orchestrator: it opens the run, derives or loads the task list, briefs one to four lanes, watches, reviews, merges, runs preflight, opens the PR, closes. Requires HERDR_ENV=1; without herdr, use /tower:run. Not for single-task changes you can make yourself.
 ---
 
 # Orchestrating a run
@@ -15,6 +15,13 @@ manual. Vocabulary: `CONTEXT.md` at the plugin root (`../../CONTEXT.md`). Read
 tower 0.2.0+ (github.com/phutschi/tower) is the record and the console when
 installed. Without it the run dir is the record and the console shows the
 git log; the scripts say so when it happens.
+
+## First: herdr
+
+This skill is herdr-only. Before anything else, check that this session runs
+in a herdr pane (`HERDR_ENV=1`) and that `herdr` runs. If not, stop: tell the
+user the skill needs herdr, and that `/tower:run` does the same job with any
+runner. Every script refuses the same way, before it creates anything.
 
 ## Two openings
 
