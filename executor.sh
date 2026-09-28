@@ -83,14 +83,17 @@ start_agent_with_trust_retry() {
   fi
 }
 
-# Is KIND (claude | codex) installed and runnable?
+# Is KIND (claude | codex) installed and runnable? --version answers in well
+# under a second; keep the probe that cheap (macOS has no timeout(1)).
 kind_installed() { command -v "$1" >/dev/null && "$1" --version >/dev/null 2>&1; }
 
 # Who reviews a lane of LANE_KIND (ADR 0003). Prints one line:
 #   <kind>\t<model>\t<fallback note, or empty>
 # The other kind when it is installed: codex on gpt-6-astra, claude on
 # claude-opus-5-5. Otherwise the lane's own kind: claude on claude-fable-5-1,
-# codex on the executor's model (a fresh agent), with a fallback note.
+# codex on the executor's model (a fresh agent), with a fallback note. The
+# lane's model is EXECUTOR_MODEL only when EXECUTOR_KIND is LANE_KIND;
+# otherwise a codex Reviewer of a codex lane gets gpt-6-astra.
 # REVIEWER_KIND=claude|codex forces the kind (refused when not installed);
 # REVIEWER_MODEL replaces the model the rules picked.
 reviewer_for() {
@@ -102,15 +105,16 @@ reviewer_for() {
       elif kind_installed "$lane"; then
         kind=$lane
         case "$lane" in
-          claude) note="fallback: codex is not installed, so claude reviews claude on another model" ;;
-          codex)  note="fallback: claude is not installed, so a fresh codex agent reviews codex on the same model" ;;
+          claude) note="fallback: codex is not installed, so claude reviews claude" ;;
+          codex)  note="fallback: claude is not installed, so a fresh codex agent reviews codex" ;;
         esac
       else
         die "no Reviewer: neither claude nor codex is installed"
       fi ;;
-    *)
+    claude|codex)
       kind=$REVIEWER_KIND
       kind_installed "$kind" || die "REVIEWER_KIND=$kind, but $kind is not installed" ;;
+    *) die "REVIEWER_KIND must be other, claude or codex (got '$REVIEWER_KIND')" ;;
   esac
   case "$kind:$lane" in
     codex:claude)  model=gpt-6-astra ;;

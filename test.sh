@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# The kit's tests. They need neither herdr nor tower: DRY_RUN=1 puts tests/stub
-# first on PATH, so every herdr and tower call is logged and answered by a stub.
+# The kit's tests. They need neither herdr, tower, claude nor codex: DRY_RUN=1
+# puts tests/stub first on PATH, so every call to them is logged and answered by
+# a stub.
 #
 #   ./test.sh            all sections
 #   ./test.sh bootstrap  one section (a word from the "# ---" headings below)
@@ -24,7 +25,7 @@ export DRY_RUN=1 HERDR_STUB_LOG="$TMP/log" HERDR_STUB_COUNTER="$TMP/counter" HER
 unset HERDR_PANE_ID HERDR_TAB_ID
 mkdir -p "$HERDR_STUB_STATES_DIR"
 
-# Guard: every section below runs herdr/tower calls through common.sh's
+# Guard: every section below runs herdr/tower/claude/codex calls through common.sh's
 # DRY_RUN PATH shim. If a stub is missing, not executable, or shadowed by
 # something earlier on PATH, refuse outright rather than risk a script under
 # test touching the real herdr or tower (this happened once: HERDR_ENV=1 is
@@ -77,20 +78,21 @@ if section executor; then
   assert_eq "agent_name: starts with a letter"     "$(name_in "$digits" -lane-a)" "repo-lane-a"
   # HOME with a codex tdd skill, so executor.sh's missing-skill note stays out of the output.
   mkdir -p "$TMP/rev-home/.codex/skills/tdd"
-  rev() { HOME="$TMP/rev-home" bash -c ". \"\$KIT/common.sh\"; . \"\$KIT/executor.sh\"; reviewer_for $1" 2>&1; }
+  rev() { HOME="$TMP/rev-home" in_kit ". \"\$KIT/executor.sh\"; reviewer_for $1"; }
   T=$(printf '\t')
   assert_eq "reviewer: both kinds, a claude lane gets codex on gpt-6-astra" "$(rev claude)" "codex${T}gpt-6-astra${T}"
-  assert_eq "reviewer: both kinds, a codex lane gets claude on claude-opus-5-5" "$(rev codex)" "claude${T}claude-opus-5-5${T}"
+  assert_eq "reviewer: both kinds, a codex lane gets claude on claude-opus-5-5" "$(EXECUTOR_KIND=codex rev codex)" "claude${T}claude-opus-5-5${T}"
   assert_eq "reviewer: claude only, a claude lane gets claude on claude-fable-5-1 with a note" \
-    "$(CODEX_STUB=absent rev claude)" "claude${T}claude-fable-5-1${T}fallback: codex is not installed, so claude reviews claude on another model"
+    "$(CODEX_STUB=absent rev claude)" "claude${T}claude-fable-5-1${T}fallback: codex is not installed, so claude reviews claude"
   assert_eq "reviewer: codex only, a codex lane gets codex on the executor's model with a note" \
-    "$(CLAUDE_STUB=absent EXECUTOR_KIND=codex EXECUTOR_MODEL=gpt-6-astra-mini rev codex)" "codex${T}gpt-6-astra-mini${T}fallback: claude is not installed, so a fresh codex agent reviews codex on the same model"
+    "$(CLAUDE_STUB=absent EXECUTOR_KIND=codex EXECUTOR_MODEL=gpt-6-astra-mini rev codex)" "codex${T}gpt-6-astra-mini${T}fallback: claude is not installed, so a fresh codex agent reviews codex"
   assert_eq "reviewer: REVIEWER_KIND=claude forces its own kind on a claude lane" "$(REVIEWER_KIND=claude rev claude)" "claude${T}claude-fable-5-1${T}"
-  assert_eq "reviewer: REVIEWER_KIND=codex on a codex lane"   "$(REVIEWER_KIND=codex rev codex)" "codex${T}gpt-6-astra${T}"
+  assert_eq "reviewer: REVIEWER_KIND=codex on a codex lane"   "$(EXECUTOR_KIND=codex EXECUTOR_MODEL=gpt-6-astra-mini REVIEWER_KIND=codex rev codex)" "codex${T}gpt-6-astra-mini${T}"
   assert_eq "reviewer: REVIEWER_MODEL overrides the model"   "$(REVIEWER_MODEL=gpt-6-astra-pro rev claude)" "codex${T}gpt-6-astra-pro${T}"
-  assert_eq "reviewer: REVIEWER_MODEL overrides a fallback's model" "$(CODEX_STUB=absent REVIEWER_MODEL=sonnet rev claude)" "claude${T}sonnet${T}fallback: codex is not installed, so claude reviews claude on another model"
+  assert_eq "reviewer: REVIEWER_MODEL overrides a fallback's model" "$(CODEX_STUB=absent REVIEWER_MODEL=sonnet rev claude)" "claude${T}sonnet${T}fallback: codex is not installed, so claude reviews claude"
   assert_match "reviewer: a forced kind that is not installed is refused" "$(CODEX_STUB=absent REVIEWER_KIND=codex rev claude; echo "exit=$?")" "REVIEWER_KIND=codex, but codex is not installed"
   assert_match "reviewer: the refusal exits non-zero" "$(CODEX_STUB=absent REVIEWER_KIND=codex rev claude; echo "exit=$?")" "exit=1$"
+  assert_match "reviewer: an unknown REVIEWER_KIND is refused" "$(REVIEWER_KIND=Claude rev claude)" "REVIEWER_KIND must be other, claude or codex \(got 'Claude'\)"
   assert_match "reviewer: neither kind installed is refused" "$(CODEX_STUB=absent CLAUDE_STUB=absent rev claude)" "neither claude nor codex is installed"
 fi
 

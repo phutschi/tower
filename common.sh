@@ -1,9 +1,9 @@
 # Sourced first by every script in the kit. Expects `set -u`.
 #
-# DRY_RUN=1 puts tests/stub first on PATH: herdr and tower are then stand-ins
-# that log their argv (HERDR_STUB_LOG, default stderr) and answer with canned
-# JSON, so a script can be run outside herdr to see what it would do. test.sh
-# runs everything this way.
+# DRY_RUN=1 puts tests/stub first on PATH: herdr, tower, claude and codex are
+# then stand-ins that log their argv (HERDR_STUB_LOG, default stderr) and
+# answer with canned JSON, so a script can be run outside herdr to see what it
+# would do. test.sh runs everything this way.
 KIT="${KIT:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 die()      { echo "$*" >&2; exit 1; }
 if [ "${DRY_RUN:-0}" = 1 ]; then
