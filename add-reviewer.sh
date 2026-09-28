@@ -14,7 +14,9 @@
 # pane map. <run-dir> and <findings-file> may be relative to where it is
 # called. The title must not hold a tab or a newline.
 #
-# The first call opens the review tab with two panes, slots R1 and R2:
+# The first call opens the review tab with two panes, slots R1 and R2, in the
+# run's workspace (the orchestrator pane's, from the pane map; an orchestrator
+# pane herdr no longer knows is refused before anything is written):
 #
 #        │ R1       │ R2       │
 #
@@ -106,6 +108,14 @@ if [ -n "$PREV" ]; then
 fi
 ID="$SLOT-$N"
 
+# The review tab opens in the run's workspace, the orchestrator pane's; not
+# whichever workspace the human is looking at.
+if [ -z "$TAB_LINE" ]; then
+  ORCH=$(sed -nE 's/^orchestrator: +([^ ]+).*/\1/p' "$MAP")
+  WS=$(herdr pane get "$ORCH" 2>/dev/null | jsonq 'd["result"]["pane"]["workspace_id"]' 2>/dev/null) \
+    || die "no workspace for the orchestrator pane $ORCH (herdr pane get): is it still open?"
+fi
+
 # --- the review on the board: a refusal stops before anything opens ----------
 if tower_ok; then
   tower add "$TITLE" --id "$ID" --area review --lane "$SLOT" >/dev/null
@@ -117,7 +127,7 @@ fi
 
 # --- the review tab, on the first call ----------------------------------------
 if [ -z "$TAB_LINE" ]; then
-  out=$(herdr tab create --cwd "$REPO" --label reviews --no-focus)
+  out=$(herdr tab create --workspace "$WS" --cwd "$REPO" --label reviews --no-focus)
   TAB=$(echo "$out" | jsonq 'd["result"]["tab"]["tab_id"]')
   R1_PANE=$(echo "$out" | jsonq 'd["result"]["root_pane"]["pane_id"]')
   R2_PANE=$(herdr pane split --pane "$R1_PANE" --direction right --ratio 0.5 --cwd "$REPO" --no-focus | pane_id)

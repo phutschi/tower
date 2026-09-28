@@ -4,7 +4,8 @@
 # tree through HERDR_STUB_COUNTER. Agent states come from
 # HERDR_STUB_STATES_DIR/<name> (a status word, or "gone"; with several lines,
 # each `agent get` answers the first and drops it, the last one stays), pane
-# tails from HERDR_STUB_STATES_DIR/<name>.tail. HERDR_STUB_BUSY_STARTS=N answers
+# tails from HERDR_STUB_STATES_DIR/<name>.tail. Every pane is in workspace ws-0; `pane get`
+# answers pane_not_found when HERDR_STUB_STATES_DIR/<pane-id> says gone. HERDR_STUB_BUSY_STARTS=N answers
 # the first N `agent start` calls with agent_pane_busy (a pane whose shell is not
 # ready yet), counted through HERDR_STUB_COUNTER.busy.
 printf 'herdr %s\n' "$*" >> "${HERDR_STUB_LOG:-/dev/null}"
@@ -17,6 +18,9 @@ case "${1:-} ${2:-}" in
   "tab create")      p=$(next_id); echo "{\"result\":{\"tab\":{\"tab_id\":\"tab-${p#pane-}\"},\"root_pane\":{\"pane_id\":\"$p\"}}}" ;;
   "pane move")       echo "{\"result\":{\"move_result\":{\"pane\":{\"pane_id\":\"$(next_id)\"}}}}" ;;
   "pane list")       echo '{"result":{"panes":[]}}' ;;
+  "pane get")
+    [ -n "$states" ] && [ "$(head -1 "$states/$3" 2>/dev/null)" = gone ] && { echo '{"error":{"code":"pane_not_found"}}'; exit 1; }
+    echo "{\"result\":{\"pane\":{\"pane_id\":\"$3\",\"workspace_id\":\"ws-0\"}}}" ;;
   "agent start")
     busy=$(cat "$counter.busy" 2>/dev/null || echo 0)
     if [ "$busy" -lt "${HERDR_STUB_BUSY_STARTS:-0}" ]; then
