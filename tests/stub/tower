@@ -22,7 +22,7 @@ case "${1:-}" in
     fi
     [ -z "$id" ] || echo "$id" >> "$ids"
     echo "${id:-4}" ;;
-  remove) grep -vxF -- "$2" "$ids" > "$ids.next" 2>/dev/null; mv "$ids.next" "$ids" ;;
+  remove) [ -f "$ids" ] || exit 0; grep -vxF -- "$2" "$ids" > "$ids.next"; mv "$ids.next" "$ids" ;;
   state) added=""
          while IFS= read -r a; do added="$added,{\"id\":\"$a\",\"status\":\"${TOWER_STUB_ADDED_STATUS:-pending}\"}"; done < <(cat "$ids" 2>/dev/null)
          tasks="{\"id\":\"1\"},{\"id\":\"2\"},{\"id\":\"3\"}$added"

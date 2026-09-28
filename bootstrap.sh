@@ -38,8 +38,9 @@
 # and the value this run uses (detect-stack.sh); the same line goes to the
 # record, as a  tower note  or into run.txt without tower. So does the
 #  reviewer:  line: the kind and model that review lane A (executor.sh
-# reviewer_for; in a codex-only run each codex lane is reviewed on its own
-# model), with the fallback note when one applied, or none
+# reviewer_for; in a codex-only run add-reviewer.sh reviews a codex lane on
+# that lane's model when the call names the lane), with the fallback note when
+# one applied, or none
 # when LANE_REVIEW and PREFLIGHT are both off. A forced REVIEWER_KIND that is
 # not installed is refused before anything is written. The console pane
 # stays open after the run: it is the record, and the human quits it with q.

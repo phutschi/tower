@@ -79,8 +79,8 @@ this order:
    a fresh agent of the other kind: codex reviews claude lanes on
    gpt-6-astra, claude reviews codex lanes on claude-opus-5-5. With only
    one kind installed, the same kind reviews in a fresh agent (claude on
-   claude-fable-5-1, codex on the lanes' model); bootstrap prints the choice and any fallback on its
-   `reviewer:` line. Reviewers only report. The orchestrator triages their
+   claude-fable-5-1, codex on the reviewed lane's model); bootstrap prints
+   the choice and any fallback on its `reviewer:` line. Reviewers only report. The orchestrator triages their
    findings alone: a real problem the lane introduced goes back to that
    lane as a fix task, the rest waits for the preflight table. A fix loop
    stops after two rounds and comes to you.
