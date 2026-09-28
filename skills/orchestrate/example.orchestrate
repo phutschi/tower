@@ -1,0 +1,53 @@
+# .orchestrate — what the orchestrate skill needs to know about this repo.
+# Plain bash, sourced by the kit from the repo root. Everything is optional;
+# JS repos get a default from package.json when a value is missing. A value
+# set in the environment of a bootstrap or add-lane call wins over this file.
+
+# The check gate: one command every lane must pass before it commits a task.
+CHECK_CMD="bun run check"
+
+# What add-lane.sh runs in each new lane's worktree. Default: the package
+# manager's install (bun install, npm install, ...), and nothing at all when
+# the repo has no package.json. INSTALL_CMD= turns the install off.
+# INSTALL_CMD="bun install --frozen-lockfile"
+
+# Panes on the bottom row, running in lane A's checkout (the integration branch).
+#   pane NAME "COMMAND" [DIR]     NAME is checks or dev; DIR is relative to the checkout.
+pane checks "bun test --watch"
+# pane dev  "bun run dev" apps/web
+
+# The lanes: harness and model. claude (default, claude-opus-5-5[1m]) or codex
+# (gpt-6-astra). EXECUTOR_KIND=codex for one lane only goes in that add-lane call.
+# EXECUTOR_KIND=codex
+# EXECUTOR_MODEL=claude-opus-5-5[1m]
+
+# The reviewer models tower records for the run (defaults: sonnet, opus).
+# SPEC_REVIEWER_MODEL=sonnet
+# QUALITY_REVIEWER_MODEL=opus
+
+# Minutes of silence before the console and tower wait flag a lane as stale
+# (default 30).
+# STALE=30
+
+# The full suite: the repo's thorough checks, run once by preflight on the
+# whole branch. Named steps, run in this order, every one even when one fails.
+#   suite NAME "COMMAND" [DIR]    DIR is relative to the checkout (default .).
+# Without suite lines preflight runs the detected checks, then CHECK_CMD.
+# suite lint      "bun run lint"
+# suite typecheck "bun run typecheck"
+# suite test      "bun test"
+# suite build     "bun run build" apps/web
+
+# The run switches. Each line shows the default; the user's message overrides
+# them per run in plain words. A value outside the listed ones is refused.
+# TASK_REVIEW=on        on | off    the spec and quality review after each task inside a lane
+# LANE_REVIEW=on        on | off    a Reviewer reviews each lane's diff before it is merged
+# PREFLIGHT=on          on | off    preflight checks the whole branch before the PR
+# STATIC_BASELINE=on    on | off    preflight scans the diff with semgrep and gitleaks
+# PR=draft              draft | ready | off    how the run's PR is opened, or no PR
+# METHOD=tdd            tdd | plain    plain briefs lanes without the tdd loop
+# REVIEWER_KIND=other   other | claude | codex    other: the kind the lane's executor is not
+# REVIEWER_MODEL=       the Reviewer's model; empty: the kit picks one per kind
+# REVIEW_AREAS=         preflight's areas, comma-separated; empty: every area
+# SUITE_SKIP=           suite steps to skip, comma-separated (e.g. build)
+# PR_TEMPLATE=          a PR body template in the repo; empty: preflight's default

@@ -1,0 +1,15 @@
+CHECK_CMD="make check"
+TASK_REVIEW=off
+LANE_REVIEW=off
+PREFLIGHT=off
+STATIC_BASELINE=off
+PR=ready
+METHOD=plain
+REVIEWER_KIND=claude
+REVIEWER_MODEL=claude-fable-5-1
+REVIEW_AREAS=security,spec
+SUITE_SKIP=build
+PR_TEMPLATE=.github/pull_request_template.md
+suite lint  "make lint"
+suite test  "make test" pkg/core
+suite build "make build"

@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# Stand-in for tower under DRY_RUN=1 and test.sh. TOWER_STUB=new (default) is
+# 0.2.0 with `tower add`; old is a 0.1 usage; absent refuses to run.
+# TOWER_STUB_STATE picks the board `tower state` answers: open (default),
+# complete (every task done) or closed. Like tower, `add --id` refuses an id the
+# run already has: the ids are kept in HERDR_STUB_COUNTER.tower-ids, emptied by
+# `init` (a new run) and dropped by `remove`: one board, the last init's.
+# `state` lists them after tasks 1-3 as pending, or TOWER_STUB_ADDED_STATUS.
+[ "${TOWER_STUB:-new}" = absent ] && { echo "tower: not installed (stub)" >&2; exit 127; }
+printf 'tower %s\n' "$*" >> "${HERDR_STUB_LOG:-/dev/null}"
+ids="${HERDR_STUB_COUNTER:-${TMPDIR:-/tmp}/herdr-stub-counter}.tower-ids"
+case "${1:-}" in
+  --help)
+    echo "tower — stub"
+    echo "    tower init [--plan <plan.md> | --tasks <tasks.tsv> | TSV on stdin | nothing]"
+    [ "${TOWER_STUB:-new}" = old ] || echo '    tower add "<title>" [--id <id>] [--area <text>] [--after <id>] [--lane <lane>]' ;;
+  init)  : > "$ids"; echo "run: (stub)" ;;
+  add)
+    id=$(printf '%s\n' "$@" | sed -n '/^--id$/{n;p;q;}')
+    if [ -n "$id" ] && grep -qxF -- "$id" "$ids" 2>/dev/null; then
+      echo "tower: task \"$id\" already exists — change it with tower change $id, or pick another id" >&2; exit 1
+    fi
+    [ -z "$id" ] || echo "$id" >> "$ids"
+    echo "${id:-4}" ;;
+  remove) [ -f "$ids" ] || exit 0; grep -vxF -- "$2" "$ids" > "$ids.next"; mv "$ids.next" "$ids" ;;
+  state) added=""
+         while IFS= read -r a; do added="$added,{\"id\":\"$a\",\"status\":\"${TOWER_STUB_ADDED_STATUS:-pending}\"}"; done < <(cat "$ids" 2>/dev/null)
+         tasks="{\"id\":\"1\"},{\"id\":\"2\"},{\"id\":\"3\"}$added"
+         case "${TOWER_STUB_STATE:-open}" in
+           complete) echo "{\"tasks\":[$tasks],\"summary\":{\"total\":3,\"done\":3,\"complete\":true},\"closed\":false,\"attention\":[]}" ;;
+           closed)   echo "{\"tasks\":[$tasks],\"summary\":{\"total\":3,\"done\":3,\"complete\":true},\"closed\":true,\"attention\":[]}" ;;
+           *)        echo "{\"tasks\":[$tasks],\"summary\":{\"total\":3,\"done\":0,\"complete\":false},\"closed\":false,\"attention\":[]}" ;;
+         esac ;;
+  *)     ;;
+esac

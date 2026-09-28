@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Stand-in for claude under DRY_RUN=1 and test.sh. Logs argv to HERDR_STUB_LOG.
+# CLAUDE_STUB=absent refuses to run, so the kind counts as not installed
+# (command -v still finds this stub).
+[ "${CLAUDE_STUB:-}" = absent ] && { echo "claude: not installed (stub)" >&2; exit 127; }
+printf 'claude %s\n' "$*" >> "${HERDR_STUB_LOG:-/dev/null}"
+case "${1:-}" in
+  --version) echo "claude (stub)" ;;
+esac

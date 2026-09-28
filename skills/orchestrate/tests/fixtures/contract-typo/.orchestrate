@@ -1,0 +1,2 @@
+CHECK_CMD="make check"
+MODEL=typo
