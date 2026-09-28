@@ -1,15 +1,15 @@
-# phutschi
+# orchestrate: tower's herdr runner
 
-A Claude Code plugin that plans and runs a multi-task implementation inside
-[herdr](https://herdr.dev): one orchestrating session and one to four
-executing lanes. [tower](https://github.com/phutschi/tower) keeps the record
+The `tower` plugin's skills for planning and running a multi-task
+implementation inside [herdr](https://herdr.dev): one orchestrating session
+and one to four executing lanes. [tower](https://github.com/phutschi/tower) keeps the record
 if you have it; it is optional.
 
-| Skill                    | What it does                                                                            |
-| ------------------------ | --------------------------------------------------------------------------------------- |
-| `/phutschi:spec-to-plan` | Turns a spec into `plan.md`: tasks, lanes, merge points. Any session.                   |
-| `/phutschi:orchestrate`  | Runs a plan (or a request) with lanes, reviews, merge, preflight and a PR. Needs herdr. |
-| `/phutschi:preflight`    | Checks a whole branch before its PR. Also on its own, without herdr.                    |
+| Skill                 | What it does                                                                            |
+| --------------------- | --------------------------------------------------------------------------------------- |
+| `/tower:spec-to-plan` | Turns a spec into `plan.md`: tasks, lanes, merge points. Any session.                   |
+| `/tower:orchestrate`  | Runs a plan (or a request) with lanes, reviews, merge, preflight and a PR. Needs herdr. |
+| `/tower:preflight`    | Checks a whole branch before its PR. Also on its own, without herdr.                    |
 
 Planning and running are separate sessions, and the plan is the only thing
 between them.
@@ -27,17 +27,17 @@ Reviewers review and report findings. Nothing else.
 **1. Install.** Paste this into Claude Code:
 
 ```
-Install the phutschi plugin: clone git@github.com:phutschi/herdr-orchestrate.git
-into ~/tools/herdr-orchestrate (or pull it if it is already there) and run
-~/tools/herdr-orchestrate/install.sh. If it reports a missing dependency,
+Install the tower plugin: clone git@github.com:phutschi/tower.git into
+~/tools/tower (or pull it if it is already there) and run
+~/tools/tower/install.sh. If it reports a missing dependency,
 tell me which one and how to install it, then run it again. When it passes,
-tell me to restart Claude Code so the /phutschi: skills show up.
+tell me to restart Claude Code so the /tower: skills show up.
 ```
 
 **2. Plan.** In any session, in your repo, on the feature branch:
 
 ```
-/phutschi:spec-to-plan <path or issue URL of the spec>
+/tower:spec-to-plan <path or issue URL of the spec>
 ```
 
 It slices the spec into tasks, proposes the lanes, asks you to approve
@@ -46,29 +46,29 @@ them, and writes `plan.md`. It writes no code.
 **3. Run.** In a new session, from a herdr pane, same repo and branch:
 
 ```
-/phutschi:orchestrate <path to plan.md>
+/tower:orchestrate <path to plan.md>
 ```
 
 The orchestrator briefs the lanes, gets their work reviewed and merged,
 checks the whole branch, and asks you once before it pushes and opens a
 draft PR.
 
-No spec yet? Skip step 2: run `/phutschi:orchestrate` with no plan, and
+No spec yet? Skip step 2: run `/tower:orchestrate` with no plan, and
 your next message is the work.
 
 ## Install
 
 ```
-git clone git@github.com:phutschi/herdr-orchestrate.git ~/tools/herdr-orchestrate
-~/tools/herdr-orchestrate/install.sh
+git clone git@github.com:phutschi/tower.git ~/tools/tower
+~/tools/tower/install.sh
 ```
 
 That checks the dependencies (herdr, git, bash, python3, node; claude,
 tower 0.2.0+, codex, semgrep and gitleaks optional), adds this repo as the
-`phutschi` marketplace in Claude Code and installs the `phutschi` plugin
+`phutschi-tower` marketplace in Claude Code and installs the `tower` plugin
 from it. For codex it links `orchestrate`, `spec-to-plan` and `preflight`
 into `~/.agents/skills`, and `preflight` into `~/.codex/skills` (codex
-Reviewers load it). Links of the old `herdr-orchestrate` layout in
+Reviewers load it). Links of the kit's old layout in
 `~/.claude/skills` are removed, so no skill shows up twice.
 `install.sh --check` only checks.
 
@@ -79,12 +79,12 @@ Claude Code installs a copy of the plugin. After a `git pull`, run
 
 From a herdr pane, in your repo, on the feature branch:
 
-- **With a plan.** `/phutschi:orchestrate <path>`. The path is a markdown
+- **With a plan.** `/tower:orchestrate <path>`. The path is a markdown
   plan with `### Task <id>: <title>` headings (what
-  `/phutschi:spec-to-plan` writes), or a TSV (`id<TAB>title<TAB>area`, see
+  `/tower:spec-to-plan` writes), or a TSV (`id<TAB>title<TAB>area`, see
   `skills/orchestrate/example-tasks.tsv`). Keep plans wherever you like;
   the kit only takes the path.
-- **Without.** `/phutschi:orchestrate` alone. The layout comes up, the
+- **Without.** `/tower:orchestrate` alone. The layout comes up, the
   orchestrator reports the pane map (`panes.txt` in the run dir), and your
   next message is the work. It derives the task list, puts it on the board,
   and briefs the lanes. Say "two lanes" or "ask me before you brief" if you
@@ -150,7 +150,7 @@ this order:
 4. **Preflight** checks the whole branch: semgrep and gitleaks on the diff,
    the repo's full suite, then agent review by area. R1 runs the checks and
    reviews the spec and problems between lanes; R2 reviews security,
-   performance and error handling. `/phutschi:preflight` is also a skill of
+   performance and error handling. `/tower:preflight` is also a skill of
    its own: run it on any branch, without herdr.
 5. **One table, one reply.** The orchestrator shows you every finding in
    one table with a suggested outcome: fix, accept, follow-up or reject.
@@ -238,17 +238,19 @@ stubs under `skills/orchestrate/tests/stub/` log what would be called.
 (`.shellcheckrc` holds the deliberate exceptions). CI runs both on Linux and
 macOS.
 `./test.sh --fast` skips the slow sections (preflight's look and the whole
-run) and is the check gate in the kit's own `.orchestrate`; the full
-`./test.sh` is its full suite.
+run) and is part of the check gate in tower's `.orchestrate`; the full
+`./test.sh` is one of its suite steps.
 
-## Layout of this repo
+## Where the kit lives in tower
 
 ```
-.claude-plugin/        the phutschi marketplace and plugin manifests
+.claude-plugin/        the phutschi-tower marketplace and the tower plugin manifest
+src/                   the tower CLI (not part of the kit)
+skills/run/            the runner-neutral skill (not part of the kit)
 skills/orchestrate/    the orchestrator's skill and scripts; tests/ holds the stubs and fixtures
 skills/spec-to-plan/   the planning skill and its plan template
 skills/preflight/      the whole-branch check
-install.sh, test.sh    install and test everything
+install.sh, test.sh    install and test the kit
 ```
 
 ## Design

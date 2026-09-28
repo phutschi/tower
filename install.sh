@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Install the phutschi plugin and check what it needs.
+# Install the tower plugin's kit and check what it needs.
 #
-#   install.sh           check dependencies, then register this repo as the
-#                        phutschi marketplace in Claude Code and install the
-#                        phutschi plugin (/phutschi:orchestrate,
-#                        /phutschi:spec-to-plan, /phutschi:preflight), and link
+#   install.sh           check dependencies, then register this repo as a
+#                        marketplace in Claude Code and install its plugin
+#                        (/tower:orchestrate,
+#                        /tower:spec-to-plan, /tower:preflight), and link
 #                        the same skills for codex: orchestrate and
 #                        spec-to-plan into ~/.agents/skills, preflight into
 #                        ~/.agents/skills and ~/.codex/skills
@@ -77,8 +77,8 @@ for n in orchestrate spec-to-plan preflight; do link "$SKILLS/$n" "$HOME/.agents
 link "$SKILLS/preflight" "$HOME/.codex/skills" preflight
 cat <<'MSG'
 
-Plan, in any session:  /phutschi:spec-to-plan <spec path or issue URL>
+Plan, in any session:  /tower:spec-to-plan <spec path or issue URL>
 Run, from a herdr pane in your repo on the feature branch:
-  with a plan:   /phutschi:orchestrate <path to plan.md or tasks.tsv>
-  without:       /phutschi:orchestrate, then say what to build
+  with a plan:   /tower:orchestrate <path to plan.md or tasks.tsv>
+  without:       /tower:orchestrate, then say what to build
 MSG

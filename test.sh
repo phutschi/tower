@@ -868,8 +868,8 @@ if section install; then
   assert_eq "install: preflight linked into ~/.codex/skills" "$(readlink "$H/.codex/skills/preflight")" "$PREFLIGHT_DIR"
   assert_match "install: lists herdr as ok (stub)"    "$out" 'ok +herdr'
   assert_match "install: tower optional"              "$out" 'tower'
-  assert_match "install: prints the two openings"     "$out" 'with a plan: +/phutschi:orchestrate'
-  assert_match "install: prints how to plan"          "$out" '/phutschi:spec-to-plan'
+  assert_match "install: prints the two openings"     "$out" 'with a plan: +/tower:orchestrate'
+  assert_match "install: prints how to plan"          "$out" '/tower:spec-to-plan'
   assert_match "install: semgrep is optional"         "$out" 'semgrep.*optional'
   assert_match "install: gitleaks is optional"        "$out" 'gitleaks.*optional'
   links() { find "$H" -type l -exec sh -c 'printf "%s -> %s\n" "$1" "$(readlink "$1")"' _ {} \; | sort; }

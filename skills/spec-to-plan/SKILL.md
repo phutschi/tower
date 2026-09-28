@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 # Spec to plan
 
-Produce `plan.md`: the file a later `/phutschi:orchestrate` session hands
+Produce `plan.md`: the file a later `/tower:orchestrate` session hands
 to tower. The plan carries **what** each task delivers and **where** it lands;
 the executor's tdd loop decides **how**. A plan step that shows test or
 implementation code pre-empts that loop and goes stale on first contact,
@@ -18,7 +18,8 @@ path, stop.
 ## 1. Gather
 
 The spec is the argument (a path or tracker URL) or the one already in the
-conversation. Without either, ask for it.
+conversation. Without either, ask for it. A spec named only by its number
+lives in the tracker `docs/agents/issue-tracker.md` names.
 
 Read the repo: `CONTEXT.md` and `docs/adr/` if present, then the modules the
 spec touches, far enough to name real files and existing seams. Use the
