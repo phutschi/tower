@@ -579,6 +579,45 @@ if section watch; then
   done
   echo idle > "$S/r"; sed -n '/^## Who does what/,/^Look only/p' "$PREFLIGHT_DIR/SKILL.md" > "$S/r.tail"; names_report "preflight skill" "$S/r.tail"; out=$(watch r)
   assert_match "idle with only the preflight skill's Reviewer lines in the tail is unexplained" "$out" '^attention: r idle-unexplained'
+  # Report rounds: after a fix prompt the orchestrator watches <agent>:<n>, and
+  # only round n's end line counts; an earlier report's line is still in the tail.
+  echo idle > "$S/b"; printf "[[READY TO MERGE]]\nFix finding R-1 in watch-lanes.sh, then report again.\n" > "$S/b.tail"; out=$(watch b:2)
+  assert_match "round 2: an old round-1 end line after a fix prompt is unexplained" "$out" '^attention: b idle-unexplained'
+  echo idle > "$S/b"; printf "[[READY TO MERGE]]\nFix finding R-1 in watch-lanes.sh, then report again.\n[[READY TO MERGE r2]]\n" > "$S/b.tail"; out=$(watch b:2)
+  assert_match "round 2: round 2's end line reads as the report" "$out" '^attention: b idle-after-final-report'
+  echo idle > "$S/a"; printf '[[ALL DONE r2]]\n' > "$S/a.tail"; out=$(watch a:3)
+  assert_match "round 3: round 2's end line is unexplained" "$out" '^attention: a idle-unexplained'
+  echo idle > "$S/a"; printf '[[ALL DONE r30]]\n' > "$S/a.tail"; out=$(watch a:3)
+  assert_match "round 3: round 30's end line is unexplained" "$out" '^attention: a idle-unexplained'
+  echo idle > "$S/b"; printf '⏺ [[ Ready to merge R2 ]]\n' > "$S/b.tail"; out=$(watch b:2)
+  assert_match "round 2: the round tag in another case or with spaces still reads as the report" "$out" '^attention: b idle-after-final-report'
+  echo idle > "$S/b"; printf 'end the round with [[READY TO MERGE r2]] once green\n' > "$S/b.tail"; out=$(watch b:2)
+  assert_match "round 2: a quoted round-2 end line is not the report" "$out" '^attention: b idle-unexplained'
+  echo idle > "$S/b"; printf '[[READY TO MERGE r2]]\n' > "$S/b.tail"; out=$(watch b)
+  assert_match "a bare name: an end line with a round tag is unexplained" "$out" '^attention: b idle-unexplained'
+  echo idle > "$S/b"; printf '[[READY TO MERGE]]\n' > "$S/b.tail"; out=$(watch b:1)
+  assert_match "round 1 named explicitly reads like a bare name" "$out" '^attention: b idle-after-final-report'
+  echo idle > "$S/r"; printf '[[FINDINGS WRITTEN r2]] /run/findings/lane-a-2.json\n' > "$S/r.tail"; out=$(watch r:2)
+  assert_match "round 2: a Reviewer's findings line is no round-2 end line" "$out" '^attention: r idle-unexplained'
+  # Each agent is held to its own round.
+  echo idle > "$S/a"; printf '[[ALL DONE r2]]\n' > "$S/a.tail"; echo idle > "$S/b"; printf '[[READY TO MERGE]]\n' > "$S/b.tail"
+  out=$(watch a:2 b)
+  assert_match "a:2 b: a reads its round-2 end line"  "$out" '^attention: a idle-after-final-report'
+  assert_match "a:2 b: b reads its round-1 end line"  "$out" '^attention: b idle-after-final-report'
+  out=$(watch a b:2)
+  assert_match "a b:2: a's round-2 line is no round-1 end line" "$out" '^attention: a idle-unexplained'
+  assert_match "a b:2: b's round-1 line is no round-2 end line" "$out" '^attention: b idle-unexplained'
+  reset_stub; echo idle > "$S/b"; printf '[[READY TO MERGE r2]]\n' > "$S/b.tail"; out=$(watch b:2)
+  assert_match "round 2: the state table names the bare agent" "$out" '^b +idle$'
+  assert_nomatch "round 2: no output names the round suffix" "$out" 'b:2'
+  assert_nomatch "round 2: herdr gets the bare name" "$(cat "$HERDR_STUB_LOG")" 'b:2'
+  assert_match "round 2: herdr reads the agent by its bare name" "$(cat "$HERDR_STUB_LOG")" '^herdr agent read b '
+  for arg in 'a:' 'a:x' 'a:0' 'a:-1' 'a:2:3' ':2'; do
+    reset_stub; out=$(watch "$arg")
+    assert_match "malformed agent argument $arg: the usage line" "$out" '^usage: watch-lanes\.sh '
+    assert_match "malformed agent argument $arg: exit 1" "$out" 'exit=1$'
+    assert_nomatch "malformed agent argument $arg: no herdr call" "$(cat "$HERDR_STUB_LOG")" '^herdr '
+  done
   echo idle > "$S/a"; printf 'Running tests...\n' > "$S/a.tail"; out=$(watch a)
   assert_match "idle without a report is unexplained" "$out" '^attention: a idle-unexplained'
   echo gone > "$S/a"; out=$(watch a)
