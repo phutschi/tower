@@ -135,8 +135,12 @@ this order:
    claude-fable-5-1, codex on the reviewed lane's model); bootstrap prints
    the choice and any fallback on its `reviewer:` line. Reviewers only report. The orchestrator triages their
    findings alone: a real problem the lane introduced goes back to that
-   lane as a fix task, the rest waits for the preflight table. A fix loop
-   stops after two rounds and comes to you.
+   lane as a fix task, the rest waits for the preflight table. Each fix
+   prompt starts the lane's next report round and asks for an end line
+   that carries the round's number; the orchestrator then watches the lane
+   as `watch-lanes.sh <run-dir> <agent>:<n>`, so an earlier report
+   still on the screen never reads as done. A fix loop stops after the
+   second re-review and comes to you.
 2. **The review tab.** The first review opens a second tab with two
    slots, R1 and R2 (`add-reviewer.sh`). Every review starts a new agent in
    a slot and becomes a task on the board owned by that slot. The tab

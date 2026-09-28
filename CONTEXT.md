@@ -157,3 +157,10 @@ report, idle unexplained, done, or gone.
 
 **Settled**:
 A lane whose executor has stopped working, for any reason.
+
+**Report round**:
+One ask for a lane's end line: round 1 is its brief, and each fix prompt after
+it starts the next round, whose end line carries the round's number. The
+watch counts only the expected round's end line. A re-brief after blocked or
+idle-unexplained keeps the round.
+_Avoid_: fix round (a round is the ask, not the fix), iteration

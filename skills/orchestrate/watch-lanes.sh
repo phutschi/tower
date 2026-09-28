@@ -2,7 +2,9 @@
 # One round of process-level watching. Run it in the background from the
 # orchestrator right after `herdr agent prompt`, and re-run it after each exit.
 #
-#   watch-lanes.sh <run-dir> <agent-name>...     lane and Reviewer agents alike
+#   watch-lanes.sh <run-dir> <agent>[:<round>]...   lane and Reviewer agents alike
+#   round: the report round the orchestrator expects, an integer >= 1; a bare
+#   <agent> means round 1. The output names the agent without it.
 #   env: ROUND_SECONDS (540)  GRACE_SECONDS (45)  POLL_SECONDS (15)
 #
 # Task-level attention (blocked / stale / complete / closed) is tower's job:
@@ -32,6 +34,14 @@
 # Briefs and skills describe the marker and never spell it, so a pane that
 # still shows only its brief reads idle-unexplained.
 #
+# Report rounds: round 1 is the brief's report, with the markers above. Each
+# fix prompt after it starts round <n> (2, 3, ...) and asks for the same marker
+# with the round tag r<n> inside the brackets, [[ALL DONE r2]] or
+# [[READY TO MERGE r2]]; the orchestrator then watches <agent>:<n>. Only the
+# expected round's marker counts: an earlier report's line still in the tail
+# reads idle-unexplained, and so does a tagged line for a bare name. A
+# Reviewer is a fresh agent per review, so it only ever has round 1.
+#
 # Reviewer agents (add-reviewer.sh) are watched like lane agents: pass their
 # names too.
 #
@@ -41,15 +51,30 @@ set -uo pipefail
 KIT="$(cd "$(dirname "$0")" && pwd)"
 . "$KIT/common.sh"
 in_herdr; need python3
-[ $# -ge 2 ] || die 'usage: watch-lanes.sh <run-dir> <agent-name>...'
+USAGE='usage: watch-lanes.sh <run-dir> <agent>[:<round>]...   round: an integer >= 1, default 1'
+[ $# -ge 2 ] || die "$USAGE"
 RUN_DIR="$1"; shift
+# <agent>[:<round>] → NAMES and ROUNDS, by index.
+NAMES=(); ROUNDS=()
+for arg in "$@"; do
+  name=${arg%%:*}; round=1; case "$arg" in *:*) round=${arg#*:} ;; esac
+  [ -n "$name" ] && [[ "$round" =~ ^[1-9][0-9]*$ ]] || die "$USAGE"
+  NAMES+=("$name"); ROUNDS+=("$round")
+done
 ROUND=${ROUND_SECONDS:-540}; GRACE=${GRACE_SECONDS:-45}; POLL=${POLL_SECONDS:-15}
 
 state_of() { herdr agent get "$1" 2>/dev/null | jsonq 'd["result"]["agent"]["agent_status"]' 2>/dev/null || echo gone; }
 tail_of()  { herdr agent read "$1" --source recent-unwrapped --lines 40 2>/dev/null | grep -v '^[[:space:]]*$' | tail -12; }
-reason_for() {  # $1 name, $2 state
+# The end line of round $1: round 1 is the brief's report, a later round a fix
+# prompt's, with the round tag r<n> inside the brackets.
+end_line() {
+  local phrase='(ALL DONE|READY TO MERGE|FINDINGS WRITTEN)'
+  [ "$1" = 1 ] || phrase="(ALL DONE|READY TO MERGE) +r$1"
+  echo "^[[:space:]]*([^[:alnum:][:space:]+#-]+[[:space:]]*)?\\[\\[ *$phrase *\\]\\]"
+}
+reason_for() {  # $1 name, $2 state, $3 round
   case "$2" in
-    idle) if tail_of "$1" | grep -qiE '^[[:space:]]*([^[:alnum:][:space:]+#-]+[[:space:]]*)?\[\[ *(ALL DONE|READY TO MERGE|FINDINGS WRITTEN) *\]\]'; then echo idle-after-final-report; else echo idle-unexplained; fi ;;
+    idle) if tail_of "$1" | grep -qiE "$(end_line "$3")"; then echo idle-after-final-report; else echo idle-unexplained; fi ;;
     *)    echo "$2" ;;
   esac
 }
@@ -61,11 +86,11 @@ board()    { tower_ok && tower state --json --run "$RUN_DIR" 2>/dev/null | pytho
 finished() { local b; if [ $# -ge 2 ]; then b=$2; else b=$(board); fi
   case "$b" in closed) return 0 ;; complete) [ "$1" = 0 ] ;; *) return 1 ;; esac; }
 
-IDLE_SEEN=(); i=0; for _ in "$@"; do IDLE_SEEN[$i]=0; i=$((i+1)); done
+IDLE_SEEN=(); i=0; for _ in "${NAMES[@]}"; do IDLE_SEEN[$i]=0; i=$((i+1)); done
 started=$(date +%s)
 while [ $(( $(date +%s) - started )) -lt "$ROUND" ]; do
   settled=0; working=0; i=0
-  for name in "$@"; do
+  for name in "${NAMES[@]}"; do
     case "$(state_of "$name")" in
       working|unknown) IDLE_SEEN[$i]=0; working=1 ;;
       idle) if [ $(( $(date +%s) - started )) -ge "$GRACE" ]; then
@@ -86,16 +111,16 @@ alert=0; i=0
 # a single fresh sample here would let a lane idle for its very first poll
 # report attention just because a *different* lane is what broke the loop.
 STATES=()
-for name in "$@"; do
+for name in "${NAMES[@]}"; do
   state=$(state_of "$name"); STATES[$i]=$state
   case "$state" in
-    idle) [ "${IDLE_SEEN[$i]}" -ge 2 ] && { alert=1; echo "attention: $name $(reason_for "$name" "$state")"; } ;;
-    blocked|done|gone) alert=1; echo "attention: $name $(reason_for "$name" "$state")" ;;
+    idle) [ "${IDLE_SEEN[$i]}" -ge 2 ] && { alert=1; echo "attention: $name $(reason_for "$name" "$state" "${ROUNDS[$i]}")"; } ;;
+    blocked|done|gone) alert=1; echo "attention: $name $(reason_for "$name" "$state" "${ROUNDS[$i]}")" ;;
   esac
   i=$((i+1))
 done
 i=0; working=0
-for name in "$@"; do
+for name in "${NAMES[@]}"; do
   state=${STATES[$i]}
   case "$state" in
     working|unknown) working=1 ;;

@@ -92,11 +92,23 @@ PANES you may read instead of re-running suites (herdr pane read <id> --source r
 
 Do not stop between tasks to ask whether to continue. If you cannot proceed: tower block <id> "<exactly what you need>", then stop and wait.
 
-WHEN YOUR LAST TASK IS DONE: {{lane A: "run the check gate from the repo root, then a final whole-implementation review (claude: subagent, model opus; codex: self-review of the whole lane diff with the code-review skill), fix what it flags, then  tower note --lane A 'ALL DONE - check green'  and report a summary; end your message with a last line of ALL DONE in double square brackets."  other lanes: "run the check gate for your files, then  tower note --lane {{LANE}} 'lane {{LANE}} complete - ready to merge' , end your message with a last line of READY TO MERGE in double square brackets, and wait; the orchestrator merges you."}} A Reviewer then reviews your lane. Stay in this session: fix tasks from that review come to you on the board and by prompt; do them like any task, and after the last one end your message with the same last line again.
+WHEN YOUR LAST TASK IS DONE: {{lane A: "run the check gate from the repo root, then a final whole-implementation review (claude: subagent, model opus; codex: self-review of the whole lane diff with the code-review skill), fix what it flags, then  tower note --lane A 'ALL DONE - check green'  and report a summary; end your message with a last line of ALL DONE in double square brackets."  other lanes: "run the check gate for your files, then  tower note --lane {{LANE}} 'lane {{LANE}} complete - ready to merge' , end your message with a last line of READY TO MERGE in double square brackets, and wait; the orchestrator merges you."}} A Reviewer then reviews your lane. Stay in this session: fix tasks from that review come to you on the board and by prompt; do them like any task, and end your reply to each fix prompt with the last line that prompt names.
 
 Begin now with task {{FIRST_ID}}.
 
 --- (paste the output of `tower brief <lane>` below this line) ---
+
+## Fix prompts
+
+A lane review's fix tasks, and preflight's for lane A, go to the lane in
+one fix prompt, sent with `herdr agent prompt <agent> "<the fix prompt>"`.
+`{{REPORT_ROUND}}` is the report round `<n>` it starts (SKILL.md steps 8
+and 12).
+
+### Fix prompt
+
+Report round {{REPORT_ROUND}}: {{"the lane review" | "preflight"}} found problems in your work. Your fix tasks are on the board: {{TASK_IDS}}. {{One line per task: its finding, the file and line it cites, and what to change.}} Do them like any task, with the same METHOD and reporting. When the last one is done, run the check gate {{lane A: "from the repo root" | other lanes: "for your files"}}, then  {{lane A: "tower note --lane A 'report round {{REPORT_ROUND}} done - check green'" | other lanes: "tower note --lane {{LANE}} 'report round {{REPORT_ROUND}} done - ready to merge'"}} . End your message with a last line of {{lane A: "ALL DONE" | other lanes: "READY TO MERGE"}}, a space and r{{REPORT_ROUND}}, all inside double square brackets.
+Stay in this session: another review may follow.
 
 ## Reviewer briefs
 
