@@ -23,7 +23,8 @@ the next round looks again. Each round `<n>` (from 1) writes into its own
 findings dir, `<preflight-dir>/<n>/`. A look is **red** while it has an
 **open** must-fix finding: one not triaged `accept`, `follow-up` or
 `reject` in an earlier round (the same area, file and title). A finding
-triaged `fix` stays open until a later round no longer finds it. `look.sh`
+triaged `fix` stays open until a later round that reviews its area no
+longer finds it. `look.sh`
 exits 1 on any must-fix finding; it does not know the triage.
 
 ## Who does what
@@ -97,8 +98,9 @@ run, the `switches:` line of `panes.txt` has the values the run uses.
    list.
    - Alone on claude: one subagent per area, in parallel. Its prompt holds:
      the area's file(s), `findings.md`, the merge base, the path
-     `<findings-dir>/<area>.json` to write, and the rule that it writes
-     that file and nothing else.
+     `<findings-dir>/<area>.json` to write, the rule that it writes that
+     file and nothing else, and from round 2 the earlier rounds' findings
+     dirs with their triage.
    - Alone on codex: the areas one after another, each to
      `<findings-dir>/<area>.json`.
    - A Reviewer: your areas one after another, all into your one findings
@@ -106,16 +108,16 @@ run, the `switches:` line of `panes.txt` has the values the run uses.
      look's `suite` finding (step 3) and, when the brief asks for it, the
      fix-commit review.
 
-   The review covers `git diff $(git merge-base origin/<base> HEAD)`. An area is
-   done when each rule of its file is applied to every changed file and
-   its verdict row is written, with `detail` saying what was checked.
+   The review covers `git diff $(git merge-base origin/<base> HEAD)`. An
+   area is done when each rule of its file is applied to every changed file
+   and its verdict row is written, with `detail` saying what was checked.
    The fix-commit review (a Reviewer from round 2, when its brief asks):
    the brief's `git diff <fix-base>..HEAD` against the findings the fixes
-   answer. One verdict row, step `fixes`; each finding takes the area of
-   the finding it re-checks. Every review from round 2: leave out a finding
-   an earlier round triaged `accept`, `follow-up` or `reject`; report a
-   finding triaged `fix` that is still there again, since its fix did not
-   hold.
+   answer. One verdict row, step `fixes`. Every review from round 2: leave
+   out a finding an earlier round triaged `accept`, `follow-up` or
+   `reject`. For each finding triaged `fix`, re-read the lines it cited;
+   when you still see its problem, the fix did not hold: report it again
+   with that finding's area, file and title, so it matches (see open).
 5. A Reviewer ends here, with its findings line (see "Who does what").
 
 ### A red look
@@ -130,6 +132,9 @@ must-fix finding is open; carry those outcomes into the final table. After two r
 
 1. **Collect** every `*.json` in this round's findings dir. Inside a run,
    in round 1 also add the findings you deferred during lane reviews.
+   Findings with the same area, file and title are one row. From round 2,
+   leave out those an earlier round triaged `accept`, `follow-up` or
+   `reject` (`look.json` repeats them: `look.sh` does not know the triage).
 2. **Triage** each finding, adding the fields in `findings.md`:
    - **Validity**: re-read the cited lines yourself. The evidence names the
      lines you read. The reviewer's word is not evidence.
@@ -161,8 +166,8 @@ must-fix finding is open; carry those outcomes into the final table. After two r
    and reviews the fix commits, and Reviewers review those areas plus the
    ones this round skipped (a red look or a setup error). Its findings, new
    ones and fixes that did not hold, get a new table and a new
-   confirmation. When round 3's triage still has a finding
-   triaged `fix`, stop and hand it to the human.
+   confirmation. When round 3's triage still has a finding triaged `fix`,
+   stop and hand it to the human.
 6. **Follow-ups.** One issue per follow-up of every round, in the tracker.
    Keep each issue's link for the PR body.
 7. **PR body.** Fill `PR_TEMPLATE`, else `templates/pr-body.md`, into
