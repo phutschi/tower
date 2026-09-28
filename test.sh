@@ -61,7 +61,7 @@ for _tool in herdr tower claude codex semgrep gitleaks; do
   [ "$_which" = "$KIT/tests/stub/$_tool" ] || { echo "test.sh: $_tool resolves to '$_which', not the stub ($KIT/tests/stub/$_tool) — refusing to run" >&2; exit 1; }
 done
 unset _tool _which
-reset_stub() { : > "$HERDR_STUB_LOG"; rm -f "$HERDR_STUB_COUNTER" "$HERDR_STUB_COUNTER.busy" "$HERDR_STUB_COUNTER.tower-ids"; }
+reset_stub() { : > "$HERDR_STUB_LOG"; rm -f "$HERDR_STUB_COUNTER" "$HERDR_STUB_COUNTER.busy" "$HERDR_STUB_COUNTER.tower-ids" "$HERDR_STUB_COUNTER.enters"; }
 # A git repo built from tests/fixtures/<name> (or empty). Prints its path.
 fixture_repo() {
   local d="$TMP/repos/$1"
@@ -401,6 +401,7 @@ if section add-reviewer; then
   out=$(review R1 claude "Lane review A, round 2" "$RUN/findings/lane-a-2.json"); log=$(cat "$HERDR_STUB_LOG")
   assert_match "again in R1: the previous Reviewer is sent /exit" "$log" '^herdr pane send-text pane-1 /exit$'
   assert_match "again in R1: and Enter"               "$log" '^herdr pane send-keys pane-1 Enter$'
+  assert_eq "again in R1: one Enter when the first one ends it" "$(grep -c '^herdr pane send-keys pane-1 Enter$' "$HERDR_STUB_LOG")" 1
   [ "$(line_of '^herdr pane send-keys pane-1 Enter')" -lt "$(line_of '^herdr agent start')" ] && ok "again in R1: ended before the new agent starts" || bad "again in R1: ended before the new agent starts" "$log"
   assert_match "again in R1: a new agent in the same pane" "$log" '^herdr agent start bun-vitest-r1-2 --kind codex --pane pane-1 '
   assert_eq "pane map: one line per slot"             "$(grep -c '^reviewer R1:' "$RUN/panes.txt")" 1
@@ -514,6 +515,17 @@ if section add-reviewer; then
   reset_stub; out=$(cd "$r" && CLAUDE_STUB=absent "$KIT/add-reviewer.sh" "$RUNM2" R1 codex "Codex lanes" "$RUNM2/findings/c.json" 2>&1)
   assert_match "no lane named, lane A is claude: the first codex lane (B) stands in" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-r1-1 --kind codex --pane [^ ]+ -- -m gpt-6-astra-b '
   assert_match "a lane not in the pane map is refused" "$(cd "$r" && "$KIT/add-reviewer.sh" "$RUNM" R1 codex "X" "$RUNM/findings/x.json" D 2>&1)" "no lane D in $RUNM/panes.txt"
+  # codex can swallow the first Enter after /exit (its slash-command popup takes
+  # it): while the Reviewer is still there, Enter is pressed again.
+  RUNE="$TMP/run-review-exit"; reset_stub
+  (cd "$r" && "$KIT/bootstrap.sh" "$RUNE" "Exit" main >/dev/null 2>&1)
+  (cd "$r" && "$KIT/add-reviewer.sh" "$RUNE" R1 claude "First" "$RUNE/findings/a.json" >/dev/null 2>&1)
+  echo idle > "$S/bun-vitest-r1-1"; : > "$HERDR_STUB_LOG"
+  out=$(cd "$r" && HERDR_STUB_EXIT_ON_ENTER=2 EXIT_WAIT_SECONDS=15 "$KIT/add-reviewer.sh" "$RUNE" R1 claude "Second" "$RUNE/findings/b.json" 2>&1; echo "exit=$?")
+  rm -f "$S/bun-vitest-r1-1"
+  assert_match "a Reviewer that needs a second Enter still ends" "$out" 'exit=0$'
+  assert_eq "it gets the second Enter"                "$(grep -cE '^herdr pane send-keys [^ ]+ Enter$' "$HERDR_STUB_LOG")" 2
+  assert_match "then the new Reviewer starts"         "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-r1-2 '
   RUN4="$TMP/run-review-busy"; reset_stub
   (cd "$r" && "$KIT/bootstrap.sh" "$RUN4" "Busy" main >/dev/null 2>&1); reset_stub
   out=$(cd "$r" && HERDR_STUB_BUSY_STARTS=1 "$KIT/add-reviewer.sh" "$RUN4" R1 claude "Busy" "$RUN4/findings/a.json" 2>&1; echo "exit=$?")
