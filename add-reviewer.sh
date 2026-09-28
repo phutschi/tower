@@ -40,7 +40,7 @@
 #
 # Prints the slot ids (on the first call), the fallback note when reviewer_for
 # fell back ("reviewer: fallback: ..."), and the task id with the next step:
-# brief the Reviewer (brief-template.md) and add its agent to both watchers.
+# brief the Reviewer (brief-template.md) and add its agent to watch-lanes.sh.
 #
 # Never run this for real to see what it does; use DRY_RUN=1, which answers
 # every herdr and tower call from tests/stub and touches nothing.
@@ -129,4 +129,4 @@ LINE=$(printf 'reviewer %s:    %s   (agent "%s", kind %s, model %s, review "%s",
 echo "$LINE" >> "$MAP.tmp"; mv "$MAP.tmp" "$MAP"
 
 [ -z "$R_NOTE" ] || echo "reviewer: $R_NOTE"
-echo "reviewer $SLOT ready (task $ID): agent $NAME ($R_KIND, $R_MODEL) in $PANE — next: write $RUN_DIR/brief-$ID.md from brief-template.md (a Reviewer brief; findings to $FINDINGS), then  herdr agent prompt $NAME \"\$(cat $RUN_DIR/brief-$ID.md)\"  and add $NAME to both watchers"
+echo "reviewer $SLOT ready (task $ID): agent $NAME ($R_KIND, $R_MODEL) in $PANE — next: write $RUN_DIR/brief-$ID.md from brief-template.md (a Reviewer brief; findings to $FINDINGS), then  herdr agent prompt $NAME \"\$(cat $RUN_DIR/brief-$ID.md)\"  and add $NAME to watch-lanes.sh"

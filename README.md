@@ -6,7 +6,7 @@ afterwards in [tower](https://github.com/phutschi/tower).
 
 You talk to the orchestrator. It opens the run, owns the task list, briefs
 the lanes, watches, has every lane reviewed, merges, checks the whole
-branch, opens a draft PR, and closes. It never writes code. Lanes execute
+branch, opens a pull request (a draft by default), and closes. It never writes code. Lanes execute
 their brief and report their own tasks. Reviewers review and report
 findings. Nothing else.
 
@@ -71,7 +71,8 @@ Nothing is closed until you say so.
 
 ## Reviews, preflight and the PR
 
-Every run ends in a pull request, in this order:
+A run ends in a pull request, a draft by default (the `PR` switch), in
+this order:
 
 1. **Lane review.** When a lane reports ready (lane A too, after its last
    task), a **Reviewer** reviews the lane's diff before it is merged. It is
@@ -99,8 +100,9 @@ Every run ends in a pull request, in this order:
    Your one reply approves the fixes, the follow-up issues (filed where
    `docs/agents/issue-tracker.md` says), the push and the PR. Nothing
    leaves your machine before it.
-6. **Draft PR.** The orchestrator pushes and opens the PR as a draft, with
-   a verdict table, the review of each area and the follow-ups in its body.
+6. **The PR.** The orchestrator pushes and opens the PR (a draft unless
+   `PR=ready`; `PR=off`: no push, no PR), with a verdict table, the review
+   of each area and the follow-ups in its body.
    Executors and Reviewers never push.
 
 ## Telling the kit about your repo

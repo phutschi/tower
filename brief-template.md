@@ -29,7 +29,7 @@ two standing rules. Then substitute the reporting:
 
 | with tower                                   | without                                                     |
 |----------------------------------------------|--------------------------------------------------------------|
-| `tower task <id> start\|done`                 | one commit per task, subject starting with the task id       |
+| `tower task <id> in_progress\|done`           | one commit per task, subject starting with the task id       |
 | `tower block <id> "<need>"`                  | stop, and state exactly what you need as your reply         |
 | `tower note --lane X '<text>'`               | say it as your reply; the orchestrator reads the pane       |
 | `tower state --json` (another lane's progress) | `git log <branch> --oneline`                              |
@@ -103,22 +103,28 @@ Begin now with task {{FIRST_ID}}.
 A Reviewer gets its own brief, not a lane's: one message, sent with
 `herdr agent prompt <reviewer-agent> "$(cat <run-dir>/brief-<task-id>.md)"`
 (add-reviewer.sh prints the agent, the task id and the findings file). No
-`tower brief` part. Both kinds use the same text.
+`tower brief` part. Both kinds use the same text. Without tower, drop the
+REPORT paragraph: `FINDINGS WRITTEN` is the report. In the empty opening
+there is no plan: name the tasks' titles from the board or `tasks.tsv`.
 
 ### Lane review
 
-You are a Reviewer in a herdr-orchestrate run, agent {{AGENT}}, board task {{TASK_ID}} (lane {{SLOT}}). Working directory: {{CHECKOUT}}. You review lane {{LANE}}'s work, which you did not write. You only report: never edit a file, commit, push or open a PR.
+You are a Reviewer in a herdr-orchestrate run, agent {{AGENT}}, board task {{TASK_ID}} (slot {{SLOT}}). Working directory: {{CHECKOUT}}, lane A's live checkout. You review lane {{LANE}}'s work, which you did not write. You only report: the one file you write is your findings file. Leave the working tree and the branch as they are; read other branches with  git diff  ,  git log  and  git show .
 
-Load the code-review skill and review the changes since the fixed point {{LANE_BASE}} on branch {{LANE_BRANCH}} ({{"lane A: lanes merged into it since then were reviewed already; review lane A's own commits"}}). The spec is tasks {{TASK_IDS}} of the plan {{PLAN}} and the spec it links. Also check the tests of each task: they cover its acceptance criteria and assert what a user or the next script sees.
+Load the code-review skill and review the changes on branch {{LANE_BRANCH}} since the fixed point {{LANE_BASE}}. {{lane A: "Review lane A's own commits:  git log --no-merges {{LANE_BASE}}..{{LANE_BRANCH}} --not {{OTHER_LANE_BRANCHES}} ; the other lanes get their own review."}} The spec is tasks {{TASK_IDS}} of the plan {{PLAN}} and the spec it links. Also check the tests of each task: they cover its acceptance criteria and assert what a user or the next script sees.
 
-Write every finding to {{FINDINGS_FILE}} in the format of {{KIT}}/preflight/findings.md (review "Lane review {{LANE}}", one verdict row per task). Report on the board: at the start  tower task {{TASK_ID}} reviewing --model {{MODEL}} ; at the end  tower note --task {{TASK_ID}} "<n> findings"  then  tower task {{TASK_ID}} done --model {{MODEL}} . If you cannot proceed: tower block {{TASK_ID}} "<what you need>".
+Write every finding to {{FINDINGS_FILE}} in the format of {{KIT}}/preflight/findings.md (review "Lane review {{LANE}}", one verdict row per task).
+
+REPORT: at the start  tower task {{TASK_ID}} reviewing --model {{MODEL}} ; at the end  tower note --task {{TASK_ID}} "<n> findings"  then  tower task {{TASK_ID}} done --model {{MODEL}} . If you cannot proceed:  tower block {{TASK_ID}} "<what you need>" .
 
 End with the line  FINDINGS WRITTEN {{FINDINGS_FILE}}  and stop.
 
 ### Preflight slot
 
-You are a Reviewer in a herdr-orchestrate run, agent {{AGENT}}, board task {{TASK_ID}} (lane {{SLOT}}). Working directory: {{CHECKOUT}}, the integration branch with every lane and origin/main merged. You only report: never edit a file, commit, push or open a PR.
+You are a Reviewer in a herdr-orchestrate run, agent {{AGENT}}, board task {{TASK_ID}} (slot {{SLOT}}). Working directory: {{CHECKOUT}}, the integration branch with every lane and origin/main merged. You only report: the one file you write is your findings file. Leave the working tree and the branch as they are.
 
-Load the preflight skill and run its look half as a Reviewer. Your areas: {{AREAS, e.g. R1: "spec (the whole plan {{PLAN}} and its spec issue), between-lanes"; R2: "security, performance, error-handling"}}. {{R1 only: "You run look.sh:  (cd {{CHECKOUT}} && {{KIT}}/preflight/look.sh origin/main {{RUN_DIR}}/findings/preflight) . If it is red, stop before your areas as the skill says." | R2: "Do not run look.sh; R1 runs it."}} Your findings file: {{RUN_DIR}}/findings/preflight/{{SLOT}}.json.
+Load the preflight skill and run its look half as a Reviewer. Your areas: {{AREAS, e.g. R1: "spec (the whole plan {{PLAN}} and its spec issue), between-lanes"; R2: "security, performance, error-handling"}}. {{R1: "You run look.sh:  (cd {{CHECKOUT}} && {{KIT}}/preflight/look.sh origin/main {{RUN_DIR}}/findings/preflight) . If it is red, stop before your areas as the skill says." | R2: "R1 runs look.sh; you review your areas only."}} Your findings file: {{FINDINGS_FILE}}.
 
-Report on the board as in a lane review (tower task {{TASK_ID}} …). End with the line  FINDINGS WRITTEN {{FINDINGS_FILE}}  and stop.
+REPORT: at the start  tower task {{TASK_ID}} reviewing --model {{MODEL}} ; at the end  tower note --task {{TASK_ID}} "<n> findings"  then  tower task {{TASK_ID}} done --model {{MODEL}} . If you cannot proceed:  tower block {{TASK_ID}} "<what you need>" .
+
+End with the line  FINDINGS WRITTEN {{FINDINGS_FILE}}  and stop.
