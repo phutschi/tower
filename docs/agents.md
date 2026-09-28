@@ -32,7 +32,10 @@ An executor that discovers a task the plan does not have adds it before
 starting it — `tower add "<title>" --lane <yours>` prints the new id, and the
 executor reports against that. `tower change` and `tower remove` (anyone,
 any time) edit and retire tasks the same way; the console picks them up
-without a restart.
+without a restart. In a `/tower:orchestrate` run the lane's brief overrides
+this: only the orchestrator changes the tasks, and a lane reports what it
+found with `tower note` or `tower block` and waits
+([ADR 0008](adr/0008-lanes-never-change-the-task-list.md)).
 
 If an agent runs bare `tower` in a tool call, it gets one text snapshot of the
 board and exit 0 — never a hung terminal app.
@@ -40,7 +43,9 @@ board and exit 0 — never a hung terminal app.
 ## The orchestrator
 
 The agent (or person) running the loop uses the [orchestrator
-skill](../skills/run/SKILL.md), which is harness-neutral. The loop:
+skill](../skills/run/SKILL.md), `/tower:run`, which is harness-neutral. Inside
+herdr, `/tower:orchestrate` runs the whole loop instead, from the layout to
+the pull request ([docs/orchestrate.md](orchestrate.md)). The loop:
 
 ```
 tower init --plan <plan> --lane A=… --lane B=…
