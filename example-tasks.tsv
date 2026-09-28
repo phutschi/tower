@@ -1,0 +1,22 @@
+# id	title	area	lane   (telegram-channel plan, 2026-09-03)
+1	The shared prompt shortcuts	packages/core	A
+2	The terminal builds its shortcuts from the shared list	apps/tui	A
+3	summarizeValue moves to packages/core	packages/core + apps/tui	A
+4	The Telegram environment and the config reader	apps/mastra	A
+5	The gate	apps/mastra	B
+6	The command parser, /help and the BotFather list	apps/mastra	A
+7	The paragraph splitter	apps/mastra	B
+8	The Tool-trace lines	apps/mastra	B
+9	The Tool-trace message, edited in place	apps/mastra	B
+10	Telegram thread naming, archiving and the per-thread model	apps/mastra	A
+11	Pin Mastra's channel metadata keys against Postgres	apps/mastra	A
+12	Voice notes	apps/mastra	B
+13	The surface hint	apps/mastra	B
+14	The onDirectMessage handler	apps/mastra	A
+15	notifyTelegram	apps/mastra	A
+16	POST /telegram/notify	apps/mastra	A
+17	Attach the Channel to the holli agent	apps/mastra	A
+18	surface on the threads route and the tRPC router	apps/mastra + packages/api	A
+19	The "Show Telegram threads" toggle	apps/nextjs	A
+20	The terminal's /threads tags Telegram rows	apps/tui	A
+21	Docs, the environment example and the runbook	docs	A

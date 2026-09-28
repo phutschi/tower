@@ -1,0 +1,24 @@
+# .herdr-orchestrate — what herdr-orchestrate needs to know about this repo.
+# Plain bash, sourced by the kit from the repo root. Everything is optional;
+# JS repos get a default from package.json when a value is missing. A value
+# set in the environment of a bootstrap or add-lane call wins over this file.
+
+# The check gate: one command every lane must pass before it commits a task.
+CHECK_CMD="bun run check"
+
+# Panes on the bottom row, running in lane A's checkout (the integration branch).
+#   pane NAME "COMMAND" [DIR]     NAME is checks or dev; DIR is relative to the checkout.
+pane checks "bun test --watch"
+# pane dev  "bun run dev" apps/web
+
+# The lanes: harness and model. claude (default, claude-opus-5-5[1m]) or codex
+# (gpt-6-astra). EXECUTOR_KIND=codex for one lane only goes in that add-lane call.
+# EXECUTOR_KIND=codex
+# EXECUTOR_MODEL=claude-opus-5-5[1m]
+
+# The reviewer models tower records for the run (defaults: sonnet, opus).
+# SPEC_REVIEWER_MODEL=sonnet
+# QUALITY_REVIEWER_MODEL=opus
+
+# Minutes of silence before the console flags a lane as stale (default 30).
+# STALE=30

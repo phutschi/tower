@@ -1,0 +1,13 @@
+# git worktrees created for lanes
+.worktrees/
+
+# node artifacts (fixtures only need package.json)
+node_modules/
+package-lock.json
+
+# OS / editor noise
+.DS_Store
+*.swp
+*~
+.idea/
+.vscode/

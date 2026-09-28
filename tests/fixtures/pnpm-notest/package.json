@@ -1,0 +1,1 @@
+{ "name": "pnpm-notest", "scripts": { "check-types": "tsc --noEmit" } }

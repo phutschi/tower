@@ -1,0 +1,24 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: shellcheck
+        if: runner.os == 'Linux'
+        run: shellcheck -S warning *.sh tests/stub/*
+      - name: test
+        run: |
+          git config --global user.name ci
+          git config --global user.email ci@example.invalid
+          git config --global init.defaultBranch main
+          ./test.sh
