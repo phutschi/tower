@@ -906,6 +906,12 @@ if section install; then
   assert_match "migrate: ... from every scope it is in" "$(cat "$TMP/log")" '^claude plugin uninstall phutschi@phutschi --scope local$'
   assert_match "migrate: removes the phutschi marketplace" "$(cat "$TMP/log")" '^claude plugin marketplace remove phutschi$'
   assert_eq "migrate: claude keeps others' marketplaces, and has tower instead of phutschi" "$(sort "$CLAUDE_STUB_STATE")" "$(printf 'marketplace acme-tools\nmarketplace phutschi-tower\nplugin tower@phutschi-tower user')"
+  # tower installed in project scope only: updated there, not installed again.
+  printf 'marketplace phutschi-tower\nplugin tower@phutschi-tower project\n' > "$CLAUDE_STUB_STATE"
+  reset_stub; out=$(HOME="$H4" "$ROOT/install.sh" 2>&1; echo "exit=$?")
+  assert_match "scopes: a project-only tower plugin installs fine" "$out" 'exit=0$'
+  assert_match "scopes: ... is updated in its own scope" "$(cat "$TMP/log")" '^claude plugin update tower@phutschi-tower --scope project$'
+  assert_nomatch "scopes: ... and not installed again"  "$(cat "$TMP/log")" '^claude plugin install '
   : > "$CLAUDE_STUB_STATE"
   out=$(HOME="$H4" CLAUDE_STUB_FAIL=install "$ROOT/install.sh" 2>&1; echo "exit=$?")
   assert_match "install: a claude command that fails is named" "$out" 'FAILED +claude plugin install tower@phutschi-tower'

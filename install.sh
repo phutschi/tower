@@ -114,8 +114,11 @@ if command -v claude >/dev/null; then
   else
     try "added     marketplace phutschi-tower -> $ROOT" claude plugin marketplace add "$ROOT"
   fi
-  if [ -n "$(scopes tower@phutschi-tower)" ]; then
-    try "updated   tower@phutschi-tower" claude plugin update tower@phutschi-tower
+  tower_scopes=$(scopes tower@phutschi-tower)
+  if [ -n "$tower_scopes" ]; then
+    for s in $tower_scopes; do
+      try "updated   tower@phutschi-tower ($s scope)" claude plugin update tower@phutschi-tower --scope "$s"
+    done
   else
     try "installed tower@phutschi-tower" claude plugin install tower@phutschi-tower
   fi

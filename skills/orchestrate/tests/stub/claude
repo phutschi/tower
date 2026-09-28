@@ -38,5 +38,5 @@ case "$cmd" in
   "plugin install")                  has "marketplace ${arg#*@}" || { echo "claude: marketplace ${arg#*@} not found (stub)" >&2; exit 1; }
                                      put "plugin $arg $(scope "$@")" ;;
   "plugin uninstall"|"plugin remove") drop "plugin $arg $(scope "$@")" ;;
-  "plugin update")                   grep -q "^plugin $arg " "$state" 2>/dev/null || exit 1 ;;
+  "plugin update")                   has "plugin $arg $(scope "$@")" || { echo "claude: plugin $arg not installed in $(scope "$@") scope (stub)" >&2; exit 1; } ;;
 esac
