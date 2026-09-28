@@ -104,14 +104,15 @@ if command -v claude >/dev/null; then
   # cannot say, it is FAILED: the install changes nothing and does not guess.
   listed() {
     local out
-    if out=$("$@" 2>/dev/null) && printf '%s' "$out" | python3 -c 'import json,sys; sys.exit(not isinstance(json.load(sys.stdin), list))' 2>/dev/null; then
+    if out=$("$@" 2>/dev/null) && printf '%s' "$out" | python3 -c 'import json,sys; d=json.load(sys.stdin); sys.exit(not (isinstance(d, list) and all(isinstance(x, dict) for x in d)))' 2>/dev/null; then
       printf '%s' "$out"
     else
       echo "  FAILED    $* (claude could not list what is installed, so no plugin was changed)" >&2; return 1
     fi
   }
   # The scopes plugin $1 is installed in for here: user, or a project or local
-  # install of this directory. Other directories' installs are theirs.
+  # install of the directory install.sh runs in (as claude scopes them, run
+  # from there). Other directories' installs are theirs.
   scopes() { printf '%s' "$PLUGINS" | python3 -c 'import json,os,sys; here=os.path.realpath(os.getcwd()); [print(p.get("scope","user")) for p in json.load(sys.stdin) if p.get("id")==sys.argv[1] and (not p.get("projectPath") or os.path.realpath(p["projectPath"])==here)]' "$1"; }
   marketplace() { printf '%s' "$MARKETS" | python3 -c 'import json,sys; sys.exit(not any(m.get("name")==sys.argv[1] for m in json.load(sys.stdin)))' "$1"; }
   if PLUGINS=$(listed claude plugin list --json) && MARKETS=$(listed claude plugin marketplace list --json); then

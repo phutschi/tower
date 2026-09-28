@@ -918,8 +918,14 @@ if section install; then
   assert_match "scopes: a local install elsewhere does not stop the install" "$out" 'exit=0$'
   assert_match "scopes: ... tower is installed for the user" "$(cat "$TMP/log")" '^claude plugin install tower@phutschi-tower$'
   assert_nomatch "scopes: ... and the other directory's install is left alone" "$(cat "$TMP/log")" '^claude plugin update '
+  # A local install of this directory, named through a symlink, is here.
+  ln -s "$PWD" "$TMP/here"
+  printf 'marketplace phutschi-tower\nplugin tower@phutschi-tower local %s\n' "$TMP/here" > "$CLAUDE_STUB_STATE"
+  reset_stub; out=$(HOME="$H4" "$ROOT/install.sh" 2>&1; echo "exit=$?")
+  assert_match "scopes: a local install of this directory is updated there" "$(cat "$TMP/log")" '^claude plugin update tower@phutschi-tower --scope local$'
+  assert_nomatch "scopes: ... and not installed again"   "$(cat "$TMP/log")" '^claude plugin install '
   # claude cannot say what is installed: the install fails and guesses nothing.
-  for how in CLAUDE_STUB_FAIL=list "CLAUDE_STUB_FAIL=marketplace list" CLAUDE_STUB_GARBAGE=1; do
+  for how in CLAUDE_STUB_FAIL=list "CLAUDE_STUB_FAIL=marketplace list" CLAUDE_STUB_GARBAGE=1 CLAUDE_STUB_GARBAGE=list; do
     printf 'marketplace phutschi\nplugin phutschi@phutschi user\n' > "$CLAUDE_STUB_STATE"
     reset_stub; out=$(env HOME="$H4" "$how" "$ROOT/install.sh" 2>&1; echo "exit=$?")
     assert_match "discover ($how): the failed list is named" "$out" 'FAILED +claude plugin (marketplace )?list --json'

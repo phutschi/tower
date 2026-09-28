@@ -7,7 +7,8 @@
 # (a project or local install elsewhere has a path), and list it as
 # claude's --json does. CLAUDE_STUB_FAIL=<command> makes that command fail:
 # install, uninstall, update or list, or marketplace add, remove, update or
-# list. CLAUDE_STUB_GARBAGE=1 makes the lists print something that is not JSON.
+# list. CLAUDE_STUB_GARBAGE=1 makes the lists print something that is not JSON, and
+# CLAUDE_STUB_GARBAGE=list a JSON list of numbers.
 [ "${CLAUDE_STUB:-}" = absent ] && { echo "claude: not installed (stub)" >&2; exit 127; }
 printf 'claude %s\n' "$*" >> "${HERDR_STUB_LOG:-/dev/null}"
 state="${CLAUDE_STUB_STATE:-${HERDR_STUB_COUNTER:-${TMPDIR:-/tmp}/herdr-stub-counter}.claude}"
@@ -31,12 +32,12 @@ esac
 [ -n "${CLAUDE_STUB_FAIL:-}" ] && [ "$verb" = "$CLAUDE_STUB_FAIL" ] && { echo "claude: $verb failed (stub)" >&2; exit 1; }
 case "$cmd" in
   --version*)                        echo "claude (stub)" ;;
-  "plugin marketplace list")         if [ -n "${CLAUDE_STUB_GARBAGE:-}" ]; then echo "not json"; else json marketplace; fi ;;
+  "plugin marketplace list")         case "${CLAUDE_STUB_GARBAGE:-}" in "") json marketplace ;; list) echo "[1, 2]" ;; *) echo "not json" ;; esac ;;
   "plugin marketplace add")          name=$(sed -n '/"name"/{s/^ *"name": *"\([^"]*\)".*/\1/p;q;}' "$arg/.claude-plugin/marketplace.json" 2>/dev/null)
                                      put "marketplace ${name:-$(basename "$arg")}" ;;
   "plugin marketplace remove"|"plugin marketplace rm") drop "marketplace $arg" ;;
   "plugin marketplace update")       has "marketplace $arg" || exit 1 ;;
-  "plugin list")                     if [ -n "${CLAUDE_STUB_GARBAGE:-}" ]; then echo "not json"; else json plugin; fi ;;
+  "plugin list")                     case "${CLAUDE_STUB_GARBAGE:-}" in "") json plugin ;; list) echo "[1, 2]" ;; *) echo "not json" ;; esac ;;
   "plugin install")                  has "marketplace ${arg#*@}" || { echo "claude: marketplace ${arg#*@} not found (stub)" >&2; exit 1; }
                                      put "plugin $arg $(scope "$@")" ;;
   "plugin uninstall"|"plugin remove") drop "plugin $arg $(scope "$@")" ;;
