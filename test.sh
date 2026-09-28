@@ -286,6 +286,14 @@ if section bootstrap; then
   out=$(boot "$r" "$RUN" "Planned" main "$KIT/example-tasks.tsv")
   assert_eq "planned: the task file's tasks are on the board" "$(board "$RUN" 'len(d["tasks"])')" "$(grep -c '^[0-9]' "$KIT/example-tasks.tsv")"
   assert_eq "planned: every task to lane A"             "$(board "$RUN" '",".join(t["lane"] for t in d["tasks"] if t["lane"] != "A") or "all A"')" "all A"
+  # A markdown plan: its tasks and titles reach the board, and LANES splits them.
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-plan-md"; reset_stub
+  out=$(LANES="A=1,2 B=3" boot "$r" "$RUN" "Plan" main "$KIT/tests/example-plan.md")
+  assert_eq "plan.md: its tasks, with their titles, are on the board" \
+    "$(board "$RUN" '"|".join(t["id"]+":"+t["title"] for t in d["tasks"])')" \
+    "1:The widget model|2:The widget list shows every widget|3:A widget can be renamed"
+  assert_eq "plan.md: LANES assigns each lane" \
+    "$(board "$RUN" '" ".join(k+"="+",".join(v) for k,v in sorted(d["lanes"].items()))')" "A=1,2 B=3"
   r=$(fixture_repo bun-vitest); RUN="$TMP/run-lanes"; reset_stub
   out=$(LANES="A=1 B=2,3" boot "$r" "$RUN" "Lanes" main "$KIT/example-tasks.tsv")
   assert_eq "planned: LANES assigns each lane"          "$(board "$RUN" '" ".join(k+"="+",".join(v) for k,v in sorted(d["lanes"].items()))')" "A=1 B=2,3"
