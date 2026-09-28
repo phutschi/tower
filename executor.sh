@@ -86,7 +86,11 @@ start_agent_with_trust_retry() {
       herdr agent get "$name" >/dev/null 2>&1 || start_agent "$name" "$pane" >/dev/null
       return
     else
-      echo "$out" >&2; return 1
+      echo "$out" >&2
+      if echo "$out" | grep -q agent_pane_busy; then
+        echo "agent start: pane $pane is still not a ready shell after $tries tries; check it, or raise START_TRIES" >&2
+      fi
+      return 1
     fi
   done
 }

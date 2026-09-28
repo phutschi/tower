@@ -265,11 +265,13 @@ if section bootstrap; then
   RUN="$TMP/run-busy"; reset_stub
   out=$(HERDR_STUB_BUSY_STARTS=1 boot "$r" "$RUN" "Busy" main; echo "exit=$?")
   assert_match "busy pane: bootstrap finishes"          "$out" 'exit=0$'
+  assert_nomatch "busy pane: a start that recovers shows no busy error" "$out" 'agent_pane_busy'
   assert_eq "busy pane: lane A's start is tried again"  "$(grep -c '^herdr agent start bun-vitest-lane-a ' "$HERDR_STUB_LOG")" 2
   RUN="$TMP/run-busy-long"; reset_stub
   out=$(HERDR_STUB_BUSY_STARTS=99 START_TRIES=3 boot "$r" "$RUN" "Busy long" main; echo "exit=$?")
   assert_eq "busy pane: START_TRIES starts, then it gives up" "$(grep -c '^herdr agent start bun-vitest-lane-a ' "$HERDR_STUB_LOG")" 3
   assert_match "busy pane: giving up shows herdr's answer" "$out" 'agent_pane_busy'
+  assert_match "busy pane: giving up says what to do"   "$out" 'pane pane-2 is still not a ready shell after 3 tries; check it, or raise START_TRIES'
   assert_match "busy pane: giving up fails bootstrap"    "$out" 'exit=1$'
 fi
 
@@ -305,6 +307,7 @@ if section add-lane; then
   assert_eq "no tower: ownership in lanes.txt"        "$(tail -1 "$RUN3/lanes.txt")" "B=2,3"
   reset_stub; out=$(cd "$r" && HERDR_STUB_BUSY_STARTS=1 "$KIT/add-lane.sh" "$RUN3" C feat/c main 4 2>&1; echo "exit=$?")
   assert_match "busy pane: add-lane finishes"         "$out" 'exit=0$'
+  assert_nomatch "busy pane: add-lane shows no busy error" "$out" 'agent_pane_busy'
   assert_eq "busy pane: the lane's start is tried again" "$(grep -c '^herdr agent start bun-vitest-lane-c ' "$HERDR_STUB_LOG")" 2
 fi
 
@@ -391,6 +394,7 @@ if section add-reviewer; then
   (cd "$r" && "$KIT/bootstrap.sh" "$RUN4" "Busy" main >/dev/null 2>&1); reset_stub
   out=$(cd "$r" && HERDR_STUB_BUSY_STARTS=1 "$KIT/add-reviewer.sh" "$RUN4" R1 claude "Busy" "$RUN4/findings/a.json" 2>&1; echo "exit=$?")
   assert_match "busy pane: add-reviewer finishes"     "$out" 'exit=0$'
+  assert_nomatch "busy pane: add-reviewer shows no busy error" "$out" 'agent_pane_busy'
   assert_eq "busy pane: the Reviewer's start is tried again" "$(grep -c '^herdr agent start bun-vitest-r1-1 ' "$HERDR_STUB_LOG")" 2
 fi
 
