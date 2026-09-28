@@ -82,10 +82,11 @@ and do it in a lane anyway or suggest doing it without the kit.
 7. **Act on attention.** `blocked` → decide, then re-brief with what the lane
    asked for (a discovered task: you add it, then tell the lane). `stale` or
    `idle-unexplained` → read the pane tail, then re-brief or wait. tower
-   wait's `complete` → leave tower wait off (on a complete board it returns at
-   once) and keep `watch-lanes.sh` running: a lane's final review comes after
-   its last task, and the watch prints `tower: run complete` once no watched
-   agent is working. A lane reporting ready (`ready to merge`, or lane A's
+   wait's `complete` → keep `watch-lanes.sh` running: a lane's final review
+   comes after its last task, and the watch prints `tower: run complete` once
+   no watched agent is working. tower wait returns at once on a complete
+   board, so run it again once the board has an open task (a review or fix
+   task you add). A lane reporting ready (`ready to merge`, or lane A's
    `ALL DONE` after its last task) → verify its check gate and commits, then
    its lane review (step 8; `LANE_REVIEW=off`: step 9). A Reviewer's
    `FINDINGS WRITTEN` → triage it (see "Triage"), and start the review of a

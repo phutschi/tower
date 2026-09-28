@@ -392,6 +392,12 @@ if section watch; then
   assert_match "lane B idle after its final report"   "$out" '^attention: b idle-after-final-report'
   echo idle > "$S/r"; printf '[[FINDINGS WRITTEN]] /run/findings/lane-a.json\n' > "$S/r.tail"; out=$(watch r)
   assert_match "a Reviewer idle after writing its findings" "$out" '^attention: r idle-after-final-report'
+  echo idle > "$S/a"; printf '⏺ [[ALL DONE]]\n' > "$S/a.tail"; out=$(watch a)
+  assert_match "the marker after a TUI bullet reads as the report" "$out" '^attention: a idle-after-final-report'
+  # The marker quoted inside other text (a diff, a comment, a sentence) is not
+  # a report: an agent reading the kit's own sources shows these.
+  echo idle > "$S/a"; printf '+# [[READY TO MERGE]] (lanes B-D)\nreport phrase in double square brackets, [[ALL DONE]] (lane A),\n' > "$S/a.tail"; out=$(watch a)
+  assert_match "a quoted marker is not the report"      "$out" '^attention: a idle-unexplained'
   echo idle > "$S/b"; printf '[[ Ready to merge ]]\n' > "$S/b.tail"; out=$(watch b)
   assert_match "the marker in another case or with spaces still reads as the report" "$out" '^attention: b idle-after-final-report'
   # A pane that still shows only its brief has not reported: the briefs name
@@ -427,6 +433,8 @@ if section watch; then
   assert_match "closed run, lane working: exit 0"      "$out" 'exit=0$'
   printf 'idle\nidle\nworking\n' > "$S/a"; out=$(ROUND=1 TOWER_STUB_STATE=complete watch a)
   assert_nomatch "complete board, lane idle for one poll only: no tower attention" "$out" '^tower: run'
+  printf 'working\nidle\n' > "$S/a"; printf 'idle\nidle\n' > "$S/b"; out=$(TOWER_STUB_STATE=complete watch a b)
+  assert_nomatch "complete board, one agent settled, the other idle only once: no tower attention" "$out" '^tower: run'
   echo working > "$S/a"; echo done > "$S/b"; out=$(ROUND=1 TOWER_STUB_STATE=complete watch a b)
   assert_nomatch "complete board, one of two lanes working: no tower attention" "$out" '^tower: run'
   printf 'idle\nidle\n' > "$S/a"; out=$(TOWER_STUB_STATE=complete watch a)
