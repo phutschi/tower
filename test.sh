@@ -37,7 +37,7 @@ section() {
 }
 
 TMP=$(cd "$(mktemp -d)" && pwd -P); trap 'rm -rf "$TMP"' EXIT
-export DRY_RUN=1 HERDR_STUB_LOG="$TMP/log" HERDR_STUB_COUNTER="$TMP/counter" HERDR_STUB_STATES_DIR="$TMP/states"
+export DRY_RUN=1 HERDR_ENV=1 HERDR_STUB_LOG="$TMP/log" HERDR_STUB_COUNTER="$TMP/counter" HERDR_STUB_STATES_DIR="$TMP/states"
 # common.sh only defaults HERDR_PANE_ID/HERDR_TAB_ID when unset, so running
 # test.sh from inside a real herdr pane (as its own agent does) would
 # otherwise leak this pane's real ids into every assertion instead of the
@@ -242,7 +242,7 @@ if section bootstrap; then
     assert_match "outside herdr ($outside): bootstrap refuses, pointing to /tower:run" "$out" "needs herdr.*/tower:run"
     assert_match "outside herdr ($outside): ... and fails"          "$out" 'exit=1$'
     assert_eq "outside herdr ($outside): no run dir is created"     "$([ -e "$RUN" ] && echo made || echo none)" none
-    assert_nomatch "outside herdr ($outside): no pane is opened"    "$(cat "$HERDR_STUB_LOG")" '^herdr (pane|agent|tab|worktree) '
+    assert_nomatch "outside herdr ($outside): no pane is opened"    "$(cat "$HERDR_STUB_LOG")" '^herdr(-absent)? (pane|agent|tab|worktree) '
     assert_nomatch "outside herdr ($outside): tower is not touched" "$(cat "$HERDR_STUB_LOG")" '^tower '
   done
   out=$(boot "$(fixture_repo pnpm-notest)" "$TMP/run-norunner" "No runner" main)
