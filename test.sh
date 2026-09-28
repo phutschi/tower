@@ -408,8 +408,12 @@ if section watch; then
   echo working > "$S/a"; out=$(ROUND=1 TOWER_STUB_STATE=closed watch a)
   assert_match "closed run, lane working: attention"   "$out" '^tower: run closed'
   assert_match "closed run, lane working: exit 0"      "$out" 'exit=0$'
-  echo idle > "$S/a"; printf 'Running tests...\n' > "$S/a.tail"; out=$(TOWER_STUB_STATE=complete watch a)
-  assert_match "complete board, every agent idle: attention" "$out" '^tower: run complete'
+  printf 'idle\nidle\nworking\n' > "$S/a"; out=$(ROUND=1 TOWER_STUB_STATE=complete watch a)
+  assert_nomatch "complete board, lane idle for one poll only: no tower attention" "$out" '^tower: run'
+  echo working > "$S/a"; echo done > "$S/b"; out=$(ROUND=1 TOWER_STUB_STATE=complete watch a b)
+  assert_nomatch "complete board, one of two lanes working: no tower attention" "$out" '^tower: run'
+  printf 'idle\nidle\n' > "$S/a"; out=$(TOWER_STUB_STATE=complete watch a)
+  assert_match "complete board, every agent settled: attention" "$out" '^tower: run complete'
 fi
 
 # --- look --------------------------------------------------------------------

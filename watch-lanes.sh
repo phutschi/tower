@@ -47,9 +47,12 @@ reason_for() {  # $1 name, $2 state
   esac
 }
 board()    { tower_ok && tower state --json --run "$RUN_DIR" 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); print("closed" if d["closed"] else "complete" if d["summary"]["complete"] else "open")' 2>/dev/null; }
-# $1: 1 while any watched agent is still working. A complete board is not the
-# end while an agent works on (its final review, preflight, the PR); closed is.
-finished() { case "$(board)" in closed) return 0 ;; complete) [ "$1" = 0 ] ;; *) return 1 ;; esac; }
+# $1: 1 while any watched agent is still working, and an idle one that has not
+# settled counts as working. $2: the board, read here when not given. A
+# complete board is not the end while an agent works on (its final review,
+# preflight, the PR); closed is.
+finished() { local b; if [ $# -ge 2 ]; then b=$2; else b=$(board); fi
+  case "$b" in closed) return 0 ;; complete) [ "$1" = 0 ] ;; *) return 1 ;; esac; }
 
 IDLE_SEEN=(); i=0; for _ in "$@"; do IDLE_SEEN[$i]=0; i=$((i+1)); done
 started=$(date +%s)
@@ -59,8 +62,9 @@ while [ $(( $(date +%s) - started )) -lt "$ROUND" ]; do
     case "$(state_of "$name")" in
       working|unknown) IDLE_SEEN[$i]=0; working=1 ;;
       idle) if [ $(( $(date +%s) - started )) -ge "$GRACE" ]; then
-              IDLE_SEEN[$i]=$(( IDLE_SEEN[$i] + 1 )); [ "${IDLE_SEEN[$i]}" -ge 2 ] && settled=1
-            fi ;;
+              IDLE_SEEN[$i]=$(( IDLE_SEEN[$i] + 1 ))
+            fi
+            if [ "${IDLE_SEEN[$i]}" -ge 2 ]; then settled=1; else working=1; fi ;;
       *) settled=1 ;;
     esac
     i=$((i+1))
@@ -74,8 +78,9 @@ alert=0; i=0
 # idle only settles at IDLE_SEEN>=2 (the polling loop above); reporting it on
 # a single fresh sample here would let a lane idle for its very first poll
 # report attention just because a *different* lane is what broke the loop.
+STATES=()
 for name in "$@"; do
-  state=$(state_of "$name")
+  state=$(state_of "$name"); STATES[$i]=$state
   case "$state" in
     idle) [ "${IDLE_SEEN[$i]}" -ge 2 ] && { alert=1; echo "attention: $name $(reason_for "$name" "$state")"; } ;;
     blocked|done|gone) alert=1; echo "attention: $name $(reason_for "$name" "$state")" ;;
@@ -84,8 +89,11 @@ for name in "$@"; do
 done
 i=0; working=0
 for name in "$@"; do
-  state=$(state_of "$name")
-  case "$state" in working|unknown) working=1 ;; esac
+  state=${STATES[$i]}
+  case "$state" in
+    working|unknown) working=1 ;;
+    idle) [ "${IDLE_SEEN[$i]}" -ge 2 ] || working=1 ;;
+  esac
   printf '%-22s %s\n' "$name" "$state"
   case "$state" in
     blocked|done) tail_of "$name" | sed 's/^/    │ /' ;;
@@ -94,7 +102,7 @@ for name in "$@"; do
   i=$((i+1))
 done
 if tower_ok; then
-  if finished "$working"; then echo "tower: run $(board)"; alert=1; fi
+  b=$(board); if finished "$working" "$b"; then echo "tower: run $b"; alert=1; fi
   echo "--- tower"
   tower state --json --run "$RUN_DIR" 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["summary"], "attention:", d["attention"])' 2>/dev/null || true
 else
