@@ -466,6 +466,18 @@ if section install; then
   assert_match "install: idempotent"                  "$out" 'exit=0$'
   assert_eq "install: a second run changes no link"   "$(links)" "$before"
   assert_nomatch "install: a second run skips nothing" "$out" 'SKIPPED'
+  out=$(HOME="$H" "$H/.claude/skills/herdr-orchestrate/install.sh" 2>&1; echo "exit=$?")
+  assert_eq "install: run through its own link, the links still point at the kit" "$(links)" "$before"
+  out=$("$H/.claude/skills/preflight/look.sh" 2>&1; echo "exit=$?")
+  assert_match "install: look.sh runs through the installed link" "$out" '^usage: preflight/look.sh'
+  assert_match "install: ... and finds the kit behind it" "$out" 'exit=2$'
+  H3="$TMP/home3"; mkdir -p "$H3/.codex/skills/preflight"
+  out=$(HOME="$H3" SEMGREP_STUB=absent GITLEAKS_STUB=absent "$KIT/install.sh" 2>&1; echo "exit=$?")
+  assert_match "install: a real dir in the way is skipped" "$out" "SKIPPED +$H3/.codex/skills/preflight exists"
+  assert_eq "install: ... and left as it is"          "$([ -L "$H3/.codex/skills/preflight" ] && echo link || echo dir)" dir
+  assert_match "install: a missing semgrep is optional" "$out" 'optional +semgrep'
+  assert_match "install: a missing gitleaks is optional" "$out" 'optional +gitleaks'
+  assert_match "install: missing scanners do not fail it" "$out" 'exit=0$'
   H2="$TMP/home2"; mkdir -p "$H2"
   out=$(HOME="$H2" "$KIT/install.sh" --check 2>&1; echo "exit=$?")
   assert_match "check: exit 0"                        "$out" 'exit=0$'

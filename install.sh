@@ -12,13 +12,14 @@
 # console), codex (EXECUTOR_KIND=codex lanes), semgrep and gitleaks (preflight's
 # static baseline). Running it again changes nothing.
 set -u
-KIT="$(cd "$(dirname "$0")" && pwd)"
+KIT="$(cd "$(dirname "$0")" && pwd -P)"  # -P: run through its own link, it still links the real kit
 . "$KIT/common.sh"
 CHECK_ONLY=0; [ "${1:-}" = --check ] && CHECK_ONLY=1
 
 ok=1
 have() { if command -v "$1" >/dev/null; then printf '  ok        %s\n' "$1"; else printf '  MISSING   %-8s %s\n' "$1" "$2"; ok=0; fi; }
-opt()  { if command -v "$1" >/dev/null; then printf '  ok        %s (optional)\n' "$1"; else printf '  optional  %-8s %s\n' "$1" "$2"; fi; }
+# opt TOOL WHAT [PROBE-ARG]: with PROBE-ARG, the tool must also run (`TOOL PROBE-ARG`).
+opt()  { if command -v "$1" >/dev/null && { [ -z "${3:-}" ] || "$1" "$3" >/dev/null 2>&1; }; then printf '  ok        %s (optional)\n' "$1"; else printf '  optional  %-8s %s\n' "$1" "$2"; fi; }
 echo "dependencies:"
 have herdr   "the terminal this kit runs in"
 have git     "version control"
@@ -27,8 +28,8 @@ have python3 "reads herdr's JSON"
 have node    "reads package.json in JS repos"
 opt  tower   "the record and the console — $TOWER_POINTER"
 opt  codex   "lanes with EXECUTOR_KIND=codex"
-opt  semgrep "preflight's static baseline (a warn row without it)"
-opt  gitleaks "preflight's secret scan (a warn row without it)"
+opt  semgrep "preflight's static baseline (a warn row without it)" --version
+opt  gitleaks "preflight's secret scan (a warn row without it)" version
 if command -v tower >/dev/null; then
   tower_ok; case $? in 2) printf '  OLD       tower    0.2.0 or later is required — %s\n' "$TOWER_POINTER" ;; esac
 fi

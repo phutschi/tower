@@ -1,8 +1,10 @@
 # Area: security
 
 What an attacker, a careless caller or a leaked log could do with the
-changed code. semgrep and gitleaks results are in `look.json` already;
-spend this area on what a scanner cannot judge.
+changed code. Check the `semgrep` and `gitleaks` rows of `look.json`. Both
+`pass` or `fail`: the scanners covered known patterns and secrets, so spend
+this area on what a scanner cannot judge. Either one `skip` or `warn`, or
+no `look.json`: cover injection and secrets by reading too.
 
 Walk every changed file for:
 

@@ -16,5 +16,5 @@ Report only what fails its bound:
 - Slow or unbounded at the sizes the spec or the repo expects: `must-fix`.
 - Fine today, bad if one number grows: `watchpoint`, naming the number.
 
-A hotspot with a sound bound is not a finding: write the bound in your
-report and move on.
+A hotspot with a sound bound is not a finding: write it and its bound in
+the verdict row's `detail` and move on.

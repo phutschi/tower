@@ -1,12 +1,17 @@
 # Area: between-lanes
 
 Problems that only show when separately written work meets: lanes of a
-run, or branches merged into this one. Alone on a branch with no merged
-branches (`git log --merges <merge-base>..HEAD` is empty), write a `skip`
-row, note `one line of work`, and go on.
+run, or branches merged into this one.
 
-Find the parts: inside a run, each lane's branch and task ids from the pane
-map and the plan; alone, the merged branches from `git log --merges`.
+Find the parts:
+
+- Inside a run: each lane's branch and task ids, from the pane map and the
+  plan.
+- Alone: the merges in `git log --merges <merge-base>..HEAD`. A merge that
+  brings in the base branch itself (its second parent is already in the
+  base's history: `git merge-base --is-ancestor <parent> <base>`) is not a
+  part. No parts left: write a `skip` row, note `one line of work`, and go
+  on.
 
 Look for:
 

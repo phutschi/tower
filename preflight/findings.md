@@ -6,7 +6,8 @@ names (a Reviewer in a run). The triaging session reads every `*.json` there.
 
 ```json
 { "review": "security",
-  "verdict":  [ { "step": "security", "status": "pass", "note": "" } ],
+  "verdict":  [ { "step": "security", "status": "fail", "note": "1 finding",
+                  "detail": "Read every changed route: 3 new handlers, all behind requireUser; ..." } ],
   "findings": [ { "area": "security", "severity": "must-fix",
                   "file": "src/api/login.ts", "line": 42,
                   "title": "Password compared with ==",
@@ -20,6 +21,10 @@ names (a Reviewer in a run). The triaging session reads every `*.json` there.
 - `status` is `pass` (no finding), `fail` (a finding), `warn` (the step could
   not run fully), or `skip` (not run; `note` says why).
 - `note` is one line.
+- `detail`: an area review's account of what it checked, in a few lines of
+  Markdown: each criterion, hotspot with its bound, or failure point. It
+  feeds the PR body's details. `look.sh` leaves it out; its rows are the
+  detail.
 
 `findings`: one record per problem.
 

@@ -3,6 +3,7 @@ comments. Merge-ready tone: the reader should conclude "ready to merge".
 Every trade-off reads as decided and accepted, with its reason. An area
 with nothing to say keeps its row and a one-line TLDR. -->
 
+<!-- The spec issue or plan this PR implements, as a link; "No spec linked" when none. -->
 {{SPEC_LINK}}
 
 ## Verdict
@@ -22,13 +23,17 @@ One row per suite step in the Full suite details. Add a row per repo area. -->
 
 ## Summary
 
+<!-- Two to four short paragraphs: what the branch changes and why it is ready. -->
 {{SUMMARY}}
 
 ## Implementation
 
+<!-- How it works, part by part, citing files. From the diff and the commits. -->
 {{IMPLEMENTATION}}
 
-<!-- One section per area, in the Verdict's order. -->
+<!-- One section per area, in the Verdict's order. TLDR: one line. DETAIL:
+the area's verdict row `detail` (look.json's rows for the static baseline
+and the full suite), then its findings with their outcomes. -->
 
 ## Static baseline
 
@@ -115,7 +120,8 @@ One row per suite step in the Full suite details. Add a row per repo area. -->
 
 ## Out of scope
 
-<!-- Deliberate exclusions, each with its reason. -->
+<!-- Deliberate exclusions, each with its reason: the spec's out-of-scope
+list, and what the diff leaves alone on purpose. -->
 
 {{OUT_OF_SCOPE}}
 
@@ -127,4 +133,6 @@ One row per suite step in the Full suite details. Add a row per repo area. -->
 
 ## Test plan
 
+<!-- What proves it works: the suite steps that ran, the tests the branch
+adds, and any check a human should repeat by hand. -->
 {{TEST_PLAN}}
