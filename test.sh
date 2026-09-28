@@ -118,7 +118,8 @@ if section detect; then
   ir="$TMP/repos/install-contract"; mkdir -p "$ir"; echo 'INSTALL_CMD="make deps"' > "$ir/.herdr-orchestrate"
   assert_eq "install: INSTALL_CMD from the repo contract" "$(detect_in "$ir" 'echo "$INSTALL_CMD"')" "make deps"
   assert_nomatch "install: INSTALL_CMD is a setting the kit reads" "$(detect_in "$ir" 'true')" "not a setting"
-  assert_eq "install: the environment wins, even empty" "$(INSTALL_CMD='' detect_in "$(fixture_repo bun-vitest)" 'echo "[$INSTALL_CMD]"')" "[]"
+  assert_eq "install: the environment wins over the file" "$(INSTALL_CMD='make all' detect_in "$ir" 'echo "$INSTALL_CMD"')" "make all"
+  assert_eq "install: the environment wins, even empty" "$(INSTALL_CMD='' detect_in "$ir" 'echo "[$INSTALL_CMD]"')" "[]"
   r=$(fixture_repo contract)
   assert_eq "contract: CHECK_CMD"                   "$(detect_in "$r" 'echo "$CHECK_CMD"')" "make check"
   assert_eq "contract: panes in order with dirs"    "$(detect_in "$r" 'echo "${PANE_NAMES[*]}|${PANE_CMDS[1]}|${PANE_DIRS[1]}"')" "checks dev|make dev|web"
@@ -314,9 +315,11 @@ if section add-lane; then
   nr=$(fixture_repo none); RUNN="$TMP/run-noinstall"; reset_stub
   (cd "$nr" && "$KIT/bootstrap.sh" "$RUNN" "No install" main >/dev/null 2>&1)
   out=$(cd "$nr" && "$KIT/add-lane.sh" "$RUNN" B feat/b main 2 2>&1)
-  assert_nomatch "no package.json: no install"        "$out" 'install\)|dry-run'
+  assert_nomatch "no package.json: no install"        "$out" '\[dry-run\] \(cd .*install'
   assert_eq "no package.json: one line says so"       "$(printf '%s\n' "$out" | grep -c 'no install')" 1
   assert_match "no package.json: the line names why"  "$out" '^add-lane: no install: no package.json and no INSTALL_CMD in \.herdr-orchestrate$'
+  out=$(cd "$r" && INSTALL_CMD='' TOWER_STUB=absent "$KIT/add-lane.sh" "$RUN3" D feat/d main 5 2>&1)
+  assert_match "INSTALL_CMD set empty: no install, and that is the reason" "$out" '^add-lane: no install: INSTALL_CMD is empty$'
   reset_stub; out=$(cd "$r" && HERDR_STUB_BUSY_STARTS=1 "$KIT/add-lane.sh" "$RUN3" C feat/c main 4 2>&1; echo "exit=$?")
   assert_match "busy pane: add-lane finishes"         "$out" 'exit=0$'
   assert_nomatch "busy pane: add-lane shows no busy error" "$out" 'agent_pane_busy'

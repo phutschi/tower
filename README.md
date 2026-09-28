@@ -114,6 +114,7 @@ or any repo whose real entrypoint is its own tool, writes a
 
 ```bash
 CHECK_CMD="make check"            # the check gate every lane runs before a commit
+INSTALL_CMD="make deps"           # what each new lane's worktree runs; empty turns it off
 pane checks "make test-watch"     # pane NAME "COMMAND" [DIR]; NAME is checks or dev
 pane dev    "make dev" web
 EXECUTOR_KIND=codex               # the lanes' harness: claude (default) or codex
