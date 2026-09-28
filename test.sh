@@ -632,6 +632,10 @@ for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'],
   printf 'z\n' > "$r/café app.js"; git -C "$r" add -A; git -C "$r" commit -qm odd
   reset_stub; out=$(look "$r" base "$F"); log=$(cat "$HERDR_STUB_LOG")
   assert_match "look: a file name with spaces and accents is passed as is" "$log" '^semgrep scan .* -- app\.js café app\.js new\.py$'
+  # A sparse checkout can lack a changed file without the tree being dirty.
+  git -C "$r" update-index --skip-worktree new.py; rm "$r/new.py"; reset_stub; out=$(look "$r" base "$F")
+  assert_nomatch "look: a changed file missing from a sparse checkout is not scanned" "$(cat "$HERDR_STUB_LOG")" '^semgrep .*new\.py'
+  git -C "$r" update-index --no-skip-worktree new.py; git -C "$r" checkout -q -- new.py
   mkdir -p "$r/sub"; reset_stub
   out=$(cd "$r/sub" && "$KIT/preflight/look.sh" base rel-findings 2>&1; echo "exit=$?")
   assert_match "look: runs from a subdirectory"          "$(cat "$HERDR_STUB_LOG")" '^semgrep scan .* -- app\.js café app\.js new\.py$'
@@ -693,7 +697,9 @@ for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'],
   # rewrite it, and putting the suite's changes back would take those edits
   # with it. look.sh refuses before any step runs.
   r=$(look_repo none dirty); printf 'my edit\n' >> "$r/app.js"; printf 'u\n' > "$r/untracked.txt"; reset_stub
+  mkdir -p "$F"; echo '{}' > "$F/look.json"
   out=$(look "$r" base "$F")
+  assert_eq "look: a refusal leaves no earlier look.json behind" "$([ -e "$F/look.json" ] && echo stale || echo none)" none
   assert_match "look: uncommitted edits to a tracked file are refused" "$out" '^look: .*app\.js'
   assert_match "look: ... as a setup error"              "$out" 'exit=2$'
   assert_nomatch "look: ... before any step runs"        "$(cat "$HERDR_STUB_LOG")" '^(semgrep|gitleaks) '

@@ -134,14 +134,15 @@ and do it in a lane anyway or suggest doing it without the kit.
       and its checkout to be clean again (R1 puts back what the suite
       changed):
       ```
-      d=<run-dir>/findings/preflight/<n>; until { python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$d/look.json" 2>/dev/null || [ -e "$d/R1.json" ]; } && [ -z "$(git -C <lane-A-checkout> status --short --untracked-files=no)" ]; do sleep 20; done
+      d=<run-dir>/findings/preflight/<n>; until [ -e "$d/R1.json" ] || { python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$d/look.json" 2>/dev/null && [ -z "$(git -C <lane-A-checkout> status --short --untracked-files=no)" ]; }; do sleep 20; done
       ```
-      Then `look.json` with no must-fix finding: add and brief R2. A
-      must-fix finding (red) or no `look.json` (a setup error): no R2 this
-      round; its areas count as skipped in step 12, and its table names
-      them as skipped with the reason. When the watch reports R1 `gone` or
-      `blocked` first, stop this wait and act on R1 (step 7); a round whose
-      look never finishes is a setup error.
+      Then, with `look.json` parsed and the checkout clean: no open
+      must-fix finding (the skill's "red") → add and brief R2. Red, no
+      `look.json` or a changed checkout (a setup error) → no R2 this round;
+      its areas count as skipped in step 12, and its table names them as
+      skipped with the reason. When the watch reports R1 `gone`, `blocked`
+      or finished first, stop this wait and act on R1 (step 7); a round
+      whose look never finishes is a setup error.
 
     `REVIEW_AREAS` narrows the areas; split what is left over the two
     slots. From round 2 the areas are the ones step 12 names, each in its
@@ -163,8 +164,10 @@ and do it in a lane anyway or suggest doing it without the kit.
     instead (lane review brief, lane A, fixed point = HEAD before the fixes,
     file `<run-dir>/findings/preflight/fix-<k>.json`, `<k>` from 1), and act
     runs again on that file; when `fix-2`'s triage still has a finding
-    triaged `fix`, stop and hand it to the user. Once a round leaves
-    nothing to fix: the follow-up issues of every round (tracker in
+    triaged `fix`, stop and hand it to the user. A round that skipped areas
+    always gets round `<n+1>` for them, even with nothing to fix; a setup
+    error goes to the user first. Once a round leaves nothing to fix and
+    skipped no area: the follow-up issues of every round (tracker in
     `docs/agents/issue-tracker.md`; none: ask in the table), the push, and
     the PR as `PR` says, its body in `<run-dir>/findings/preflight/pr-body.md`
     from the skill's template or `PR_TEMPLATE`, drawn from every findings
