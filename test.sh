@@ -665,6 +665,18 @@ for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'],
   assert_match "look: a missing scanner is not a failure" "$out" 'exit=0$'
   reset_stub; out=$(SEMGREP_STUB=error look "$r" base "$F"); v=$(verdict "$F/look.json")
   assert_match "look: semgrep's error reason is in its warn row" "$v" '^semgrep warn semgrep exited 2: Invalid scanning root: gone\.js$'
+  # semgrep can exit 0 and still report errors in its JSON (a file it could
+  # not parse): the scan is incomplete, not clean.
+  reset_stub; out=$(SEMGREP_STUB=incomplete look "$r" base "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: semgrep errors with exit 0 are a warn row with the error's type and file" "$v" '^semgrep warn scan incomplete, 1 error: PartialParsing in new\.py$'
+  assert_match "look: ... not a failure"                 "$out" 'exit=0$'
+  assert_nomatch "look: ... the error's message is not copied (it can quote code)" "$(cat "$F/look.json")" 'SECRETSTUB'
+  reset_stub; out=$(SEMGREP_STUB=incomplete-odd look "$r" base "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: errors of odd shapes are still an incomplete scan, counted" "$v" '^semgrep warn scan incomplete, 2 errors'
+  assert_match "look: ... and do not stop look"          "$out" 'exit=0$'
+  reset_stub; out=$(SEMGREP_STUB=incomplete-finding look "$r" base "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: an incomplete scan keeps its findings" "$(findings "$F/look.json")" '^security must-fix new\.py:3 stub\.rule \| semgrep ERROR$'
+  assert_match "look: ... its row fails and says the scan is incomplete" "$v" '^semgrep fail 1 finding; scan incomplete, 1 error: Timeout in new\.py$'
   reset_stub; out=$(SEMGREP_STUB=garbage look "$r" base "$F"); v=$(verdict "$F/look.json")
   assert_match "look: unreadable scanner output is a warn row" "$v" '^semgrep warn could not read semgrep output$'
   assert_match "look: unreadable scanner output does not stop the run" "$v" '^gitleaks pass $'
@@ -687,13 +699,16 @@ for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'],
   assert_match "look: no net change skips semgrep"       "$v" '^semgrep skip no changed files$'
   r=$(look_repo none odd-names)
   printf 'z\n' > "$r/café app.js"; git -C "$r" add -A; git -C "$r" commit -qm odd
-  rm "$r/new.py"
   reset_stub; out=$(look "$r" base "$F"); log=$(cat "$HERDR_STUB_LOG")
-  assert_match "look: a file name with spaces and accents is passed as is" "$log" '^semgrep scan .* -- app\.js café app\.js$'
-  assert_nomatch "look: a file missing from the checkout is not scanned" "$log" '^semgrep .*new\.py'
+  assert_match "look: a file name with spaces and accents is passed as is" "$log" '^semgrep scan .* -- app\.js café app\.js new\.py$'
+  # A sparse checkout can lack a changed file without the tree being dirty.
+  git -C "$r" update-index --skip-worktree new.py; rm "$r/new.py"; reset_stub; out=$(look "$r" base "$F")
+  assert_nomatch "look: a changed file missing from a sparse checkout is not scanned" "$(cat "$HERDR_STUB_LOG")" '^semgrep .*new\.py'
+  assert_match "look: ... the rest is still scanned"    "$(cat "$HERDR_STUB_LOG")" '^semgrep scan .* -- app\.js café app\.js$'
+  git -C "$r" update-index --no-skip-worktree new.py; git -C "$r" checkout -q -- new.py
   mkdir -p "$r/sub"; reset_stub
   out=$(cd "$r/sub" && "$KIT/preflight/look.sh" base rel-findings 2>&1; echo "exit=$?")
-  assert_match "look: runs from a subdirectory"          "$(cat "$HERDR_STUB_LOG")" '^semgrep scan .* -- app\.js café app\.js$'
+  assert_match "look: runs from a subdirectory"          "$(cat "$HERDR_STUB_LOG")" '^semgrep scan .* -- app\.js café app\.js new\.py$'
   assert_eq "look: a relative findings dir is relative to where it was called" "$(verdict "$r/sub/rel-findings/look.json" | head -1)" "semgrep pass "
   out=$(look "$r" nosuchref "$F")
   assert_match "look: an unknown base is refused"        "$out" "no merge base between 'nosuchref' and HEAD"
@@ -748,6 +763,21 @@ for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'],
   assert_match "look: a package.json without scripts and no CHECK_CMD is a skip row" "$v" '^check skip no suite lines, no package.json scripts, no CHECK_CMD$'
   r=$(look_repo semgrep-rules rules); reset_stub; out=$(look "$r" base "$F")
   assert_match "look: the repo's .semgrep/ rules are added" "$(cat "$HERDR_STUB_LOG")" '^semgrep scan --config p/default --config \.semgrep '
+  # A tracked file with edits the branch has not committed: the suite could
+  # rewrite it, and putting the suite's changes back would take those edits
+  # with it. look.sh refuses before any step runs.
+  r=$(look_repo none dirty); printf 'my edit\n' >> "$r/app.js"; printf 'u\n' > "$r/untracked.txt"; reset_stub
+  mkdir -p "$F"; echo '{}' > "$F/look.json"
+  out=$(look "$r" base "$F")
+  assert_eq "look: a refusal leaves no earlier look.json behind" "$([ -e "$F/look.json" ] && echo stale || echo none)" none
+  assert_match "look: uncommitted edits to a tracked file are refused" "$out" '^look: .*app\.js'
+  assert_match "look: ... as a setup error"              "$out" 'exit=2$'
+  assert_nomatch "look: ... before any step runs"        "$(cat "$HERDR_STUB_LOG")" '^(semgrep|gitleaks) '
+  assert_match "look: ... and the edits are still there" "$(cat "$r/app.js")" 'my edit'
+  git -C "$r" add app.js; out=$(look "$r" base "$F")
+  assert_match "look: a staged edit is refused too"      "$out" 'exit=2$'
+  git -C "$r" reset -q; git -C "$r" checkout -q -- app.js; reset_stub; out=$(look "$r" base "$F")
+  assert_match "look: an untracked file alone is no refusal" "$out" 'exit=0$'
   unset CHECK_CMD SUITE_ORDER; unset -f look_repo findings verdict look
 fi
 
@@ -826,11 +856,11 @@ if section run; then
   assert_match "run: the pane map shows the new R1 Reviewer in the same pane" "$(cat "$RUN/panes.txt")" "^reviewer R1: +$r1 +\\(agent \"suite-r1-2\", .*round 2"
 
   echo gone > "$S/suite-r1-2"; echo gone > "$S/suite-r2-1"
-  review R1 claude "Preflight R1" "$RUN/findings/preflight/R1.json" >/dev/null
-  review R2 codex  "Preflight R2" "$RUN/findings/preflight/R2.json" >/dev/null
+  review R1 claude "Preflight R1, round 1" "$RUN/findings/preflight/1/R1.json" >/dev/null
+  review R2 codex  "Preflight R2, round 1" "$RUN/findings/preflight/1/R2.json" >/dev/null
   map=$(cat "$RUN/panes.txt")
-  assert_match "run: preflight in a mixed run: R1 is a codex Reviewer" "$map" '^reviewer R1: .*kind codex, .*review "Preflight R1"'
-  assert_match "run: preflight in a mixed run: R2 is a claude Reviewer" "$map" '^reviewer R2: .*kind claude, .*review "Preflight R2"'
+  assert_match "run: preflight in a mixed run: R1 is a codex Reviewer" "$map" '^reviewer R1: .*kind codex, .*review "Preflight R1, round 1"'
+  assert_match "run: preflight in a mixed run: R2 is a claude Reviewer" "$map" '^reviewer R2: .*kind claude, .*review "Preflight R2, round 1"'
 
   log=$(cat "$HERDR_STUB_LOG")
   assert_eq "run: one board task per review" "$(grep -c '^tower add .* --area review --lane R[12]$' "$HERDR_STUB_LOG")" 5
@@ -838,9 +868,9 @@ if section run; then
   assert_match "run: the second round is its own task" "$log" '^tower add Lane review A, round 2 --id R1-2 --area review --lane R1$'
 
   export SUITE_ORDER="$TMP/run-suite-order"; : > "$SUITE_ORDER"
-  out=$(in_repo "$KIT/preflight/look.sh" base "$RUN/findings/preflight")
-  assert_match "run: look.sh names the findings file it wrote" "$out" "$RUN/findings/preflight/look.json"
-  steps=$(python3 -c "import json,sys; print(' '.join(v['step']+':'+v['status'] for v in json.load(open(sys.argv[1]))['verdict']))" "$RUN/findings/preflight/look.json" 2>&1)
+  out=$(in_repo "$KIT/preflight/look.sh" base "$RUN/findings/preflight/1")
+  assert_match "run: look.sh names the findings file it wrote" "$out" "$RUN/findings/preflight/1/look.json"
+  steps=$(python3 -c "import json,sys; print(' '.join(v['step']+':'+v['status'] for v in json.load(open(sys.argv[1]))['verdict']))" "$RUN/findings/preflight/1/look.json" 2>&1)
   assert_eq "run: look.json has a row for each scanner and every suite step" "$steps" "semgrep:pass gitleaks:pass lint:skip test:fail build:pass"
   unset SUITE_ORDER
 

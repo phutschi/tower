@@ -106,6 +106,10 @@ A Reviewer gets its own brief, not a lane's: one message, sent with
 `tower brief` part. Both kinds use the same text. Without tower, drop the
 REPORT paragraph: the findings line is the report. In the empty opening
 there is no plan: name the tasks' titles from the board or `tasks.tsv`.
+`{{ROUND}}` is the preflight round `<n>` (SKILL.md step 11): the directory
+of `{{FINDINGS_FILE}}` is `<run-dir>/findings/preflight/{{ROUND}}/`.
+`{{FIX_BASE}}` is HEAD before the previous round's fixes. R2 is briefed
+only after R1's look is green (SKILL.md step 11).
 
 ### Lane review
 
@@ -121,9 +125,9 @@ End with one line: FINDINGS WRITTEN in double square brackets, a space, then {{F
 
 ### Preflight slot
 
-You are a Reviewer in a herdr-orchestrate run, agent {{AGENT}}, board task {{TASK_ID}} (slot {{SLOT}}). Working directory: {{CHECKOUT}}, the integration branch with every lane and origin/main merged. You only report: the one file you write is your findings file. Leave the working tree and the branch as they are.
+You are a Reviewer in a herdr-orchestrate run, agent {{AGENT}}, board task {{TASK_ID}} (slot {{SLOT}}). Working directory: {{CHECKOUT}}, the integration branch with every lane and origin/main merged. You only report: the one file you write is your findings file. Leave the working tree and the branch as they are, except putting back what the suite changed (the skill's look step 3).
 
-Load the preflight skill and run its look half as a Reviewer. Your areas: {{AREAS, e.g. R1: "spec (the whole plan {{PLAN}} and its spec issue), between-lanes"; R2: "security, performance, error-handling"}}. {{R1: "You run look.sh:  (cd {{CHECKOUT}} && STATIC_BASELINE={{from switches:}} SUITE_SKIP={{from switches:}} {{KIT}}/preflight/look.sh origin/main {{RUN_DIR}}/findings/preflight) . If it is red, stop before your areas as the skill says." | R2: "R1 runs look.sh; you review your areas only."}} Your findings file: {{FINDINGS_FILE}}.
+Load the preflight skill and run its look half as a Reviewer. {{From round 2: "Earlier rounds' findings, with their triage, are in {{RUN_DIR}}/findings/preflight/1/ to {{ROUND - 1}}/; a finding triaged there is not new: leave it out."}} Your areas: {{AREAS, e.g. R1: "spec (the whole plan {{PLAN}} and its spec issue), between-lanes"; R2: "security, performance, error-handling"}}. {{R1: "You run look.sh:  (cd {{CHECKOUT}} && STATIC_BASELINE={{from switches:}} SUITE_SKIP={{from switches:}} {{KIT}}/preflight/look.sh origin/main {{RUN_DIR}}/findings/preflight/{{ROUND}}) . If it is red (an open must-fix finding, as the skill says), stop before your areas." From round 2, R1 also: "Review the fix commits,  git diff {{FIX_BASE}}..HEAD , against the findings they fix: those with outcome fix in {{RUN_DIR}}/findings/preflight/{{ROUND - 1}}/ (and the deferred lane-review findings with outcome fix, after round 1)." | R2: "R1 ran look.sh and it is green ({{RUN_DIR}}/findings/preflight/{{ROUND}}/look.json); you review your areas only."}} Your findings file: {{FINDINGS_FILE}}.
 
 REPORT: at the start  tower task {{TASK_ID}} reviewing --model {{MODEL}} ; at the end  tower note --task {{TASK_ID}} "<n> findings"  then  tower task {{TASK_ID}} done --model {{MODEL}} . If you cannot proceed:  tower block {{TASK_ID}} "<what you need>" .
 

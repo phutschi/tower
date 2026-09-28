@@ -18,8 +18,14 @@
 #             (package.json); with neither, CHECK_CMD as the step `check`,
 #             or a skip row when neither the repo nor the call set CHECK_CMD
 # A scanner that is not installed, exits non-zero or prints what look.sh cannot
-# read is a warn row and the run goes on. Findings never quote the matched
-# code: semgrep does not redact it. A red suite step is a fail row and a
+# read is a warn row and the run goes on. semgrep can exit 0 and still list
+# errors in its JSON (a file it could not parse): that scan is incomplete, so
+# its row is warn, or fail with its findings kept, and the note says
+# "scan incomplete" with the count and the first error's type and file. (Not
+# --strict: that turns those errors into a non-zero exit, which would drop the
+# findings.) Findings and notes never quote the matched code, nor a scanner's
+# error message when its type and file say enough: semgrep does not redact
+# either. A red suite step is a fail row and a
 # must-fix finding (area suite, file = the step's DIR, line null) carrying the
 # last 20 lines of its output, unredacted: it is the repo's own test output.
 # Steps get no stdin and no timeout. A SUITE_SKIP name that matches no step is
@@ -38,8 +44,13 @@
 #                     "file", "line", "title", "evidence" } ] }
 # Prints each suite step as it starts (stderr), the verdict table and the
 # findings file. Exit 0 when no finding is must-fix, 1 when one is, 2 on a
-# setup error (usage, unknown base, a refused repo contract); look.json is
-# removed first, so after exit 2 there is none.
+# setup error (usage, uncommitted changes to tracked files, unknown base, a
+# refused repo contract); look.json is removed first, so after exit 2 there
+# is none.
+#
+# The checkout must have no uncommitted changes to tracked files (untracked
+# files are fine): whatever the suite then leaves changed is the suite's own,
+# and  git checkout -- <files>  puts it back without touching anyone's edits.
 set -euo pipefail
 LOOK_DIR="$(cd "$(dirname "$0")" && pwd -P)"
 KIT="$(dirname "$LOOK_DIR")"
@@ -52,6 +63,10 @@ need git python3
 mkdir -p "$FINDINGS_DIR"; FINDINGS_DIR="$(cd "$FINDINGS_DIR" && pwd -P)"
 rm -f "$FINDINGS_DIR/look.json"
 cd "$(git rev-parse --show-toplevel)"
+# A clean tree, so what the suite changes is all the suite's: putting it back
+# (git checkout) then touches nothing else. Untracked files may stay.
+DIRTY=$(git status --porcelain --untracked-files=no | cut -c4- | tr '\n' ' ') || die "look: git status failed"
+[ -z "$DIRTY" ] || die "look: uncommitted changes to tracked files: ${DIRTY% }. Commit or stash them, then run look again."
 # The repo contract: STATIC_BASELINE, SUITE_SKIP, the suite steps, CHECK_CMD.
 CHECK_CMD_FROM_ENV="${CHECK_CMD:+yes}"
 . "$KIT/detect-stack.sh"
@@ -69,6 +84,18 @@ verdict() {  # STEP STATUS NOTE; tabs and newlines in NOTE become spaces
 PY=$(cat <<'PY'
 import json, sys
 mode = sys.argv[1]
+def describe(e):
+    # One scanner error in a few words. Its type and file, when semgrep gives
+    # them: the message is free text that can quote the scanned code. Never
+    # raises; an error of an unknown shape still counts.
+    if not isinstance(e, dict):
+        return "an error"
+    kind = e.get("type")
+    kind = kind[0] if isinstance(kind, list) and kind else kind
+    if isinstance(kind, str) and isinstance(e.get("path"), str):
+        return "%s in %s" % (kind, e["path"])
+    lines = str(e.get("message") or "").splitlines()
+    return lines[0] if lines and lines[0].strip() else "an error"
 def finding(severity, file, line, title, evidence):
     print(json.dumps({"area": "security", "severity": severity, "file": file,
                       "line": line, "title": title, "evidence": evidence}))
@@ -83,9 +110,17 @@ if mode == "semgrep":
                 r["check_id"], "semgrep " + severity)
 elif mode == "reason":  # why a scanner failed, from its JSON errors (semgrep puts them there)
     try:
-        print(json.load(sys.stdin)["errors"][0]["message"].splitlines()[0])
+        print(describe(json.load(sys.stdin)["errors"][0]))
     except Exception:
         pass
+elif mode == "errors":  # errors semgrep reports beside a successful exit
+    try:
+        errors = json.load(sys.stdin).get("errors") or []
+    except Exception:
+        errors = []
+    if isinstance(errors, list) and errors:
+        print("scan incomplete, %d error%s: %s" % (len(errors), "" if len(errors) == 1 else "s",
+              describe(errors[0])))
 elif mode == "gitleaks":
     for r in json.load(sys.stdin) or []:
         finding("must-fix", r["File"], r["StartLine"], r["Description"],
@@ -113,7 +148,8 @@ PY
 )
 py() { python3 -c "$PY" "$@"; }
 
-# Changed files that are still in the checkout; -z keeps odd names unquoted.
+# Changed files that are still in the checkout (a sparse checkout can lack
+# some); -z keeps odd names unquoted.
 FILES=()
 while IFS= read -r -d '' f; do [ -e "$f" ] && FILES+=("$f"); done < <(git diff -z --name-only --diff-filter=d "$MERGE_BASE" HEAD)
 COMMITS=$(git rev-list --count "$MERGE_BASE..HEAD")
@@ -122,7 +158,7 @@ COMMITS=$(git rev-list --count "$MERGE_BASE..HEAD")
 # and adds its verdict row. Missing, erroring or unreadable is a warn row, never
 # a stop.
 scan() {
-  local step="$1" version="$2" rc=0 n reason; shift 2
+  local step="$1" version="$2" rc=0 n reason errors; shift 2
   if ! "$step" "$version" >/dev/null 2>&1; then
     verdict "$step" warn "$step is not installed"; echo "look: $step is not installed; skipped" >&2; return
   fi
@@ -136,7 +172,12 @@ scan() {
     || { verdict "$step" warn "could not read $step output"; return; }
   cat "$WORK/$step.findings" >> "$FINDINGS"
   n=$(wc -l < "$WORK/$step.findings" | tr -d ' ')
-  case "$n" in 0) verdict "$step" pass "" ;; 1) verdict "$step" fail "1 finding" ;; *) verdict "$step" fail "$n findings" ;; esac
+  errors=$(py errors < "$WORK/$step.json" 2>/dev/null || true)
+  case "$n" in
+    0) if [ -n "$errors" ]; then verdict "$step" warn "$errors"; else verdict "$step" pass ""; fi ;;
+    1) verdict "$step" fail "1 finding${errors:+; $errors}" ;;
+    *) verdict "$step" fail "$n findings${errors:+; $errors}" ;;
+  esac
 }
 
 if [ "${STATIC_BASELINE:-on}" = off ]; then

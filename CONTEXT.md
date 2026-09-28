@@ -79,6 +79,11 @@ suite, and agent review by area. A generic skill of its own; the last phase
 of a run.
 _Avoid_: pre-PR check, final review
 
+**Preflight round**:
+One look of preflight and the act on it, with its own findings dir. After
+fixes the next round looks at the whole branch again.
+_Avoid_: re-review (a lane review's word), fix round
+
 **Finding**:
 One problem a review reports, with the file and line it cites. Triage gives
 it one outcome: fix, accept, follow-up or reject.
