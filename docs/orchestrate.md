@@ -116,8 +116,9 @@ One tab:
 - **checks** runs your test runner in watch mode, **dev** your development
   server if you declare one. Both run in lane A's checkout.
 - **console** is tower's live board, the record of the run. It stays open
-  after the run; you quit it with `q`. The run dir holds only the pane map
-  and the briefs. Console is tower's minimum width, 60
+  after the run; you quit it with `q`. The run dir is no second record: it
+  holds the pane map, the briefs, the findings and tower's own run files.
+  Console is tower's minimum width, 60
   columns; the bottom row always spans the full tab so it always gets them.
 
 Nothing is closed until you say so.

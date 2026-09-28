@@ -16,10 +16,10 @@
 # <run-dir>/install-<lane>.log): the repo contract's, else the package manager's
 # when there is a package.json, else nothing, said in one line. .env
 # (gitignored) is copied once the agent owns the pane. The worktree shares the
-# repo's common git dir, so `tower` inside it finds the run with no flags. Without a runnable tower
-# it refuses before anything is created. A run switch with a value outside its list (see
-# detect-stack.sh) is refused here as in bootstrap.sh; the run's values are the
-# pane map's  switches:  line.
+# repo's common git dir, so `tower` inside it finds the run with no flags.
+# Without a runnable tower it refuses before anything is created. A run
+# switch with a value outside its list (see detect-stack.sh) is refused here
+# as in bootstrap.sh; the run's values are the pane map's  switches:  line.
 #
 # START_TRIES (environment, default 10): how often an agent start is tried,
 # a second apart, while its new pane's shell is not ready yet (executor.sh).

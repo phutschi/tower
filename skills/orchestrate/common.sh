@@ -32,7 +32,7 @@ pane_id()  { jsonq 'd["result"]["pane"]["pane_id"]'; }
 # The main checkout's root, from any worktree of it.
 repo_root() { git rev-parse --path-format=absolute --git-common-dir | sed 's#/\.git$##'; }
 
-TOWER_POINTER='install tower: github.com/phutschi/tower (install.sh in a checkout sets it up; or a binary from the releases page)'
+TOWER_POINTER='install tower: a binary from github.com/phutschi/tower/releases into ~/.local/bin, or from a checkout of github.com/phutschi/tower'
 # 0: tower is on PATH and runs; 1: not.
 tower_ok() { command -v tower >/dev/null && tower --help >/dev/null 2>&1 || return 1; }
 # An orchestrate run always has tower as its record: refuse before anything

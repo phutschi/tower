@@ -276,9 +276,10 @@ if section bootstrap; then
   assert_match "tower not runnable: ... with the install pointer" "$out" 'github\.com/phutschi/tower'
   assert_eq "tower not runnable: no run dir is created"           "$([ -e "$RUN" ] && echo made || echo none)" none
   assert_nomatch "tower not runnable: no pane is opened"          "$(cat "$HERDR_STUB_LOG")" '^herdr (pane|agent|tab|worktree) '
+  assert_nomatch "tower not runnable: nothing is recorded"        "$(cat "$HERDR_STUB_LOG")" '^tower (init|assign|note|add)'
   RUN="$TMP/run-only-panes"; reset_stub
   out=$(boot "$r" "$RUN" "Only panes" main "$KIT/example-tasks.tsv")
-  assert_eq "run dir: holds only the pane map"          "$(ls -A "$RUN")" panes.txt
+  assert_nomatch "run dir: no second record beside tower" "$(ls -A "$RUN")" '^(tasks\.tsv|lanes\.txt|run\.txt|plan\.md)$'
   RUN="$TMP/run-switches"; reset_stub
   out=$(PR=off boot "$(fixture_repo contract-switches)" "$RUN" "Switches" main)
   assert_match "switches: the file and the environment reach the pane map" "$(cat "$RUN/panes.txt")" '^switches: +TASK_REVIEW=off .* PR=off METHOD=plain .* SUITE_SKIP=build '
@@ -368,6 +369,7 @@ if section add-lane; then
   assert_match "tower not runnable: ... and fails"              "$out" 'exit=1$'
   assert_nomatch "tower not runnable: no worktree, no agent"    "$(cat "$HERDR_STUB_LOG")" '^herdr (worktree|pane|agent) '
   assert_eq "tower not runnable: no lane file"                  "$(ls -A "$RUN3")" panes.txt
+  assert_nomatch "tower not runnable: no ownership recorded"      "$(cat "$HERDR_STUB_LOG")" '^tower assign'
   nr=$(fixture_repo none); RUNN="$TMP/run-noinstall"; reset_stub
   (cd "$nr" && "$KIT/bootstrap.sh" "$RUNN" "No install" main >/dev/null 2>&1)
   out=$(cd "$nr" && "$KIT/add-lane.sh" "$RUNN" B feat/b main 2 2>&1)
@@ -476,6 +478,7 @@ if section add-reviewer; then
   assert_match "tower not runnable: ... and fails"              "$out" 'exit=1$'
   assert_nomatch "tower not runnable: no tab, no Reviewer"      "$(cat "$HERDR_STUB_LOG")" '^herdr (tab create|pane split|agent start) '
   assert_eq "tower not runnable: the run dir is unchanged"      "$(ls -A "$RUN2")" panes.txt
+  assert_nomatch "tower not runnable: no review task"             "$(cat "$HERDR_STUB_LOG")" '^tower add'
   RUNG="$TMP/run-review-gone"; reset_stub
   (cd "$r" && "$KIT/bootstrap.sh" "$RUNG" "Gone" main >/dev/null 2>&1); reset_stub
   echo gone > "$S/pane-0"; before=$(cat "$RUNG/panes.txt")
@@ -635,7 +638,7 @@ if section watch; then
   assert_match "tower summary when tower is present"  "$out" '^--- tower'
   out=$(TOWER_STUB=absent watch b)
   assert_match "tower not runnable: watch-lanes refuses with the pointer" "$out" 'needs tower.*github\.com/phutschi/tower'
-  assert_nomatch "tower not runnable: never a git log fallback" "$out" 'no tower|git log'
+  assert_match "tower not runnable: watch-lanes fails (neither attention nor quiet)" "$out" 'exit=1$'
   # A complete board is not attention while a watched agent still works (the
   # lane's final review comes after its last task); a closed run always is.
   echo working > "$S/a"; out=$(ROUND=1 TOWER_STUB_STATE=complete watch a)
