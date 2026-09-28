@@ -310,6 +310,9 @@ fi
 
 # --- look --------------------------------------------------------------------
 if section look; then
+  # A harmless check gate for the fixtures without suite lines or scripts, so
+  # the suite part of the look is green unless a test says otherwise.
+  export CHECK_CMD=true
   # A fixture repo on a branch: tag base, then one commit that changes app.js,
   # adds new.py and deletes old.txt; kept.txt is untouched.
   look_repo() {  # FIXTURE NAME
@@ -398,8 +401,33 @@ for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'],
   out=$(look "$r" base "$F")
   assert_match "look: no must-fix finding exits 0"       "$out" 'exit=0$'
   assert_match "look: the table names the findings file" "$out" "findings: $F/look.json"
+  r=$(look_repo suite suite); export SUITE_ORDER="$TMP/suite-order"; : > "$SUITE_ORDER"
+  out=$(SUITE_SKIP='' look "$r" base "$F")
+  assert_eq "look: every suite step runs in its DIR, in contract order" "$(cat "$SUITE_ORDER")" "$(printf 'lint %s\ntest %s\nbuild %s/web' "$r" "$r" "$r")"
+  v=$(verdict "$F/look.json")
+  assert_match "look: a passing step is a pass row"      "$v" '^lint pass '
+  assert_match "look: a failing step is a fail row"      "$v" '^test fail exit 3'
+  assert_match "look: a failing step does not stop the next one" "$v" '^build pass '
+  f=$(findings "$F/look.json")
+  assert_match "look: a failing step is a must-fix finding" "$f" '^suite must-fix .* suite step test failed \(exit 3\) \|'
+  assert_match "look: the finding carries the output tail" "$(python3 -c "import json,sys; print([x['evidence'] for x in json.load(open(sys.argv[1]))['findings']][0])" "$F/look.json")" 'line-25'
+  assert_nomatch "look: only the tail, not the whole output" "$(python3 -c "import json,sys; print([x['evidence'] for x in json.load(open(sys.argv[1]))['findings']][0])" "$F/look.json")" 'line-1$'
+  assert_match "look: a red step exits 1"                "$out" 'exit=1$'
+  : > "$SUITE_ORDER"; out=$(look "$r" base "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: SUITE_SKIP from the file skips that step" "$v" '^lint skip SUITE_SKIP$'
+  assert_nomatch "look: a skipped step does not run"     "$(cat "$SUITE_ORDER")" '^lint'
+  : > "$SUITE_ORDER"; out=$(SUITE_SKIP=build look "$r" base "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: SUITE_SKIP from the environment wins over the file" "$v" '^build skip SUITE_SKIP$'
+  assert_match "look: ... and the file's skip no longer applies" "$v" '^lint pass '
+  r=$(look_repo suite-detected detected); out=$(look "$r" base "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: without suite lines the detected typecheck runs" "$v" '^typecheck pass npm run typecheck$'
+  assert_match "look: without suite lines the detected test runs" "$v" '^test pass npm run test$'
+  r=$(look_repo none nosuite); out=$(CHECK_CMD='echo checked' look "$r" base "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: with neither, CHECK_CMD is the one step" "$v" '^check pass echo checked$'
+  assert_nomatch "look: with neither, no typecheck step" "$v" '^typecheck '
   r=$(look_repo semgrep-rules rules); reset_stub; out=$(look "$r" base "$F")
   assert_match "look: the repo's .semgrep/ rules are added" "$(cat "$HERDR_STUB_LOG")" '^semgrep scan --config p/default --config \.semgrep '
+  unset CHECK_CMD SUITE_ORDER
 fi
 
 # --- install -----------------------------------------------------------------
