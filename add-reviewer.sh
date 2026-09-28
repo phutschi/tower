@@ -64,9 +64,19 @@ case "$SLOT" in R1|R2) ;; *) die "slot must be R1 or R2 (got '$SLOT')" ;; esac
 RUN_DIR="$(cd "$RUN_DIR" && pwd)"; MAP="$RUN_DIR/panes.txt"
 case "$FINDINGS" in /*) ;; *) FINDINGS="$PWD/$FINDINGS" ;; esac
 # The run's switches, as bootstrap resolved them, unless this call sets one.
-for _kv in $(sed -nE 's/^switches: +//p' "$MAP"); do
-  _k=${_kv%%=*}; [ -n "${!_k+set}" ] || export "$_kv"
-done; unset _kv _k
+# The line is shell-quoted (detect-stack.sh switches_line); python3 splits it
+# into NAME=value words, one per line, so a value keeps its spaces and is never
+# globbed.
+_words=$(sed -nE 's/^switches: +//p' "$MAP" \
+  | python3 -c 'import shlex,sys; print("\n".join(shlex.split(sys.stdin.read())))' 2>/dev/null) \
+  || die "the switches: line in $MAP cannot be read back (unbalanced quotes?)"
+while IFS= read -r _kv; do
+  [ -n "$_kv" ] || continue
+  _k=${_kv%%=*}
+  case "$_k" in ''|*[!A-Z_]*) die "the switches: line in $MAP holds '$_kv', not NAME=value" ;; esac
+  [ -n "${!_k+set}" ] || export "$_kv"
+done <<< "$_words"
+unset _words _kv _k
 case "$LANE_KIND" in claude|codex) ;; *) die "lane kind must be claude or codex (got '$LANE_KIND')" ;; esac
 # The Reviewer works in lane A's checkout (the integration branch), where the
 # repo contract lives too.

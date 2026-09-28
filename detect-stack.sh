@@ -33,7 +33,8 @@
 #       EXECUTOR_KIND EXECUTOR_MODEL SPEC_REVIEWER_MODEL QUALITY_REVIEWER_MODEL STALE  (when the file sets them)
 #       PANE_NAMES PANE_CMDS PANE_DIRS   (parallel arrays; pane_index NAME finds one)
 #       SUITE_NAMES SUITE_CMDS SUITE_DIRS  (parallel arrays in contract order; empty without suite lines)
-#       every switch above, exported; switches_line prints them all on one line
+#       every switch above, exported; switches_line prints them all on one line,
+#       NAME=value, a value with spaces or quotes single-quoted the shell's way
 
 SWITCHES="TASK_REVIEW LANE_REVIEW PREFLIGHT STATIC_BASELINE PR METHOD REVIEWER_KIND REVIEWER_MODEL REVIEW_AREAS SUITE_SKIP PR_TEMPLATE"
 CONTRACT_VARS="EXECUTOR_KIND EXECUTOR_MODEL SPEC_REVIEWER_MODEL QUALITY_REVIEWER_MODEL STALE PM TYPECHECK_TASK CHECK_CMD INSTALL_CMD TEST_PKG TEST_FILTER $SWITCHES"
@@ -176,9 +177,15 @@ for _v in TASK_REVIEW LANE_REVIEW PREFLIGHT STATIC_BASELINE; do switch_allows "$
 switch_allows PR            "draft, ready or off"     draft ready off
 switch_allows METHOD        "tdd or plain"            tdd plain
 switch_allows REVIEWER_KIND "other, claude or codex"  other claude codex
-switches_line() {  # every switch and its value, on one line
-  local v out=""
-  for v in $SWITCHES; do out="$out $v=${!v}"; done
+switches_line() {  # every switch and its value, on one line; a value with any
+  # character outside [A-Za-z0-9_.,:/@%+-] is single-quoted the shell's way, so
+  # add-reviewer.sh reads it back whole (python3 shlex, no eval, no globbing)
+  local v val out=""
+  for v in $SWITCHES; do
+    val=${!v}
+    case "$val" in *[!A-Za-z0-9_.,:/@%+-]*) val="'$(printf '%s' "$val" | sed "s/'/'\\\\''/g")'" ;; esac
+    out="$out $v=$val"
+  done
   echo "${out# }"
 }
 

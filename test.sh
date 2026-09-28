@@ -419,6 +419,14 @@ if section add-reviewer; then
   assert_match "the run's switches from bootstrap reach the Reviewer" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-r1-1 --kind claude --pane [^ ]+ -- --model claude-sonnet-5$'
   out=$(cd "$r" && EXIT_WAIT_SECONDS=0 REVIEWER_KIND=codex "$KIT/add-reviewer.sh" "$RUNK" R2 claude "Lane review A" "$RUNK/findings/b.json" 2>&1)
   assert_match "this call's environment wins over the run's switches" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-r2-1 --kind codex --pane [^ ]+ -- -m claude-sonnet-5 '
+  RUNQ="$TMP/run-review-spaces"; reset_stub
+  (cd "$r" && REVIEWER_KIND=claude REVIEWER_MODEL='my model *' PR_TEMPLATE="it's my template.md" "$KIT/bootstrap.sh" "$RUNQ" "Spaces" main >/dev/null 2>&1); reset_stub
+  out=$(cd "$r" && "$KIT/add-reviewer.sh" "$RUNQ" R1 claude "Spaces" "$RUNQ/findings/a.json" 2>&1; echo "exit=$?")
+  assert_match "a switch value with spaces: the Reviewer starts" "$out" 'exit=0$'
+  assert_match "a switch value with spaces and a glob reaches the Reviewer whole" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-r1-1 --kind claude --pane [^ ]+ -- --model my model \*$'
+  assert_match "a switch value with spaces: the pane map quotes it" "$(cat "$RUNQ/panes.txt")" "^switches: .* REVIEWER_MODEL='my model \\*' .* PR_TEMPLATE='it'\\\\''s my template.md'\$"
+  sed -i.bak "s/^switches: .*/switches:       PR_TEMPLATE='open/" "$RUNQ/panes.txt"
+  assert_match "a switches: line that cannot be read back is refused" "$(cd "$r" && "$KIT/add-reviewer.sh" "$RUNQ" R2 claude "Bad" "$RUNQ/findings/b.json" 2>&1)" "switches: line in $RUNQ/panes.txt cannot be read back"
   RELD="$TMP/rel"; mkdir -p "$RELD"; cp -R "$RUNK" "$RELD/run"; reset_stub
   out=$(cd "$RELD" && EXIT_WAIT_SECONDS=0 REVIEWER_KIND=codex "$KIT/add-reviewer.sh" run R2 claude "Rel" run/findings/rel.json 2>&1)
   assert_match "a relative run dir is made absolute" "$(cat "$RELD/run/panes.txt")" "^reviewer R2: .*findings $RELD/run/findings/rel.json\\)$"
