@@ -16,7 +16,8 @@
 #   STALE=30                            minutes before the console and tower wait flag a lane as stale
 #   suite lint "bun run lint" [DIR]     suite NAME "CMD" [DIR]: the full suite as named steps, in order
 # plus PM, TYPECHECK_TASK, TEST_PKG and TEST_FILTER to steer the detection below,
-# and the run switches (default first; a value outside the list is refused):
+# and the run switches (default first; a value outside the list, or on more than
+# one line, is refused):
 #   TASK_REVIEW LANE_REVIEW PREFLIGHT STATIC_BASELINE   on | off
 #   PR                                                   draft | ready | off
 #   METHOD                                               tdd | plain
@@ -36,7 +37,6 @@
 #       every switch above, exported; switches_line prints them all on one line,
 #       NAME=value, a value with spaces or quotes single-quoted the shell's way
 
-SWITCHES="TASK_REVIEW LANE_REVIEW PREFLIGHT STATIC_BASELINE PR METHOD REVIEWER_KIND REVIEWER_MODEL REVIEW_AREAS SUITE_SKIP PR_TEMPLATE"
 CONTRACT_VARS="EXECUTOR_KIND EXECUTOR_MODEL SPEC_REVIEWER_MODEL QUALITY_REVIEWER_MODEL STALE PM TYPECHECK_TASK CHECK_CMD INSTALL_CMD TEST_PKG TEST_FILTER $SWITCHES"
 PANE_NAMES=(); PANE_CMDS=(); PANE_DIRS=()
 SUITE_NAMES=(); SUITE_CMDS=(); SUITE_DIRS=()
@@ -177,6 +177,9 @@ for _v in TASK_REVIEW LANE_REVIEW PREFLIGHT STATIC_BASELINE; do switch_allows "$
 switch_allows PR            "draft, ready or off"     draft ready off
 switch_allows METHOD        "tdd or plain"            tdd plain
 switch_allows REVIEWER_KIND "other, claude or codex"  other claude codex
+for _v in $SWITCHES; do  # one line each, for the pane map's switches: line
+  case "${!_v}" in *$'\n'*) die "$_v must be one line" ;; esac
+done; unset _v
 switches_line() {  # every switch and its value, on one line; a value with any
   # character outside [A-Za-z0-9_.,:/@%+-] is single-quoted the shell's way, so
   # add-reviewer.sh reads it back whole (python3 shlex, no eval, no globbing)

@@ -69,11 +69,11 @@ case "$FINDINGS" in /*) ;; *) FINDINGS="$PWD/$FINDINGS" ;; esac
 # globbed.
 _words=$(sed -nE 's/^switches: +//p' "$MAP" \
   | python3 -c 'import shlex,sys; print("\n".join(shlex.split(sys.stdin.read())))' 2>/dev/null) \
-  || die "the switches: line in $MAP cannot be read back (unbalanced quotes?)"
+  || die "the switches: line in $MAP cannot be read back"
 while IFS= read -r _kv; do
   [ -n "$_kv" ] || continue
   _k=${_kv%%=*}
-  case "$_k" in ''|*[!A-Z_]*) die "the switches: line in $MAP holds '$_kv', not NAME=value" ;; esac
+  case " $SWITCHES " in *" $_k "*) ;; *) die "the switches: line in $MAP holds '$_kv', not a run switch" ;; esac
   [ -n "${!_k+set}" ] || export "$_kv"
 done <<< "$_words"
 unset _words _kv _k
