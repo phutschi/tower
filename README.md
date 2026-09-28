@@ -21,7 +21,8 @@ acting lives in the [skills](#skills); the CLI only keeps the record.
 
 ## Install
 
-You never need Bun to use tower.
+You never need Bun to use tower. The CLI needs git; `/tower:orchestrate` also
+needs herdr, python3 and node.
 
 **A release binary** (macOS and Linux, no runtime needed): download
 `tower-<os>-<arch>` (`darwin-arm64`, `darwin-x64`, `linux-x64` or

@@ -14,8 +14,9 @@ and markdown, and drives a run through the CLI.
 
 ## Setup
 
-You need Bun to work on tower, and shellcheck, git and python3 for the kit.
-Users of tower need none of them.
+You need Bun, and for the kit shellcheck, git and python3. Bun and shellcheck
+are for contributors only. Users need git for the CLI, and
+`/tower:orchestrate` also needs herdr, python3 and node.
 
 ```sh
 bun install
