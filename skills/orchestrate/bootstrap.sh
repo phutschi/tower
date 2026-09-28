@@ -49,8 +49,10 @@
 # a second apart, while its new pane's shell is not ready yet (executor.sh).
 #
 # Never run this for real to see what it does; use DRY_RUN=1, which answers
-# every herdr, claude and codex call from tests/stub and opens nothing; tower
-# is the real CLI from this checkout and records the run in the run dir.
+# every herdr, claude and codex call from tests/stub and opens nothing. tower
+# is the real CLI from this checkout (it needs bun): it records the run in the
+# run dir, and bootstrap points the repo at that run. Use a scratch repo and
+# run dir, never a live run's.
 set -euo pipefail
 KIT="$(cd "$(dirname "$0")" && pwd)"
 . "$KIT/common.sh"

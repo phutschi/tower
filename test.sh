@@ -48,6 +48,7 @@ unset HERDR_PANE_ID HERDR_TAB_ID
 # tower is the real CLI from this checkout (tests/stub/tower): its state and
 # config stay in $TMP, never the user's.
 export XDG_STATE_HOME="$TMP/xdg-state" XDG_CONFIG_HOME="$TMP/xdg-config"
+unset TOWER_RUN
 # The repo contract's names and the run switches: the fixtures decide them,
 # not the shell test.sh is started from (a codex lane exports EXECUTOR_KIND).
 unset EXECUTOR_KIND EXECUTOR_MODEL SPEC_REVIEWER_MODEL QUALITY_REVIEWER_MODEL STALE PM TYPECHECK_TASK \
@@ -66,6 +67,7 @@ for _tool in herdr tower claude codex semgrep gitleaks; do
   [ "$_which" = "$KIT/tests/stub/$_tool" ] || { echo "test.sh: $_tool resolves to '$_which', not the stub ($KIT/tests/stub/$_tool) — refusing to run" >&2; exit 1; }
 done
 unset _tool _which
+command -v bun >/dev/null || { echo "test.sh: tower runs from this checkout with bun, and bun is not on PATH — refusing to run" >&2; exit 1; }
 reset_stub() { : > "$HERDR_STUB_LOG"; rm -f "$HERDR_STUB_COUNTER" "$HERDR_STUB_COUNTER.busy" "$HERDR_STUB_COUNTER.enters"; }
 # A new git repo built from tests/fixtures/<name> (or empty), named <name>, in
 # a directory of its own: every call is a fresh repo, so tower's run pointer
@@ -273,6 +275,10 @@ if section bootstrap; then
   assert_match "reviewer: pane map has kind and model"  "$map" '^reviewer: +kind codex, model gpt-6-astra$'
   assert_match "reviewer: the record gets a tower note" "$(notes "$TMP/run-empty")" '^reviewer: kind codex, model gpt-6-astra$'
 
+  # An agent's shell may have a pipe on stdin: the empty opening reads none of it.
+  RUN="$TMP/run-stdin"
+  out=$(printf '9\tStray\tcore\n' | boot "$(fixture_repo bun-vitest)" "$RUN" "Stdin" main)
+  assert_eq "empty: a task list on stdin is not read" "$(board "$RUN" 'len(d["tasks"])')" 0
   r=$(fixture_repo bun-vitest); RUN="$TMP/run-planned"; reset_stub
   out=$(boot "$r" "$RUN" "Planned" main "$KIT/example-tasks.tsv")
   assert_eq "planned: the task file's tasks are on the board" "$(board "$RUN" 'len(d["tasks"])')" "$(grep -c '^[0-9]' "$KIT/example-tasks.tsv")"
@@ -384,6 +390,9 @@ if section add-lane; then
   (cd "$r2" && "$KIT/bootstrap.sh" "$RUN2" "Grid2" main "$KIT/example-tasks.tsv" >/dev/null 2>&1)
   assert_match "D before B: refused"                  "$(cd "$r2" && "$KIT/add-lane.sh" "$RUN2" D feat/d main 5 2>&1)" 'lane D goes under lane B, which does not exist yet'
   assert_match "no pane map: refused"                 "$(cd "$r2" && "$KIT/add-lane.sh" "$TMP/nowhere" B feat/b main 2 2>&1)" 'run bootstrap.sh first'
+  reset_stub; out=$(cd "$r2" && "$KIT/add-lane.sh" "$RUN2" B feat/typo main 99 2>&1)
+  assert_match "an unknown task id: refused by tower"  "$out" '"99" is not a task'
+  assert_nomatch "an unknown task id: no worktree"     "$(cat "$HERDR_STUB_LOG")" '^herdr worktree create'
   r=$(fixture_repo bun-vitest); RUN3="$TMP/run-nt"; reset_stub
   (cd "$r" && "$KIT/bootstrap.sh" "$RUN3" "NT" main "$KIT/example-tasks.tsv" >/dev/null 2>&1)
   reset_stub; out=$(cd "$r" && TOWER_STUB=absent "$KIT/add-lane.sh" "$RUN3" B feat/b main 2,3 2>&1; echo "exit=$?")
@@ -493,6 +502,7 @@ if section add-reviewer; then
   RELD="$TMP/rel"; mkdir -p "$RELD"; cp -R "$RUNK" "$RELD/run"; reset_stub
   out=$(cd "$RELD" && EXIT_WAIT_SECONDS=0 REVIEWER_KIND=codex "$KIT/add-reviewer.sh" run R2 claude "Rel" run/findings/rel.json 2>&1)
   assert_match "a relative run dir is made absolute" "$(cat "$RELD/run/panes.txt")" "^reviewer R2: .*findings $RELD/run/findings/rel.json\\)$"
+  assert_match "from outside the repo, the review lands on the given run" "$(reviews "$RELD/run")" 'R2-[0-9]+@R2:Rel$'
   RUN2="$TMP/run-review-nt"; reset_stub
   r=$(fixture_repo bun-vitest); (cd "$r" && "$KIT/bootstrap.sh" "$RUN2" "NT" main "$KIT/example-tasks.tsv" >/dev/null 2>&1); reset_stub
   out=$(cd "$r" && TOWER_STUB=absent "$KIT/add-reviewer.sh" "$RUN2" R1 claude "Lane review A" "$RUN2/findings/a.json" 2>&1; echo "exit=$?")

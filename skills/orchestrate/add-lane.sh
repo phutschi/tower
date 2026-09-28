@@ -25,8 +25,10 @@
 # a second apart, while its new pane's shell is not ready yet (executor.sh).
 #
 # Never run this for real to see what it does; use DRY_RUN=1, which answers
-# every herdr, claude and codex call from tests/stub and opens nothing; tower
-# is the real CLI from this checkout and records the run in the run dir.
+# every herdr, claude and codex call from tests/stub and opens nothing. tower
+# is the real CLI from this checkout (it needs bun): it records the run in the
+# run dir, and bootstrap points the repo at that run. Use a scratch repo and
+# run dir, never a live run's.
 set -euo pipefail
 KIT="$(cd "$(dirname "$0")" && pwd)"
 . "$KIT/common.sh"
@@ -34,10 +36,10 @@ in_herdr; need git python3 node
 need_tower
 [ $# -eq 5 ] || die 'usage: add-lane.sh <run-dir> <B|C|D> <branch> <base-branch> <task-ids>'
 RUN_DIR="$1"; LANE="$2"; BRANCH="$3"; BASE="$4"; TASKS="$5"
-# Every tower call is about this run, wherever it is called from.
-export TOWER_RUN="$RUN_DIR"
 MAP="$RUN_DIR/panes.txt"
 [ -f "$MAP" ] || die "no pane map at $MAP: run bootstrap.sh first"
+# Every tower call is about this run, wherever it is called from.
+RUN_DIR="$(cd "$RUN_DIR" && pwd)"; MAP="$RUN_DIR/panes.txt"; export TOWER_RUN="$RUN_DIR"
 lane_pane() { sed -nE "s/^lane $1: +([^ ]+).*/\1/p" "$MAP"; }
 
 case "$LANE" in
