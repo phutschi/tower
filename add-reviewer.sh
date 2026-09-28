@@ -27,8 +27,8 @@
 # Later calls reuse the tab and its slots. Every call starts a new agent,
 # <repo>-r1-<n> with n counting the reviews in that slot, so each review starts
 # with a fresh context. The slot's previous Reviewer is refused while it is
-# still working, sent /exit and Enter when idle (Enter again every 3 seconds
-# while it is still there), and waited for (EXIT_WAIT_SECONDS, default 15)
+# still working, sent /exit and Enter when idle (Enter again about every 3
+# seconds while it is still there), and waited for (EXIT_WAIT_SECONDS, default 15)
 # until herdr no longer knows it.
 #
 # In order, it writes:
@@ -120,8 +120,9 @@ slot_pane() { echo "$TAB_LINE" | sed -nE "s/.*[(, ]$1 ([^,)]+).*/\\1/p"; }
 # is refused; an idle one is sent /exit, then we wait (EXIT_WAIT_SECONDS,
 # default 15) until herdr no longer knows it. codex can swallow the Enter after
 # /exit (its slash-command popup takes it, or it lands before the text): so a
-# second's pause before it, and Enter again every 3 seconds while the Reviewer
-# is still there. An extra Enter at a shell prompt does nothing.
+# second's pause before it, and Enter again about every 3 seconds while the
+# Reviewer is still there. An extra Enter at a shell prompt does nothing.
+# EXIT_WAIT_SECONDS counts checks about a second apart.
 state_of() { herdr agent get "$1" 2>/dev/null | jsonq 'd["result"]["agent"]["agent_status"]' 2>/dev/null || echo gone; }
 PREV=$(sed -nE "s/^reviewer $SLOT: +[^ ]+ +\\(agent \"([^\"]+)\".*/\\1/p" "$MAP")
 N=1
@@ -138,9 +139,11 @@ if [ -n "$PREV" ]; then
       waited=0
       until [ "$(state_of "$PREV")" = gone ]; do
         [ "$waited" -lt "${EXIT_WAIT_SECONDS:-15}" ] || die "Reviewer $PREV did not exit; end it in $PANE and rerun"
+        if [ "$waited" -gt 0 ] && [ $((waited % 3)) -eq 0 ]; then
+          herdr pane send-keys "$PANE" Enter >/dev/null 2>&1 || true   # best effort; the gone check decides
+        fi
         [ "${DRY_RUN:-0}" = 1 ] || sleep 1
         waited=$((waited+1))
-        [ $((waited % 3)) -ne 0 ] || herdr pane send-keys "$PANE" Enter >/dev/null
       done ;;
   esac
 fi

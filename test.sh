@@ -411,6 +411,7 @@ if section add-reviewer; then
   printf 'idle\n' > "$S/bun-vitest-r1-2"; reset_stub
   out=$(review R1 claude "Preflight R1" "$RUN/findings/preflight-r1.json")
   assert_match "a Reviewer that does not exit is refused" "$out" 'bun-vitest-r1-2 did not exit; end it in pane-1 and rerun'
+  assert_eq "within 3 checks, one Enter: no retry storm" "$(grep -c '^herdr pane send-keys pane-1 Enter$' "$HERDR_STUB_LOG")" 1
   assert_nomatch "that refusal starts no agent"       "$(cat "$HERDR_STUB_LOG")" '^herdr agent start'
   assert_nomatch "that refusal adds no board task"    "$(cat "$HERDR_STUB_LOG")" '^tower add'
   echo gone > "$S/bun-vitest-r1-2"; reset_stub
