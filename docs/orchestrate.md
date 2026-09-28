@@ -233,7 +233,7 @@ to `tower state --json` breaks the kit's tests in the same change.
 `DRY_RUN=1 skills/orchestrate/bootstrap.sh …` shows the same for a real repo,
 but records a real run in the run dir you give it and points the repo at it:
 use a scratch repo and run dir, never a live run's. The kit's tests need
-bun, for tower.
+bun, for tower, and npm, for the fixtures' scripts.
 `shellcheck -S warning *.sh skills/*/*.sh skills/orchestrate/tests/stub/*` lints
 (`.shellcheckrc` holds the deliberate exceptions). CI runs both on Linux and
 macOS.

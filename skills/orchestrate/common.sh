@@ -38,4 +38,9 @@ TOWER_POINTER='install tower: a binary from github.com/phutschi/tower/releases i
 tower_ok() { command -v tower >/dev/null && tower --help >/dev/null 2>&1 || return 1; }
 # An orchestrate run always has tower as its record: refuse before anything
 # is created when it does not run.
-need_tower() { tower_ok || die "tower is not runnable: an orchestrate run needs tower, its record and console. $TOWER_POINTER"; }
+need_tower() {
+  local hint=""
+  tower_ok && return 0
+  [ "${DRY_RUN:-0}" = 1 ] && hint=" (under DRY_RUN=1, tower is the CLI from this kit's checkout, run with bun)"
+  die "tower is not runnable: an orchestrate run needs tower, its record and console.$hint $TOWER_POINTER"
+}

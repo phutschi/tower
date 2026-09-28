@@ -35,9 +35,8 @@ test("the plugin and its marketplace entry name the four skills", () => {
       expect(description).toContain(`/tower:${skill}`);
 });
 
-// Files that keep the old names on purpose: history, and the parked glossary
-// and ADRs (their own tasks rename them).
-const HISTORY = /^(CHANGELOG\.md|docs\/kit-glossary\.md|docs\/adr\/)/;
+// Files that keep the old names on purpose: history, and the ADRs.
+const HISTORY = /^(CHANGELOG\.md|docs\/adr\/)/;
 // The install script removes the old plugin, marketplace and skill links, and
 // its tests set them up.
 const MIGRATION = /^(install\.sh|test\.sh)$/;

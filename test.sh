@@ -93,6 +93,8 @@ if section common; then
   assert_eq "tower_ok: a tower that runs is 0"   "$(in_kit 'tower_ok; echo $?')" 0
   assert_match "DRY_RUN: tower is this checkout's CLI" "$(in_kit 'tower --help')" 'tower theme rules \| new <name>'
   assert_match "DRY_RUN: ... with tower add"         "$(in_kit 'tower --help')" 'tower add "<title>"'
+  ln -s "$KIT" "$TMP/kit-link"
+  assert_eq "DRY_RUN: tower runs when the kit is reached through a link" "$(env -u KIT bash -c ". \"$TMP/kit-link/common.sh\"; tower_ok; echo \$?" 2>&1)" 0
   assert_eq "tower_ok: absent tower is 1"        "$(TOWER_STUB=absent in_kit 'tower_ok; echo $?')" 1
   assert_match "TOWER_POINTER: says how to install tower" "$(in_kit 'echo "$TOWER_POINTER"')" 'github\.com/phutschi/tower'
   assert_nomatch "TOWER_POINTER: names no version" "$(in_kit 'echo "$TOWER_POINTER"')" '[0-9]+\.[0-9]+'
