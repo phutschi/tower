@@ -57,6 +57,18 @@ function Live(props: LiveProps) {
   });
 }
 
+/** The live console for this Io: what a terminal gets, colour and all. */
+export function liveConsole(
+  io: Io,
+  live: { runDir: string; run: RunFile; theme: Theme; stale: number },
+) {
+  return createElement(Live, {
+    ...live,
+    now: io.now,
+    colour: usesColour(io),
+  });
+}
+
 export async function consoleCommand(argv: string[], io: Io): Promise<number> {
   const { values } = parseArgs({
     args: argv,
@@ -98,17 +110,9 @@ export async function consoleCommand(argv: string[], io: Io): Promise<number> {
   process.once("SIGTERM", restore);
   process.once("SIGHUP", restore);
   try {
-    const app = render(
-      createElement(Live, {
-        runDir,
-        run,
-        theme,
-        stale,
-        now: io.now,
-        colour: usesColour(io),
-      }),
-      { exitOnCtrlC: true },
-    );
+    const app = render(liveConsole(io, { runDir, run, theme, stale }), {
+      exitOnCtrlC: true,
+    });
     await app.waitUntilExit();
   } finally {
     process.off("exit", restore);
