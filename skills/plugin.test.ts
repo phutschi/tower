@@ -203,14 +203,18 @@ test("CI and the release set up the same Node", () => {
   expect(nodeSetup(".github/workflows/release.yml")).toEqual(ci);
 });
 
-// watch-lanes.sh reads a Reviewer's end line untagged: each review is a fresh
-// agent in round 1. The round tag is for a lane's end line only.
+// watch-lanes.sh reads a Reviewer's end line untagged: each Reviewer is asked
+// once. No text that describes the end line may ask a Reviewer for a tag.
 test("a Reviewer's end line is never tagged with a round", () => {
-  const entry = (text: string, term: string) =>
-    text.split(`**${term}**:`)[1]?.split("\n\n")[0] ?? "";
-  const endLine = entry(read("CONTEXT.md"), "End line");
-  expect(endLine).toMatch(/FINDINGS WRITTEN`? stays untagged/);
-  expect(read("skills/orchestrate/SKILL.md")).toMatch(
-    /Reviewer's `FINDINGS WRITTEN` never carries a round tag/,
-  );
+  for (const file of [
+    "CONTEXT.md",
+    "docs/orchestrate.md",
+    "skills/orchestrate/SKILL.md",
+    "skills/orchestrate/brief-template.md",
+    "skills/orchestrate/add-reviewer.sh",
+    "skills/preflight/SKILL.md",
+  ])
+    expect(read(file)).not.toMatch(
+      /FINDINGS WRITTEN`?\]*`?,? *(tagged|r(\d|<n>|\{\{))/,
+    );
 });

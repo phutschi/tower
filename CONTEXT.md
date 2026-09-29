@@ -212,9 +212,10 @@ A lane whose executor has stopped working, for any reason.
 **End line**:
 A phrase in double square brackets that starts a line near the end of a
 lane's or Reviewer's reply: `READY TO MERGE` or `ALL DONE` for a lane, tagged
-`r<n>` from round 2; a Reviewer's `FINDINGS WRITTEN` stays untagged, since
-each review is a fresh agent in round 1. The watch reads it to tell an agent
-that finished from one that stopped. It is not an event.
+`r<n>` from round 2; a Reviewer's `FINDINGS WRITTEN` is never tagged: each
+Reviewer is a fresh agent asked once, so it has no report rounds. The watch
+reads it to tell an agent that finished from one that stopped. It is not an
+event.
 
 **Report round**:
 One ask for a lane's end line. Round 1 is its brief; each fix prompt after it

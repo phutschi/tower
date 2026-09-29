@@ -108,7 +108,8 @@ and do it in a lane anyway or suggest doing it without the kit.
    whose model a codex Reviewer of a codex lane runs on; the script picks
    the other kind and prints the Reviewer's agent and task id. The first call
    opens the review tab. Add the agent to `watch-lanes.sh` by its bare
-   name (a Reviewer only ever has round 1), then brief it
+   name (a Reviewer is asked once, so its `FINDINGS WRITTEN` never carries
+   a round tag), then brief it
    with the lane review brief (`brief-template.md`). The fixed point is the
    lane's base: the commit it forked from; for lane A the run base (step 2),
    leaving out the commits of the other lanes. Triage the findings alone
@@ -116,8 +117,7 @@ and do it in a lane anyway or suggest doing it without the kit.
    (`brief-template.md`, "Fix prompts"). Each fix prompt starts the lane's
    next report round `<n>` (the brief is round 1) and asks, in words, for
    the lane's final report's marker with the round tag `r<n>` inside the
-   brackets. A Reviewer's `FINDINGS WRITTEN` never carries a round tag: every
-   review is a fresh agent, so it is always round 1. Re-run `watch-lanes.sh` with `<agent>:<n>` for that lane, so
+   brackets. Re-run `watch-lanes.sh` with `<agent>:<n>` for that lane, so
    an earlier report's marker still in its pane never reads as done. When
    the lane reports round `<n>`, lane review round `<n>` follows with a
    fresh Reviewer: the two rounds share their number. The review is clean
