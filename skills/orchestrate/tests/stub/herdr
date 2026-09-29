@@ -10,7 +10,9 @@
 # ws-0; `pane get` answers pane_not_found when HERDR_STUB_STATES_DIR/<pane-id>
 # says gone. HERDR_STUB_BUSY_STARTS=N answers the first N `agent start` calls
 # with agent_pane_busy (a pane whose shell is not ready yet), counted through
-# HERDR_STUB_COUNTER.busy. HERDR_STUB_EXIT_ON_ENTER=N: every `agent get` answers
+# HERDR_STUB_COUNTER.busy. HERDR_STUB_TRUST_STARTS=N answers the first N with an
+# agent blocked during startup (a trust prompt), counted through
+# HERDR_STUB_COUNTER.trust. HERDR_STUB_EXIT_ON_ENTER=N: every `agent get` answers
 # gone once N `pane send-keys ... Enter` calls were made (counted through
 # HERDR_STUB_COUNTER.enters), as an agent that needs N Enters to exit.
 # Errors are JSON on stderr with exit 1, as herdr answers them.
@@ -34,6 +36,11 @@ case "${1:-} ${2:-}" in
     [ -n "$states" ] && [ "$(head -1 "$states/$3" 2>/dev/null)" = gone ] && { echo '{"error":{"code":"pane_not_found"}}' >&2; exit 1; }
     echo "{\"result\":{\"pane\":{\"pane_id\":\"$3\",\"workspace_id\":\"ws-0\"}}}" ;;
   "agent start")
+    trust=$(cat "$counter.trust" 2>/dev/null || echo 0)
+    if [ "$trust" -lt "${HERDR_STUB_TRUST_STARTS:-0}" ]; then
+      echo $((trust+1)) > "$counter.trust"
+      echo '{"error":{"code":"agent_start_failed","message":"agent blocked during startup"}}' >&2; exit 1
+    fi
     busy=$(cat "$counter.busy" 2>/dev/null || echo 0)
     if [ "$busy" -lt "${HERDR_STUB_BUSY_STARTS:-0}" ]; then
       echo $((busy+1)) > "$counter.busy"

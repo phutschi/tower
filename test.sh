@@ -69,7 +69,7 @@ done
 unset _tool _which
 command -v bun >/dev/null || { echo "test.sh: tower runs from this checkout with bun, and bun is not on PATH — refusing to run" >&2; exit 1; }
 command -v npm >/dev/null || { echo "test.sh: the look section runs npm scripts in its fixtures, and npm is not on PATH — refusing to run" >&2; exit 1; }
-reset_stub() { : > "$HERDR_STUB_LOG"; rm -f "$HERDR_STUB_COUNTER" "$HERDR_STUB_COUNTER.busy" "$HERDR_STUB_COUNTER.enters"; }
+reset_stub() { : > "$HERDR_STUB_LOG"; rm -f "$HERDR_STUB_COUNTER" "$HERDR_STUB_COUNTER.busy" "$HERDR_STUB_COUNTER.enters" "$HERDR_STUB_COUNTER.trust"; }
 # A new git repo built from tests/fixtures/<name> (or empty), named <name>, in
 # a directory of its own: every call is a fresh repo, so tower's run pointer
 # (in the repo's git dir) is never shared between two runs. Prints its path.
@@ -413,6 +413,20 @@ if section bootstrap; then
   assert_match "busy pane: giving up shows herdr's answer" "$out" 'agent_pane_busy'
   assert_match "busy pane: giving up says what to do"   "$out" 'pane pane-2 is still not a ready shell after 3 tries; check it, or raise START_TRIES'
   assert_match "busy pane: giving up fails bootstrap"    "$out" 'exit=1$'
+
+  # A fresh checkout's trust prompt blocks the start: it is answered, and the
+  # agent is started again only when herdr says it is not there.
+  S="$HERDR_STUB_STATES_DIR"
+  for case in "gone:2:0" "working:1:0" "unreachable:1:1"; do
+    IFS=: read -r state starts code <<< "$case"
+    r=$(fixture_repo bun-vitest); RUN="$TMP/run-trust-$state"; reset_stub; echo "$state" > "$S/bun-vitest-lane-a"
+    out=$(HERDR_STUB_TRUST_STARTS=1 boot "$r" "$RUN" "Trust" main; echo "exit=$?")
+    assert_match "trust prompt: answered"                "$(cat "$HERDR_STUB_LOG")" '^herdr pane send-keys pane-2 Down Enter$'
+    assert_eq "trust prompt, agent $state: starts"       "$(grep -c '^herdr agent start bun-vitest-lane-a ' "$HERDR_STUB_LOG")" "$starts"
+    assert_match "trust prompt, agent $state: exit $code" "$out" "exit=$code\$"
+  done
+  assert_match "trust prompt, herdr failing: says so"  "$out" 'herdr cannot say whether bun-vitest-lane-a started'
+  rm -f "$S/bun-vitest-lane-a"
 fi
 
 # --- add-lane ----------------------------------------------------------------
@@ -492,7 +506,7 @@ if section add-lane; then
   echo unreachable > "$HERDR_STUB_STATES_DIR/bun-vitest-lane-b"
   reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNF" B feat/b main 2,3 2>&1; echo "exit=$?")
   assert_match "rerun, herdr failing: refused"         "$out" 'exit=1$'
-  assert_match "rerun, herdr failing: ... with herdr's answer" "$out" 'server_unavailable'
+  assert_match "rerun, herdr failing: ... saying herdr cannot tell" "$out" 'herdr cannot say whether agent bun-vitest-lane-b runs'
   assert_nomatch "rerun, herdr failing: no start"      "$(cat "$HERDR_STUB_LOG")" '^herdr agent start'
   echo gone > "$HERDR_STUB_STATES_DIR/bun-vitest-lane-b"
   reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNF" B feat/other main 2,3 2>&1; echo "exit=$?")
@@ -580,7 +594,7 @@ if section add-reviewer; then
   printf 'idle\nunreachable\n' > "$S/bun-vitest-r1-2"; reset_stub
   out=$(EXIT_WAIT_SECONDS=2 review R1 claude "Preflight R1" "$RUN/findings/preflight-r1.json")
   assert_match "herdr failing after /exit: /exit was sent" "$(cat "$HERDR_STUB_LOG")" '^herdr pane send-text pane-1 /exit$'
-  assert_match "herdr failing after /exit: not read as exited" "$out" 'bun-vitest-r1-2 did not exit'
+  assert_match "herdr failing after /exit: not read as exited, herdr named" "$out" 'herdr cannot say whether Reviewer bun-vitest-r1-2 exited'
   assert_nomatch "herdr failing after /exit: no agent start" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start'
   # herdr's own unknown status is an agent it cannot classify: it is there,
   # and is sent /exit like an idle one.

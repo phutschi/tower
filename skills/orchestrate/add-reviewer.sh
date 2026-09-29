@@ -145,8 +145,11 @@ if [ -n "$PREV" ]; then
       [ "${DRY_RUN:-0}" = 1 ] || sleep 1
       herdr pane send-keys "$PANE" Enter >/dev/null
       waited=0
-      until [ "$(state_of "$PREV")" = gone ]; do
-        [ "$waited" -lt "${EXIT_WAIT_SECONDS:-15}" ] || die "Reviewer $PREV did not exit; end it in $PANE and rerun"
+      until state=$(state_of "$PREV"); [ "$state" = gone ]; do
+        if [ "$waited" -ge "${EXIT_WAIT_SECONDS:-15}" ]; then
+          [ "$state" != unreadable ] || die "herdr cannot say whether Reviewer $PREV exited; check $PANE, and rerun once herdr answers"
+          die "Reviewer $PREV did not exit; end it in $PANE and rerun"
+        fi
         if [ "$waited" -gt 0 ] && [ $((waited % 3)) -eq 0 ]; then
           herdr pane send-keys "$PANE" Enter >/dev/null 2>&1 || true   # best effort; the gone check decides
         fi

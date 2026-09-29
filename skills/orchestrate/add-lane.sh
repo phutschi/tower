@@ -75,8 +75,11 @@ if [ -n "$PANE" ]; then
   # A rerun. The lane's agent running means the lane exists. herdr not finding
   # it means its start failed: start it again, in the lane's pane and worktree.
   # Any other answer from herdr decides nothing.
-  if got=$(herdr agent get "$NAME" 2>&1); then die "lane $LANE already exists (see $MAP)"; fi
-  echo "$got" | grep -q '"agent_not_found"' || die "lane $LANE: herdr cannot say whether agent $NAME runs: $got"
+  case "$(state_of "$NAME")" in
+    gone) ;;
+    unreadable) die "lane $LANE: herdr cannot say whether agent $NAME runs; rerun once herdr answers" ;;
+    *) die "lane $LANE already exists (see $MAP)" ;;
+  esac
   [ "$(grep "^lane $LANE:" "$MAP")" = "$(lane_line "$PANE")" ] \
     || die "lane $LANE is in the pane map with another branch, kind or model; rerun with the ones it has (see $MAP)"
   # The ids, ranges expanded, against what the lane owns on the board.

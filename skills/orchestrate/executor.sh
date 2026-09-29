@@ -70,7 +70,7 @@ start_agent() {
 # A fresh checkout shows the agent's trust prompt, which herdr reports as
 # "blocked during startup". Claude's prompt wants Down Enter ("Yes, I trust this
 # folder" is the second option); codex's wants Enter ("Yes, continue" is the
-# first). Answer it and try once more.
+# first). Answer it, and try once more if herdr then says the agent is gone.
 start_agent_with_trust_retry() {
   local name="$1" pane="$2" out tries=1
   until out=$(start_agent "$name" "$pane" 2>&1); do
@@ -82,8 +82,13 @@ start_agent_with_trust_retry() {
         claude) herdr pane send-keys "$pane" Down Enter >/dev/null ;;
         codex)  herdr pane send-keys "$pane" Enter >/dev/null ;;
       esac
-      sleep 3
-      herdr agent get "$name" >/dev/null 2>&1 || start_agent "$name" "$pane" >/dev/null
+      [ "${DRY_RUN:-0}" = 1 ] || sleep 3
+      # Started again only when herdr says the agent is not there (common.sh
+      # state_of): a failing herdr call must not put a second agent beside it.
+      case "$(state_of "$name")" in
+        gone) start_agent "$name" "$pane" >/dev/null ;;
+        unreadable) echo "agent start: herdr cannot say whether $name started after its trust prompt; check pane $pane, and rerun once herdr answers" >&2; return 1 ;;
+      esac
       return
     else
       echo "$out" >&2
