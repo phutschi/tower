@@ -95,52 +95,69 @@ finished() { local b; if [ $# -ge 2 ]; then b=$2; else b=$(board); fi
 
 IDLE_SEEN=(); i=0; for _ in "${NAMES[@]}"; do IDLE_SEEN[$i]=0; i=$((i+1)); done
 started=$(date +%s)
-while [ -z "$ROUND" ] || [ $(( $(date +%s) - started )) -lt "$ROUND" ]; do
-  settled=0; working=0; i=0
+# Poll until a sample settles, the board is finished, or ROUND passes.
+poll() {
+  local settled working i name
+  while [ -z "$ROUND" ] || [ $(( $(date +%s) - started )) -lt "$ROUND" ]; do
+    settled=0; working=0; i=0
+    for name in "${NAMES[@]}"; do
+      case "$(state_of "$name")" in
+        working|unknown) IDLE_SEEN[$i]=0; working=1 ;;
+        idle) if [ $(( $(date +%s) - started )) -ge "$GRACE" ]; then
+                IDLE_SEEN[$i]=$(( IDLE_SEEN[$i] + 1 ))
+              fi
+              if [ "${IDLE_SEEN[$i]}" -ge 2 ]; then settled=1; else working=1; fi ;;
+        *) settled=1 ;;
+      esac
+      i=$((i+1))
+    done
+    [ "$settled" = 1 ] && return
+    finished "$working" && return
+    sleep "$POLL"
+  done
+}
+
+# Resample every agent and print the report; succeed when it has attention.
+report() {
+  local alert=0 i=0 working=0 name state b
+  # idle only settles at IDLE_SEEN>=2 (the polling loop above); reporting it on
+  # a single fresh sample here would let a lane idle for its very first poll
+  # report attention just because a *different* lane is what broke the loop.
+  STATES=()
   for name in "${NAMES[@]}"; do
-    case "$(state_of "$name")" in
-      working|unknown) IDLE_SEEN[$i]=0; working=1 ;;
-      idle) if [ $(( $(date +%s) - started )) -ge "$GRACE" ]; then
-              IDLE_SEEN[$i]=$(( IDLE_SEEN[$i] + 1 ))
-            fi
-            if [ "${IDLE_SEEN[$i]}" -ge 2 ]; then settled=1; else working=1; fi ;;
-      *) settled=1 ;;
+    state=$(state_of "$name"); STATES[$i]=$state
+    case "$state" in
+      idle) [ "${IDLE_SEEN[$i]}" -ge 2 ] && { alert=1; echo "attention: $name $(reason_for "$name" "$state" "${ROUNDS[$i]}")"; } ;;
+      blocked|done|gone) alert=1; echo "attention: $name $(reason_for "$name" "$state" "${ROUNDS[$i]}")" ;;
     esac
     i=$((i+1))
   done
-  [ "$settled" = 1 ] && break
-  finished "$working" && break
+  i=0
+  for name in "${NAMES[@]}"; do
+    state=${STATES[$i]}
+    case "$state" in
+      working|unknown) working=1 ;;
+      idle) [ "${IDLE_SEEN[$i]}" -ge 2 ] || working=1 ;;
+    esac
+    printf '%-22s %s\n' "$name" "$state"
+    case "$state" in
+      blocked|done) tail_of "$name" | sed 's/^/    │ /' ;;
+      idle) [ "${IDLE_SEEN[$i]}" -ge 2 ] && tail_of "$name" | sed 's/^/    │ /' ;;
+    esac
+    i=$((i+1))
+  done
+  b=$(board); if finished "$working" "$b"; then echo "tower: run $b"; alert=1; fi
+  echo "--- tower"
+  tower state --json --run "$RUN_DIR" 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["summary"], "attention:", d["attention"])' 2>/dev/null || true
+  [ "$alert" = 1 ]
+}
+
+# A sample can settle and the resample find the agent working again (a
+# blocked lane that was answered). With ROUND_SECONDS that ends the round
+# quietly, exit 3; without it there is no quiet exit, so poll on.
+while :; do
+  poll
+  if out=$(report); then printf '%s\n' "$out"; exit 0; fi
+  [ -z "$ROUND" ] || { printf '%s\n' "$out"; exit 3; }
   sleep "$POLL"
 done
-
-alert=0; i=0
-# idle only settles at IDLE_SEEN>=2 (the polling loop above); reporting it on
-# a single fresh sample here would let a lane idle for its very first poll
-# report attention just because a *different* lane is what broke the loop.
-STATES=()
-for name in "${NAMES[@]}"; do
-  state=$(state_of "$name"); STATES[$i]=$state
-  case "$state" in
-    idle) [ "${IDLE_SEEN[$i]}" -ge 2 ] && { alert=1; echo "attention: $name $(reason_for "$name" "$state" "${ROUNDS[$i]}")"; } ;;
-    blocked|done|gone) alert=1; echo "attention: $name $(reason_for "$name" "$state" "${ROUNDS[$i]}")" ;;
-  esac
-  i=$((i+1))
-done
-i=0; working=0
-for name in "${NAMES[@]}"; do
-  state=${STATES[$i]}
-  case "$state" in
-    working|unknown) working=1 ;;
-    idle) [ "${IDLE_SEEN[$i]}" -ge 2 ] || working=1 ;;
-  esac
-  printf '%-22s %s\n' "$name" "$state"
-  case "$state" in
-    blocked|done) tail_of "$name" | sed 's/^/    │ /' ;;
-    idle) [ "${IDLE_SEEN[$i]}" -ge 2 ] && tail_of "$name" | sed 's/^/    │ /' ;;
-  esac
-  i=$((i+1))
-done
-b=$(board); if finished "$working" "$b"; then echo "tower: run $b"; alert=1; fi
-echo "--- tower"
-tower state --json --run "$RUN_DIR" 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["summary"], "attention:", d["attention"])' 2>/dev/null || true
-[ "$alert" = 1 ] && exit 0 || exit 3

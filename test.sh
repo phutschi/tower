@@ -754,6 +754,17 @@ CLOCK
   out=$(ROUND_SECONDS=2500 clocked)
   assert_match "ROUND_SECONDS given: exit 3 once it passes" "$out" 'exit=3$'
   assert_match "ROUND_SECONDS given: it polled before it passed" "$(grep -c '^herdr agent get a' "$HERDR_STUB_LOG")" '^[3-9]'
+  # Blocked on one sample and working again on the resample: no time limit
+  # means no quiet exit, so the watch polls on and reports once, when the lane
+  # is blocked again.
+  printf 'blocked\nworking\nworking\nblocked\n' > "$S/a"; rm -f "$clock/date.now"
+  out=$(clocked)
+  assert_match "blocked, then working on the resample: polls on until attention" "$out" '^attention: a blocked'
+  assert_match "blocked, then working on the resample: exit 0" "$out" 'exit=0$'
+  assert_match "blocked, then working on the resample: one report" "$(grep -c '^--- tower' <<<"$out")" '^1$'
+  printf 'blocked\nworking\n' > "$S/a"; rm -f "$clock/date.now"
+  out=$(ROUND_SECONDS=2500 clocked)
+  assert_match "ROUND_SECONDS given, blocked then working: exit 3 as before" "$out" 'exit=3$'
   for bad in abc 0 -5 1.5; do
     out=$(ROUND_SECONDS=$bad clocked)
     assert_match "ROUND_SECONDS=$bad: refused"       "$out" 'ROUND_SECONDS'
