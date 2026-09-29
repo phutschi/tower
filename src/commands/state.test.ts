@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import type { Event } from "../types.ts";
 import { appendEvent } from "../events.ts";
 import { main } from "../main.ts";
 import { eventsPath } from "../run.ts";
@@ -28,9 +29,38 @@ describe("tower state --json", () => {
 });
 
 describe("tower wait", () => {
-  test("requires --timeout", async () => {
+  const blocked = (ts: string): Event => ({
+    v: 1,
+    kind: "report",
+    ts,
+    task: "1",
+    status: "blocked",
+    phase: "",
+    model: "",
+    note: "needs the test DB created",
+    commit: "",
+  });
+  const closed = (ts: string): Event => ({
+    v: 1,
+    kind: "close",
+    ts,
+    text: "shipped",
+  });
+
+  for (const [name, event, printed] of [
+    ["attention", blocked, "blocked   1        needs the test DB created"],
+    ["close", closed, "closed    shipped"],
+  ] as const)
+    test(`without --timeout it returns 0 on ${name}`, async () => {
+      const { runDir, io } = seededRun();
+      appendEvent(eventsPath(runDir), event(io.now().toISOString()));
+      expect(await main(["wait"], io)).toBe(0);
+      expect(io.out.join("")).toBe(`${printed}\n`);
+    });
+
+  test("rejects a --timeout that is not a positive number of seconds", async () => {
     const { io } = seededRun();
-    expect(await main(["wait"], io)).toBe(1);
+    expect(await main(["wait", "--timeout", "0"], io)).toBe(1);
     expect(io.err.join("")).toContain("--timeout");
   });
 

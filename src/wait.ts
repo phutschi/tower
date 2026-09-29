@@ -1,8 +1,8 @@
 /**
  * Block until the run needs a human. This is the one thing every
  * orchestrator loop wants and the one thing a harness-neutral tool can offer:
- * exit 0 with the reasons printed, or exit 3 in silence when the timeout
- * passes with nothing to say.
+ * exit 0 with the reasons printed, or, when a timeout was given, exit 3 in
+ * silence once it passes with nothing to say.
  *
  * Polling, not fs.watch: a wait is long and rare, a 2 s poll is invisible,
  * and fs.watch on macOS has enough edge cases that the console pairs it with
@@ -44,7 +44,8 @@ export function attentionLines(state: State, now: Date): string[] {
 
 export interface WaitOptions {
   runDir: string;
-  timeoutMs: number;
+  /** Omitted: wait until something needs a human, however long that takes. */
+  timeoutMs?: number;
   staleMinutes: number;
   now: () => Date;
   pollMs?: number;
@@ -74,6 +75,10 @@ export async function waitFor(options: WaitOptions): Promise<WaitResult> {
     });
     const lines = attentionLines(state, now);
     if (lines.length > 0) return { exit: 0, lines };
+    if (options.timeoutMs === undefined) {
+      await sleep(poll);
+      continue;
+    }
     const remaining = options.timeoutMs - (Date.now() - started);
     if (remaining <= 0) return { exit: 3, lines: [] };
     await sleep(Math.min(poll, remaining));

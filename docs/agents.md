@@ -51,13 +51,15 @@ the pull request ([docs/orchestrate.md](orchestrate.md)). The loop:
 tower init --plan <plan> --lane A=… --lane B=…
 tower brief <lane>            → paste into each executor
 … start executors with your runner …
-tower wait --timeout <s>      → 0: read the printed reasons and act; 3: wait again
+tower wait                    → 0: read the printed reasons, act, wait again
 tower close "<note>"
 ```
 
-`tower wait` has no default timeout. Pick a number under your harness's tool
-call limit. If your harness can run a command in the background and wake you
-when it exits, run `wait` there; otherwise run it in the foreground.
+Run `tower wait` in the background if your harness can run a command there
+and wake you when it exits: without `--timeout` it waits as long as it takes.
+`--timeout <s>` is for a harness that can only run commands in the
+foreground: pick a number under its tool call limit, and on exit 3 (the
+timeout passed quietly) wait again.
 
 ## What tower will not do
 

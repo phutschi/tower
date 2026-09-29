@@ -22,11 +22,13 @@ through the common git directory.
 From your own shell, or a script:
 
 ```sh
-while tower wait --timeout 540; do
+while out=$(tower wait); do
+  echo "$out"
+  case "$out" in complete | closed*) break ;; esac
   tower state --json | jq '.tasks[] | select(.status == "blocked" or .stale)'
   # read, decide, re-brief, continue
 done
 ```
 
-`wait` returns 3 on a quiet timeout, which ends the `while`; wrap it in an
-outer loop if you want to keep watching.
+Without `--timeout`, `wait` returns only with something to report. A complete
+or closed run returns at once every time, so the loop ends there.

@@ -166,6 +166,40 @@ describe("waitFor", () => {
     expect(result.lines).toEqual(["blocked   1        later"]);
   });
 
+  for (const [name, event, printed] of [
+    [
+      "attention",
+      {
+        v: 1,
+        kind: "report",
+        ts: NOW.toISOString(),
+        task: "1",
+        status: "blocked",
+        phase: "",
+        model: "",
+        note: "later",
+        commit: "",
+      },
+      "blocked   1        later",
+    ],
+    [
+      "close",
+      { v: 1, kind: "close", ts: NOW.toISOString(), text: "shipped" },
+      "closed    shipped",
+    ],
+  ] as const)
+    test(`without a timeout it keeps polling until ${name}`, async () => {
+      const { runDir } = seededRun();
+      setTimeout(() => appendEvent(eventsPath(runDir), event), 60);
+      const result = await waitFor({
+        runDir,
+        staleMinutes: 10,
+        now: () => NOW,
+        pollMs: 10,
+      });
+      expect(result).toEqual({ exit: 0, lines: [printed] });
+    });
+
   test("complete and closed also end the wait", async () => {
     const { runDir } = seededRun();
     for (const id of ["1", "2", "auth-1"])

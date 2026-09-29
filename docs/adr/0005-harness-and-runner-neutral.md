@@ -24,3 +24,11 @@ it with a pointer to `/tower:run`. Nothing else depends on it, so a user
 without herdr loses nothing. We keep it in the same plugin so there is one
 install and one name, and we keep the exception in one skill so the rest
 cannot drift toward herdr.
+
+## Amended: `wait` needs no timeout
+
+`--timeout` is now optional. Without it, `wait` blocks until something needs
+a human, which suits a harness that runs commands in the background and wakes
+the agent on exit; `--timeout` stays for a harness that can only run commands
+in the foreground. Neither mode is assumed: the exit code and the printed
+reasons are the same either way.

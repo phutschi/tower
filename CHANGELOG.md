@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- `tower wait` no longer needs `--timeout`. Without it, it waits until
+  attention, completion or close and exits 0 with the reasons; it exits 3
+  only when a timeout was given and passed. Additive: a minor version.
+
 ## [0.3.0] — 2026-09-07
 
 ### Added

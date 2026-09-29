@@ -189,7 +189,7 @@ unparseable lines, counts them, and shows the count.
 plain-integer id any plan task or `add` has ever used, removed ids included;
 it is what `tower add` picks when `--id` is not given.
 
-## `tower wait --timeout <seconds>`
+## `tower wait [--timeout <seconds>]`
 
 Blocks until attention, completion, or close — exit **0**, printing one
 literal line per reason:
@@ -201,7 +201,10 @@ complete
 closed    shipped as v0.1.0
 ```
 
-On a quiet timeout: exit **3**, nothing printed. `--timeout` is required.
+Without `--timeout` it waits as long as it takes; run it in the background.
+With `--timeout`, for a harness that can only run commands in the
+foreground: exit **3**, nothing printed, once the timeout passes with nothing
+to report.
 
 ## Exit codes
 
@@ -210,7 +213,7 @@ On a quiet timeout: exit **3**, nothing printed. `--timeout` is required.
 | 0   | done (for `wait`: attention, complete, or closed)  |
 | 1   | usage or validation error; nothing was appended    |
 | 2   | no run found; the message is the `tower init` line |
-| 3   | `wait` timed out with nothing to report            |
+| 3   | `wait --timeout` passed with nothing to report     |
 
 ## Run discovery
 

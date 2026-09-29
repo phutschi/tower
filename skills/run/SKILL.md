@@ -54,17 +54,18 @@ another lane's work. Start the executor with your runner. Repeat per lane.
 ## 3. Wait
 
 ```
-tower wait --timeout <seconds>
+tower wait
 ```
 
-Pick a timeout under your harness's limit for a single command. If your
-harness can run a command in the background and wake you when it exits, run
-`wait` there. Otherwise run it in the foreground.
+Run it in the background, if your harness can run a command there and wake
+you when it exits: it blocks until something needs you, however long that
+takes. If your harness can only run commands in the foreground, add
+`--timeout <seconds>` under its limit for a single command.
 
 - **exit 0** — it printed why. Read the lines (`blocked`, `stale`, `complete`,
   `closed`), then `tower state --json` for detail. Act: re-brief a lane, give
   it what it asked for, escalate a model, or tell the human. Then wait again.
-- **exit 3** — quiet. Wait again.
+- **exit 3** — only with `--timeout`: it passed quietly. Wait again.
 
 Never poll with `tower state` in a loop; that is what `wait` is for.
 
