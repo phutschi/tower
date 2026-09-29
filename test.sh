@@ -476,6 +476,7 @@ if section add-lane; then
   assert_match "failed start: says how to resume"      "$out" 'rerun  .*/add-lane\.sh .* B feat/b main 2,3  to start it again'
   bpane=$(sed -nE 's/^lane B: +([^ ]+).*/\1/p' "$RUNF/panes.txt")
   echo gone > "$HERDR_STUB_STATES_DIR/bun-vitest-lane-b"
+  mkdir -p "$r/.worktrees/feat/b"   # the stub's worktree create makes none
   reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNF" B feat/b main 2,3 2>&1; echo "exit=$?"); log=$(cat "$HERDR_STUB_LOG")
   assert_match "rerun: add-lane finishes"               "$out" 'exit=0$'
   assert_nomatch "rerun: no second worktree"            "$log" '^herdr worktree create'
@@ -497,6 +498,25 @@ if section add-lane; then
   reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNF" B feat/other main 2,3 2>&1; echo "exit=$?")
   assert_match "rerun, another branch: refused"        "$out" 'lane B is in the pane map with another branch, kind or model'
   assert_nomatch "rerun, another branch: no start"     "$(cat "$HERDR_STUB_LOG")" '^herdr agent start'
+  reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNF" B feat/b main 4,5 2>&1; echo "exit=$?")
+  assert_match "rerun, other task ids: refused, naming the lane's" "$out" 'lane B owns 2,3 on the board, not 4,5; rerun with those ids'
+  assert_nomatch "rerun, other task ids: no start"     "$(cat "$HERDR_STUB_LOG")" '^herdr agent start'
+  assert_eq "rerun, other task ids: the board keeps lane B's" "$(board "$RUNF" '",".join(d["lanes"].get("B", []))')" "2,3"
+  reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNF" B feat/b main 2-3 2>&1; echo "exit=$?")
+  assert_match "rerun, the same ids as a range: finishes" "$out" 'exit=0$'
+  echo gone > "$HERDR_STUB_STATES_DIR/bun-vitest-lane-b"
+  rm -rf "$r/.worktrees/feat/b"
+  reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNF" B feat/b main 2,3 2>&1; echo "exit=$?")
+  assert_match "rerun, worktree removed: refused, saying what to remove" "$out" "lane B's checkout .*/\.worktrees/feat/b is gone: close its pane $bpane and remove its line"
+  assert_nomatch "rerun, worktree removed: no start"   "$(cat "$HERDR_STUB_LOG")" '^herdr agent start'
+  mkdir -p "$r/.worktrees/feat/b"; echo gone > "$HERDR_STUB_STATES_DIR/$bpane"
+  reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNF" B feat/b main 2,3 2>&1; echo "exit=$?")
+  assert_match "rerun, pane closed: refused, saying what to remove" "$out" "lane B's pane $bpane is gone \(herdr pane get\): remove its line"
+  assert_nomatch "rerun, pane closed: no start"        "$(cat "$HERDR_STUB_LOG")" '^herdr agent start'
+  rm -f "$HERDR_STUB_STATES_DIR/$bpane"
+  reset_stub; out=$(cd "$r" && HERDR_STUB_BUSY_STARTS=99 START_TRIES=1 "$KIT/add-lane.sh" "$RUNF" B feat/b main 2,3 2>&1; echo "exit=$?")
+  assert_match "rerun, start fails again: says to rerun" "$out" 'did not start in pane-[0-9]+ again; rerun  .*/add-lane\.sh .* B feat/b main 2,3  once it can'
+  assert_match "rerun, start fails again: fails"       "$out" 'exit=1$'
   rm -f "$HERDR_STUB_STATES_DIR/bun-vitest-lane-b"
 fi
 
