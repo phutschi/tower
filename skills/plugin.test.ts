@@ -205,16 +205,19 @@ test("CI and the release set up the same Node", () => {
 });
 
 // A tag can be moved to other code; a commit cannot. Every action is pinned
-// to a full commit SHA, with the tag it stood for as a comment (Dependabot
-// keeps both current).
+// to a full commit SHA, with the tag it stood for as a comment.
 test("every workflow pins its actions to a commit SHA", () => {
+  const uses: string[] = [];
   const loose: string[] = [];
-  for (const file of ["ci.yml", "release.yml"])
+  for (const file of readdirSync(join(root, ".github/workflows")))
     for (const [line] of read(`.github/workflows/${file}`).matchAll(
       /^\s*(?:-\s+)?uses:.*$/gm,
-    ))
-      if (!/uses:\s*[\w.-]+\/[\w.-]+@[0-9a-f]{40} # v\S+$/.test(line))
+    )) {
+      uses.push(line);
+      if (!/uses:\s*[\w.-]+(?:\/[\w.-]+)+@[0-9a-f]{40} # v\S+$/.test(line))
         loose.push(`${file}: ${line.trim()}`);
+    }
+  expect(uses.length).toBeGreaterThan(0);
   expect(loose).toEqual([]);
 });
 
