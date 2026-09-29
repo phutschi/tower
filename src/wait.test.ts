@@ -1,3 +1,4 @@
+import { rmSync } from "node:fs";
 import { describe, expect, test } from "bun:test";
 
 import { appendEvent, readEvents } from "./events.ts";
@@ -199,6 +200,19 @@ describe("waitFor", () => {
       });
       expect(result).toEqual({ exit: 0, lines: [printed] });
     });
+
+  test("a run that disappears ends the wait with exit 2", async () => {
+    const { runDir } = seededRun();
+    setTimeout(() => rmSync(runDir, { recursive: true }), 40);
+    const wait = waitFor({
+      runDir,
+      staleMinutes: 10,
+      now: () => NOW,
+      pollMs: 10,
+    });
+    expect(wait).rejects.toMatchObject({ exit: 2 });
+    await wait.catch(() => undefined);
+  });
 
   test("complete and closed also end the wait", async () => {
     const { runDir } = seededRun();

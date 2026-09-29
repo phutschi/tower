@@ -51,7 +51,7 @@ the pull request ([docs/orchestrate.md](orchestrate.md)). The loop:
 tower init --plan <plan> --lane A=… --lane B=…
 tower brief <lane>            → paste into each executor
 … start executors with your runner …
-tower wait                    → 0: read the printed reasons, act, wait again
+tower wait                    → 0: read the printed reasons and act; complete: close
 tower close "<note>"
 ```
 

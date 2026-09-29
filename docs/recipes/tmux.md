@@ -26,9 +26,12 @@ while out=$(tower wait); do
   echo "$out"
   case "$out" in complete | closed*) break ;; esac
   tower state --json | jq '.tasks[] | select(.status == "blocked" or .stale)'
-  # read, decide, re-brief, continue
+  # read, decide, re-brief
+  sleep 60 # give the lane time to report before waiting again
 done
 ```
 
-Without `--timeout`, `wait` returns only with something to report. A complete
-or closed run returns at once every time, so the loop ends there.
+Without `--timeout`, `wait` returns only with something to report, and it
+reports what the board shows now: a blocked or stale task returns at once
+every time until its lane reports again, hence the pause after acting. A
+complete or closed run returns at once too, so the loop ends there.

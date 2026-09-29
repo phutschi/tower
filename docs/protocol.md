@@ -201,10 +201,11 @@ complete
 closed    shipped as v0.1.0
 ```
 
-Without `--timeout` it waits as long as it takes; run it in the background.
-With `--timeout`, for a harness that can only run commands in the
-foreground: exit **3**, nothing printed, once the timeout passes with nothing
-to report.
+Without `--timeout` it waits as long as it takes, which suits a harness that
+runs it in the background and is woken on exit. With `--timeout`, for a
+harness that can only run commands in the foreground: exit **3**, nothing
+printed, once the timeout passes with nothing to report. A run dir that
+disappears during the wait ends it with exit **2**.
 
 ## Exit codes
 

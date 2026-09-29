@@ -72,17 +72,7 @@ describe("tower wait", () => {
 
   test("exits 0 and prints the attention lines when something already needs a human", async () => {
     const { runDir, io } = seededRun();
-    appendEvent(eventsPath(runDir), {
-      v: 1,
-      kind: "report",
-      ts: io.now().toISOString(),
-      task: "1",
-      status: "blocked",
-      phase: "",
-      model: "",
-      note: "needs the test DB created",
-      commit: "",
-    });
+    appendEvent(eventsPath(runDir), blocked(io.now().toISOString()));
     expect(await main(["wait", "--timeout", "5"], io)).toBe(0);
     expect(io.out.join("")).toContain("needs the test DB created");
   });
