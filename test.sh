@@ -910,14 +910,25 @@ if section watch; then
   printf 'unreachable\nworking\n' > "$S/a"; out=$(ROUND=1 watch a)
   assert_nomatch "herdr failing once: no attention"   "$out" '^attention: a '
   assert_match "herdr failing once: quiet"            "$out" 'exit=3$'
-  # Failing on every poll of a whole round is attention, never gone.
-  echo unreachable > "$S/a"; out=$(ROUND=1 watch a)
-  assert_match "herdr failing all round: attention, unreadable" "$out" '^attention: a unreadable$'
-  assert_nomatch "herdr failing all round: not gone"  "$out" '^attention: a gone'
-  assert_match "herdr failing all round: unreadable in the state table" "$out" '^a +unreadable$'
-  assert_match "herdr failing all round: exit 0"      "$out" 'exit=0$'
-  echo shapeless > "$S/a"; out=$(ROUND=1 watch a)
+  # Only UNREADABLE_POLLS consecutive unreadable polls are attention, never
+  # gone; a readable answer in between starts the count again.
+  printf 'unreachable\nunreachable\nworking\nunreachable\nunreachable\nworking\n' > "$S/a"
+  out=$(ROUND=1 UNREADABLE_POLLS=3 watch a)
+  assert_nomatch "herdr failing twice, then answering, twice again: no attention" "$out" '^attention: a '
+  assert_match "herdr failing twice, then answering, twice again: quiet" "$out" 'exit=3$'
+  echo unreachable > "$S/a"; : > "$HERDR_STUB_LOG"; out=$(UNREADABLE_POLLS=3 watch a)
+  assert_match "herdr failing UNREADABLE_POLLS times: attention, unreadable" "$out" '^attention: a unreadable$'
+  assert_nomatch "herdr failing UNREADABLE_POLLS times: not gone" "$out" '^attention: a gone'
+  assert_match "herdr failing UNREADABLE_POLLS times: unreadable in the state table" "$out" '^a +unreadable$'
+  assert_match "herdr failing UNREADABLE_POLLS times: exit 0" "$out" 'exit=0$'
+  assert_match "herdr failing UNREADABLE_POLLS times: three polls and the resample" "$(grep -c '^herdr agent get a' "$HERDR_STUB_LOG")" '^4$'
+  echo shapeless > "$S/a"; out=$(UNREADABLE_POLLS=3 watch a)
   assert_match "an answer without a status: unreadable, not settled early" "$out" '^attention: a unreadable$'
+  for bad in abc 0 -5 1.5; do
+    out=$(UNREADABLE_POLLS=$bad watch a)
+    assert_match "UNREADABLE_POLLS=$bad: refused"    "$out" 'UNREADABLE_POLLS'
+    assert_match "UNREADABLE_POLLS=$bad: exit 1"     "$out" 'exit=1$'
+  done
   echo unreachable > "$S/a"; echo done > "$S/b"; out=$(watch a b)
   assert_match "herdr failing for one lane: the settled one" "$out" '^attention: b done'
   assert_nomatch "herdr failing for one lane: that lane is not gone" "$out" '^attention: a '
@@ -945,6 +956,64 @@ if section watch; then
   assert_nomatch "complete board, one of two lanes working: no tower attention" "$out" '^tower: run'
   printf 'idle\nidle\n' > "$S/a"; out=$(ON=$RUN_COMPLETE watch a)
   assert_match "complete board, every agent settled: attention" "$out" '^tower: run complete'
+  # No round limit unless ROUND_SECONDS asks for one: under a clock that jumps
+  # 1000 s on every read, the watch still polls until the lane needs attention.
+  clock="$TMP/clock"; mkdir -p "$clock"
+  cat > "$clock/date" <<'CLOCK'
+#!/usr/bin/env bash
+[ "$*" = +%s ] || exec /bin/date "$@"
+n=$(( $(cat "$0.now" 2>/dev/null || echo 0) + 1000 )); echo "$n" > "$0.now"; echo "$n"
+CLOCK
+  chmod +x "$clock/date"
+  # A background kill caps the run, so a regression fails instead of hanging.
+  # The script itself is the background job, so the kill reaches it.
+  clocked() { (cd "$TMP" || exit; PATH="$clock:$PATH" GRACE_SECONDS=0 POLL_SECONDS=0 "$KIT/watch-lanes.sh" "$RUN" a 2>&1 & p=$!
+    (sleep 20; kill "$p" 2>/dev/null) >/dev/null 2>&1 & k=$!; wait "$p"; rc=$?; kill "$k" 2>/dev/null; echo "exit=$rc"); }
+  printf 'working\nworking\nworking\nblocked\n' > "$S/a"; printf 'need the API key\n' > "$S/a.tail"; rm -f "$clock/date.now"
+  out=$(clocked)
+  assert_match "no ROUND_SECONDS: polls past 540 s until attention" "$out" '^attention: a blocked'
+  assert_match "no ROUND_SECONDS: exit 0"             "$out" 'exit=0$'
+  # 1000 s a read: the round starts at 1000, and the first poll's reads land
+  # under 2500, the next ones past it.
+  echo working > "$S/a"; rm -f "$clock/date.now"; : > "$HERDR_STUB_LOG"
+  out=$(ROUND_SECONDS=2500 clocked)
+  assert_match "ROUND_SECONDS given: exit 3 once it passes" "$out" 'exit=3$'
+  assert_match "ROUND_SECONDS given: it polled before it passed" "$(grep -c '^herdr agent get a' "$HERDR_STUB_LOG")" '^[3-9]'
+  # Blocked on one sample and working again on the resample: no time limit
+  # means no quiet exit, so the watch polls on and reports once, when the lane
+  # is blocked again.
+  printf 'blocked\nworking\nworking\nblocked\n' > "$S/a"; rm -f "$clock/date.now"
+  out=$(clocked)
+  assert_match "blocked, then working on the resample: polls on until attention" "$out" '^attention: a blocked'
+  assert_match "blocked, then working on the resample: exit 0" "$out" 'exit=0$'
+  assert_match "blocked, then working on the resample: one report" "$(grep -c '^--- tower' <<<"$out")" '^1$'
+  # Settled idle, working on the resample: idle counts afresh, so it takes two
+  # more idle polls (and the resample) before the watch reports: 6 reads.
+  printf 'idle\nidle\nworking\nidle\nidle\n' > "$S/a"; printf 'Running tests...\n' > "$S/a.tail"; rm -f "$clock/date.now"; : > "$HERDR_STUB_LOG"
+  out=$(clocked)
+  assert_match "idle, then working on the resample: reports idle again" "$out" '^attention: a idle-unexplained'
+  assert_match "idle, then working on the resample: idle counts afresh" "$(grep -c '^herdr agent get a' "$HERDR_STUB_LOG")" '^6$'
+  # A status the watch does not know settles the poll; it is attention, never
+  # an endless quiet loop.
+  echo waiting > "$S/a"; printf 'Choose an option\n' > "$S/a.tail"; rm -f "$clock/date.now"
+  out=$(clocked)
+  assert_match "an unknown status: attention with the status" "$out" '^attention: a waiting$'
+  assert_match "an unknown status: the tail printed" "$out" 'Choose an option'
+  assert_match "an unknown status: exit 0" "$out" 'exit=0$'
+  # Without a round limit, a herdr that never answers still ends the watch,
+  # after the default count of unreadable polls.
+  echo unreachable > "$S/a"; rm -f "$clock/date.now"
+  out=$(clocked)
+  assert_match "no ROUND_SECONDS, herdr never answering: attention, unreadable" "$out" '^attention: a unreadable$'
+  assert_match "no ROUND_SECONDS, herdr never answering: exit 0" "$out" 'exit=0$'
+  printf 'blocked\nworking\n' > "$S/a"; rm -f "$clock/date.now"
+  out=$(ROUND_SECONDS=2500 clocked)
+  assert_match "ROUND_SECONDS given, blocked then working: exit 3 as before" "$out" 'exit=3$'
+  for bad in abc 0 -5 1.5; do
+    out=$(ROUND_SECONDS=$bad clocked)
+    assert_match "ROUND_SECONDS=$bad: refused"       "$out" 'ROUND_SECONDS'
+    assert_match "ROUND_SECONDS=$bad: exit 1"        "$out" 'exit=1$'
+  done
 fi
 
 # --- watchline ---------------------------------------------------------------
@@ -953,10 +1022,11 @@ fi
 if section watchline; then
   r=$(fixture_repo contract); reset_stub
   wl=$(cd "$r" && "$KIT/bootstrap.sh" "$TMP/run-wl1" "WL" main 2>&1 | grep '^watch:')
-  assert_match "watch line: tower wait takes the run's stale threshold" "$wl" '^watch: +tower wait --timeout 540 --stale 45 +and +.*/watch-lanes\.sh '
+  assert_match "watch line: tower wait takes the run's stale threshold" "$wl" '^watch: +tower wait --stale 45 +and +.*/watch-lanes\.sh '
   r=$(fixture_repo none); reset_stub
   wl=$(cd "$r" && "$KIT/bootstrap.sh" "$TMP/run-wl2" "WL" main 2>&1 | grep '^watch:')
-  assert_match "watch line: always tower wait and watch-lanes.sh" "$wl" '^watch: +tower wait --timeout 540 --stale 30 +and +.*/watch-lanes\.sh '
+  assert_match "watch line: always tower wait and watch-lanes.sh" "$wl" '^watch: +tower wait --stale 30 +and +.*/watch-lanes\.sh '
+  assert_nomatch "watch line: no timeout and no round limit" "$wl" ' --timeout|ROUND_SECONDS'
 fi
 
 # --- look --------------------------------------------------------------------

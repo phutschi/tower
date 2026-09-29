@@ -25,8 +25,8 @@ tower
 
 The orchestrator (your own chat session) keeps watch with `tower wait`. If
 your harness offers a background command that re-invokes you on exit, run
-`tower wait --timeout 540` there and read the printed reasons when it wakes
-you; otherwise poll it in the foreground with a shorter timeout.
+`tower wait` there and read the printed reasons when it wakes you; otherwise
+poll it in the foreground with `--timeout` under the harness's limit.
 
 herdr also classifies each pane as working/idle/done/blocked from its screen;
 that is process-level signal. tower is task-level signal. You want both.

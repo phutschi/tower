@@ -33,7 +33,8 @@ Scripts ask tower instead of polling:
 
 ```sh
 tower state --json           # the folded state; literal, versioned
-tower wait --timeout 300     # exit 0 with the reasons on attention, completion, or close; 3 when quiet
+tower wait                   # exit 0 with the reasons on attention, completion, or close
+tower wait --timeout 300     # the same, or 3 once 300 s pass quietly (foreground-only harnesses)
 ```
 
 No plan? Start empty and let the executor add its tasks as it derives them
@@ -64,7 +65,7 @@ tower remove 2
 | `tower block <id> "<need>"`                           | report blocked                                                      |
 | `tower note [--task\|--lane] "<text>"`                | narrate                                                             |
 | `tower state --json`                                  | the folded state                                                    |
-| `tower wait --timeout <s>`                            | block until attention                                               |
+| `tower wait [--timeout <s>]`                          | block until attention                                               |
 | `tower theme rules\|new\|check\|preview`              | author a theme                                                      |
 
 `tower --help` for the flags.

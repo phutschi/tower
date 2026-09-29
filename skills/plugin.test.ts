@@ -251,3 +251,27 @@ test("the release body wraps no line", () => {
   );
   expect(continued).toEqual([]);
 });
+
+// A plan is saved where every tower user has a place for it, not in one
+// user's notes vault: no skill names Obsidian or a vault path.
+test("no skill names a vault path", () => {
+  const hits: string[] = [];
+  for (const file of files.filter((f) => f.startsWith("skills/"))) {
+    let text: string;
+    try {
+      text = read(file);
+    } catch {
+      continue; // listed but deleted in the working tree
+    }
+    text.split("\n").forEach((line, i) => {
+      if (/obsidian|vault(_path|\/)/i.test(line)) hits.push(`${file}:${i + 1}`);
+    });
+  }
+  expect(hits).toEqual([]);
+});
+
+test("spec-to-plan saves plans under TOWER_PLANS_DIR, outside the repo", () => {
+  const skill = read("skills/spec-to-plan/SKILL.md");
+  expect(skill).toContain("$TOWER_PLANS_DIR/<repo>_<branch>/plan.md");
+  expect(skill).toContain("${XDG_STATE_HOME:-$HOME/.local/state}/tower/plans");
+});
