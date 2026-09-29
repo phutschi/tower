@@ -8,8 +8,9 @@
 # each `agent get` answers the first and drops it, the last one stays), pane
 # tails from HERDR_STUB_STATES_DIR/<name>.tail. Every pane is in workspace
 # ws-0; `pane get` answers pane_not_found when HERDR_STUB_STATES_DIR/<pane-id>
-# says gone, and fails otherwise when it says unreachable. HERDR_STUB_BUSY_STARTS=N answers the first N `agent start` calls
-# with agent_pane_busy (a pane whose shell is not ready yet), counted through
+# says gone, and server_unavailable when it says unreachable.
+# HERDR_STUB_BUSY_STARTS=N answers the first N `agent start` calls with
+# agent_pane_busy (a pane whose shell is not ready yet), counted through
 # HERDR_STUB_COUNTER.busy. HERDR_STUB_TRUST_STARTS=N answers the first N with an
 # agent blocked during startup (a trust prompt), counted through
 # HERDR_STUB_COUNTER.trust. HERDR_STUB_EXIT_ON_ENTER=N: every `agent get` answers
@@ -33,8 +34,10 @@ case "${1:-} ${2:-}" in
   "pane move")       echo "{\"result\":{\"move_result\":{\"pane\":{\"pane_id\":\"$(next_id)\"}}}}" ;;
   "pane list")       echo '{"result":{"panes":[]}}' ;;
   "pane get")
-    [ -n "$states" ] && [ "$(head -1 "$states/$3" 2>/dev/null)" = gone ] && { echo '{"error":{"code":"pane_not_found"}}' >&2; exit 1; }
-    [ -n "$states" ] && [ "$(head -1 "$states/$3" 2>/dev/null)" = unreachable ] && { echo '{"error":{"code":"server_unavailable","message":"herdr server is not answering"}}' >&2; exit 1; }
+    case "$([ -n "$states" ] && head -1 "$states/$3" 2>/dev/null)" in
+      gone)        echo '{"error":{"code":"pane_not_found"}}' >&2; exit 1 ;;
+      unreachable) echo '{"error":{"code":"server_unavailable","message":"herdr server is not answering"}}' >&2; exit 1 ;;
+    esac
     echo "{\"result\":{\"pane\":{\"pane_id\":\"$3\",\"workspace_id\":\"ws-0\"}}}" ;;
   "agent start")
     trust=$(cat "$counter.trust" 2>/dev/null || echo 0)

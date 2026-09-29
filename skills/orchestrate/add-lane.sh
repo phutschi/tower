@@ -106,7 +106,7 @@ print(",".join(have)); sys.exit(0 if want == set(have) else 1)' "$LANE" "$TASKS"
   if ! err=$(herdr pane get "$PANE" 2>&1 >/dev/null); then
     case "$err" in
       *'"pane_not_found"'*) die "lane $LANE's pane $PANE is gone (herdr pane get): remove its line from $MAP and the worktree $WT, then add the lane again" ;;
-      *) die "herdr cannot say whether lane $LANE's pane $PANE is open; rerun once herdr answers" ;;
+      *) die "herdr cannot say whether lane $LANE's pane $PANE is open; rerun once herdr answers (herdr: ${err:-no output})" ;;
     esac
   fi
   [ -d "$WT" ] || die "lane $LANE's checkout $WT is gone: close its pane $PANE and remove its line from $MAP, then add the lane again"
