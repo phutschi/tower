@@ -339,7 +339,7 @@ _Avoid_: flag, option, profile
 ### Airport words (rendering only)
 
 The default theme's vocabulary. These words appear on the board and in the
-README. They never appear in code identifiers, error messages, JSON, or the
+docs. They never appear in code identifiers, error messages, JSON, or the
 brief — those use the terms above.
 
 | board says                    | the term is                             |
