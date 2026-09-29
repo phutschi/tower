@@ -157,18 +157,28 @@ link() {  # TARGET DIR NAME
 # own links go: into this repo, or into a herdr-orchestrate checkout that holds
 # the kit (bootstrap.sh at its root or in skills/orchestrate), or is gone.
 # Anybody else's skill of the same name stays.
-old_kit_link() {  # TARGET
-  local kit
+old_kit_link() {  # TARGET, absolute
+  local kit real
   case "$1" in "$ROOT"|"$ROOT"/*) return 0 ;; esac
+  # This repo through another path (a link to the checkout).
+  if real=$(cd "$1" 2>/dev/null && pwd -P); then
+    case "$real" in "$ROOT"|"$ROOT"/*) return 0 ;; esac
+  fi
   case "$1" in
     */herdr-orchestrate) kit=$1 ;;
     */herdr-orchestrate/*) kit="${1%%/herdr-orchestrate/*}/herdr-orchestrate" ;;
     *) return 1 ;;
   esac
-  [ ! -e "$kit" ] || [ -f "$kit/bootstrap.sh" ] || [ -f "$kit/skills/orchestrate/bootstrap.sh" ]
+  # A checkout that is gone left the link dangling; one that is there must
+  # hold the kit.
+  { [ ! -e "$1" ] && [ ! -e "$kit" ]; } || [ -f "$kit/bootstrap.sh" ] || [ -f "$kit/skills/orchestrate/bootstrap.sh" ]
 }
 unlink_old() {  # DIR NAME
-  if [ -L "$1/$2" ] && old_kit_link "$(readlink "$1/$2")"; then
+  local target
+  [ -L "$1/$2" ] || return 0
+  target=$(readlink "$1/$2")
+  case "$target" in /*) ;; *) target="$1/$target" ;; esac  # relative to the link's dir
+  if old_kit_link "$target"; then
     must rm "$1/$2" && echo "  removed   $1/$2 (old layout)"
   fi
 }

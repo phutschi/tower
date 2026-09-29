@@ -983,6 +983,20 @@ if section install; then
     [ -L "$H7/.claude/skills/$n" ] && bad "install: the old kit's ~/.claude/skills/$n link removed" || ok "install: the old kit's ~/.claude/skills/$n link removed"
   done
   assert_eq "install: a herdr-orchestrate link to something else is left alone" "$(readlink "$H7/.agents/skills/herdr-orchestrate")" "$NOTKIT"
+  # A checkout that is gone goes; a dir named herdr-orchestrate that is not the
+  # kit stays, whether the link is absolute or relative; this repo reached
+  # through another path is still this repo.
+  H9="$TMP/home9"; mkdir -p "$H9/.claude/skills" "$TMP/via"; ln -s "$ROOT" "$TMP/via/kit"
+  ln -s "$TMP/gone/herdr-orchestrate/preflight" "$H9/.claude/skills/preflight"
+  ln -s "$NOTKIT/spec-to-plan" "$H9/.claude/skills/spec-to-plan"
+  ln -s "../../../notkit/herdr-orchestrate" "$H9/.claude/skills/herdr-orchestrate"
+  out=$(HOME="$H9" "$ROOT/install.sh" 2>&1; echo "exit=$?")
+  assert_match "install: a link into a gone kit checkout is removed" "$out" "removed +$H9/.claude/skills/preflight"
+  assert_nomatch "install: a link under a herdr-orchestrate dir that is not the kit stays" "$out" "removed +$H9/.claude/skills/spec-to-plan"
+  assert_nomatch "install: ... and so does a relative link to it" "$out" "removed +$H9/.claude/skills/herdr-orchestrate"
+  H10="$TMP/home10"; mkdir -p "$H10/.claude/skills"; ln -s "$TMP/via/kit/skills/preflight" "$H10/.claude/skills/preflight"
+  out=$(HOME="$H10" "$ROOT/install.sh" 2>&1; echo "exit=$?")
+  assert_match "install: a link to this repo through another path is removed" "$out" "removed +$H10/.claude/skills/preflight"
   H8="$TMP/home8"; mkdir -p "$H8/.claude/skills"; ln -s "$TMP/plugin-x/preflight" "$H8/.claude/skills/preflight"
   out=$(HOME="$H8" "$ROOT/install.sh" 2>&1; echo "exit=$?")
   assert_eq "install: another plugin's preflight is left alone" "$(readlink "$H8/.claude/skills/preflight")" "$TMP/plugin-x/preflight"
