@@ -1,0 +1,7 @@
+{
+  "name": "bun-vitest",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "name": "suite-noscripts",
+  "devDependencies": {
+    "prettier": "3"
+  }
+}

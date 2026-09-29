@@ -5,7 +5,7 @@
     {
       "name": "tower",
       "source": ".",
-      "description": "Orchestrate a multi-task implementation plan with agent lanes reporting into tower."
+      "description": "Plan and run work with agent lanes reporting into tower: /tower:run (any runner), /tower:orchestrate (herdr), /tower:spec-to-plan and /tower:preflight."
     }
   ]
 }

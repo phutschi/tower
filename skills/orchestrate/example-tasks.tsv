@@ -1,0 +1,22 @@
+# id	title	area	lane   (an example plan for the acme repo)
+1	The shared date formatter	packages/core	A
+2	The web app formats dates with the shared formatter	apps/web	A
+3	parseAmount moves to packages/core	packages/core + apps/web	A
+4	The mailer environment and the config reader	apps/api	A
+5	The rate limiter	apps/api	B
+6	The command parser and the help text	apps/api	A
+7	The paragraph splitter	apps/api	B
+8	The audit lines	apps/api	B
+9	The audit message, edited in place	apps/api	B
+10	Thread naming, archiving and the per-thread setting	apps/api	A
+11	Pin the metadata keys against the database	apps/api	A
+12	Attachments	apps/api	B
+13	The surface hint	apps/api	B
+14	The direct-message handler	apps/api	A
+15	notifyUser	apps/api	A
+16	POST /notify	apps/api	A
+17	Attach the channel to the assistant	apps/api	A
+18	surface on the threads route and the router	apps/api + packages/client	A
+19	The "Show threads" toggle	apps/web	A
+20	The terminal tags thread rows	apps/cli	A
+21	Docs, the environment example and the runbook	docs	A

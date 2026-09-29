@@ -1,0 +1,4 @@
+* text=auto eol=lf
+*.sh text eol=lf
+skills/orchestrate/tests/stub/* text eol=lf
+*.tsv text eol=lf

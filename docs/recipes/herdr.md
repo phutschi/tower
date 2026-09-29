@@ -4,6 +4,10 @@
 the layout tower grew out of: one orchestrator pane, one executor lane per
 pane, and tower where the browser dashboard used to be.
 
+This recipe is the minimal version, done by hand. For the full version of
+this layout, run by the orchestrator for you, use `/tower:orchestrate`
+([docs/orchestrate.md](../orchestrate.md)).
+
 ```sh
 cd ~/code/acme
 tower init --plan docs/plans/widgets.md --lane A=1-6 --lane B=7-9

@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# tower under DRY_RUN=1 and test.sh: the real CLI from this checkout
+# (src/cli.ts, run with bun), so a change to tower's commands or to
+# `tower state --json` breaks the kit's tests in the same change.
+# TOWER_STUB=absent refuses to run, so tower counts as not runnable (the kit
+# then refuses to start).
+[ "${TOWER_STUB:-}" = absent ] && { echo "tower: not installed (stub)" >&2; exit 127; }
+# -P: through a link to the kit (install.sh makes them), the real checkout.
+root="$(CDPATH='' cd -P "$(dirname "${BASH_SOURCE[0]}")" && cd ../../../.. && pwd)"
+command -v bun >/dev/null || { echo "tower (DRY_RUN): needs bun to run $root/src/cli.ts" >&2; exit 127; }
+exec bun "$root/src/cli.ts" "$@"

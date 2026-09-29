@@ -1,0 +1,221 @@
+/**
+ * One plugin, `tower`, with four skills. Its manifest carries the package's
+ * version, and no name from the kit's old home (the `phutschi` plugin, the
+ * herdr-orchestrate repo) is left behind.
+ */
+import { execFileSync } from "node:child_process";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { expect, test } from "bun:test";
+
+const root = join(import.meta.dir, "..");
+const read = (path: string) => readFileSync(join(root, path), "utf8");
+type Manifest = {
+  version?: string;
+  description?: string;
+  plugins?: { name: string; description: string }[];
+};
+const json = (path: string) => JSON.parse(read(path)) as Manifest;
+
+const SKILLS = ["run", "orchestrate", "spec-to-plan", "preflight"];
+
+test("the plugin carries the package's version", () => {
+  expect(json(".claude-plugin/plugin.json").version).toBe(
+    json("package.json").version,
+  );
+});
+
+test("the plugin and its marketplace entry name the four skills", () => {
+  const plugin = json(".claude-plugin/plugin.json");
+  const entry = json(".claude-plugin/marketplace.json").plugins?.find(
+    (p) => p.name === "tower",
+  );
+  for (const description of [plugin.description, entry?.description])
+    for (const skill of SKILLS)
+      expect(description).toContain(`/tower:${skill}`);
+});
+
+// Files that keep the old names on purpose: history (the changelog and the
+// release notes drawn from it), and the ADRs.
+const HISTORY = /^(CHANGELOG\.md|\.github\/release-body\.md|docs\/adr\/)/;
+// The install script removes the old plugin, marketplace and skill links, and
+// its tests set them up.
+const MIGRATION = /^(install\.sh|test\.sh)$/;
+
+const STALE: { name: string; pattern: RegExp; migration: boolean }[] = [
+  { name: "a /phutschi: command", pattern: /\/phutschi:/, migration: false },
+  {
+    name: "the phutschi plugin",
+    pattern: /phutschi@phutschi/,
+    migration: true,
+  },
+  // `.herdr-orchestrate` is the repo contract's old file name, still read.
+  {
+    name: "the herdr-orchestrate repo",
+    pattern: /(?<!\.)herdr-orchestrate/,
+    migration: true,
+  },
+  // phutschi-tower, phutschi/tower and @phutschi/tower are tower's own.
+  {
+    name: "phutschi as a plugin name",
+    pattern: /(?<![/\w-])phutschi(?![-/@\w])/,
+    migration: true,
+  },
+];
+
+const files = execFileSync(
+  "git",
+  ["ls-files", "--cached", "--others", "--exclude-standard"],
+  {
+    cwd: root,
+    encoding: "utf8",
+  },
+)
+  .split("\n")
+  .filter((f) => f && !HISTORY.test(f) && f !== "skills/plugin.test.ts");
+
+test("no stale name from the kit's old home is left", () => {
+  const hits: string[] = [];
+  for (const file of files) {
+    let text: string;
+    try {
+      text = read(file);
+    } catch {
+      continue; // listed but deleted in the working tree
+    }
+    if (text.includes("\0")) continue;
+    text.split("\n").forEach((line, i) => {
+      for (const { name, pattern, migration } of STALE)
+        if (pattern.test(line) && !(migration && MIGRATION.test(file)))
+          hits.push(`${file}:${i + 1}: ${name}`);
+    });
+  }
+  expect(hits).toEqual([]);
+});
+
+test("orchestrate triggers on /tower:orchestrate and plans with /tower:spec-to-plan", () => {
+  const frontmatter = read("skills/orchestrate/SKILL.md").split("---")[1] ?? "";
+  expect(frontmatter).toContain("/tower:orchestrate <plan>");
+  expect(frontmatter).toContain("/tower:spec-to-plan");
+});
+
+test("spec-to-plan is invoked by the user only", () => {
+  const frontmatter =
+    read("skills/spec-to-plan/SKILL.md").split("---")[1] ?? "";
+  expect(frontmatter).toMatch(/^disable-model-invocation: true$/m);
+});
+
+test("specs and follow-ups go to tower's own issues", () => {
+  const tracker = read("docs/agents/issue-tracker.md");
+  expect(tracker).toContain("`phutschi/tower`");
+  expect(tracker).toContain("gh issue create -R phutschi/tower ");
+});
+
+// A guard against home paths and for the acme example; the titles themselves
+// are left to review.
+test("the example tasks and fixtures are neutral", () => {
+  const neutral = files.filter(
+    (f) =>
+      f === "skills/orchestrate/example-tasks.tsv" ||
+      f === "skills/orchestrate/tests/example-plan.md" ||
+      f.startsWith("skills/orchestrate/tests/fixtures/"),
+  );
+  expect(neutral.length).toBeGreaterThan(1);
+  for (const file of neutral)
+    expect(read(file)).not.toMatch(/\/Users\/|\/home\/|~\/(code|tools)\//);
+  expect(read("skills/orchestrate/example-tasks.tsv")).toMatch(/^# .*acme/);
+});
+
+test("orchestrate checks for herdr first, and points to /tower:run", () => {
+  const body = read("skills/orchestrate/SKILL.md").split("\n## ");
+  const first = body[1] ?? "";
+  expect(first).toMatch(/^First: /);
+  expect(first).toContain("HERDR_ENV");
+  expect(first).toContain("/tower:run");
+});
+
+test("orchestrate describes no run without tower", () => {
+  for (const file of [
+    "skills/orchestrate/SKILL.md",
+    "skills/orchestrate/brief-template.md",
+    "docs/orchestrate.md",
+  ]) {
+    const text = read(file);
+    expect(text).not.toMatch(/without tower|no tower/i);
+    expect(text).not.toMatch(/tasks\.tsv`? and `?lanes\.txt|run\.txt/);
+  }
+});
+
+test("CI checks both sides on Linux and macOS", () => {
+  const ci = read(".github/workflows/ci.yml");
+  expect(ci).toContain("os: [ubuntu-latest, macos-latest]");
+  for (const step of [
+    "bun run check",
+    "bun run build",
+    "node dist/cli.js --help",
+    "shellcheck -S warning *.sh skills/*/*.sh skills/orchestrate/tests/stub/*",
+  ])
+    expect(ci).toContain(step);
+  // The full kit suite, not --fast.
+  expect(ci).toMatch(/^\s+\.\/test\.sh$/m);
+});
+
+// A skill cites an ADR that exists and still holds: superseded ones point on.
+test("every ADR a skill cites exists in docs/adr and is not superseded", () => {
+  const adrs = new Map<string, string>();
+  for (const f of readdirSync(join(root, "docs/adr")))
+    if (/^\d{4}-/.test(f)) adrs.set(f.slice(0, 4), read(`docs/adr/${f}`));
+  const bad: string[] = [];
+  for (const file of files.filter((f) => f.startsWith("skills/"))) {
+    let text: string;
+    try {
+      text = read(file);
+    } catch {
+      continue; // listed but deleted in the working tree
+    }
+    if (text.includes("\0")) continue;
+    for (const [cite, number] of text.matchAll(/\bADRs?[\s-]+(\d{4})/g)) {
+      const adr = adrs.get(number!);
+      if (!adr) bad.push(`${file}: ${cite} does not exist`);
+      else if (/^status: superseded/m.test(adr))
+        bad.push(`${file}: ${cite} is superseded`);
+    }
+  }
+  expect(bad).toEqual([]);
+});
+
+// The release sets up Node the way CI does: every setup-node step and every
+// node-version, in order, with quotes and trailing comments stripped.
+test("CI and the release set up the same Node", () => {
+  const values = (text: string, key: RegExp) =>
+    [...text.matchAll(key)].map((m) =>
+      m[1]!.replace(/\s+#.*$/, "").replace(/^["']|["']$/g, ""),
+    );
+  const nodeSetup = (path: string) => {
+    const text = read(path);
+    return {
+      actions: values(text, /uses:\s*(actions\/setup-node@\S+)/g),
+      versions: values(text, /node-version:\s*(.+)$/gm),
+    };
+  };
+  const ci = nodeSetup(".github/workflows/ci.yml");
+  expect(ci.actions).toHaveLength(1);
+  expect(ci.versions).toHaveLength(1);
+  expect(nodeSetup(".github/workflows/release.yml")).toEqual(ci);
+});
+
+// watch-lanes.sh reads a Reviewer's end line untagged: each Reviewer is asked
+// once. No text that describes the end line may ask a Reviewer for a tag.
+test("a Reviewer's end line is never tagged with a round", () => {
+  for (const file of [
+    "CONTEXT.md",
+    "docs/orchestrate.md",
+    "skills/orchestrate/SKILL.md",
+    "skills/orchestrate/brief-template.md",
+    "skills/orchestrate/add-reviewer.sh",
+    "skills/preflight/SKILL.md",
+  ])
+    expect(read(file)).not.toMatch(
+      /FINDINGS WRITTEN`?\]*`?,? *(tagged|r(\d|<n>|\{\{))/,
+    );
+});

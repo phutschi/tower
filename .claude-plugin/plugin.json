@@ -1,7 +1,7 @@
 {
   "name": "tower",
-  "description": "Orchestrate a multi-task implementation plan with agent lanes reporting into tower.",
-  "version": "0.2.0",
+  "description": "Plan and run work with agent lanes reporting into tower: /tower:run (any runner), /tower:orchestrate (herdr), /tower:spec-to-plan and /tower:preflight.",
+  "version": "0.3.0",
   "author": { "name": "Philipp Wruck" },
   "license": "MIT"
 }

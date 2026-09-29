@@ -16,19 +16,37 @@ tower's first run was its own build.
 tower starts nothing, reads no agent's screen, sends nothing to an agent, and
 has no opinion about what should happen next. It observes. Kill it mid-run and
 the run continues; you just go blind. That is the design: it is the one
-component you can leave running for six hours without worrying about it.
+component you can leave running for six hours without worrying about it. The
+acting lives in the [skills](#skills); the CLI only keeps the record.
 
 ## Install
 
+You never need Bun to use tower. The CLI needs git; `/tower:orchestrate` also
+needs herdr, python3 and node.
+
+**A release binary** (macOS and Linux, no runtime needed): download
+`tower-<os>-<arch>` (`darwin-arm64`, `darwin-x64`, `linux-x64` or
+`linux-arm64`) from the [releases](https://github.com/phutschi/tower/releases),
+check it against the release's checksums, and put it on your `PATH` as
+`tower`. In a clone of tower, `./install.sh` fetches the binary when tower is
+missing and installs the plugin below. It also checks what `/tower:orchestrate`
+needs ([docs/orchestrate.md](docs/orchestrate.md)).
+
+**From git**, with Node ≥ 22.12:
+
 ```sh
-npm install -g @phutschi/tower      # Node ≥ 22 or Bun
+npm install -g github:phutschi/tower     # builds with Node alone
 ```
 
-> Not on npm yet — publishing is pending. Until then, use a release binary,
-> or clone and run `bun run dev`.
+tower is not on the npm registry yet.
 
-Or download a standalone binary for macOS or Linux from the
-[releases](https://github.com/phutschi/tower/releases) — no runtime needed.
+**The skills** come as a Claude Code plugin, installed from git. They drive
+the CLI, so install that too:
+
+```
+/plugin marketplace add phutschi/tower
+/plugin install tower@phutschi-tower
+```
 
 ## Sixty seconds
 
@@ -123,22 +141,28 @@ tower finds its run through `--run`, then `$TOWER_RUN`, then a pointer file in
 the repository's common git directory — so every worktree of a repository lands
 on the same run without being told where it is.
 
+## Skills
+
+The `tower` plugin holds four skills in the open Agent Skills format:
+
+|                       |                                                          |
+| --------------------- | -------------------------------------------------------- |
+| `/tower:run`          | the orchestrator loop, for any harness and any runner    |
+| `/tower:orchestrate`  | a whole run inside herdr, from layout to pull request    |
+| `/tower:spec-to-plan` | turn a spec into a plan that `tower init --plan` loads   |
+| `/tower:preflight`    | check a whole branch before its PR, ending in a draft PR |
+
+`/tower:orchestrate` is the one skill that needs a particular runner: it runs
+only inside [herdr](https://herdr.dev) and refuses elsewhere. See
+[docs/orchestrate.md](docs/orchestrate.md).
+
 ## Works with
 
-tower knows nothing about how you run agents. The executor brief is plain
-text; the [orchestrator skill](skills/run/SKILL.md) is in the open Agent
-Skills format, which Claude Code, Codex, Cursor, Gemini CLI and others can
-load. Exercised so far with Claude Code. Recipes for running lanes with
-[herdr](docs/recipes/herdr.md) and with [tmux](docs/recipes/tmux.md).
-
-Claude Code users can install the skill directly:
-
-```
-/plugin marketplace add phutschi/tower
-/plugin install tower@phutschi-tower
-```
-
-then `/tower:run`.
+The CLI and `/tower:run` know nothing about how you run agents. The executor
+brief is plain text, and the Agent Skills format loads in Claude Code, Codex,
+Cursor, Gemini CLI and others. Exercised so far with Claude Code. Recipes for
+running lanes by hand with [herdr](docs/recipes/herdr.md) and with
+[tmux](docs/recipes/tmux.md).
 
 ## Commands
 

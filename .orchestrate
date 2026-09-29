@@ -1,0 +1,20 @@
+# .orchestrate — tower's Repo contract (see skills/orchestrate/example.orchestrate).
+# Two sides: the CLI in src/ (bun) and the kit in skills/ (bash). The install
+# is the bun default, from bun.lock.
+
+# The check gate: tower's check (format, lint, typecheck, bun test), then the
+# kit's fast tests, then the same shellcheck call CI makes. --fast skips the
+# slow sections: a change under skills/preflight/ also wants  ./test.sh look
+# before its commit.
+CHECK_CMD='bun run check && ./test.sh --fast && shellcheck -S warning *.sh skills/*/*.sh skills/orchestrate/tests/stub/*'
+
+# The checks pane: both sides again whenever HEAD or the working tree
+# (untracked files too) changes: tower's check as ok, or FAIL with its last
+# lines, then the kit's failures and count.
+pane checks 'last=; while true; do now="$( { git rev-parse HEAD; git status --porcelain; git diff; git ls-files -oz --exclude-standard | xargs -0 cat 2>/dev/null; } | cksum)"; if [ "$now" != "$last" ]; then clear; date +%H:%M:%S; out=$(bun run check 2>&1) && echo "check: ok" || { echo "check: FAIL"; printf "%s\n" "$out" | tail -20; }; ./test.sh --fast | grep -E -A2 "^FAIL|passed,"; last=$now; fi; sleep 5; done'
+
+# The full suite, for preflight: tower's check, every kit test section, then
+# shellcheck.
+suite check      'bun run check'
+suite tests      './test.sh'
+suite shellcheck 'shellcheck -S warning *.sh skills/*/*.sh skills/orchestrate/tests/stub/*'

@@ -1,0 +1,7 @@
+# The kit is bash; common.sh and executor.sh are sourced, not executed.
+shell=bash
+external-sources=true
+# SC2034: sourced files define variables used by their callers.
+# SC2163: detect-stack.sh exports names held in variables on purpose.
+# SC1010: test.sh writes the literal word "done" to files.
+disable=SC2034,SC2163,SC1010

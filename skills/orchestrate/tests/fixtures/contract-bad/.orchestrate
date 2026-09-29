@@ -1,0 +1,1 @@
+pane logs "tail -f app.log"
