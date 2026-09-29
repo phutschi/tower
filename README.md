@@ -1,38 +1,48 @@
 # tower
 
-Plan a spec into lanes, run the lanes with coding agents, and watch the whole
-run on one board.
+tower runs a coding plan with several coding agents at once, and keeps the
+record of the run on one board. You watch one screen instead of four
+terminals.
 
 ![an orchestrate run in herdr: the orchestrator, two lanes and the tower board](demo.gif)
 
 ## How a run goes
 
-1. Write a spec: an issue or a file.
+The plan is split into lanes: groups of tasks, each worked in order by one
+agent, the lane's executor. The orchestrator is another agent; it never
+implements.
+
+1. Write a spec: what to build, as an issue or a file.
 2. `/tower:spec-to-plan <spec>` slices it into tasks, groups them into lanes
    with their merge points, and writes `plan.md`. It writes no code.
-3. `/tower:orchestrate <plan.md>`, from a pane in [herdr](https://herdr.dev),
-   opens the run. Each lane gets an executor, lanes B to D each in their own
-   worktree. The executors implement and report every step to tower.
-4. A fresh Reviewer reviews each finished lane; the orchestrator merges it.
-   Preflight checks the whole branch. You confirm once, and a draft PR opens.
+3. `/tower:orchestrate <plan.md>`, from a pane in [herdr](https://herdr.dev)
+   (a terminal for running coding agents side by side), opens the run. Each
+   lane, up to four (A to D), gets an executor: Claude Code or Codex. Lane A
+   works in your checkout, lanes B to D each in a worktree. The executors
+   implement and report each task to tower.
+4. A Reviewer, a fresh agent that wrote none of the lane, reviews each
+   finished lane; the orchestrator merges it. Preflight, a last review of the
+   whole branch, follows. You triage its findings in one table, and a draft PR
+   opens.
 
-The orchestrator never implements. It briefs, watches, decides and merges.
-The record of all of it is tower's board and transcript.
+With no plan, `/tower:orchestrate` alone opens the run, and you say what to
+build. Either way, the record of the run is tower's board and transcript.
 
 ## What you see
 
-The console is the board: every task with its lane, status, phase and model,
-and the transcript of the run below it. You leave it open for hours. It is
-read-only: it starts nothing and sends nothing, so killing it only makes you
-blind; the run goes on. The demo above is a whole run, from the first task to
-a closed field.
+The console shows the board, every task with its lane, status, phase and
+model, and the run's transcript below it. You leave it open for hours. It is
+read-only: it starts nothing and sends nothing, so closing it only makes you
+blind; the run goes on. The demo above is a scripted run, from the first task
+to the close.
 
 ## Without herdr
 
-`/tower:run` is the same orchestrator for any harness and any runner: you
-start the executor sessions yourself, and it briefs and watches them. The
-skills use the open Agent Skills format; they are exercised with Claude Code,
-and with Codex lanes under `/tower:orchestrate`.
+`/tower:run` is a lighter orchestrator that needs no herdr. You start the
+executor sessions yourself, in whatever tool you use; it briefs them, watches,
+and closes the run. It does not review, merge or open a PR. The skills use the
+open Agent Skills format. They are tested with Claude Code, and
+`/tower:orchestrate` can also run Codex lanes.
 
 Or use the CLI on its own: `tower init` from a plan, `tower brief` for each
 executor, `tower` to watch. Executors report with `tower task`, `tower block`
@@ -40,34 +50,42 @@ and `tower note`. See [docs/cli.md](docs/cli.md).
 
 ## Install
 
-You never need Bun to use tower. The CLI uses git; `/tower:orchestrate` also
-needs herdr, python3 and node.
+tower has two parts: the CLI and the skills. Install the CLI one of three
+ways, then the skills. You never need Bun to use tower.
 
 **A release binary** (macOS and Linux, arm64 or x64, no runtime needed). Each
-release carries `tower-<os>-<arch>` and a `SHA256SUMS` to check it against:
+release carries `tower-<os>-<arch>` and a `SHA256SUMS` to check it against;
+take v0.3.0 or the latest. Set `bin` to yours (`tower-darwin-arm64`,
+`tower-darwin-x64`, `tower-linux-x64` or `tower-linux-arm64`); the binary is
+installed only if its checksum matches:
 
 ```sh
-v=v0.3.0; bin=tower-darwin-arm64   # or darwin-x64, linux-x64, linux-arm64
+v=v0.3.0; bin=tower-darwin-arm64
 curl -fLO https://github.com/phutschi/tower/releases/download/$v/$bin
 curl -fLO https://github.com/phutschi/tower/releases/download/$v/SHA256SUMS
-shasum -a 256 -c --ignore-missing SHA256SUMS   # Linux: sha256sum -c --ignore-missing SHA256SUMS
-mkdir -p ~/.local/bin && install -m 755 $bin ~/.local/bin/tower
+shasum -a 256 -c --ignore-missing SHA256SUMS &&
+  mkdir -p ~/.local/bin && install -m 755 "$bin" ~/.local/bin/tower
 ```
 
-**From a clone**, `./install.sh` does that for you when tower is missing, and
-installs the plugin. It also checks what `/tower:orchestrate` needs.
+On Linux, check with `sha256sum -c --ignore-missing SHA256SUMS` instead. Put
+`~/.local/bin` on your `PATH` if it is not.
+
+**From a clone** (`git clone https://github.com/phutschi/tower`),
+`./install.sh` fetches and checks the release binary when tower is missing,
+installs the plugin, and links the skills for Codex. It needs herdr, git,
+python3 and node, and stops if one is missing.
 
 **From git**, with Node ≥ 22.12 and nothing else:
 
 ```sh
-npm install -g github:phutschi/tower     # builds with Node alone
+npm install -g github:phutschi/tower
 ```
 
 tower is not on the npm registry yet.
 
 **The skills** come as a Claude Code plugin, installed from git:
 
-```
+```text
 /plugin marketplace add phutschi/tower
 /plugin install tower@phutschi-tower
 ```
