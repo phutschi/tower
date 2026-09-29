@@ -167,7 +167,9 @@ link() {  # TARGET DIR NAME
 # second copy of a skill under its bare name would shadow it. Only the kit's
 # own links go: into this repo, or into a herdr-orchestrate checkout that holds
 # the kit (bootstrap.sh at its root or in skills/orchestrate), or is gone.
-# Anybody else's skill of the same name stays.
+# Anybody else's skill of the same name stays. A link is judged by the real
+# path it resolves to, so a checkout reached through a link under another
+# name is not recognised (the link then stays, which is the safe side).
 old_kit_link() {  # TARGET: absolute, resolved (no links, no '..')
   local kit
   case "$1" in "$ROOT"|"$ROOT"/*) return 0 ;; esac
