@@ -82,12 +82,19 @@ if [ -n "$PANE" ]; then
   esac
   [ "$(grep "^lane $LANE:" "$MAP")" = "$(lane_line "$PANE")" ] \
     || die "lane $LANE is in the pane map with another branch, kind or model; rerun with the ones it has (see $MAP)"
-  # The ids, ranges expanded, against what the lane owns on the board.
-  owned=$(tower state --json | python3 -c 'import json,sys
+  # The ids against what the lane owns on the board, read as tower reads them
+  # (src/ids.ts expandIds; tower has no command that expands without
+  # recording): tokens trimmed, empty ones dropped, an integer range expanded,
+  # zero-padded when both ends are written at the same width (07-09).
+  owned=$(tower state --json | python3 -c 'import json,re,sys
 d=json.load(sys.stdin); want=set()
-for p in sys.argv[2].split(","):
-    a, _, b = p.partition("-")
-    want |= {str(i) for i in range(int(a), int(b) + 1)} if a.isdigit() and b.isdigit() else {p}
+for t in (t.strip() for t in sys.argv[2].split(",")):
+    m = re.fullmatch(r"([0-9]+)-([0-9]+)", t)
+    if m:
+        lo, hi = m.groups(); w = len(lo) if len(lo) == len(hi) else 0
+        want |= {str(n).zfill(w) for n in range(int(lo), int(hi) + 1)}
+    elif t:
+        want.add(t)
 have=d["lanes"].get(sys.argv[1], [])
 print(",".join(have)); sys.exit(0 if want == set(have) else 1)' "$LANE" "$TASKS") \
     || die "lane $LANE owns $owned on the board, not $TASKS; rerun with those ids"

@@ -532,6 +532,22 @@ if section add-lane; then
   assert_match "rerun, start fails again: says to rerun" "$out" 'did not start in pane-[0-9]+ again; rerun  .*/add-lane\.sh .* B feat/b main 2,3  once it can'
   assert_match "rerun, start fails again: fails"       "$out" 'exit=1$'
   rm -f "$HERDR_STUB_STATES_DIR/bun-vitest-lane-b"
+
+  # A rerun reads the task ids as tower does: a padded range keeps its width,
+  # and spaces and empty tokens between commas are nothing.
+  r=$(fixture_repo bun-vitest); RUNP="$TMP/run-padded"; reset_stub
+  printf '07\tSeven\tcore\n08\tEight\tcore\n09\tNine\tcore\n10\tTen\tcore\n11\tEleven\tcore\n' > "$TMP/padded.tsv"
+  (cd "$r" && "$KIT/bootstrap.sh" "$RUNP" "Padded" main "$TMP/padded.tsv" >/dev/null 2>&1)
+  for spec in "B feat/b 07-09" "C feat/c 10, 11,"; do
+    read -r l br ids <<< "$spec"; ln=$(echo "$l" | tr 'A-Z' 'a-z')
+    reset_stub; (cd "$r" && HERDR_STUB_BUSY_STARTS=99 START_TRIES=1 "$KIT/add-lane.sh" "$RUNP" "$l" "$br" main "$ids" >/dev/null 2>&1)
+    echo gone > "$HERDR_STUB_STATES_DIR/bun-vitest-lane-$ln"; mkdir -p "$r/.worktrees/$br"
+    reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNP" "$l" "$br" main "$ids" 2>&1; echo "exit=$?")
+    assert_match "rerun with '$ids': the same ids, so it finishes" "$out" 'exit=0$'
+    assert_match "rerun with '$ids': the agent starts"  "$(cat "$HERDR_STUB_LOG")" "^herdr agent start bun-vitest-lane-$ln "
+    rm -f "$HERDR_STUB_STATES_DIR/bun-vitest-lane-$ln"
+  done
+  assert_eq "padded: the board has the lanes' ids as written" "$(board "$RUNP" '" ".join(k+"="+",".join(v) for k,v in sorted(d["lanes"].items()))')" "B=07,08,09 C=10,11"
 fi
 
 # --- add-reviewer ------------------------------------------------------------
