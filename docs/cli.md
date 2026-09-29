@@ -2,7 +2,8 @@
 
 The CLI keeps a run's record and draws its board. It starts nothing and acts
 on nothing; the skills do the acting ([README](../README.md)). This page is
-the reference for driving it by hand or from scripts.
+the reference for driving it by hand or from scripts. To install tower, see
+the [README](../README.md#install).
 
 ## Sixty seconds
 
@@ -35,7 +36,8 @@ tower state --json           # the folded state; literal, versioned
 tower wait --timeout 300     # exit 0 with the reasons on attention, completion, or close; 3 when quiet
 ```
 
-No plan? Start empty and let the executor add its tasks as it derives them:
+No plan? Start empty and let the executor add its tasks as it derives them
+(outside `/tower:orchestrate`, where only the orchestrator adds tasks):
 
 ```sh
 tower init                                 # 0 tasks
@@ -98,9 +100,9 @@ TRANSCRIPT
  17:23:43  RUNWAY A  rex: lane A starts on the list
 ```
 
-The vocabulary is air traffic control because the pipeline genuinely is a
-flight: a task departs, is reviewed on approach, and either bounces (_go
-around_) or lands. A task nobody has heard from is _NORDO_. Prefer plain words?
+The vocabulary is air traffic control because a task's life is a flight: a
+task departs, is reviewed on approach, and either bounces (_go around_) or
+lands. A task nobody has heard from is _NORDO_. Prefer plain words?
 `tower --plain`. Prefer a different domain? See [themes](themes.md); a
 worked example, a factory floor, ships in
 [`themes/examples/`](../themes/examples/).
