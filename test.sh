@@ -1119,16 +1119,28 @@ if section install; then
   # Every download gives up on a server that stalls: a connect timeout and a
   # stall limit, and never a redirect to plain http. (A curl on PATH that logs
   # its arguments, then runs the real one.)
-  SPY="$TMP/curlspy"; mkdir -p "$SPY"; : > "$TMP/curl.log"
-  printf '#!/bin/sh
-echo "$*" >> "%s"
-exec "%s" "$@"
-' "$TMP/curl.log" "$(command -v curl)" > "$SPY/curl"; chmod +x "$SPY/curl"
-  out=$(fetch "$H5" "$TMP/bin10" PATH="$SPY:$U:$PATH")
+  REAL_CURL=$(command -v curl)
+  fake_curl() { mkdir -p "$1"; printf '#!/bin/sh\n%s\n' "$2" > "$1/curl"; chmod +x "$1/curl"; }  # DIR BODY
+  : > "$TMP/curl.log"
+  fake_curl "$TMP/curlspy" "printf '%s\\n' \"\$*\" >> '$TMP/curl.log'; exec '$REAL_CURL' \"\$@\""
+  out=$(fetch "$H5" "$TMP/bin10" PATH="$TMP/curlspy:$U:$PATH")
   assert_match "fetch: with the spy, tower is still fetched" "$out" 'exit=0$'
   assert_eq "fetch: both downloads (checksums and binary) go through curl" "$(wc -l < "$TMP/curl.log" | tr -d ' ')" 2
   assert_eq "fetch: each has a connect timeout, a stall limit and https-only redirects" \
-    "$(grep -c -- '--connect-timeout 15 .*--speed-limit 1024 --speed-time 30.*--proto-redir =https\|--proto-redir =https .*--connect-timeout 15 .*--speed-limit 1024 --speed-time 30' "$TMP/curl.log")" 2
+    "$(grep -- '--proto-redir =https' "$TMP/curl.log" | grep -- '--connect-timeout 15' | grep -- '--speed-limit 1024' | grep -c -- '--speed-time 30')" 2
+  # The checksums come; the binary's download then stalls (curl exit 28), or
+  # is interrupted with Ctrl-C (SIGINT to the installer).
+  real_for_sums="case \"\$*\" in *SHA256SUMS*) exec '$REAL_CURL' \"\$@\" ;; esac"
+  fake_curl "$TMP/curlstall" "$real_for_sums; exit 28"
+  out=$(fetch "$H5" "$TMP/bin11" PATH="$TMP/curlstall:$U:$PATH")
+  assert_match "fetch: a stalled download names curl's exit" "$out" 'could not download tower-linux-x64 .*curl exit 28'
+  assert_match "fetch: ... and fails"                   "$out" 'exit=1$'
+  assert_eq "fetch: ... and leaves no temp file"        "$(ls -A "$TMP/bin11" 2>/dev/null)" ""
+  fake_curl "$TMP/curlint" "$real_for_sums; kill -INT \$PPID; sleep 1; exit 130"
+  out=$(fetch "$H5" "$TMP/bin12" PATH="$TMP/curlint:$U:$PATH")
+  assert_match "fetch: an interrupt stops the install"  "$out" 'exit=130$'
+  assert_nomatch "fetch: ... before anything after the download" "$out" '^(dependencies|skills):'
+  assert_eq "fetch: ... and leaves no temp file"        "$(ls -A "$TMP/bin12" 2>/dev/null)" ""
   out=$(fetch "$H5" "$TMP/bin9" TOWER_RELEASE_URL="file://$TMP/no-release")
   assert_match "fetch: a release that cannot be reached is named" "$out" "could not fetch .*SHA256SUMS"
   out=$(env HOME="$H5" TOWER_BIN_DIR="$TMP/bin7" TOWER_RELEASE_URL="file://$REL" PATH="$U:$PATH" "$ROOT/install.sh" 2>&1; echo "exit=$?")

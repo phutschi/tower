@@ -57,20 +57,27 @@ fetch_tower() {
   [ "$rc" = 0 ] || { echo "  could not fetch the SHA256SUMS of release v$v (curl exit $rc; 22 is no such release or no checksums, 28 a timeout or a stall): refusing an unverified tower; or install it with  $GIT_INSTALL" >&2; return 1; }
   want=$(printf '%s\n' "$sums" | awk -v a="$asset" '$2 == a || $2 == "*" a { print $1 }')
   mkdir -p "$BIN_DIR" && FETCH_TMP=$(mktemp "$BIN_DIR/.tower.XXXXXX") || return 1
-  trap 'rm -f "$FETCH_TMP"' EXIT INT TERM
-  if ! get -o "$FETCH_TMP" "$RELEASE_URL/v$v/$asset" 2>/dev/null; then
-    echo "  could not download $asset v$v from $RELEASE_URL" >&2; rm -f "$FETCH_TMP"; return 1
-  fi
-  if [ -z "$want" ] || [ "$(sha256 "$FETCH_TMP")" != "$want" ]; then
-    echo "  $asset v$v does not match the release's checksum: refused, nothing installed" >&2; rm -f "$FETCH_TMP"; return 1
+  # The temp file goes whatever happens; Ctrl-C (or a kill) stops the install.
+  trap 'rm -f "$FETCH_TMP"' EXIT
+  trap 'rm -f "$FETCH_TMP"; exit 130' INT
+  trap 'rm -f "$FETCH_TMP"; exit 143' TERM
+  place_tower "$asset" "$v" "$want"; rc=$?
+  rm -f "$FETCH_TMP"; trap - EXIT INT TERM
+  return "$rc"
+}
+place_tower() {  # ASSET VERSION CHECKSUM: download into FETCH_TMP, verify, install
+  local rc
+  get -o "$FETCH_TMP" "$RELEASE_URL/v$2/$1" 2>/dev/null; rc=$?
+  [ "$rc" = 0 ] || { echo "  could not download $1 v$2 from $RELEASE_URL (curl exit $rc; 28 is a timeout or a stall)" >&2; return 1; }
+  if [ -z "$3" ] || [ "$(sha256 "$FETCH_TMP")" != "$3" ]; then
+    echo "  $1 v$2 does not match the release's checksum: refused, nothing installed" >&2; return 1
   fi
   # A tower already here does not run (install.sh checked): keep it, aside.
   if [ -e "$BIN_DIR/tower" ]; then
     mv "$BIN_DIR/tower" "$BIN_DIR/tower.old" && echo "  moved     $BIN_DIR/tower (it does not run) to $BIN_DIR/tower.old"
   fi
-  chmod +x "$FETCH_TMP" && mv "$FETCH_TMP" "$BIN_DIR/tower" || { rm -f "$FETCH_TMP"; return 1; }
-  trap - EXIT INT TERM
-  echo "  fetched   $asset v$v -> $BIN_DIR/tower"
+  chmod +x "$FETCH_TMP" && mv "$FETCH_TMP" "$BIN_DIR/tower" || return 1
+  echo "  fetched   $1 v$2 -> $BIN_DIR/tower"
 }
 FETCH_TMP=""
 
