@@ -922,9 +922,10 @@ if section install; then
   assert_match "install: installs tower@phutschi-tower" "$(cat "$TMP/log")" '^claude plugin install tower@phutschi-tower$'
   assert_nomatch "install: without the old plugin, removes nothing" "$(cat "$TMP/log")" '^claude plugin (uninstall|remove|marketplace (remove|rm)) '
   assert_eq "install: claude has the tower plugin and its marketplace" "$(sort "$CLAUDE_STUB_STATE")" "$(printf 'marketplace phutschi-tower\nplugin tower@phutschi-tower user')"
-  for n in herdr-orchestrate preflight spec-to-plan; do
+  for n in herdr-orchestrate preflight; do
     [ -e "$H/.claude/skills/$n" ] || [ -L "$H/.claude/skills/$n" ] && bad "install: old ~/.claude/skills/$n link removed" || ok "install: old ~/.claude/skills/$n link removed"
   done
+  assert_eq "install: a spec-to-plan link into another directory is left alone" "$(readlink "$H/.claude/skills/spec-to-plan")" "$TMP/tools/spec-to-plan"
   [ -L "$H/.agents/skills/herdr-orchestrate" ] && bad "install: old ~/.agents/skills link removed" || ok "install: old ~/.agents/skills link removed"
   assert_eq "install: a link of someone else's is left alone" "$(readlink "$H/.claude/skills/other")" "$TMP/elsewhere"
   for n in orchestrate spec-to-plan preflight; do
@@ -965,6 +966,22 @@ if section install; then
   assert_nomatch "install: ... and nothing there claims linked" "$out" "linked +$H5/.agents/skills/"
   assert_match "install: ... and the install fails"   "$out" 'exit=1$'
   assert_nomatch "install: ... without the closing message" "$out" 'with a plan: +/tower:orchestrate'
+  # The old kit's own links, from a herdr-orchestrate checkout (its scripts at
+  # the root, or under skills/), go; anybody else's skill of the same name stays.
+  H7="$TMP/home7"; OLD="$TMP/old/herdr-orchestrate"; OLD2="$TMP/old2/herdr-orchestrate"; NOTKIT="$TMP/notkit/herdr-orchestrate"
+  mkdir -p "$H7/.claude/skills" "$H7/.agents/skills" "$OLD/preflight" "$OLD2/skills/orchestrate" "$OLD2/skills/preflight" "$NOTKIT" "$TMP/plugin-x/preflight"
+  : > "$OLD/bootstrap.sh"; : > "$OLD2/skills/orchestrate/bootstrap.sh"
+  ln -s "$OLD" "$H7/.claude/skills/herdr-orchestrate"; ln -s "$OLD/preflight" "$H7/.claude/skills/preflight"
+  ln -s "$OLD2/skills/spec-to-plan" "$H7/.claude/skills/spec-to-plan"; ln -s "$NOTKIT" "$H7/.agents/skills/herdr-orchestrate"
+  out=$(HOME="$H7" "$ROOT/install.sh" 2>&1; echo "exit=$?")
+  for n in herdr-orchestrate preflight spec-to-plan; do
+    [ -L "$H7/.claude/skills/$n" ] && bad "install: the old kit's ~/.claude/skills/$n link removed" || ok "install: the old kit's ~/.claude/skills/$n link removed"
+  done
+  assert_eq "install: a herdr-orchestrate link to something else is left alone" "$(readlink "$H7/.agents/skills/herdr-orchestrate")" "$NOTKIT"
+  H8="$TMP/home8"; mkdir -p "$H8/.claude/skills"; ln -s "$TMP/plugin-x/preflight" "$H8/.claude/skills/preflight"
+  out=$(HOME="$H8" "$ROOT/install.sh" 2>&1; echo "exit=$?")
+  assert_eq "install: another plugin's preflight is left alone" "$(readlink "$H8/.claude/skills/preflight")" "$TMP/plugin-x/preflight"
+  assert_nomatch "install: ... and not reported as old layout" "$out" 'old layout'
   H6="$TMP/home6"; mkdir -p "$H6/.claude/skills"; ln -s "$ROOT" "$H6/.claude/skills/herdr-orchestrate"; chmod 555 "$H6/.claude/skills"
   out=$(HOME="$H6" "$ROOT/install.sh" 2>&1; echo "exit=$?"); chmod 755 "$H6/.claude/skills"
   assert_match "install: an old link that cannot be removed is FAILED" "$out" "FAILED +rm $H6/.claude/skills/herdr-orchestrate"

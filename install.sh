@@ -153,10 +153,23 @@ link() {  # TARGET DIR NAME
   fi
 }
 # The links of the kit's old layout: Claude Code now has the plugin, and a
-# second copy of a skill under its bare name would shadow it.
+# second copy of a skill under its bare name would shadow it. Only the kit's
+# own links go: into this repo, or into a herdr-orchestrate checkout that holds
+# the kit (bootstrap.sh at its root or in skills/orchestrate), or is gone.
+# Anybody else's skill of the same name stays.
+old_kit_link() {  # TARGET
+  local kit
+  case "$1" in "$ROOT"|"$ROOT"/*) return 0 ;; esac
+  case "$1" in
+    */herdr-orchestrate) kit=$1 ;;
+    */herdr-orchestrate/*) kit="${1%%/herdr-orchestrate/*}/herdr-orchestrate" ;;
+    *) return 1 ;;
+  esac
+  [ ! -e "$kit" ] || [ -f "$kit/bootstrap.sh" ] || [ -f "$kit/skills/orchestrate/bootstrap.sh" ]
+}
 unlink_old() {  # DIR NAME
-  if [ -L "$1/$2" ]; then
-    case "$(readlink "$1/$2")" in "$ROOT"|"$ROOT"/*|*herdr-orchestrate*|*spec-to-plan*) must rm "$1/$2" && echo "  removed   $1/$2 (old layout)" ;; esac
+  if [ -L "$1/$2" ] && old_kit_link "$(readlink "$1/$2")"; then
+    must rm "$1/$2" && echo "  removed   $1/$2 (old layout)"
   fi
 }
 for n in herdr-orchestrate preflight spec-to-plan; do unlink_old "$HOME/.claude/skills" "$n"; done
