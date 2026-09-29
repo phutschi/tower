@@ -205,17 +205,17 @@ Without `--timeout` it waits as long as it takes, which suits a harness that
 runs it in the background and is woken on exit. With `--timeout`, for a
 harness that can only run commands in the foreground: exit **3**, nothing
 printed, once the timeout passes with nothing to report. A run dir that
-disappears during a wait without `--timeout` ends it with exit **2**; with
-`--timeout`, the wait still ends at the timeout with exit **3**.
+disappears during a wait without `--timeout` ends it with exit **2**; a wait
+with `--timeout` ends at the timeout as usual.
 
 ## Exit codes
 
-|     |                                                                                     |
-| --- | ----------------------------------------------------------------------------------- |
-| 0   | done (for `wait`: attention, complete, or closed)                                   |
-| 1   | usage or validation error; nothing was appended                                     |
-| 2   | no run found, or it is gone during `wait` without `--timeout`; the message says why |
-| 3   | `wait --timeout` passed with nothing to report                                      |
+|     |                                                                    |
+| --- | ------------------------------------------------------------------ |
+| 0   | done (for `wait`: attention, complete, or closed)                  |
+| 1   | usage or validation error; nothing was appended                    |
+| 2   | no run found, or (untimed `wait`) it is gone; the message says why |
+| 3   | `wait --timeout` passed with nothing to report                     |
 
 ## Run discovery
 

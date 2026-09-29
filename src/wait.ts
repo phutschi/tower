@@ -74,7 +74,8 @@ export async function waitFor(options: WaitOptions): Promise<WaitResult> {
     const now = options.now();
     // A run dir that vanished reads as no events, which never needs
     // attention: without this, a wait with no timeout would never end. A
-    // timed wait keeps ending at its deadline, quietly, as it always has.
+    // timed wait ends anyway, so it keeps its one contract: exit 3 at the
+    // deadline.
     const events = eventsPath(options.runDir);
     if (options.timeoutMs === undefined && !existsSync(events))
       throw new UsageError(`the run at ${options.runDir} is gone`, 2);
