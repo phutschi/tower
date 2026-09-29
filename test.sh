@@ -417,7 +417,7 @@ if section bootstrap; then
   # A fresh checkout's trust prompt blocks the start: it is answered, and the
   # agent is started again only when herdr says it is not there.
   S="$HERDR_STUB_STATES_DIR"
-  for case in "gone:2:0" "working:1:0" "unreachable:1:1"; do
+  for case in "gone:2:0" "working:1:0" "unreachable:1:1" "blocked:1:1"; do
     IFS=: read -r state starts code <<< "$case"
     r=$(fixture_repo bun-vitest); RUN="$TMP/run-trust-$state"; reset_stub; echo "$state" > "$S/bun-vitest-lane-a"
     out=$(HERDR_STUB_TRUST_STARTS=1 boot "$r" "$RUN" "Trust" main; echo "exit=$?")
@@ -425,7 +425,11 @@ if section bootstrap; then
     assert_eq "trust prompt, agent $state: starts"       "$(grep -c '^herdr agent start bun-vitest-lane-a ' "$HERDR_STUB_LOG")" "$starts"
     assert_match "trust prompt, agent $state: exit $code" "$out" "exit=$code\$"
   done
-  assert_match "trust prompt, herdr failing: says so"  "$out" 'herdr cannot say whether bun-vitest-lane-a started'
+  assert_match "trust prompt, agent still blocked: says so" "$out" 'bun-vitest-lane-a is still blocked in pane pane-2 after its trust prompt was answered'
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-trust-keys"; reset_stub
+  out=$(HERDR_STUB_TRUST_STARTS=1 HERDR_STUB_SEND_KEYS_FAIL=1 boot "$r" "$RUN" "Trust" main; echo "exit=$?")
+  assert_match "trust prompt, send-keys failing: bootstrap fails, saying so" "$out" "could not answer bun-vitest-lane-a's trust prompt in pane pane-2"
+  assert_match "trust prompt, send-keys failing: exit 1" "$out" 'exit=1$'
   rm -f "$S/bun-vitest-lane-a"
 fi
 
@@ -583,6 +587,23 @@ if section add-lane; then
   assert_match "rerun with '7-9' for 07,08,09: other ids, refused" "$out" 'lane B owns 07,08,09 on the board, not 7-9; rerun with those ids'
   rm -f "$HERDR_STUB_STATES_DIR/bun-vitest-lane-b"
   assert_eq "padded: the board has the lanes' ids as written" "$(board "$RUNP" '" ".join(k+"="+",".join(v) for k,v in sorted(d["lanes"].items()))')" "B=07,08,09 C=10,11"
+  # A trust prompt that cannot be answered, or an agent still blocked after
+  # the answer, fails the call: no ready line, and the lane stays in the map
+  # for a rerun.
+  r=$(fixture_repo bun-vitest); RUNT="$TMP/run-trust-lane"; reset_stub
+  (cd "$r" && "$KIT/bootstrap.sh" "$RUNT" "Trust" main "$KIT/example-tasks.tsv" >/dev/null 2>&1)
+  reset_stub; out=$(cd "$r" && HERDR_STUB_TRUST_STARTS=1 HERDR_STUB_SEND_KEYS_FAIL=1 "$KIT/add-lane.sh" "$RUNT" B feat/b main 2 2>&1; echo "exit=$?")
+  assert_match "trust, send-keys failing: fails"       "$out" 'exit=1$'
+  assert_match "trust, send-keys failing: says so"     "$out" "could not answer bun-vitest-lane-b's trust prompt"
+  assert_nomatch "trust, send-keys failing: no ready line" "$out" 'lane B ready'
+  assert_match "trust, send-keys failing: the lane is in the pane map" "$(cat "$RUNT/panes.txt")" '^lane B: '
+  echo blocked > "$HERDR_STUB_STATES_DIR/bun-vitest-lane-c"
+  reset_stub; out=$(cd "$r" && HERDR_STUB_TRUST_STARTS=1 "$KIT/add-lane.sh" "$RUNT" C feat/c main 3 2>&1; echo "exit=$?")
+  assert_match "trust, still blocked: fails"           "$out" 'exit=1$'
+  assert_match "trust, still blocked: says so"         "$out" 'bun-vitest-lane-c is still blocked in pane pane-[0-9]+ after its trust prompt was answered'
+  assert_nomatch "trust, still blocked: no ready line" "$out" 'lane C ready'
+  assert_match "trust, still blocked: the lane is in the pane map" "$(cat "$RUNT/panes.txt")" '^lane C: '
+  rm -f "$HERDR_STUB_STATES_DIR/bun-vitest-lane-c"
 fi
 
 # --- add-reviewer ------------------------------------------------------------
@@ -762,6 +783,13 @@ if section add-reviewer; then
   assert_match "busy pane: add-reviewer finishes"     "$out" 'exit=0$'
   assert_nomatch "busy pane: add-reviewer shows no busy error" "$out" 'agent_pane_busy'
   assert_eq "busy pane: the Reviewer's start is tried again" "$(grep -c '^herdr agent start bun-vitest-r1-1 ' "$HERDR_STUB_LOG")" 2
+  # A trust prompt that cannot be answered fails the call, saying so.
+  RUN5="$TMP/run-review-trust"
+  r=$(fixture_repo bun-vitest); (cd "$r" && "$KIT/bootstrap.sh" "$RUN5" "Trust" main >/dev/null 2>&1); reset_stub
+  out=$(cd "$r" && HERDR_STUB_TRUST_STARTS=1 HERDR_STUB_SEND_KEYS_FAIL=1 "$KIT/add-reviewer.sh" "$RUN5" R1 claude "Trust" "$RUN5/findings/a.json" 2>&1; echo "exit=$?")
+  assert_match "trust, send-keys failing: add-reviewer fails" "$out" 'exit=1$'
+  assert_match "trust, send-keys failing: says so"     "$out" "could not answer bun-vitest-r1-1's trust prompt"
+  assert_nomatch "trust, send-keys failing: no ready line" "$out" 'reviewer R1 ready'
 fi
 
 # --- watch -------------------------------------------------------------------
