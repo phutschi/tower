@@ -520,10 +520,14 @@ if section add-lane; then
   assert_match "rerun, a backwards range: refused as tower refuses it" "$out" '^add-lane: range "9-7" runs backwards$'
   assert_match "rerun, a backwards range: fails"       "$out" 'exit=1$'
   assert_nomatch "rerun, a backwards range: no start"  "$(cat "$HERDR_STUB_LOG")" '^herdr agent start'
-  out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNF" B feat/b main '2,3,a-b' 2>&1)
+  reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNF" B feat/b main '2,3,a-b' 2>&1; echo "exit=$?")
   assert_match "rerun, a letter range: refused as tower refuses it" "$out" '^add-lane: range "a-b" must be integer to integer, like 7-9$'
-  out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNF" B feat/b main '2,3,a b' 2>&1)
+  assert_match "rerun, a letter range: fails"          "$out" 'exit=1$'
+  assert_nomatch "rerun, a letter range: no start"     "$(cat "$HERDR_STUB_LOG")" '^herdr agent start'
+  reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNF" B feat/b main '2,3,a b' 2>&1; echo "exit=$?")
   assert_match "rerun, an invalid id: refused as tower refuses it" "$out" '^add-lane: "a b" is not a valid task id \(letters, digits, \. _ -; no spaces\)$'
+  assert_match "rerun, an invalid id: fails"           "$out" 'exit=1$'
+  assert_nomatch "rerun, an invalid id: no start"      "$(cat "$HERDR_STUB_LOG")" '^herdr agent start'
   reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNF" B feat/b main 2-3 2>&1; echo "exit=$?")
   assert_match "rerun, the same ids as a range: finishes" "$out" 'exit=0$'
   echo gone > "$HERDR_STUB_STATES_DIR/bun-vitest-lane-b"
