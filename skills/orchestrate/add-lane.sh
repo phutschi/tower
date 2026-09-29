@@ -88,19 +88,30 @@ if [ -n "$PANE" ]; then
   # (src/ids.ts expandIds; tower has no command that expands without
   # recording): tokens trimmed, empty ones dropped, an integer range expanded,
   # zero-padded when both ends are written at the same width (07-09).
-  owned=$(tower state --json | python3 -c 'import json,re,sys
+  # An id tower refuses is refused here with tower's words (exit 2).
+  rc=0; owned=$(tower state --json | python3 -c 'import json,re,sys
 d=json.load(sys.stdin); want=set()
+def refuse(why): print(why); sys.exit(2)
 for t in map(str.strip, sys.argv[2].split(",")):
     m = re.fullmatch(r"([0-9]+)-([0-9]+)", t)
     if m:
         lo, hi = m.groups()
+        if int(hi) < int(lo): refuse(f"range \"{t}\" runs backwards")
         w = len(lo) if len(lo) == len(hi) else 0
         want |= {str(n).zfill(w) for n in range(int(lo), int(hi) + 1)}
+    elif re.fullmatch(r"[A-Za-z]+-[A-Za-z]+", t):
+        refuse(f"range \"{t}\" must be integer to integer, like 7-9")
+    elif t and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", t):
+        refuse(f"\"{t}\" is not a valid task id (letters, digits, . _ -; no spaces)")
     elif t:
         want.add(t)
 have=d["lanes"].get(sys.argv[1], [])
-print(",".join(have)); sys.exit(0 if want == set(have) else 1)' "$LANE" "$TASKS") \
-    || die "lane $LANE owns $owned on the board, not $TASKS; rerun with those ids"
+print(",".join(have)); sys.exit(0 if want == set(have) else 1)' "$LANE" "$TASKS") || rc=$?
+  case $rc in
+    0) ;;
+    2) die "add-lane: $owned" ;;
+    *) die "lane $LANE owns $owned on the board, not $TASKS; rerun with those ids" ;;
+  esac
   # Only herdr's pane_not_found is a closed pane; any other failure says
   # nothing about it, and the map and the worktree stay.
   if ! err=$(herdr pane get "$PANE" 2>&1 >/dev/null); then
