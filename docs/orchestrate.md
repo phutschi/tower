@@ -70,8 +70,8 @@ missing tower shows up here, not at the start of a run.
 When tower is missing, install.sh fetches it. The primary path is the release
 binary for macOS or Linux (arm64 or x64) of this checkout's version, into
 `~/.local/bin` (or `$TOWER_BIN_DIR`). It is checked against the release's
-`SHA256SUMS`: a mismatch or a missing checksum file is refused, and nothing is
-installed. On another platform, install tower from git first, with Node ≥ 22.12:
+`SHA256SUMS`: a mismatch, a missing checksum file, or no checksum for this
+platform is refused, and nothing is installed. On another platform, install tower from git first, with Node ≥ 22.12:
 `npm i -g github:phutschi/tower`, which builds with Node alone. You never need
 bun to use tower or the kit.
 

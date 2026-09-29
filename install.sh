@@ -55,8 +55,8 @@ fetch_tower() {
   asset="tower-$os-$arch"
   sums=$(get "$RELEASE_URL/v$v/SHA256SUMS" 2>/dev/null); rc=$?
   [ "$rc" = 0 ] || { echo "  could not fetch the SHA256SUMS of release v$v (curl exit $rc; 22 is no such release or no checksums, 28 a timeout or a stall): refusing an unverified tower; or install it with  $GIT_INSTALL" >&2; return 1; }
-  want=$(printf '%s\n' "$sums" | awk -v a="$asset" '$2 == a || $2 == "*" a { print $1 }')
-  [ -n "$want" ] || { echo "  release v$v has no checksum for $asset: refusing an unverified tower, nothing downloaded; install it with  $GIT_INSTALL" >&2; return 1; }
+  want=$(printf '%s\n' "$sums" | awk -v a="$asset" '{ sub(/\r$/, "") } $2 == a || $2 == "*" a { print $1; exit }')
+  [ -n "$want" ] || { echo "  release v$v has no checksum for $asset: nothing downloaded, refusing an unverified tower; or install it with  $GIT_INSTALL" >&2; return 1; }
   mkdir -p "$BIN_DIR" && FETCH_TMP=$(mktemp "$BIN_DIR/.tower.XXXXXX") || return 1
   # The temp file goes whatever happens; Ctrl-C (or a kill) stops the install.
   trap 'rm -f "$FETCH_TMP"' EXIT

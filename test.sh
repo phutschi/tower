@@ -1172,9 +1172,9 @@ if section install; then
   : > "$TMP/curl.log"
   out=$(fetch "$H5" "$TMP/bin13" TOWER_RELEASE_URL="file://$NOSUM" PATH="$TMP/curlspy:$U:$PATH")
   assert_match "fetch: no checksum for this platform is named" "$out" "release v$V has no checksum for tower-linux-x64"
-  assert_match "fetch: ... with the git install as the way" "$out" 'npm i -g github:phutschi/tower'
+  assert_match "fetch: ... with the git install as the way" "$out" 'npm i(nstall)? -g github:phutschi/tower'
   assert_match "fetch: ... and fails"                   "$out" 'exit=1$'
-  assert_nomatch "fetch: ... without downloading the binary" "$(cat "$TMP/curl.log")" 'tower-linux-x64'
+  assert_eq "fetch: ... requesting only the checksums" "$(grep -c . "$TMP/curl.log")|$(grep -c 'SHA256SUMS$' "$TMP/curl.log")" "1|1"
   assert_eq "fetch: ... and leaves nothing in the bin dir" "$(ls -A "$TMP/bin13" 2>/dev/null)" ""
   out=$(fetch "$H5" "$TMP/bin9" TOWER_RELEASE_URL="file://$TMP/no-release")
   assert_match "fetch: a release that cannot be reached is named" "$out" "could not fetch .*SHA256SUMS"
