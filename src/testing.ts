@@ -17,12 +17,17 @@ export interface FakeIo extends Io {
 }
 
 export function fakeIo(overrides: Partial<Io> = {}): FakeIo {
+  // A state dir of its own, so a run without --run never lands in the real
+  // ~/.local/state; a test's own env is laid over it.
+  const env = {
+    XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "tower-state-")),
+    ...overrides.env,
+  };
   const io: FakeIo = {
     out: [],
     err: [],
     stdout: (t) => io.out.push(t),
     stderr: (t) => io.err.push(t),
-    env: {},
     cwd: mkdtempSync(join(tmpdir(), "tower-cwd-")),
     now: () => new Date("2026-09-04T20:00:00.000Z"),
     isTTY: false,
@@ -30,6 +35,7 @@ export function fakeIo(overrides: Partial<Io> = {}): FakeIo {
     rows: 30,
     stdinText: () => undefined,
     ...overrides,
+    env,
   };
   return io;
 }

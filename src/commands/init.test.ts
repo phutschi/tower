@@ -262,6 +262,8 @@ describe("tower init", () => {
     const out = io.out.join("");
     expect(out).toContain("0 tasks");
     const runDir = /run dir: (.+)/.exec(out)?.[1]?.trim() as string;
+    // A test never writes the real ~/.local/state.
+    expect(runDir.startsWith(tmpdir())).toBe(true);
     const run = readRun(runDir);
     expect(run.tasks).toEqual([]);
     expect(run.plan).toBe("untitled");
