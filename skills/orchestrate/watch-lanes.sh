@@ -1,21 +1,25 @@
 #!/usr/bin/env bash
-# One round of process-level watching. Run it in the background from the
-# orchestrator right after `herdr agent prompt`, and re-run it after each exit.
+# Process-level watching until a lane needs the orchestrator. Run it in the
+# background from the orchestrator right after `herdr agent prompt`, and re-run
+# it after each exit.
 #
 #   watch-lanes.sh <run-dir> <agent>[:<round>]...   lane and Reviewer agents alike
 #   round: the report round the orchestrator expects, an integer >= 1; a bare
 #   <agent> means round 1. The output names the agent without it.
-#   env: ROUND_SECONDS (540)  GRACE_SECONDS (45)  POLL_SECONDS (15)
+#   env: GRACE_SECONDS (45)  POLL_SECONDS (15)  ROUND_SECONDS (unset: no
+#   limit; set it only in a harness that can run commands in the foreground
+#   alone, and the round ends with exit 3 once it passes)
 #
 # Task-level attention (blocked / stale / complete / closed) is tower's job:
-# run  tower wait --timeout 540 --stale <STALE>  beside this (bootstrap.sh
+# run  tower wait --stale <STALE>  beside this (bootstrap.sh
 # prints it with the run's threshold). This script covers what tower cannot
 # see, the agent process itself.
 #
 # Output starts with one line per lane that needs the orchestrator:
 #   attention: <agent> blocked | idle-after-final-report | idle-unexplained | done | gone
 # then the state table with the pane tails, then the tower summary. Exit 0
-# with attention, 3 when everyone is still working. A closed run is attention
+# with attention; exit 3 only when ROUND_SECONDS passed and everyone is still
+# working. A closed run is attention
 # too (`tower: run closed`), and so is a complete board once no watched agent
 # is working (`tower: run complete`): a complete board alone is not, since a
 # lane's final review, preflight and the PR come after its last task.
@@ -63,7 +67,7 @@ for arg in "$@"; do
   [ -n "$name" ] && [[ "$round" =~ ^[1-9][0-9]*$ ]] || die "$USAGE"
   NAMES+=("$name"); ROUNDS+=("$round")
 done
-ROUND=${ROUND_SECONDS:-540}; GRACE=${GRACE_SECONDS:-45}; POLL=${POLL_SECONDS:-15}
+ROUND=${ROUND_SECONDS:-}; GRACE=${GRACE_SECONDS:-45}; POLL=${POLL_SECONDS:-15}
 
 state_of() { herdr agent get "$1" 2>/dev/null | jsonq 'd["result"]["agent"]["agent_status"]' 2>/dev/null || echo gone; }
 tail_of()  { herdr agent read "$1" --source recent-unwrapped --lines 40 2>/dev/null | grep -v '^[[:space:]]*$' | tail -12; }
@@ -90,7 +94,7 @@ finished() { local b; if [ $# -ge 2 ]; then b=$2; else b=$(board); fi
 
 IDLE_SEEN=(); i=0; for _ in "${NAMES[@]}"; do IDLE_SEEN[$i]=0; i=$((i+1)); done
 started=$(date +%s)
-while [ $(( $(date +%s) - started )) -lt "$ROUND" ]; do
+while [ -z "$ROUND" ] || [ $(( $(date +%s) - started )) -lt "$ROUND" ]; do
   settled=0; working=0; i=0
   for name in "${NAMES[@]}"; do
     case "$(state_of "$name")" in

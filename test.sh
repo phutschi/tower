@@ -732,6 +732,22 @@ if section watch; then
   assert_nomatch "complete board, one of two lanes working: no tower attention" "$out" '^tower: run'
   printf 'idle\nidle\n' > "$S/a"; out=$(ON=$RUN_COMPLETE watch a)
   assert_match "complete board, every agent settled: attention" "$out" '^tower: run complete'
+  # No round limit unless ROUND_SECONDS asks for one: under a clock that jumps
+  # 1000 s on every read, the watch still polls until the lane needs attention.
+  clock="$TMP/clock"; mkdir -p "$clock"
+  cat > "$clock/date" <<'CLOCK'
+#!/usr/bin/env bash
+[ "$*" = +%s ] || exec /bin/date "$@"
+n=$(( $(cat "$0.now" 2>/dev/null || echo 0) + 1000 )); echo "$n" > "$0.now"; echo "$n"
+CLOCK
+  chmod +x "$clock/date"
+  printf 'working\nworking\nworking\nblocked\n' > "$S/a"; printf 'need the API key\n' > "$S/a.tail"
+  out=$(cd "$TMP" && PATH="$clock:$PATH" GRACE_SECONDS=0 POLL_SECONDS=0 "$KIT/watch-lanes.sh" "$RUN" a 2>&1; echo "exit=$?")
+  assert_match "no ROUND_SECONDS: polls past any round until attention" "$out" '^attention: a blocked'
+  assert_match "no ROUND_SECONDS: exit 0"             "$out" 'exit=0$'
+  echo working > "$S/a"; rm -f "$clock/date.now"
+  out=$(cd "$TMP" && PATH="$clock:$PATH" ROUND_SECONDS=540 GRACE_SECONDS=0 POLL_SECONDS=0 "$KIT/watch-lanes.sh" "$RUN" a 2>&1; echo "exit=$?")
+  assert_match "ROUND_SECONDS given: exit 3 once it passes" "$out" 'exit=3$'
 fi
 
 # --- watchline ---------------------------------------------------------------
@@ -740,10 +756,11 @@ fi
 if section watchline; then
   r=$(fixture_repo contract); reset_stub
   wl=$(cd "$r" && "$KIT/bootstrap.sh" "$TMP/run-wl1" "WL" main 2>&1 | grep '^watch:')
-  assert_match "watch line: tower wait takes the run's stale threshold" "$wl" '^watch: +tower wait --timeout 540 --stale 45 +and +.*/watch-lanes\.sh '
+  assert_match "watch line: tower wait takes the run's stale threshold" "$wl" '^watch: +tower wait --stale 45 +and +.*/watch-lanes\.sh '
   r=$(fixture_repo none); reset_stub
   wl=$(cd "$r" && "$KIT/bootstrap.sh" "$TMP/run-wl2" "WL" main 2>&1 | grep '^watch:')
-  assert_match "watch line: always tower wait and watch-lanes.sh" "$wl" '^watch: +tower wait --timeout 540 --stale 30 +and +.*/watch-lanes\.sh '
+  assert_match "watch line: always tower wait and watch-lanes.sh" "$wl" '^watch: +tower wait --stale 30 +and +.*/watch-lanes\.sh '
+  assert_nomatch "watch line: no timeout and no round limit" "$wl" ' --timeout|ROUND_SECONDS'
 fi
 
 # --- look --------------------------------------------------------------------
