@@ -3,7 +3,7 @@
 # answers with the JSON shapes the kit reads. Pane ids count up per process
 # tree through HERDR_STUB_COUNTER. Agent states come from
 # HERDR_STUB_STATES_DIR/<name> (a status word, "gone", or "unreachable": herdr
-# failing for another reason, on stderr as herdr's errors are; with several lines,
+# failing for another reason; with several lines,
 # each `agent get` answers the first and drops it, the last one stays), pane
 # tails from HERDR_STUB_STATES_DIR/<name>.tail. Every pane is in workspace
 # ws-0; `pane get` answers pane_not_found when HERDR_STUB_STATES_DIR/<pane-id>
@@ -12,6 +12,7 @@
 # HERDR_STUB_COUNTER.busy. HERDR_STUB_EXIT_ON_ENTER=N: every `agent get` answers
 # gone once N `pane send-keys ... Enter` calls were made (counted through
 # HERDR_STUB_COUNTER.enters), as an agent that needs N Enters to exit.
+# Errors are JSON on stderr with exit 1, as herdr answers them.
 # HERDR_STUB=absent refuses to run, so herdr counts as not installed; it logs
 # each refused call as "herdr-absent <argv>".
 [ "${HERDR_STUB:-}" = absent ] && { printf 'herdr-absent %s\n' "$*" >> "${HERDR_STUB_LOG:-/dev/null}"; echo "herdr: not installed (stub)" >&2; exit 127; }
@@ -29,14 +30,14 @@ case "${1:-} ${2:-}" in
   "pane move")       echo "{\"result\":{\"move_result\":{\"pane\":{\"pane_id\":\"$(next_id)\"}}}}" ;;
   "pane list")       echo '{"result":{"panes":[]}}' ;;
   "pane get")
-    [ -n "$states" ] && [ "$(head -1 "$states/$3" 2>/dev/null)" = gone ] && { echo '{"error":{"code":"pane_not_found"}}'; exit 1; }
+    [ -n "$states" ] && [ "$(head -1 "$states/$3" 2>/dev/null)" = gone ] && { echo '{"error":{"code":"pane_not_found"}}' >&2; exit 1; }
     echo "{\"result\":{\"pane\":{\"pane_id\":\"$3\",\"workspace_id\":\"ws-0\"}}}" ;;
   "agent start")
     busy=$(cat "$counter.busy" 2>/dev/null || echo 0)
     if [ "$busy" -lt "${HERDR_STUB_BUSY_STARTS:-0}" ]; then
       echo $((busy+1)) > "$counter.busy"
       pane=$(printf '%s\n' "$@" | sed -n '/^--pane$/{n;p;q;}')
-      echo "{\"error\":{\"code\":\"agent_pane_busy\",\"message\":\"agent target pane $pane is not an available shell\"}}"; exit 1
+      echo "{\"error\":{\"code\":\"agent_pane_busy\",\"message\":\"agent target pane $pane is not an available shell\"}}" >&2; exit 1
     fi
     echo '{"result":{"agent":{"agent_status":"idle"}}}' ;;
   "pane send-keys")
@@ -44,14 +45,14 @@ case "${1:-} ${2:-}" in
     echo '{"result":{}}' ;;
   "agent get")
     if [ -n "${HERDR_STUB_EXIT_ON_ENTER:-}" ] && [ "$(cat "$counter.enters" 2>/dev/null || echo 0)" -ge "$HERDR_STUB_EXIT_ON_ENTER" ]; then
-      echo '{"error":{"code":"agent_not_found"}}'; exit 1
+      echo '{"error":{"code":"agent_not_found"}}' >&2; exit 1
     fi
     status=working
     if [ -n "$states" ] && [ -f "$states/$3" ]; then
       status=$(head -1 "$states/$3")
       [ "$(wc -l < "$states/$3")" -le 1 ] || { tail -n +2 "$states/$3" > "$states/$3.next"; mv "$states/$3.next" "$states/$3"; }
     fi
-    [ "$status" = gone ] && { echo '{"error":{"code":"agent_not_found"}}'; exit 1; }
+    [ "$status" = gone ] && { echo '{"error":{"code":"agent_not_found"}}' >&2; exit 1; }
     [ "$status" = unreachable ] && { echo '{"error":{"code":"server_unavailable","message":"herdr server is not answering"}}' >&2; exit 1; }
     echo "{\"result\":{\"agent\":{\"agent_status\":\"$status\"}}}" ;;
   "agent read")      [ -n "$states" ] && [ -f "$states/$3.tail" ] && cat "$states/$3.tail"; exit 0 ;;
