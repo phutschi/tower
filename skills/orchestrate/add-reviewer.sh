@@ -29,7 +29,9 @@
 # with a fresh context. The slot's previous Reviewer is refused while it is
 # still working, sent /exit and Enter when idle (Enter again about every 3
 # seconds while it is still there), and waited for (EXIT_WAIT_SECONDS, default 15)
-# until herdr no longer knows it.
+# until herdr answers agent_not_found for it. Any other failing answer from
+# herdr is not an exit: before the /exit it refuses the call, after it the
+# wait goes on (common.sh state_of).
 #
 # In order, it writes:
 #   the board task, before anything opens:
@@ -127,7 +129,6 @@ slot_pane() { echo "$TAB_LINE" | sed -nE "s/.*[(, ]$1 ([^,)]+).*/\\1/p"; }
 # second's pause before it, and Enter again about every 3 seconds while the
 # Reviewer is still there. An extra Enter at a shell prompt does nothing.
 # EXIT_WAIT_SECONDS counts checks about a second apart.
-state_of() { herdr agent get "$1" 2>/dev/null | jsonq 'd["result"]["agent"]["agent_status"]' 2>/dev/null || echo gone; }
 PREV=$(sed -nE "s/^reviewer $SLOT: +[^ ]+ +\\(agent \"([^\"]+)\".*/\\1/p" "$MAP")
 N=1
 if [ -n "$PREV" ]; then
@@ -135,6 +136,7 @@ if [ -n "$PREV" ]; then
   case "$(state_of "$PREV")" in
     gone) ;;
     working) die "Reviewer $PREV is still working in $SLOT: wait until the slot is free, or use the other slot" ;;
+    unknown) die "herdr cannot say whether Reviewer $PREV is still there (herdr agent get $PREV fails); rerun once herdr answers" ;;
     *)
       PANE=$(slot_pane "$SLOT")
       herdr pane send-text "$PANE" "/exit" >/dev/null

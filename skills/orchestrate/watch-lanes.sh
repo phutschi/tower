@@ -14,11 +14,15 @@
 #
 # Output starts with one line per lane that needs the orchestrator:
 #   attention: <agent> blocked | idle-after-final-report | idle-unexplained | done | gone
-# then the state table with the pane tails, then the tower summary. Exit 0
-# with attention, 3 when everyone is still working. A closed run is attention
-# too (`tower: run closed`), and so is a complete board once no watched agent
-# is working (`tower: run complete`): a complete board alone is not, since a
-# lane's final review, preflight and the PR come after its last task.
+# then the state table with the pane tails, then the tower summary. gone is
+# herdr answering agent_not_found. Any other failing herdr call (a server
+# restarting, a timeout, an answer of another shape) says nothing about the
+# agent: it reads unknown, counts as working and never settles (common.sh
+# state_of). Exit 0 with attention, 3 when everyone is still working. A
+# closed run is attention too (`tower: run closed`), and so is a complete
+# board once no watched agent is working (`tower: run complete`): a complete
+# board alone is not, since a lane's final review, preflight and the PR come
+# after its last task.
 #
 # Idle is ambiguous: a lane that was just prompted, or is waiting on its own
 # review subagent, reads idle for a moment. So idle counts only after
@@ -65,7 +69,6 @@ for arg in "$@"; do
 done
 ROUND=${ROUND_SECONDS:-540}; GRACE=${GRACE_SECONDS:-45}; POLL=${POLL_SECONDS:-15}
 
-state_of() { herdr agent get "$1" 2>/dev/null | jsonq 'd["result"]["agent"]["agent_status"]' 2>/dev/null || echo gone; }
 tail_of()  { herdr agent read "$1" --source recent-unwrapped --lines 40 2>/dev/null | grep -v '^[[:space:]]*$' | tail -12; }
 # The end line of round $1: round 1 is the brief's report, a later round a fix
 # prompt's, with the round tag r<n> inside the brackets.

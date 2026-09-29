@@ -570,6 +570,17 @@ if section add-reviewer; then
   assert_eq "within 3 checks, one Enter: no retry storm" "$(grep -c '^herdr pane send-keys pane-1 Enter$' "$HERDR_STUB_LOG")" 1
   assert_nomatch "that refusal starts no agent"       "$(cat "$HERDR_STUB_LOG")" '^herdr agent start'
   assert_nomatch "that refusal adds no board task"    "$(reviews "$RUN")" 'R1-3'
+  # herdr failing for another reason than agent_not_found is not the previous
+  # Reviewer having exited.
+  echo unreachable > "$S/bun-vitest-r1-2"; reset_stub
+  out=$(review R1 claude "Preflight R1" "$RUN/findings/preflight-r1.json")
+  assert_match "herdr failing: refused, the previous Reviewer's state unknown" "$out" 'herdr cannot say whether Reviewer bun-vitest-r1-2 is still there'
+  assert_nomatch "herdr failing: nothing sent, nothing started" "$(cat "$HERDR_STUB_LOG")" '^herdr (pane send|agent start)'
+  assert_nomatch "herdr failing: no board task"       "$(reviews "$RUN")" 'R1-3'
+  printf 'idle\nunreachable\n' > "$S/bun-vitest-r1-2"; reset_stub
+  out=$(EXIT_WAIT_SECONDS=2 review R1 claude "Preflight R1" "$RUN/findings/preflight-r1.json")
+  assert_match "herdr failing after /exit: not read as exited" "$out" 'bun-vitest-r1-2 did not exit'
+  assert_nomatch "herdr failing after /exit: no agent start" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start'
   echo gone > "$S/bun-vitest-r1-2"; reset_stub
   out=$(REVIEWER_MODEL=gpt-6-astra-pro review R1 claude "Preflight R1" "$RUN/findings/preflight-r1.json"); log=$(cat "$HERDR_STUB_LOG")
   assert_nomatch "an exited Reviewer is not sent /exit" "$log" '^herdr pane send-text'
@@ -782,6 +793,15 @@ if section watch; then
   assert_match "idle without a report is unexplained" "$out" '^attention: a idle-unexplained'
   echo gone > "$S/a"; out=$(watch a)
   assert_match "gone"                                 "$out" '^attention: a gone'
+  # herdr failing for another reason than agent_not_found says nothing about
+  # the agent: it reads unknown, like working, and never settles as gone.
+  echo unreachable > "$S/a"; out=$(ROUND=1 watch a)
+  assert_nomatch "herdr failing: not gone"            "$out" '^attention: a '
+  assert_match "herdr failing: unknown in the state table" "$out" '^a +unknown$'
+  assert_match "herdr failing: no attention"          "$out" 'exit=3$'
+  echo unreachable > "$S/a"; echo done > "$S/b"; out=$(watch a b)
+  assert_match "herdr failing for one lane: the settled one" "$out" '^attention: b done'
+  assert_nomatch "herdr failing for one lane: that lane is not gone" "$out" '^attention: a '
   echo working > "$S/a"; echo done > "$S/b"; out=$(watch a b)
   assert_match "two lanes: only the settled one"      "$out" '^attention: b done'
   assert_nomatch "two lanes: the working one is quiet" "$out" '^attention: a '
