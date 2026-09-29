@@ -29,9 +29,10 @@
 # with a fresh context. The slot's previous Reviewer is refused while it is
 # still working, sent /exit and Enter when idle (Enter again about every 3
 # seconds while it is still there), and waited for (EXIT_WAIT_SECONDS, default 15)
-# until herdr answers agent_not_found for it. Any other failing answer from
-# herdr is not an exit: before the /exit it refuses the call, after it the
-# wait goes on (common.sh state_of).
+# until herdr answers agent_not_found for it. herdr failing otherwise is not an
+# exit: before the /exit it refuses the call, after it the wait goes on
+# (common.sh state_of, unreadable). herdr's own unknown status is an agent it
+# cannot classify, and is sent /exit like an idle one.
 #
 # In order, it writes:
 #   the board task, before anything opens:
@@ -123,8 +124,9 @@ slot_pane() { echo "$TAB_LINE" | sed -nE "s/.*[(, ]$1 ([^,)]+).*/\\1/p"; }
 
 # --- end the slot's previous Reviewer ----------------------------------------
 # agent start needs the pane back at its shell prompt. A Reviewer still working
-# is refused; an idle one is sent /exit, then we wait (EXIT_WAIT_SECONDS,
-# default 15) until herdr no longer knows it. codex can swallow the Enter after
+# is refused, and so is one herdr cannot be asked about (unreadable); any other
+# is sent /exit, then we wait (EXIT_WAIT_SECONDS, default 15) until herdr
+# answers agent_not_found for it. codex can swallow the Enter after
 # /exit (its slash-command popup takes it, or it lands before the text): so a
 # second's pause before it, and Enter again about every 3 seconds while the
 # Reviewer is still there. An extra Enter at a shell prompt does nothing.
@@ -136,7 +138,7 @@ if [ -n "$PREV" ]; then
   case "$(state_of "$PREV")" in
     gone) ;;
     working) die "Reviewer $PREV is still working in $SLOT: wait until the slot is free, or use the other slot" ;;
-    unknown) die "herdr cannot say whether Reviewer $PREV is still there (herdr agent get $PREV fails); rerun once herdr answers" ;;
+    unreadable) die "herdr cannot say whether Reviewer $PREV is still there (herdr agent get $PREV fails); rerun once herdr answers" ;;
     *)
       PANE=$(slot_pane "$SLOT")
       herdr pane send-text "$PANE" "/exit" >/dev/null

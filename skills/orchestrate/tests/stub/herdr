@@ -2,8 +2,9 @@
 # Stand-in for herdr under DRY_RUN=1 and test.sh. Logs argv to HERDR_STUB_LOG and
 # answers with the JSON shapes the kit reads. Pane ids count up per process
 # tree through HERDR_STUB_COUNTER. Agent states come from
-# HERDR_STUB_STATES_DIR/<name> (a status word, "gone", or "unreachable": herdr
-# failing for another reason; with several lines,
+# HERDR_STUB_STATES_DIR/<name> (a status word, "gone", "unreachable": herdr
+# failing for another reason, or "shapeless": an answer with a null status;
+# with several lines,
 # each `agent get` answers the first and drops it, the last one stays), pane
 # tails from HERDR_STUB_STATES_DIR/<name>.tail. Every pane is in workspace
 # ws-0; `pane get` answers pane_not_found when HERDR_STUB_STATES_DIR/<pane-id>
@@ -53,6 +54,7 @@ case "${1:-} ${2:-}" in
       [ "$(wc -l < "$states/$3")" -le 1 ] || { tail -n +2 "$states/$3" > "$states/$3.next"; mv "$states/$3.next" "$states/$3"; }
     fi
     [ "$status" = gone ] && { echo '{"error":{"code":"agent_not_found"}}' >&2; exit 1; }
+    [ "$status" = shapeless ] && { echo '{"result":{"agent":{"agent_status":null}}}'; exit 0; }
     [ "$status" = unreachable ] && { echo '{"error":{"code":"server_unavailable","message":"herdr server is not answering"}}' >&2; exit 1; }
     echo "{\"result\":{\"agent\":{\"agent_status\":\"$status\"}}}" ;;
   "agent read")      [ -n "$states" ] && [ -f "$states/$3.tail" ] && cat "$states/$3.tail"; exit 0 ;;

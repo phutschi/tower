@@ -89,7 +89,9 @@ and do it in a lane anyway or suggest doing it without the kit.
    panes in a loop.
 7. **Act on attention.** `blocked` → decide, then re-brief with what the lane
    asked for (a discovered task: you add it, then tell the lane). `stale` or
-   `idle-unexplained` → read the pane tail, then re-brief or wait. A re-brief
+   `idle-unexplained` → read the pane tail, then re-brief or wait. `unreadable`
+   → herdr did not answer for that agent all round: check herdr, and never
+   start a second agent beside it. A re-brief
    asks for no new end line, so it keeps the lane's report round: watch it
    as before. tower
    wait's `complete` → keep `watch-lanes.sh` running: a lane's final review
