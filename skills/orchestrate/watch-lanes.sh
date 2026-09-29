@@ -16,10 +16,11 @@
 # see, the agent process itself.
 #
 # Output starts with one line per lane that needs the orchestrator:
-#   attention: <agent> blocked | idle-after-final-report | idle-unexplained | done | gone
+#   attention: <agent> blocked | idle-after-final-report | idle-unexplained | done | gone | <any other status>
 # then the state table with the pane tails, then the tower summary. Exit 0
-# with attention; exit 3 only when ROUND_SECONDS passed and everyone is still
-# working. A closed run is attention
+# with attention. Without ROUND_SECONDS it never exits quietly. With it, exit 3
+# when it passes with everyone still working, or when a sample settled and the
+# resample right after shows no attention (a blocked lane that was answered). A closed run is attention
 # too (`tower: run closed`), and so is a complete board once no watched agent
 # is working (`tower: run complete`): a complete board alone is not, since a
 # lane's final review, preflight and the PR come after its last task.
@@ -120,7 +121,7 @@ poll() {
 # Resample every agent and print the report; succeed when it has attention.
 report() {
   local alert=0 i=0 working=0 name state b
-  # idle only settles at IDLE_SEEN>=2 (the polling loop above); reporting it on
+  # idle only settles at IDLE_SEEN>=2 (see poll); reporting it on
   # a single fresh sample here would let a lane idle for its very first poll
   # report attention just because a *different* lane is what broke the loop.
   STATES=()
@@ -128,7 +129,10 @@ report() {
     state=$(state_of "$name"); STATES[$i]=$state
     case "$state" in
       idle) [ "${IDLE_SEEN[$i]}" -ge 2 ] && { alert=1; echo "attention: $name $(reason_for "$name" "$state" "${ROUNDS[$i]}")"; } ;;
-      blocked|done|gone) alert=1; echo "attention: $name $(reason_for "$name" "$state" "${ROUNDS[$i]}")" ;;
+      working|unknown) ;;
+      # blocked, done, gone, and any status this script does not know: poll
+      # settles on it, so it must be attention, never a quiet loop.
+      *) alert=1; echo "attention: $name $(reason_for "$name" "$state" "${ROUNDS[$i]}")" ;;
     esac
     i=$((i+1))
   done
@@ -141,8 +145,9 @@ report() {
     esac
     printf '%-22s %s\n' "$name" "$state"
     case "$state" in
-      blocked|done) tail_of "$name" | sed 's/^/    │ /' ;;
+      working|unknown|gone) ;;
       idle) [ "${IDLE_SEEN[$i]}" -ge 2 ] && tail_of "$name" | sed 's/^/    │ /' ;;
+      *) tail_of "$name" | sed 's/^/    │ /' ;;
     esac
     i=$((i+1))
   done
@@ -155,9 +160,13 @@ report() {
 # A sample can settle and the resample find the agent working again (a
 # blocked lane that was answered). With ROUND_SECONDS that ends the round
 # quietly, exit 3; without it there is no quiet exit, so poll on.
+# report runs in a subshell, so nothing it sets reaches this loop.
 while :; do
   poll
   if out=$(report); then printf '%s\n' "$out"; exit 0; fi
   [ -z "$ROUND" ] || { printf '%s\n' "$out"; exit 3; }
+  # The agent that settled was working again on the resample: an idle lane
+  # counts afresh, two consecutive idle polls as always.
+  i=0; for _ in "${NAMES[@]}"; do IDLE_SEEN[$i]=0; i=$((i+1)); done
   sleep "$POLL"
 done

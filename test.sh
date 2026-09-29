@@ -742,7 +742,8 @@ n=$(( $(cat "$0.now" 2>/dev/null || echo 0) + 1000 )); echo "$n" > "$0.now"; ech
 CLOCK
   chmod +x "$clock/date"
   # A background kill caps the run, so a regression fails instead of hanging.
-  clocked() { (cd "$TMP" && PATH="$clock:$PATH" GRACE_SECONDS=0 POLL_SECONDS=0 "$KIT/watch-lanes.sh" "$RUN" a 2>&1 & p=$!
+  # The script itself is the background job, so the kill reaches it.
+  clocked() { (cd "$TMP" || exit; PATH="$clock:$PATH" GRACE_SECONDS=0 POLL_SECONDS=0 "$KIT/watch-lanes.sh" "$RUN" a 2>&1 & p=$!
     (sleep 20; kill "$p" 2>/dev/null) >/dev/null 2>&1 & k=$!; wait "$p"; rc=$?; kill "$k" 2>/dev/null; echo "exit=$rc"); }
   printf 'working\nworking\nworking\nblocked\n' > "$S/a"; printf 'need the API key\n' > "$S/a.tail"; rm -f "$clock/date.now"
   out=$(clocked)
@@ -762,6 +763,19 @@ CLOCK
   assert_match "blocked, then working on the resample: polls on until attention" "$out" '^attention: a blocked'
   assert_match "blocked, then working on the resample: exit 0" "$out" 'exit=0$'
   assert_match "blocked, then working on the resample: one report" "$(grep -c '^--- tower' <<<"$out")" '^1$'
+  # Settled idle, working on the resample: idle counts afresh, so it takes two
+  # more idle polls (and the resample) before the watch reports: 6 reads.
+  printf 'idle\nidle\nworking\nidle\nidle\n' > "$S/a"; printf 'Running tests...\n' > "$S/a.tail"; rm -f "$clock/date.now"; : > "$HERDR_STUB_LOG"
+  out=$(clocked)
+  assert_match "idle, then working on the resample: reports idle again" "$out" '^attention: a idle-unexplained'
+  assert_match "idle, then working on the resample: idle counts afresh" "$(grep -c '^herdr agent get a' "$HERDR_STUB_LOG")" '^6$'
+  # A status the watch does not know settles the poll; it is attention, never
+  # an endless quiet loop.
+  echo waiting > "$S/a"; printf 'Choose an option\n' > "$S/a.tail"; rm -f "$clock/date.now"
+  out=$(clocked)
+  assert_match "an unknown status: attention with the status" "$out" '^attention: a waiting$'
+  assert_match "an unknown status: the tail printed" "$out" 'Choose an option'
+  assert_match "an unknown status: exit 0" "$out" 'exit=0$'
   printf 'blocked\nworking\n' > "$S/a"; rm -f "$clock/date.now"
   out=$(ROUND_SECONDS=2500 clocked)
   assert_match "ROUND_SECONDS given, blocked then working: exit 3 as before" "$out" 'exit=3$'
