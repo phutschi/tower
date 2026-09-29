@@ -32,4 +32,4 @@ case "$1" in
     at 25; say "  committed feat: the audit log" "" "[[READY TO MERGE]]"
     ;;
 esac
-sleep 600
+sleep 600  # keep the pane's output on screen

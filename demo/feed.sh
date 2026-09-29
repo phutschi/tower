@@ -24,9 +24,12 @@ at 24; t task 3 done committed "feat: rename a widget" --model opus
        t note --lane A "ALL DONE - check green"
 at 25; t task 6 done committed "feat: the audit log" --model opus
        t note --lane B "ready to merge"
-at 26; t add "Lane review B" --id R1-1 --area review --lane R1
+       t add "Lane review A" --id R1-1 --area review --lane R1
        t task R1-1 reviewing --model sonnet
+       t add "Lane review B" --id R2-1 --area review --lane R2
+       t task R2-1 reviewing --model sonnet
 at 29; t task R1-1 done --model sonnet
+       t task R2-1 done --model sonnet
        t note "merged lane B into feature/widgets"
 at 32; t note "preflight green; draft PR opened"
 at 34; t close "draft PR opened"

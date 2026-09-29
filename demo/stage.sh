@@ -10,11 +10,11 @@ workspaces=$(herdr workspace list | python3 -c 'import json,sys; print(len(json.
 
 D="$DEMO_ROOT/demo"
 export DEMO_T0; DEMO_T0=$(date +%s)  # the clock the lanes, the feed and the orchestrator share
-id() { python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["pane"]["pane_id"])'; }
+pane_id() { python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["pane"]["pane_id"])'; }
 herdr workspace rename "$HERDR_WORKSPACE_ID" acme >/dev/null
-console=$(herdr pane split --current --direction down --ratio 0.5 --no-focus | id)
-lane_a=$(herdr pane split --current --direction right --ratio 0.45 --no-focus | id)
-lane_b=$(herdr pane split --pane "$lane_a" --direction down --ratio 0.5 --no-focus | id)
+console=$(herdr pane split --current --direction down --ratio 0.5 --no-focus | pane_id)
+lane_a=$(herdr pane split --current --direction right --ratio 0.45 --no-focus | pane_id)
+lane_b=$(herdr pane split --pane "$lane_a" --direction down --ratio 0.5 --no-focus | pane_id)
 herdr pane rename "$HERDR_PANE_ID" orchestrator >/dev/null
 herdr pane rename "$lane_a" lane A >/dev/null
 herdr pane rename "$lane_b" lane B >/dev/null
