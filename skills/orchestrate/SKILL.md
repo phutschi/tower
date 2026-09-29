@@ -116,7 +116,8 @@ and do it in a lane anyway or suggest doing it without the kit.
    (`brief-template.md`, "Fix prompts"). Each fix prompt starts the lane's
    next report round `<n>` (the brief is round 1) and asks, in words, for
    the lane's final report's marker with the round tag `r<n>` inside the
-   brackets. Re-run `watch-lanes.sh` with `<agent>:<n>` for that lane, so
+   brackets. A Reviewer's `FINDINGS WRITTEN` never carries a round tag: every
+   review is a fresh agent, so it is always round 1. Re-run `watch-lanes.sh` with `<agent>:<n>` for that lane, so
    an earlier report's marker still in its pane never reads as done. When
    the lane reports round `<n>`, lane review round `<n>` follows with a
    fresh Reviewer: the two rounds share their number. The review is clean
