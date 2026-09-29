@@ -62,18 +62,34 @@ in_herdr; need git python3 node
 RUN_DIR="$1"; TITLE="$2"; BRANCH="$3"; SOURCE="${4:-}"
 [ -z "$SOURCE" ] || [ -f "$SOURCE" ] || die "no such plan or task file: $SOURCE"
 [ -z "${LANES:-}" ] || [ -n "$SOURCE" ] || die 'LANES needs a plan or task file; in the empty opening assign lanes with  tower add "<title>" --lane <X>'
-# Each LANES spec is <lane>=<ids>, or <lane>=all (every task, and then the only
-# spec). Checked here, before the run exists; tower checks the ids themselves.
-_n=0; for _spec in ${LANES:-}; do _n=$((_n+1)); done
-for _spec in ${LANES:-}; do
+# LANES: specs <lane>=<ids> for lanes A-D, or one <lane>=all (every task, and
+# then the whole of LANES). With a source and no LANES, it is A=all. Split
+# without globbing and checked here; the <lane>=<ids> specs go to tower init,
+# which checks the ids before the run exists. A run is all or nothing.
+LANE_SPECS=(); LANE_ALL=""; LANE_INIT=()
+if [ -n "${LANES+set}" ]; then
+  read -r -a LANE_SPECS <<< "$LANES"
+  [ "${#LANE_SPECS[@]}" -gt 0 ] || die "LANES is empty: give <lane>=<ids> specs (e.g. A=1-4,6 B=5) or <lane>=all"
+elif [ -n "$SOURCE" ]; then
+  LANE_SPECS=(A=all)
+fi
+_seen=" "
+for _spec in ${LANE_SPECS[@]+"${LANE_SPECS[@]}"}; do
   case "$_spec" in
-    *=*=*|=*|*=) die "LANES '$_spec' is not <lane>=<ids> (e.g. A=1-4,6) or <lane>=all" ;;
-    *=all) [ "$_n" = 1 ] || die "LANES '$_spec': all means every task, so it is the only spec (LANES=\"$LANES\")" ;;
-    *=*) ;;
-    *) die "LANES '$_spec' is not <lane>=<ids> (e.g. A=1-4,6) or <lane>=all" ;;
+    [A-D]=*=*|[A-D]=) die "LANES '$_spec' is not <lane>=<ids> (e.g. A=1-4,6) or <lane>=all" ;;
+    [A-D]=*) ;;
+    *) die "LANES '$_spec' is not <lane>=<ids> or <lane>=all for a lane A to D" ;;
   esac
+  case "$_seen" in *" ${_spec%%=*} "*) die "LANES names lane ${_spec%%=*} twice (LANES=\"$LANES\")" ;; esac
+  _seen="$_seen${_spec%%=*} "
+  if [ "${_spec#*=}" = all ]; then
+    [ "${#LANE_SPECS[@]}" = 1 ] || die "LANES: <lane>=all must be the whole of LANES (got \"$LANES\")"
+    LANE_ALL=${_spec%%=*}
+  else
+    LANE_INIT+=(--lane "$_spec")
+  fi
 done
-unset _n _spec
+unset _seen _spec
 # Lane A, checks, and dev all belong in the directory bootstrap runs in, which
 # is often a herdr worktree of the checkout, not repo_root() (that resolves to
 # the main checkout — the same resolution agent_name inlines for naming, and
@@ -100,24 +116,17 @@ else
 fi
 
 # --- the record --------------------------------------------------------------
-mkdir -p "$RUN_DIR"
+# tower init makes the run dir, and only once everything it checks is right.
 MODELS=(--model "implementer=$EXECUTOR_MODEL" --model "spec-reviewer=$SPEC_REVIEWER_MODEL" --model "quality-reviewer=$QUALITY_REVIEWER_MODEL")
 case "$SOURCE" in
   # No source: an empty stdin, or tower init reads a task list from ours.
   "")   tower init --title "$TITLE" --run "$RUN_DIR" "${MODELS[@]}" </dev/null ;;
-  *.md) tower init --plan "$SOURCE" --title "$TITLE" --run "$RUN_DIR" "${MODELS[@]}" ;;
-  *)    tower init --tasks "$SOURCE" --title "$TITLE" --run "$RUN_DIR" "${MODELS[@]}" ;;
+  *.md) tower init --plan "$SOURCE" --title "$TITLE" --run "$RUN_DIR" "${MODELS[@]}" ${LANE_INIT[@]+"${LANE_INIT[@]}"} ;;
+  *)    tower init --tasks "$SOURCE" --title "$TITLE" --run "$RUN_DIR" "${MODELS[@]}" ${LANE_INIT[@]+"${LANE_INIT[@]}"} ;;
 esac
 export TOWER_RUN="$RUN_DIR"  # the calls below are about this run
-if [ -n "${LANES:-}" ]; then
-  for spec in $LANES; do
-    ids=${spec#*=}
-    [ "$ids" != all ] || ids=$(tower state --json | jsonq '",".join(t["id"] for t in d["tasks"])')
-    tower assign "${spec%%=*}" "$ids"
-  done
-elif [ -n "$SOURCE" ]; then
-  tower assign A "$(tower state --json | jsonq '",".join(t["id"] for t in d["tasks"])')"
-fi
+# <lane>=all: every task on the board, known once the run exists.
+[ -z "$LANE_ALL" ] || tower assign "$LANE_ALL" "$(tower state --json | jsonq '",".join(t["id"] for t in d["tasks"])')"
 tower note "switches: $(switches_line)"
 tower note "reviewer: $REVIEWER"
 
