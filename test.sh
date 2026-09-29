@@ -38,7 +38,7 @@ section() {
   [ "$LIST" = 0 ] || { echo "$1"; return 1; }
 }
 
-TMP=$(cd "$(mktemp -d)" && pwd -P); trap 'rm -rf "$TMP"' EXIT
+TMP=$(cd "$(mktemp -d)" && pwd -P); trap 'chmod -R u+w "$TMP" 2>/dev/null; rm -rf "$TMP"' EXIT
 export DRY_RUN=1 HERDR_ENV=1 HERDR_STUB_LOG="$TMP/log" HERDR_STUB_COUNTER="$TMP/counter" HERDR_STUB_STATES_DIR="$TMP/states"
 # common.sh only defaults HERDR_PANE_ID/HERDR_TAB_ID when unset, so running
 # test.sh from inside a real herdr pane (as its own agent does) would
@@ -960,12 +960,17 @@ if section install; then
   assert_match "install: a missing gitleaks is optional" "$out" 'optional +gitleaks'
   assert_match "install: missing scanners do not fail it" "$out" 'exit=0$'
   # A skills dir that cannot be written: the link fails, and so does the install.
-  H5="$TMP/home5"; mkdir -p "$H5/.agents/skills"; chmod 555 "$H5/.agents/skills"
+  # (Where chmod does not bind, as for root, these cases are skipped.)
+  read_only() { chmod 555 "$1"; if touch "$1/.probe" 2>/dev/null; then rm -f "$1/.probe"; chmod 755 "$1"; return 1; fi; }
+  H5="$TMP/home5"; mkdir -p "$H5/.agents/skills"
+  if read_only "$H5/.agents/skills"; then
   out=$(HOME="$H5" "$ROOT/install.sh" 2>&1; echo "exit=$?"); chmod 755 "$H5/.agents/skills"
   assert_match "install: an unwritable skills dir is FAILED, with the command" "$out" "FAILED +ln -sfn .* $H5/.agents/skills/orchestrate"
   assert_nomatch "install: ... and nothing there claims linked" "$out" "linked +$H5/.agents/skills/"
   assert_match "install: ... and the install fails"   "$out" 'exit=1$'
   assert_nomatch "install: ... without the closing message" "$out" 'with a plan: +/tower:orchestrate'
+  assert_match "install: ... with the reason"         "$out" 'FAILED +ln -sfn .*\(.*[Pp]ermission denied'
+  else ok "install: (skipped: chmod does not bind here)"; fi
   # The old kit's own links, from a herdr-orchestrate checkout (its scripts at
   # the root, or under skills/), go; anybody else's skill of the same name stays.
   H7="$TMP/home7"; OLD="$TMP/old/herdr-orchestrate"; OLD2="$TMP/old2/herdr-orchestrate"; NOTKIT="$TMP/notkit/herdr-orchestrate"
@@ -982,11 +987,13 @@ if section install; then
   out=$(HOME="$H8" "$ROOT/install.sh" 2>&1; echo "exit=$?")
   assert_eq "install: another plugin's preflight is left alone" "$(readlink "$H8/.claude/skills/preflight")" "$TMP/plugin-x/preflight"
   assert_nomatch "install: ... and not reported as old layout" "$out" 'old layout'
-  H6="$TMP/home6"; mkdir -p "$H6/.claude/skills"; ln -s "$ROOT" "$H6/.claude/skills/herdr-orchestrate"; chmod 555 "$H6/.claude/skills"
+  H6="$TMP/home6"; mkdir -p "$H6/.claude/skills"; ln -s "$ROOT" "$H6/.claude/skills/herdr-orchestrate"
+  if read_only "$H6/.claude/skills"; then
   out=$(HOME="$H6" "$ROOT/install.sh" 2>&1; echo "exit=$?"); chmod 755 "$H6/.claude/skills"
   assert_match "install: an old link that cannot be removed is FAILED" "$out" "FAILED +rm $H6/.claude/skills/herdr-orchestrate"
   assert_nomatch "install: ... and not claimed removed" "$out" "removed +$H6/"
   assert_match "install: ... and the install fails"   "$out" 'exit=1$'
+  else ok "install: (skipped: chmod does not bind here)"; fi
   # An old kit install: the phutschi plugin and its marketplace go, tower comes.
   H4="$TMP/home4"; mkdir -p "$H4"; printf 'marketplace phutschi\nplugin phutschi@phutschi user\nplugin phutschi@phutschi local\nmarketplace acme-tools\n' > "$CLAUDE_STUB_STATE"
   reset_stub; out=$(HOME="$H4" "$ROOT/install.sh" 2>&1; echo "exit=$?")

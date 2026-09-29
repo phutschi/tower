@@ -143,9 +143,9 @@ fi
 echo "skills:"
 # must CMD...: run a file command; when it fails, say FAILED with the command,
 # and the install exits 1.
-must() { "$@" 2>/dev/null || { echo "  FAILED    $*" >&2; ok=0; return 1; }; }
+must() { local err; err=$("$@" 2>&1) || { echo "  FAILED    $* (${err:-no message})" >&2; ok=0; return 1; }; }
 link() {  # TARGET DIR NAME
-  must mkdir -p "$2" || return 0
+  must mkdir -p "$2" || return 1
   if [ -L "$2/$3" ] || [ ! -e "$2/$3" ]; then
     must ln -sfn "$1" "$2/$3" && echo "  linked    $2/$3 -> $1"
   else
