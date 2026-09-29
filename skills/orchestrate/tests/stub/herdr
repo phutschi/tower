@@ -4,18 +4,17 @@
 # tree through HERDR_STUB_COUNTER. Agent states come from
 # HERDR_STUB_STATES_DIR/<name> (a status word, "gone", "unreachable": herdr
 # failing for another reason, or "shapeless": an answer with a null status;
-# with several lines,
-# each `agent get` answers the first and drops it, the last one stays), pane
-# tails from HERDR_STUB_STATES_DIR/<name>.tail. Every pane is in workspace
+# with several lines, each `agent get` answers the first and drops it, the
+# last one stays), pane tails from HERDR_STUB_STATES_DIR/<name>.tail. Every pane is in workspace
 # ws-0; `pane get` answers pane_not_found when HERDR_STUB_STATES_DIR/<pane-id>
 # says gone, and server_unavailable when it says unreachable.
 # HERDR_STUB_BUSY_STARTS=N answers the first N `agent start` calls with
 # agent_pane_busy (a pane whose shell is not ready yet), counted through
 # HERDR_STUB_COUNTER.busy. HERDR_STUB_TRUST_STARTS=N answers the first N with an
 # agent blocked during startup (a trust prompt), counted through
-# HERDR_STUB_COUNTER.trust. HERDR_STUB_SEND_KEYS_FAIL=1: every `pane send-keys`
-# fails. HERDR_STUB_EXIT_ON_ENTER=N: every `agent get` answers
-# gone once N `pane send-keys ... Enter` calls were made (counted through
+# HERDR_STUB_COUNTER.trust. HERDR_STUB_SEND_KEYS_FAIL=1: every `pane
+# send-keys` fails. HERDR_STUB_EXIT_ON_ENTER=N: every `agent get` answers gone
+# once N `pane send-keys ... Enter` calls were made (counted through
 # HERDR_STUB_COUNTER.enters), as an agent that needs N Enters to exit.
 # Errors are JSON on stderr with exit 1, as herdr answers them.
 # HERDR_STUB=absent refuses to run, so herdr counts as not installed; it logs
@@ -54,7 +53,7 @@ case "${1:-} ${2:-}" in
     fi
     echo '{"result":{"agent":{"agent_status":"idle"}}}' ;;
   "pane send-keys")
-    [ -z "${HERDR_STUB_SEND_KEYS_FAIL:-}" ] || { echo '{"error":{"code":"server_unavailable","message":"herdr server is not answering"}}' >&2; exit 1; }
+    [ "${HERDR_STUB_SEND_KEYS_FAIL:-}" != 1 ] || { echo '{"error":{"code":"server_unavailable","message":"herdr server is not answering"}}' >&2; exit 1; }
     case " $* " in *" Enter "*) echo $(( $(cat "$counter.enters" 2>/dev/null || echo 0) + 1 )) > "$counter.enters" ;; esac
     echo '{"result":{}}' ;;
   "agent get")

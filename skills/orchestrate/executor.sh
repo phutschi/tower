@@ -92,7 +92,8 @@ start_agent_with_trust_retry() {
       local state; state=$(state_of "$name")
       case "$state" in
         working|idle) return 0 ;;
-        gone) start_agent "$name" "$pane" >/dev/null || return 1 ;;
+        gone) start_agent "$name" "$pane" >/dev/null || {
+          echo "agent start: $name did not start again in pane $pane after its trust prompt; check it there" >&2; return 1; } ;;
         unreadable) echo "agent start: herdr cannot say whether $name started after its trust prompt; check pane $pane, and rerun once herdr answers" >&2; return 1 ;;
         *) echo "agent start: $name is still $state in pane $pane after its trust prompt was answered; answer it there, and the agent runs" >&2; return 1 ;;
       esac

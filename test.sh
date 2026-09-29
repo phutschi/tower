@@ -424,8 +424,11 @@ if section bootstrap; then
     assert_match "trust prompt: answered"                "$(cat "$HERDR_STUB_LOG")" '^herdr pane send-keys pane-2 Down Enter$'
     assert_eq "trust prompt, agent $state: starts"       "$(grep -c '^herdr agent start bun-vitest-lane-a ' "$HERDR_STUB_LOG")" "$starts"
     assert_match "trust prompt, agent $state: exit $code" "$out" "exit=$code\$"
+    case $state in
+      unreachable) assert_match "trust prompt, herdr failing: says so" "$out" 'herdr cannot say whether bun-vitest-lane-a started' ;;
+      unknown)     assert_match "trust prompt, agent unknown: says so" "$out" 'bun-vitest-lane-a is still unknown in pane pane-2 after its trust prompt was answered' ;;
+    esac
   done
-  assert_match "trust prompt, agent unknown: says so"  "$out" 'bun-vitest-lane-a is still unknown in pane pane-2 after its trust prompt was answered'
   r=$(fixture_repo bun-vitest); RUN="$TMP/run-trust-keys"; reset_stub
   out=$(HERDR_STUB_TRUST_STARTS=1 HERDR_STUB_SEND_KEYS_FAIL=1 boot "$r" "$RUN" "Trust" main; echo "exit=$?")
   assert_match "trust prompt, send-keys failing: bootstrap fails, saying so" "$out" "could not answer bun-vitest-lane-a's trust prompt in pane pane-2"
@@ -597,6 +600,15 @@ if section add-lane; then
   assert_match "trust, send-keys failing: says so"     "$out" "could not answer bun-vitest-lane-b's trust prompt"
   assert_nomatch "trust, send-keys failing: no ready line" "$out" 'lane B ready'
   assert_match "trust, send-keys failing: the lane is in the pane map" "$(cat "$RUNT/panes.txt")" '^lane B: '
+  # The start again after the answer can meet the prompt again: that fails,
+  # saying so, and is not tried a third time.
+  echo gone > "$HERDR_STUB_STATES_DIR/bun-vitest-lane-d"
+  reset_stub; out=$(cd "$r" && HERDR_STUB_TRUST_STARTS=2 "$KIT/add-lane.sh" "$RUNT" D feat/d main 4 2>&1; echo "exit=$?")
+  assert_match "trust, the start again fails: fails"   "$out" 'exit=1$'
+  assert_match "trust, the start again fails: says so" "$out" 'bun-vitest-lane-d did not start again in pane pane-[0-9]+ after its trust prompt'
+  assert_eq "trust, the start again fails: two starts" "$(grep -c '^herdr agent start bun-vitest-lane-d ' "$HERDR_STUB_LOG")" 2
+  assert_nomatch "trust, the start again fails: no ready line" "$out" 'lane D ready'
+  rm -f "$HERDR_STUB_STATES_DIR/bun-vitest-lane-d"
   echo blocked > "$HERDR_STUB_STATES_DIR/bun-vitest-lane-c"
   reset_stub; out=$(cd "$r" && HERDR_STUB_TRUST_STARTS=1 "$KIT/add-lane.sh" "$RUNT" C feat/c main 3 2>&1; echo "exit=$?")
   assert_match "trust, still blocked: fails"           "$out" 'exit=1$'
