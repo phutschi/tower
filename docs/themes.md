@@ -35,7 +35,8 @@ the point.
    than letting the board wrap.
 
 5. Colour belongs to status, not to the theme. Blocked is red, active is cyan,
-   done is dim, in every theme. A theme file has no colour keys to set.
+   done is dim, in every theme (with `NO_COLOR` set, nothing is coloured). A
+   theme file has no colour keys to set.
 
 6. Nothing outside the renderer is themed. `tower state --json`, `tower wait`,
    validation errors, `tower brief` and `--plain` are literal in every theme.

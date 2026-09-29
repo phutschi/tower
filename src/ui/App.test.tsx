@@ -55,6 +55,8 @@ describe("App", () => {
   describe("colour", () => {
     // Under `bun test` stdout is no terminal, so chalk draws no colour at all.
     // FORCE_COLOR is read once, at import, so set the level on chalk itself.
+    // This works because ink shares this one chalk copy; if it ever had its
+    // own, "colours the rows when colour is on" fails.
     const ESC = String.fromCharCode(27);
     const level = chalk.level;
     beforeEach(() => {

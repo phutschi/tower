@@ -34,9 +34,7 @@ The console shows the board, every task with its lane, status, phase and
 model, and the run's transcript below it. You leave it open for hours. It is
 read-only: it starts nothing and sends nothing, so closing it only makes you
 blind; the run goes on. The demo above is a scripted run, from the first task
-to the close.
-
-`NO_COLOR` is respected.
+to the close. `NO_COLOR` is respected.
 
 ## Without herdr
 
