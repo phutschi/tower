@@ -69,7 +69,8 @@ and do it in a lane anyway or suggest doing it without the kit.
 4. **Lanes B to D.** `add-lane.sh <run-dir> B <branch> <base> <ids>` (`<branch>`
    is the lane's own branch, `<base>` the integration branch it forks from);
    the lane gets a worktree under `.worktrees/`, and the pane goes into the
-   grid (B right of A, C under A, D under B).
+   grid (B right of A, C under A, D under B). When its agent fails to
+   start, rerun the same call: it starts the agent in the lane's pane.
 5. **Brief.** Per lane: `tower brief <X> > <run-dir>/brief-<X>.md`, then add
    the judgement from `brief-template.md` above it (method, other lanes,
    merge points, the boundary sentence, the review tail for the lane's kind).

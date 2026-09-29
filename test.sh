@@ -465,6 +465,39 @@ if section add-lane; then
   assert_match "busy pane: add-lane finishes"         "$out" 'exit=0$'
   assert_nomatch "busy pane: add-lane shows no busy error" "$out" 'agent_pane_busy'
   assert_eq "busy pane: the lane's start is tried again" "$(grep -c '^herdr agent start bun-vitest-lane-c ' "$HERDR_STUB_LOG")" 2
+
+  # An agent that fails to start leaves its lane in the pane map, and a rerun
+  # starts the agent in that pane and worktree instead of creating them again.
+  r=$(fixture_repo bun-vitest); RUNF="$TMP/run-failstart"; reset_stub
+  (cd "$r" && "$KIT/bootstrap.sh" "$RUNF" "Fail start" main "$KIT/example-tasks.tsv" >/dev/null 2>&1)
+  reset_stub; out=$(cd "$r" && HERDR_STUB_BUSY_STARTS=99 START_TRIES=1 "$KIT/add-lane.sh" "$RUNF" B feat/b main 2,3 2>&1; echo "exit=$?")
+  assert_match "failed start: add-lane fails"          "$out" 'exit=1$'
+  assert_match "failed start: the lane is in the pane map" "$(cat "$RUNF/panes.txt")" '^lane B: +pane-[0-9]+ +\(agent "bun-vitest-lane-b", kind claude, branch feat/b, checkout '"$r"'/.worktrees/feat/b, model '
+  assert_match "failed start: says how to resume"      "$out" 'rerun  .*/add-lane\.sh .* B feat/b main 2,3  to start it again'
+  bpane=$(sed -nE 's/^lane B: +([^ ]+).*/\1/p' "$RUNF/panes.txt")
+  echo gone > "$HERDR_STUB_STATES_DIR/bun-vitest-lane-b"
+  reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNF" B feat/b main 2,3 2>&1; echo "exit=$?"); log=$(cat "$HERDR_STUB_LOG")
+  assert_match "rerun: add-lane finishes"               "$out" 'exit=0$'
+  assert_nomatch "rerun: no second worktree"            "$log" '^herdr worktree create'
+  assert_nomatch "rerun: the pane is not moved again"   "$log" '^herdr pane move'
+  assert_match "rerun: the agent starts in the lane's pane" "$log" "^herdr agent start bun-vitest-lane-b --kind claude --pane $bpane "
+  assert_eq "rerun: one lane B line in the pane map"    "$(grep -c '^lane B:' "$RUNF/panes.txt")" 1
+  assert_match "rerun: prints the next step"            "$out" 'lane B ready'
+  assert_eq "rerun: lane B still owns its tasks"        "$(board "$RUNF" '",".join(d["lanes"].get("B", []))')" "2,3"
+  rm -f "$HERDR_STUB_STATES_DIR/bun-vitest-lane-b"
+  reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNF" B feat/b main 2,3 2>&1; echo "exit=$?")
+  assert_match "rerun, agent running: refused"         "$out" 'lane B already exists'
+  assert_nomatch "rerun, agent running: no start"      "$(cat "$HERDR_STUB_LOG")" '^herdr agent start'
+  echo unreachable > "$HERDR_STUB_STATES_DIR/bun-vitest-lane-b"
+  reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNF" B feat/b main 2,3 2>&1; echo "exit=$?")
+  assert_match "rerun, herdr failing: refused"         "$out" 'exit=1$'
+  assert_match "rerun, herdr failing: ... with herdr's answer" "$out" 'server_unavailable'
+  assert_nomatch "rerun, herdr failing: no start"      "$(cat "$HERDR_STUB_LOG")" '^herdr agent start'
+  echo gone > "$HERDR_STUB_STATES_DIR/bun-vitest-lane-b"
+  reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNF" B feat/other main 2,3 2>&1; echo "exit=$?")
+  assert_match "rerun, another branch: refused"        "$out" 'lane B is in the pane map with another branch, kind or model'
+  assert_nomatch "rerun, another branch: no start"     "$(cat "$HERDR_STUB_LOG")" '^herdr agent start'
+  rm -f "$HERDR_STUB_STATES_DIR/bun-vitest-lane-b"
 fi
 
 # --- add-reviewer ------------------------------------------------------------

@@ -24,6 +24,13 @@
 # START_TRIES (environment, default 10): how often an agent start is tried,
 # a second apart, while its new pane's shell is not ready yet (executor.sh).
 #
+# The lane's line goes into the pane map before its agent starts. When the
+# start fails, rerun the same call: herdr not finding the lane's agent, it is
+# started again in the lane's pane and worktree, and nothing else is redone
+# (the task ids are already assigned). A lane whose agent runs is refused, as
+# is a rerun with another branch, kind or model than the map's, and so is any
+# answer from herdr other than agent_not_found.
+#
 # Never run this for real to see what it does; use DRY_RUN=1, which answers
 # every herdr, claude and codex call from tests/stub and opens nothing. tower
 # is the real CLI from this checkout (it needs bun): it records the run in the
@@ -49,7 +56,7 @@ case "$LANE" in
   A) die "lane A is started by bootstrap.sh" ;;
   *) die "lane must be B, C or D (four lanes at most)" ;;
 esac
-[ -z "$(lane_pane "$LANE")" ] || die "lane $LANE already exists (see $MAP)"
+PANE=$(lane_pane "$LANE")   # set: a rerun, the lane is already in the map
 TARGET=$(lane_pane "$ANCHOR")
 [ -n "$TARGET" ] || die "lane $LANE goes under lane $ANCHOR, which does not exist yet"
 
@@ -60,6 +67,22 @@ _here="$PWD"; cd "$REPO_ROOT"
 cd "$_here"; unset _here
 . "$KIT/executor.sh"       # EXECUTOR_KIND, EXECUTOR_MODEL, agent_name, start_agent*
 NAME="$(agent_name "-lane-$(echo "$LANE" | tr 'A-Z' 'a-z')")"
+lane_line() { printf 'lane %s:         %s   (agent "%s", kind %s, branch %s, checkout %s, model %s)\n' \
+  "$LANE" "$1" "$NAME" "$EXECUTOR_KIND" "$BRANCH" "$WT" "$EXECUTOR_MODEL"; }
+
+if [ -n "$PANE" ]; then
+  # A rerun. The lane's agent running means the lane exists. herdr not finding
+  # it means its start failed: start it again, in the lane's pane and worktree.
+  # Any other answer from herdr decides nothing.
+  if got=$(herdr agent get "$NAME" 2>&1); then die "lane $LANE already exists (see $MAP)"; fi
+  echo "$got" | grep -q '"agent_not_found"' || die "lane $LANE: herdr cannot say whether agent $NAME runs: $got"
+  [ "$(grep "^lane $LANE:" "$MAP")" = "$(lane_line "$PANE")" ] \
+    || die "lane $LANE is in the pane map with another branch, kind or model; rerun with the ones it has (see $MAP)"
+  start_agent_with_trust_retry "$NAME" "$PANE"
+  [ -f "$WT/.env" ] || cp "$REPO_ROOT/.env" "$WT/.env" 2>/dev/null || true
+  echo "lane $LANE ready: agent $NAME in $PANE (started again) — next:  tower brief $LANE > $RUN_DIR/brief-$LANE.md, add the judgement (brief-template.md, with merge points in both briefs), then  herdr agent prompt $NAME \"\$(cat $RUN_DIR/brief-$LANE.md)\""
+  exit 0
+fi
 
 # Ownership first: tower refuses an unknown id, so a typo stops here, before a
 # worktree exists.
@@ -82,13 +105,15 @@ elif ! ( cd "$WT" && eval "$INSTALL_CMD" ) >"$INSTALL_LOG" 2>&1; then
   tail -n 5 "$INSTALL_LOG" >&2
 fi
 
-start_agent_with_trust_retry "$NAME" "$PANE"
+# The lane goes into the map before its agent starts, as bootstrap's does: a
+# start that fails leaves a lane a rerun can resume.
+lane_line "$PANE" >> "$MAP"
+start_agent_with_trust_retry "$NAME" "$PANE" \
+  || die "add-lane: agent $NAME did not start in $PANE; lane $LANE is in the pane map: rerun  $KIT/add-lane.sh $RUN_DIR $LANE $BRANCH $BASE $TASKS  to start it again"
 
 # .env (gitignored) only after the agent owns the pane: the pane's shell must
 # never see a .env at startup or on a cd, or a dotenv-style plugin prompts and
 # eats whatever is typed next. The brief arrives later, so the lane has it in time.
 [ -f "$WT/.env" ] || cp "$REPO_ROOT/.env" "$WT/.env" 2>/dev/null || true
 
-printf 'lane %s:         %s   (agent "%s", kind %s, branch %s, checkout %s, model %s)\n' \
-  "$LANE" "$PANE" "$NAME" "$EXECUTOR_KIND" "$BRANCH" "$WT" "$EXECUTOR_MODEL" >> "$MAP"
 echo "lane $LANE ready: agent $NAME in $PANE — next:  tower brief $LANE > $RUN_DIR/brief-$LANE.md, add the judgement (brief-template.md, with merge points in both briefs), then  herdr agent prompt $NAME \"\$(cat $RUN_DIR/brief-$LANE.md)\""
