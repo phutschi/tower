@@ -230,7 +230,7 @@ function layoutFor(
     (withModel ? MODEL_W + 2 : 0) +
     (withArea ? AREA_W + 2 : 0);
   // The tightest row sets the width: a wider title on one row would push
-  // that row's tail off the edge.
+  // that row's tail off the edge. Below TITLE_MIN_W the tail gives instead.
   const longestTail = Math.max(
     0,
     ...tasks.map((t) => {

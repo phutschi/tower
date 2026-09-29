@@ -154,7 +154,7 @@ describe("boardRows", () => {
     ]);
   });
   test("rows in a section share one column layout, at every width", () => {
-    for (const columns of [60, 70, 100, 140]) {
+    for (const columns of [60, 70, 72, 79, 80, 100, 140]) {
       const rows = texts(boardRows(state, AIRPORT, columns, 40, opts));
       const air = rows.slice(1, rows.indexOf("ON THE GROUND"));
       expect(air.length).toBe(3);
@@ -162,9 +162,11 @@ describe("boardRows", () => {
       expect(new Set(laneCol).size).toBe(1);
       const areaCol = air.map((r) => r.indexOf("apps/server"));
       expect(new Set(areaCol).size).toBe(1);
+      expect(areaCol[0]).toBeGreaterThan(0);
       const blocked = air.find((r) => r.startsWith("⚠ 12")) ?? "";
       const active = air.find((r) => r.startsWith("▸ 14")) ?? "";
       // The blocked row has no model; its note starts in the model column.
+      expect(active.indexOf("sonnet-5[1m]")).toBeGreaterThan(0);
       expect(blocked.indexOf("holding short")).toBe(
         active.indexOf("sonnet-5[1m]"),
       );
@@ -172,30 +174,32 @@ describe("boardRows", () => {
   });
   describe("at 80 columns the title gives last", () => {
     const s = demoState();
-    const long = s.tasks.find((t) => t.id === "15");
-    if (!long) throw new Error("demo lost task 15");
-    long.title = "Send the notifyTelegram message on every lane close";
+    const renamed = s.tasks.find((t) => t.id === "15");
+    if (!renamed) throw new Error("demo lost task 15");
+    renamed.title = "Send the notifyTelegram message on every lane close";
     const air = texts(boardRows(s, AIRPORT, 80, 40, opts)).slice(1, 4);
     test.each([
       ["a blocked row with its note", "⚠ 12", "Voice notes"],
       ["an active row with elapsed and phase", "▸ 14", "The onDirectMessage…"],
       ["an active row with a long title", "▸ 15", "Send the notifyTele…"],
     ])("%s keeps its title", (_, id, title) => {
-      const row = air.find((r) => r.startsWith(id)) ?? "";
+      const row = air.find((r) => r.startsWith(id));
+      expect(row).toBeDefined();
       expect(row).toContain(title);
-      expect(row.length).toBeLessThanOrEqual(80);
+      expect(row?.length).toBeLessThanOrEqual(80);
     });
     test("the blocked note still starts in the model column", () => {
       const blocked = air.find((r) => r.startsWith("⚠ 12")) ?? "";
       const active = air.find((r) => r.startsWith("▸ 14")) ?? "";
+      expect(active.indexOf("sonnet-5[1m]")).toBeGreaterThan(0);
       expect(blocked.indexOf("holding short")).toBe(
         active.indexOf("sonnet-5[1m]"),
       );
     });
   });
-  test("never exceeds the width", () => {
-    for (const row of texts(boardRows(state, AIRPORT, 60, 40, opts)))
-      expect(row.length).toBeLessThanOrEqual(60);
+  test.each([60, 70, 72, 79, 80, 100])("never exceeds %i columns", (w) => {
+    for (const row of texts(boardRows(state, AIRPORT, w, 40, opts)))
+      expect(row.length).toBeLessThanOrEqual(w);
   });
   test("omits the area column when every area is empty, includes it otherwise", () => {
     expect(
