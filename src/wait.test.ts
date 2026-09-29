@@ -210,8 +210,7 @@ describe("waitFor", () => {
       now: () => NOW,
       pollMs: 10,
     });
-    expect(wait).rejects.toMatchObject({ exit: 2 });
-    await wait.catch(() => undefined);
+    await expect(wait).rejects.toMatchObject({ exit: 2 });
   });
 
   test("complete and closed also end the wait", async () => {

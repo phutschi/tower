@@ -209,12 +209,12 @@ disappears during the wait ends it with exit **2**.
 
 ## Exit codes
 
-|     |                                                    |
-| --- | -------------------------------------------------- |
-| 0   | done (for `wait`: attention, complete, or closed)  |
-| 1   | usage or validation error; nothing was appended    |
-| 2   | no run found; the message is the `tower init` line |
-| 3   | `wait --timeout` passed with nothing to report     |
+|     |                                                   |
+| --- | ------------------------------------------------- |
+| 0   | done (for `wait`: attention, complete, or closed) |
+| 1   | usage or validation error; nothing was appended   |
+| 2   | no run found, or it is gone; the message says why |
+| 3   | `wait --timeout` passed with nothing to report    |
 
 ## Run discovery
 
