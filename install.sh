@@ -16,8 +16,8 @@
 # ~/.local/bin, when it is missing), git, bash, python3 (reads herdr's JSON),
 # node (reads package.json in JS repos), curl (fetches tower). Optional: claude (the plugin), codex (EXECUTOR_KIND=codex lanes),
 # semgrep and gitleaks (preflight's static baseline). Running it again changes
-# nothing. A claude command that fails is printed as FAILED, and the install
-# exits 1.
+# nothing. A claude command, or a link or unlink of a skill, that fails is
+# printed as FAILED, and the install exits 1.
 set -u
 ROOT="$(cd "$(dirname "$0")" && pwd -P)"  # -P: run through a link, it still installs the real repo
 SKILLS="$ROOT/skills"
@@ -141,10 +141,13 @@ if command -v claude >/dev/null; then
 fi
 
 echo "skills:"
+# must CMD...: run a file command; when it fails, say FAILED with the command,
+# and the install exits 1.
+must() { "$@" 2>/dev/null || { echo "  FAILED    $*" >&2; ok=0; return 1; }; }
 link() {  # TARGET DIR NAME
-  mkdir -p "$2"
+  must mkdir -p "$2" || return 0
   if [ -L "$2/$3" ] || [ ! -e "$2/$3" ]; then
-    ln -sfn "$1" "$2/$3"; echo "  linked    $2/$3 -> $1"
+    must ln -sfn "$1" "$2/$3" && echo "  linked    $2/$3 -> $1"
   else
     echo "  SKIPPED   $2/$3 exists and is not a symlink"
   fi
@@ -153,7 +156,7 @@ link() {  # TARGET DIR NAME
 # second copy of a skill under its bare name would shadow it.
 unlink_old() {  # DIR NAME
   if [ -L "$1/$2" ]; then
-    case "$(readlink "$1/$2")" in "$ROOT"|"$ROOT"/*|*herdr-orchestrate*|*spec-to-plan*) rm "$1/$2"; echo "  removed   $1/$2 (old layout)" ;; esac
+    case "$(readlink "$1/$2")" in "$ROOT"|"$ROOT"/*|*herdr-orchestrate*|*spec-to-plan*) must rm "$1/$2" && echo "  removed   $1/$2 (old layout)" ;; esac
   fi
 }
 for n in herdr-orchestrate preflight spec-to-plan; do unlink_old "$HOME/.claude/skills" "$n"; done

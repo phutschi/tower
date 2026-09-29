@@ -958,6 +958,18 @@ if section install; then
   assert_match "install: a missing semgrep is optional" "$out" 'optional +semgrep'
   assert_match "install: a missing gitleaks is optional" "$out" 'optional +gitleaks'
   assert_match "install: missing scanners do not fail it" "$out" 'exit=0$'
+  # A skills dir that cannot be written: the link fails, and so does the install.
+  H5="$TMP/home5"; mkdir -p "$H5/.agents/skills"; chmod 555 "$H5/.agents/skills"
+  out=$(HOME="$H5" "$ROOT/install.sh" 2>&1; echo "exit=$?"); chmod 755 "$H5/.agents/skills"
+  assert_match "install: an unwritable skills dir is FAILED, with the command" "$out" "FAILED +ln -sfn .* $H5/.agents/skills/orchestrate"
+  assert_nomatch "install: ... and nothing there claims linked" "$out" "linked +$H5/.agents/skills/"
+  assert_match "install: ... and the install fails"   "$out" 'exit=1$'
+  assert_nomatch "install: ... without the closing message" "$out" 'with a plan: +/tower:orchestrate'
+  H6="$TMP/home6"; mkdir -p "$H6/.claude/skills"; ln -s "$ROOT" "$H6/.claude/skills/herdr-orchestrate"; chmod 555 "$H6/.claude/skills"
+  out=$(HOME="$H6" "$ROOT/install.sh" 2>&1; echo "exit=$?"); chmod 755 "$H6/.claude/skills"
+  assert_match "install: an old link that cannot be removed is FAILED" "$out" "FAILED +rm $H6/.claude/skills/herdr-orchestrate"
+  assert_nomatch "install: ... and not claimed removed" "$out" "removed +$H6/"
+  assert_match "install: ... and the install fails"   "$out" 'exit=1$'
   # An old kit install: the phutschi plugin and its marketplace go, tower comes.
   H4="$TMP/home4"; mkdir -p "$H4"; printf 'marketplace phutschi\nplugin phutschi@phutschi user\nplugin phutschi@phutschi local\nmarketplace acme-tools\n' > "$CLAUDE_STUB_STATE"
   reset_stub; out=$(HOME="$H4" "$ROOT/install.sh" 2>&1; echo "exit=$?")
