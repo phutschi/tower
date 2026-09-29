@@ -417,7 +417,7 @@ if section bootstrap; then
   # A fresh checkout's trust prompt blocks the start: it is answered, and the
   # agent is started again only when herdr says it is not there.
   S="$HERDR_STUB_STATES_DIR"
-  for case in "gone:2:0" "working:1:0" "unreachable:1:1" "blocked:1:1"; do
+  for case in "gone:2:0" "working:1:0" "idle:1:0" "unreachable:1:1" "blocked:1:1" "unknown:1:1"; do
     IFS=: read -r state starts code <<< "$case"
     r=$(fixture_repo bun-vitest); RUN="$TMP/run-trust-$state"; reset_stub; echo "$state" > "$S/bun-vitest-lane-a"
     out=$(HERDR_STUB_TRUST_STARTS=1 boot "$r" "$RUN" "Trust" main; echo "exit=$?")
@@ -425,7 +425,7 @@ if section bootstrap; then
     assert_eq "trust prompt, agent $state: starts"       "$(grep -c '^herdr agent start bun-vitest-lane-a ' "$HERDR_STUB_LOG")" "$starts"
     assert_match "trust prompt, agent $state: exit $code" "$out" "exit=$code\$"
   done
-  assert_match "trust prompt, agent still blocked: says so" "$out" 'bun-vitest-lane-a is still blocked in pane pane-2 after its trust prompt was answered'
+  assert_match "trust prompt, agent unknown: says so"  "$out" 'bun-vitest-lane-a is still unknown in pane pane-2 after its trust prompt was answered'
   r=$(fixture_repo bun-vitest); RUN="$TMP/run-trust-keys"; reset_stub
   out=$(HERDR_STUB_TRUST_STARTS=1 HERDR_STUB_SEND_KEYS_FAIL=1 boot "$r" "$RUN" "Trust" main; echo "exit=$?")
   assert_match "trust prompt, send-keys failing: bootstrap fails, saying so" "$out" "could not answer bun-vitest-lane-a's trust prompt in pane pane-2"

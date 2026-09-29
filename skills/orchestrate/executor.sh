@@ -72,7 +72,7 @@ start_agent() {
 # folder" is the second option); codex's wants Enter ("Yes, continue" is the
 # first). Answer it, and try once more if herdr then says the agent is gone.
 # It returns 1, saying why, when the answer cannot be sent or the agent is
-# still blocked after it.
+# then neither working nor idle (blocked, herdr's unknown, anything else).
 start_agent_with_trust_retry() {
   local name="$1" pane="$2" out tries=1
   until out=$(start_agent "$name" "$pane" 2>&1); do
@@ -88,10 +88,13 @@ start_agent_with_trust_retry() {
       [ "${DRY_RUN:-0}" = 1 ] || sleep 3
       # Started again only when herdr says the agent is not there (common.sh
       # state_of): a failing herdr call must not put a second agent beside it.
-      case "$(state_of "$name")" in
+      # Only working or idle is an agent running; any other state fails.
+      local state; state=$(state_of "$name")
+      case "$state" in
+        working|idle) return 0 ;;
         gone) start_agent "$name" "$pane" >/dev/null || return 1 ;;
         unreadable) echo "agent start: herdr cannot say whether $name started after its trust prompt; check pane $pane, and rerun once herdr answers" >&2; return 1 ;;
-        blocked) echo "agent start: $name is still blocked in pane $pane after its trust prompt was answered; answer it there, and the agent runs" >&2; return 1 ;;
+        *) echo "agent start: $name is still $state in pane $pane after its trust prompt was answered; answer it there, and the agent runs" >&2; return 1 ;;
       esac
       return 0
     else
