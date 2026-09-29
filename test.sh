@@ -296,6 +296,20 @@ if section bootstrap; then
     "$(board "$RUN" '" ".join(k+"="+",".join(v) for k,v in sorted(d["lanes"].items()))')" "A=1,2 B=3"
   assert_eq "plan.md: the run's title is bootstrap's, repo and branch the plan's" \
     "$(board "$RUN" '"|".join([d["run"]["plan"], d["run"]["repo"], d["run"]["branch"]])')" "Plan|acme|feature/widgets"
+  # <lane>=all: every task on the board, as spec-to-plan writes a serial plan.
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-all"; reset_stub
+  out=$(LANES="A=all" boot "$r" "$RUN" "All" main "$KIT/tests/example-plan.md"; echo "exit=$?")
+  assert_match "LANES A=all: bootstrap finishes"        "$out" 'exit=0$'
+  assert_eq "LANES A=all: every task is lane A's"       "$(board "$RUN" '" ".join(k+"="+",".join(v) for k,v in sorted(d["lanes"].items()))')" "A=1,2,3"
+  # all means every task, so it is the only spec; a bad spec is refused before
+  # the run exists.
+  for bad in "A=all B=2" "A" "A=1 =2"; do
+    r=$(fixture_repo bun-vitest); RUN="$TMP/run-badlanes"; rm -rf "$RUN"
+    out=$(LANES="$bad" boot "$r" "$RUN" "Bad" main "$KIT/tests/example-plan.md"; echo "exit=$?")
+    assert_match "LANES '$bad': refused"                "$out" 'exit=1$'
+    assert_match "LANES '$bad': ... saying why"         "$out" '^LANES '
+    assert_eq "LANES '$bad': ... before the run exists" "$([ -e "$RUN" ] && echo made || echo none)" none
+  done
   r=$(fixture_repo bun-vitest); RUN="$TMP/run-lanes"; reset_stub
   out=$(LANES="A=1 B=2,3" boot "$r" "$RUN" "Lanes" main "$KIT/example-tasks.tsv")
   assert_eq "planned: LANES assigns each lane"          "$(board "$RUN" '" ".join(k+"="+",".join(v) for k,v in sorted(d["lanes"].items()))')" "A=1 B=2,3"

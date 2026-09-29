@@ -7,7 +7,8 @@
 # integration branch (the feature branch), with HERDR_ENV=1.
 #
 # With a plan or task file (the planned opening) the task list is loaded and
-# every task goes to lane A unless LANES="A=1-4 B=5,6" is set. Without one
+# every task goes to lane A unless LANES="A=1-4 B=5,6" is set (<lane>=all
+# gives that lane every task, and is then the only spec). Without one
 # (the empty opening) the run has no tasks yet: the orchestrator derives them
 # from the user's message and writes them with  tower add "<title>" --lane A
 # before briefing anyone. LANES without a source is an error.
@@ -61,6 +62,18 @@ in_herdr; need git python3 node
 RUN_DIR="$1"; TITLE="$2"; BRANCH="$3"; SOURCE="${4:-}"
 [ -z "$SOURCE" ] || [ -f "$SOURCE" ] || die "no such plan or task file: $SOURCE"
 [ -z "${LANES:-}" ] || [ -n "$SOURCE" ] || die 'LANES needs a plan or task file; in the empty opening assign lanes with  tower add "<title>" --lane <X>'
+# Each LANES spec is <lane>=<ids>, or <lane>=all (every task, and then the only
+# spec). Checked here, before the run exists; tower checks the ids themselves.
+_n=0; for _spec in ${LANES:-}; do _n=$((_n+1)); done
+for _spec in ${LANES:-}; do
+  case "$_spec" in
+    *=*=*|=*|*=) die "LANES '$_spec' is not <lane>=<ids> (e.g. A=1-4,6) or <lane>=all" ;;
+    *=all) [ "$_n" = 1 ] || die "LANES '$_spec': all means every task, so it is the only spec (LANES=\"$LANES\")" ;;
+    *=*) ;;
+    *) die "LANES '$_spec' is not <lane>=<ids> (e.g. A=1-4,6) or <lane>=all" ;;
+  esac
+done
+unset _n _spec
 # Lane A, checks, and dev all belong in the directory bootstrap runs in, which
 # is often a herdr worktree of the checkout, not repo_root() (that resolves to
 # the main checkout — the same resolution agent_name inlines for naming, and
@@ -97,7 +110,11 @@ case "$SOURCE" in
 esac
 export TOWER_RUN="$RUN_DIR"  # the calls below are about this run
 if [ -n "${LANES:-}" ]; then
-  for spec in $LANES; do tower assign "${spec%%=*}" "${spec#*=}"; done
+  for spec in $LANES; do
+    ids=${spec#*=}
+    [ "$ids" != all ] || ids=$(tower state --json | jsonq '",".join(t["id"] for t in d["tasks"])')
+    tower assign "${spec%%=*}" "$ids"
+  done
 elif [ -n "$SOURCE" ]; then
   tower assign A "$(tower state --json | jsonq '",".join(t["id"] for t in d["tasks"])')"
 fi

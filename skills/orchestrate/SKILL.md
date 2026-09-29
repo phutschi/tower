@@ -54,7 +54,7 @@ and do it in a lane anyway or suggest doing it without the kit.
    <kit>/bootstrap.sh <run-dir> "<title>" <branch> [plan.md | tasks.tsv]
    ```
    With a source, every task goes to lane A unless `LANES="A=1-4 B=5,6"` is
-   set. It builds the layout, starts lane A's executor and writes
+   set (`A=all`: every task, and the only spec). It builds the layout, starts lane A's executor and writes
    `<run-dir>/panes.txt`, the pane map for the whole run. Read it: the
    `check gate:` line is what every lane runs before a commit, `switches:`
    holds the switch values this run uses, `reviewer:` who reviews a lane of

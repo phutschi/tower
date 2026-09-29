@@ -96,7 +96,9 @@ From a herdr pane, in your repo, on the feature branch:
   plan with `### Task <id>: <title>` headings (what
   `/tower:spec-to-plan` writes), or a TSV (`id<TAB>title<TAB>area`, see
   `skills/orchestrate/example-tasks.tsv`). Keep plans wherever you like;
-  the kit only takes the path.
+  the kit only takes the path. The plan's lanes go to bootstrap as
+  `LANES="A=1-4,6 B=5"`; `A=all` gives lane A every task, and is then the
+  only lane.
 - **Without.** `/tower:orchestrate` alone. The layout comes up, the
   orchestrator reports the pane map (`panes.txt` in the run dir), and your
   next message is the work. It derives the task list, puts it on the board,
