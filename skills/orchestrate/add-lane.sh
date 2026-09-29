@@ -29,7 +29,8 @@
 # it is started again in the lane's pane and worktree, and nothing else is
 # redone (the task ids are already assigned). Refused: a lane whose agent
 # runs, any answer from herdr other than agent_not_found, a rerun with another
-# branch, kind, model or task ids than the first call's, and a lane whose pane
+# branch, kind, model or task ids than the first call's (ids read as tower
+# reads them), and a lane whose pane
 # or worktree is gone (the message says what to remove).
 #
 # Never run this for real to see what it does; use DRY_RUN=1, which answers
@@ -88,10 +89,11 @@ if [ -n "$PANE" ]; then
   # zero-padded when both ends are written at the same width (07-09).
   owned=$(tower state --json | python3 -c 'import json,re,sys
 d=json.load(sys.stdin); want=set()
-for t in (t.strip() for t in sys.argv[2].split(",")):
+for t in map(str.strip, sys.argv[2].split(",")):
     m = re.fullmatch(r"([0-9]+)-([0-9]+)", t)
     if m:
-        lo, hi = m.groups(); w = len(lo) if len(lo) == len(hi) else 0
+        lo, hi = m.groups()
+        w = len(lo) if len(lo) == len(hi) else 0
         want |= {str(n).zfill(w) for n in range(int(lo), int(hi) + 1)}
     elif t:
         want.add(t)

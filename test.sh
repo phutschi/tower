@@ -540,13 +540,19 @@ if section add-lane; then
   (cd "$r" && "$KIT/bootstrap.sh" "$RUNP" "Padded" main "$TMP/padded.tsv" >/dev/null 2>&1)
   for spec in "B feat/b 07-09" "C feat/c 10, 11,"; do
     read -r l br ids <<< "$spec"; ln=$(echo "$l" | tr 'A-Z' 'a-z')
-    reset_stub; (cd "$r" && HERDR_STUB_BUSY_STARTS=99 START_TRIES=1 "$KIT/add-lane.sh" "$RUNP" "$l" "$br" main "$ids" >/dev/null 2>&1)
+    reset_stub; out=$(cd "$r" && HERDR_STUB_BUSY_STARTS=99 START_TRIES=1 "$KIT/add-lane.sh" "$RUNP" "$l" "$br" main "$ids" 2>&1; echo "exit=$?")
+    assert_match "first call with '$ids': the start fails" "$out" 'exit=1$'
+    assert_match "first call with '$ids': the lane is in the pane map" "$(cat "$RUNP/panes.txt")" "^lane $l: "
     echo gone > "$HERDR_STUB_STATES_DIR/bun-vitest-lane-$ln"; mkdir -p "$r/.worktrees/$br"
     reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNP" "$l" "$br" main "$ids" 2>&1; echo "exit=$?")
     assert_match "rerun with '$ids': the same ids, so it finishes" "$out" 'exit=0$'
     assert_match "rerun with '$ids': the agent starts"  "$(cat "$HERDR_STUB_LOG")" "^herdr agent start bun-vitest-lane-$ln "
     rm -f "$HERDR_STUB_STATES_DIR/bun-vitest-lane-$ln"
   done
+  echo gone > "$HERDR_STUB_STATES_DIR/bun-vitest-lane-b"
+  reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNP" B feat/b main 7-9 2>&1; echo "exit=$?")
+  assert_match "rerun with '7-9' for 07,08,09: other ids, refused" "$out" 'lane B owns 07,08,09 on the board, not 7-9; rerun with those ids'
+  rm -f "$HERDR_STUB_STATES_DIR/bun-vitest-lane-b"
   assert_eq "padded: the board has the lanes' ids as written" "$(board "$RUNP" '" ".join(k+"="+",".join(v) for k,v in sorted(d["lanes"].items()))')" "B=07,08,09 C=10,11"
 fi
 
