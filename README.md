@@ -36,6 +36,8 @@ read-only: it starts nothing and sends nothing, so closing it only makes you
 blind; the run goes on. The demo above is a scripted run, from the first task
 to the close.
 
+`NO_COLOR` is respected.
+
 ## Without herdr
 
 `/tower:run` is a lighter orchestrator that needs no herdr. You start the
