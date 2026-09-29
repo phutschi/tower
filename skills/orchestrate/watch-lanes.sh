@@ -6,9 +6,9 @@
 #   watch-lanes.sh <run-dir> <agent>[:<round>]...   lane and Reviewer agents alike
 #   round: the report round the orchestrator expects, an integer >= 1; a bare
 #   <agent> means round 1. The output names the agent without it.
-#   env: GRACE_SECONDS (45)  POLL_SECONDS (15)  ROUND_SECONDS (unset: no
-#   limit; set it only in a harness that can run commands in the foreground
-#   alone, and the round ends with exit 3 once it passes)
+#   env: GRACE_SECONDS (45)  POLL_SECONDS (15)  ROUND_SECONDS (unset: no time
+#   limit; set it, in whole seconds, only in a harness that can only run
+#   commands in the foreground, and the watch exits 3 once it passes)
 #
 # Task-level attention (blocked / stale / complete / closed) is tower's job:
 # run  tower wait --stale <STALE>  beside this (bootstrap.sh
@@ -68,6 +68,7 @@ for arg in "$@"; do
   NAMES+=("$name"); ROUNDS+=("$round")
 done
 ROUND=${ROUND_SECONDS:-}; GRACE=${GRACE_SECONDS:-45}; POLL=${POLL_SECONDS:-15}
+[ -z "$ROUND" ] || [[ "$ROUND" =~ ^[1-9][0-9]*$ ]] || die "ROUND_SECONDS: a whole number of seconds >= 1, or unset for no time limit; got '$ROUND'"
 
 state_of() { herdr agent get "$1" 2>/dev/null | jsonq 'd["result"]["agent"]["agent_status"]' 2>/dev/null || echo gone; }
 tail_of()  { herdr agent read "$1" --source recent-unwrapped --lines 40 2>/dev/null | grep -v '^[[:space:]]*$' | tail -12; }

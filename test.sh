@@ -741,13 +741,24 @@ if section watch; then
 n=$(( $(cat "$0.now" 2>/dev/null || echo 0) + 1000 )); echo "$n" > "$0.now"; echo "$n"
 CLOCK
   chmod +x "$clock/date"
-  printf 'working\nworking\nworking\nblocked\n' > "$S/a"; printf 'need the API key\n' > "$S/a.tail"
-  out=$(cd "$TMP" && PATH="$clock:$PATH" GRACE_SECONDS=0 POLL_SECONDS=0 "$KIT/watch-lanes.sh" "$RUN" a 2>&1; echo "exit=$?")
-  assert_match "no ROUND_SECONDS: polls past any round until attention" "$out" '^attention: a blocked'
+  # A background kill caps the run, so a regression fails instead of hanging.
+  clocked() { (cd "$TMP" && PATH="$clock:$PATH" GRACE_SECONDS=0 POLL_SECONDS=0 "$KIT/watch-lanes.sh" "$RUN" a 2>&1 & p=$!
+    (sleep 20; kill "$p" 2>/dev/null) >/dev/null 2>&1 & k=$!; wait "$p"; rc=$?; kill "$k" 2>/dev/null; echo "exit=$rc"); }
+  printf 'working\nworking\nworking\nblocked\n' > "$S/a"; printf 'need the API key\n' > "$S/a.tail"; rm -f "$clock/date.now"
+  out=$(clocked)
+  assert_match "no ROUND_SECONDS: polls past 540 s until attention" "$out" '^attention: a blocked'
   assert_match "no ROUND_SECONDS: exit 0"             "$out" 'exit=0$'
-  echo working > "$S/a"; rm -f "$clock/date.now"
-  out=$(cd "$TMP" && PATH="$clock:$PATH" ROUND_SECONDS=540 GRACE_SECONDS=0 POLL_SECONDS=0 "$KIT/watch-lanes.sh" "$RUN" a 2>&1; echo "exit=$?")
+  # 1000 s a read: the round starts at 1000, and the first poll's reads land
+  # under 2500, the next ones past it.
+  echo working > "$S/a"; rm -f "$clock/date.now"; : > "$HERDR_STUB_LOG"
+  out=$(ROUND_SECONDS=2500 clocked)
   assert_match "ROUND_SECONDS given: exit 3 once it passes" "$out" 'exit=3$'
+  assert_match "ROUND_SECONDS given: it polled before it passed" "$(grep -c '^herdr agent get a' "$HERDR_STUB_LOG")" '^[3-9]'
+  for bad in abc 0 -5 1.5; do
+    out=$(ROUND_SECONDS=$bad clocked)
+    assert_match "ROUND_SECONDS=$bad: refused"       "$out" 'ROUND_SECONDS'
+    assert_match "ROUND_SECONDS=$bad: exit 1"        "$out" 'exit=1$'
+  done
 fi
 
 # --- watchline ---------------------------------------------------------------
