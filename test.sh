@@ -1002,6 +1002,15 @@ CLOCK
   out=$(UNREADABLE_POLLS=3 clocked a b)
   assert_match "a flapping lane beside a failing herdr: attention, unreadable" "$out" '^attention: a unreadable$'
   assert_match "a flapping lane beside a failing herdr: the count held" "$(grep -c '^herdr agent get a' "$HERDR_STUB_LOG")" '^4$'
+  # A resample on which the agent answers is a readable answer too: it starts
+  # the count again. a fails on reads 1, 3, 5 and 6 only (never 4 in a row)
+  # while b settles and works again on every resample, then is done.
+  printf 'unreachable\nworking\nunreachable\nworking\nunreachable\nunreachable\nworking\n' > "$S/a"
+  printf 'blocked\nworking\nblocked\nworking\nblocked\nworking\ndone\n' > "$S/b"
+  rm -f "$clock/date.now"; : > "$HERDR_STUB_LOG"
+  out=$(UNREADABLE_POLLS=4 clocked a b)
+  assert_nomatch "a resample that answers starts the count again: no unreadable attention" "$out" '^attention: a unreadable'
+  assert_match "a resample that answers starts the count again: the lane that is done" "$out" '^attention: b done$'
   # A status the watch does not know settles the poll; it is attention, never
   # an endless quiet loop.
   echo waiting > "$S/a"; printf 'Choose an option\n' > "$S/a.tail"; rm -f "$clock/date.now"

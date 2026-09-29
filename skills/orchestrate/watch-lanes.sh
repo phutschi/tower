@@ -107,6 +107,9 @@ finished() { local b; if [ $# -ge 2 ]; then b=$2; else b=$(board); fi
 # IDLE_SEEN: consecutive idle polls past GRACE. UNREADABLE: consecutive polls
 # on which herdr could not be read for the agent.
 IDLE_SEEN=(); UNREADABLE=(); i=0; for _ in "${NAMES[@]}"; do IDLE_SEEN[$i]=0; UNREADABLE[$i]=0; i=$((i+1)); done
+# report runs in a subshell: it leaves its resample here, one state a line in
+# NAMES order, for the loop below to count.
+RESAMPLE=$(mktemp); trap 'rm -f "$RESAMPLE"' EXIT
 started=$(date +%s)
 # Poll until a sample settles, the board is finished, or ROUND passes.
 poll() {
@@ -142,7 +145,7 @@ report() {
   # report attention just because a *different* lane is what broke the loop.
   STATES=()
   for name in "${NAMES[@]}"; do
-    state=$(state_of "$name"); STATES[$i]=$state
+    state=$(state_of "$name"); STATES[$i]=$state; echo "$state" >> "$RESAMPLE"
     case "$state" in
       idle) [ "${IDLE_SEEN[$i]}" -ge 2 ] && { alert=1; echo "attention: $name $(reason_for "$name" "$state" "${ROUNDS[$i]}")"; } ;;
       # The resample is one more unreadable poll on top of poll's count.
@@ -179,20 +182,22 @@ report() {
 # A sample can settle and the resample find the agent working again (a
 # blocked lane that was answered). With ROUND_SECONDS that ends the round
 # quietly, exit 3; without it there is no quiet exit, so poll on.
-# report runs in a subshell, so nothing it sets reaches this loop.
+# report runs in a subshell, so nothing it sets reaches this loop but its
+# resample, in RESAMPLE.
 while :; do
   poll
+  : > "$RESAMPLE"
   if out=$(report); then printf '%s\n' "$out"; exit 0; fi
   [ -z "$ROUND" ] || { printf '%s\n' "$out"; exit 3; }
   # The agent that settled was working again on the resample: an idle lane
-  # counts afresh, two consecutive idle polls as always. An unreadable count
-  # starts again only where it reached the limit (that agent answered on the
-  # resample); a lower one runs on, or a lane that settles and works again
-  # beside it would hold a failing herdr off for ever.
-  i=0; for _ in "${NAMES[@]}"; do
+  # counts afresh, two consecutive idle polls as always. The resample was one
+  # more poll of every agent: an answer starts its unreadable count again, a
+  # failure adds to it, so a lane that settles and works again beside a
+  # failing herdr holds nothing off.
+  i=0; while read -r state; do
     IDLE_SEEN[$i]=0
-    [ "${UNREADABLE[$i]}" -lt "$UNREADABLE_MAX" ] || UNREADABLE[$i]=0
+    if [ "$state" = unreadable ]; then UNREADABLE[$i]=$(( UNREADABLE[$i] + 1 )); else UNREADABLE[$i]=0; fi
     i=$((i+1))
-  done
+  done < "$RESAMPLE"
   sleep "$POLL"
 done
