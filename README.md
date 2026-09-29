@@ -1,23 +1,42 @@
 # tower
 
-A control tower for long-running agent implementation runs.
+Plan a spec into lanes, run the lanes with coding agents, and watch the whole
+run on one board.
 
-![tower watching a run](demo.gif)
+![an orchestrate run in herdr: the orchestrator, two lanes and the tower board](demo.gif)
 
-You hand a multi-task plan to two or three coding-agent lanes and they work for
-hours. `tower` is the pane you leave open: which task each lane is on, what
-phase it is in, which model is flying it, what landed, what is stuck — from an
-append-only log the agents write to with one command.
+## How a run goes
 
-tower's first run was its own build.
+1. Write a spec: an issue or a file.
+2. `/tower:spec-to-plan <spec>` slices it into tasks, groups them into lanes
+   with their merge points, and writes `plan.md`. It writes no code.
+3. `/tower:orchestrate <plan.md>`, from a pane in [herdr](https://herdr.dev),
+   opens the run. Each lane gets an executor, lanes B to D each in their own
+   worktree. The executors implement and report every step to tower.
+4. A fresh Reviewer reviews each finished lane; the orchestrator merges it.
+   Preflight checks the whole branch. You confirm once, and a draft PR opens.
 
-## What it is not
+The orchestrator never implements. It briefs, watches, decides and merges.
+The record of all of it is tower's board and transcript.
 
-tower starts nothing, reads no agent's screen, sends nothing to an agent, and
-has no opinion about what should happen next. It observes. Kill it mid-run and
-the run continues; you just go blind. That is the design: it is the one
-component you can leave running for six hours without worrying about it. The
-acting lives in the [skills](#skills); the CLI only keeps the record.
+## What you see
+
+The console is the board: every task with its lane, status, phase and model,
+and the transcript of the run below it. You leave it open for hours. It is
+read-only: it starts nothing and sends nothing, so killing it only makes you
+blind; the run goes on. The demo above is a whole run, from the first task to
+a closed field.
+
+## Without herdr
+
+`/tower:run` is the same orchestrator for any harness and any runner: you
+start the executor sessions yourself, and it briefs and watches them. The
+skills use the open Agent Skills format; they are exercised with Claude Code,
+and with Codex lanes under `/tower:orchestrate`.
+
+Or use the CLI on its own: `tower init` from a plan, `tower brief` for each
+executor, `tower` to watch. Executors report with `tower task`, `tower block`
+and `tower note`. See [docs/cli.md](docs/cli.md).
 
 ## Install
 
@@ -35,11 +54,8 @@ shasum -a 256 -c --ignore-missing SHA256SUMS   # Linux: sha256sum -c --ignore-mi
 mkdir -p ~/.local/bin && install -m 755 $bin ~/.local/bin/tower
 ```
 
-**From a clone**, `./install.sh` does that for you when tower is missing: it
-fetches the release binary of the checkout's version, checks it against
-`SHA256SUMS`, and puts it in `~/.local/bin`. It also installs the plugin below
-and checks what `/tower:orchestrate` needs
-([docs/orchestrate.md](docs/orchestrate.md)).
+**From a clone**, `./install.sh` does that for you when tower is missing, and
+installs the plugin. It also checks what `/tower:orchestrate` needs.
 
 **From git**, with Node ≥ 22.12 and nothing else:
 
@@ -49,163 +65,31 @@ npm install -g github:phutschi/tower     # builds with Node alone
 
 tower is not on the npm registry yet.
 
-**The skills** come as a Claude Code plugin, installed from git. They drive
-the CLI, so install that too:
+**The skills** come as a Claude Code plugin, installed from git:
 
 ```
 /plugin marketplace add phutschi/tower
 /plugin install tower@phutschi-tower
 ```
 
-## Sixty seconds
+## Docs
 
-```sh
-# 1. From your repository, create a run from a plan.
-tower init --plan docs/plans/widgets.md --lane A=1-6 --lane B=7-9
+- [docs/orchestrate.md](docs/orchestrate.md): a run in herdr, step by step,
+  and the switches.
+- [docs/cli.md](docs/cli.md): the commands, the screen, how the record works.
+- [docs/agents.md](docs/agents.md): pointing your agents at tower.
+- [docs/plan-format.md](docs/plan-format.md),
+  [docs/protocol.md](docs/protocol.md), [docs/themes.md](docs/themes.md),
+  [docs/recipes/](docs/recipes/), and the decisions in
+  [docs/adr/](docs/adr/).
+- [CONTEXT.md](CONTEXT.md): the words tower uses.
 
-# 2. Print the letter each lane's agent gets. Paste it into the agent.
-tower brief A
+## Contributing
 
-# 3. Leave this open.
-tower
-```
-
-Your agents report with three commands (the brief teaches them; tower refuses a
-malformed report and prints the correct form, so they self-correct):
-
-```sh
-tower task 4 in_progress implementing --model sonnet-5
-tower task 4 reviewing spec-review --model sonnet
-tower task 4 done committed "feat: the gate" --model sonnet-5
-tower block 7 "needs the test database created"
-tower note --lane B "merged lane A at task 4"
-```
-
-Scripts ask tower instead of polling:
-
-```sh
-tower state --json           # the folded state; literal, versioned
-tower wait --timeout 300     # exit 0 with the reasons on attention, completion, or close; 3 when quiet
-```
-
-No plan? Start empty and let the executor add its tasks as it derives them:
-
-```sh
-tower init                                 # 0 tasks
-tower add "Wire the webhook" --lane A      # prints the id; report against it
-tower brief A                              # once lane A has a task
-tower change 1 --title "Wire the outbound webhook"
-tower add "A task we did not need" --lane A
-tower remove 2
-```
-
-## The screen
-
-A small run in a repository called `acme`, as a pipe gets it (`tower | cat`):
-
-```
-TOWER ─────────────────────────────────────────────────── ACME · feature/widgets
-INFORMATION ALFA · 17:23 · 0m since first departure
-████▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒  1 of 6 landed · 1 airborne · 1 holding short
-
-RUNWAY A  ▸ 2  sonnet-5        RUNWAY B  ⚠ 5  opus
-
-DEPARTURES
- AIRBORNE
- ▸ 2         The wid…  A   apps/web          sonnet-5        0m · airborne
- ⚠ 5         Widget …  B   apps/api          holding short: needs the test data…
- ON THE GROUND
- ○ 3         Rename a widget                   A   apps/web
- ○ 4         The widget API                    A   apps/api
- ○ 6         The audit log                     B   apps/api
- ✓ 1 landed  (1)
-
-TRANSCRIPT
- 17:23:42  TOWER     RUNWAY A ← 1, 2, 3, 4
- 17:23:42  TOWER     RUNWAY B ← 5, 6
- 17:23:43  ACME 1    landed  afbbb94
- 17:23:43  ACME 2    cleared for takeoff · sonnet-5
- 17:23:43  ACME 5    cleared for takeoff · opus
- 17:23:43  ACME 5    squawk 7700 · needs the test database created
- 17:23:43  RUNWAY A  rex: lane A starts on the list
-```
-
-The vocabulary is air traffic control because the pipeline genuinely is a
-flight: a task departs, is reviewed on approach, and either bounces (_go
-around_) or lands. A task nobody has heard from is _NORDO_. Prefer plain words?
-`tower --plain`. Prefer a different domain? See [themes](docs/themes.md); a
-worked example, a factory floor, ships in `themes/examples/`.
-
-## How it works
-
-```
-<run dir>/
-  run.json        identity, written once by `tower init`
-  events.ndjson   append-only; one JSON line per report
-```
-
-Every report is a single `O_APPEND` write, so lanes in different worktrees can
-report in the same millisecond without a lock and without losing a line. State
-is a pure fold of the log: kill tower, restart it, read a finished run a week
-later — nothing is lost. The event line and `tower state --json` are versioned
-public contracts; see [docs/protocol.md](docs/protocol.md).
-
-tower finds its run through `--run`, then `$TOWER_RUN`, then a pointer file in
-the repository's common git directory — so every worktree of a repository lands
-on the same run without being told where it is.
-
-## Skills
-
-The `tower` plugin holds four skills in the open Agent Skills format:
-
-|                       |                                                          |
-| --------------------- | -------------------------------------------------------- |
-| `/tower:run`          | the orchestrator loop, for any harness and any runner    |
-| `/tower:orchestrate`  | a whole run inside herdr, from layout to pull request    |
-| `/tower:spec-to-plan` | turn a spec into a plan that `tower init --plan` loads   |
-| `/tower:preflight`    | check a whole branch before its PR, ending in a draft PR |
-
-`/tower:orchestrate` is the one skill that needs a particular runner: it runs
-only inside [herdr](https://herdr.dev) and refuses elsewhere. See
-[docs/orchestrate.md](docs/orchestrate.md).
-
-## Works with
-
-The CLI and `/tower:run` know nothing about how you run agents. The executor
-brief is plain text, and the Agent Skills format loads in Claude Code, Codex,
-Cursor, Gemini CLI and others. Exercised so far with Claude Code, and with
-Codex lanes under `/tower:orchestrate`. Recipes for
-running lanes by hand with [herdr](docs/recipes/herdr.md) and with
-[tmux](docs/recipes/tmux.md).
-
-## Commands
-
-|                                                       |                                                                     |
-| ----------------------------------------------------- | ------------------------------------------------------------------- |
-| `tower`                                               | the console (`--plain`, `--theme`, `--stale <min>`, `--run <dir>`)  |
-| `tower init`                                          | create a run from `--plan <md>`, `--tasks <tsv>`, stdin, or nothing |
-| `tower assign <lane> <ids>`                           | record which tasks a lane owns                                      |
-| `tower brief <lane>`                                  | the executor letter                                                 |
-| `tower close [note]`                                  | declare the run finished                                            |
-| `tower add "<title>" [--lane <lane>]`                 | add a task the plan did not have                                    |
-| `tower change <id> --title\|--area\|--after`          | edit a task                                                         |
-| `tower remove <id> [--force]`                         | take a task off the board (`--force` overrides an active task)      |
-| `tower task <id> <status> [phase] [note] --model <m>` | report                                                              |
-| `tower block <id> "<need>"`                           | report blocked                                                      |
-| `tower note [--task\|--lane] "<text>"`                | narrate                                                             |
-| `tower state --json`                                  | the folded state                                                    |
-| `tower wait --timeout <s>`                            | block until attention                                               |
-| `tower theme rules\|new\|check\|preview`              | author a theme                                                      |
-
-`tower --help` for the flags.
-
-## Platforms
-
-macOS and Linux on local filesystems. Windows is not supported (WSL works).
-Network filesystems are not supported: the append atomicity tower relies on
-does not hold on NFS.
-
-No telemetry, no update checks.
+Start with [CONTRIBUTING.md](CONTRIBUTING.md); agents working on tower read
+[AGENTS.md](AGENTS.md). You need Bun for the CLI, and shellcheck for the kit.
+`bun run check`, `./test.sh` and shellcheck are what CI runs. Every change goes
+through a pull request, never straight to `main`.
 
 ## License
 
