@@ -219,3 +219,18 @@ test("a Reviewer's end line is never tagged with a round", () => {
       /FINDINGS WRITTEN`?\]*`?,? *(tagged|r(\d|<n>|\{\{))/,
     );
 });
+
+// GitHub renders release notes with hard line breaks: every list item and
+// paragraph of the release body is one line.
+test("the release body wraps no line", () => {
+  const lines = read(".github/release-body.md").split("\n");
+  const continued = lines.filter(
+    (line, i) =>
+      i > 0 &&
+      line.trim() !== "" &&
+      !/^(#|- )/.test(line) &&
+      lines[i - 1]!.trim() !== "" &&
+      !lines[i - 1]!.startsWith("#"),
+  );
+  expect(continued).toEqual([]);
+});
