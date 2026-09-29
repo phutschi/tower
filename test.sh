@@ -1151,6 +1151,17 @@ if section install; then
   assert_match "fetch: an interrupt stops the install"  "$out" 'exit=130$'
   assert_nomatch "fetch: ... before anything after the download" "$out" '^(dependencies|skills):'
   assert_eq "fetch: ... and leaves no temp file"        "$(ls -A "$TMP/bin12" 2>/dev/null)" ""
+  # A release whose SHA256SUMS has no line for this platform: refused before
+  # any binary is downloaded.
+  NOSUM="$TMP/release-nosum"; mkdir -p "$NOSUM/v$V"; cp "$REL/v$V/tower-linux-x64" "$NOSUM/v$V/"
+  echo "0000000000000000000000000000000000000000000000000000000000000000  tower-darwin-arm64" > "$NOSUM/v$V/SHA256SUMS"
+  : > "$TMP/curl.log"
+  out=$(fetch "$H5" "$TMP/bin13" TOWER_RELEASE_URL="file://$NOSUM" PATH="$TMP/curlspy:$U:$PATH")
+  assert_match "fetch: no checksum for this platform is named" "$out" "release v$V has no checksum for tower-linux-x64"
+  assert_match "fetch: ... with the git install as the way" "$out" 'npm i -g github:phutschi/tower'
+  assert_match "fetch: ... and fails"                   "$out" 'exit=1$'
+  assert_nomatch "fetch: ... without downloading the binary" "$(cat "$TMP/curl.log")" 'tower-linux-x64'
+  assert_eq "fetch: ... and leaves nothing in the bin dir" "$(ls -A "$TMP/bin13" 2>/dev/null)" ""
   out=$(fetch "$H5" "$TMP/bin9" TOWER_RELEASE_URL="file://$TMP/no-release")
   assert_match "fetch: a release that cannot be reached is named" "$out" "could not fetch .*SHA256SUMS"
   out=$(env HOME="$H5" TOWER_BIN_DIR="$TMP/bin7" TOWER_RELEASE_URL="file://$REL" PATH="$U:$PATH" "$ROOT/install.sh" 2>&1; echo "exit=$?")

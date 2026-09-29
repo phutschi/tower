@@ -56,6 +56,7 @@ fetch_tower() {
   sums=$(get "$RELEASE_URL/v$v/SHA256SUMS" 2>/dev/null); rc=$?
   [ "$rc" = 0 ] || { echo "  could not fetch the SHA256SUMS of release v$v (curl exit $rc; 22 is no such release or no checksums, 28 a timeout or a stall): refusing an unverified tower; or install it with  $GIT_INSTALL" >&2; return 1; }
   want=$(printf '%s\n' "$sums" | awk -v a="$asset" '$2 == a || $2 == "*" a { print $1 }')
+  [ -n "$want" ] || { echo "  release v$v has no checksum for $asset: refusing an unverified tower, nothing downloaded; install it with  $GIT_INSTALL" >&2; return 1; }
   mkdir -p "$BIN_DIR" && FETCH_TMP=$(mktemp "$BIN_DIR/.tower.XXXXXX") || return 1
   # The temp file goes whatever happens; Ctrl-C (or a kill) stops the install.
   trap 'rm -f "$FETCH_TMP"' EXIT
@@ -69,7 +70,7 @@ place_tower() {  # ASSET VERSION CHECKSUM: download into FETCH_TMP, verify, inst
   local rc
   get -o "$FETCH_TMP" "$RELEASE_URL/v$2/$1" 2>/dev/null; rc=$?
   [ "$rc" = 0 ] || { echo "  could not download $1 v$2 from $RELEASE_URL (curl exit $rc; 28 is a timeout or a stall)" >&2; return 1; }
-  if [ -z "$3" ] || [ "$(sha256 "$FETCH_TMP")" != "$3" ]; then
+  if [ "$(sha256 "$FETCH_TMP")" != "$3" ]; then
     echo "  $1 v$2 does not match the release's checksum: refused, nothing installed" >&2; return 1
   fi
   # A tower already here does not run (install.sh checked): keep it, aside.
