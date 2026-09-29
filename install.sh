@@ -40,6 +40,10 @@ on_path() {  # a tower in BIN_DIR that runs, though BIN_DIR is not on PATH
     echo "  note      $first comes first on your PATH and does not run; remove it, or put $BIN_DIR before it"
   fi
 }
+# get CURL-ARGS...: a download that never drops to plain http on a redirect,
+# and gives up on a server that does not connect in 15 seconds or stalls
+# below 1 KB/s for 30.
+get() { curl -fsSL --proto-redir '=https' --connect-timeout 15 --speed-limit 1024 --speed-time 30 "$@"; }
 sha256() { if command -v sha256sum >/dev/null; then sha256sum "$1"; else shasum -a 256 "$1"; fi | awk '{print $1}'; }
 fetch_tower() {
   local os arch v asset sums want rc
@@ -49,13 +53,12 @@ fetch_tower() {
   command -v curl >/dev/null || { echo "  curl is needed to fetch tower; or install it with  $GIT_INSTALL" >&2; return 1; }
   v=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$ROOT/.claude-plugin/plugin.json") || return 1
   asset="tower-$os-$arch"
-  # --proto-redir: a redirect never drops to plain http.
-  sums=$(curl -fsSL --proto-redir '=https' "$RELEASE_URL/v$v/SHA256SUMS" 2>/dev/null); rc=$?
-  [ "$rc" = 0 ] || { echo "  could not fetch the SHA256SUMS of release v$v (curl exit $rc; 22 is no such release or no checksums): refusing an unverified tower; or install it with  $GIT_INSTALL" >&2; return 1; }
+  sums=$(get "$RELEASE_URL/v$v/SHA256SUMS" 2>/dev/null); rc=$?
+  [ "$rc" = 0 ] || { echo "  could not fetch the SHA256SUMS of release v$v (curl exit $rc; 22 is no such release or no checksums, 28 a timeout or a stall): refusing an unverified tower; or install it with  $GIT_INSTALL" >&2; return 1; }
   want=$(printf '%s\n' "$sums" | awk -v a="$asset" '$2 == a || $2 == "*" a { print $1 }')
   mkdir -p "$BIN_DIR" && FETCH_TMP=$(mktemp "$BIN_DIR/.tower.XXXXXX") || return 1
   trap 'rm -f "$FETCH_TMP"' EXIT INT TERM
-  if ! curl -fsSL --proto-redir '=https' -o "$FETCH_TMP" "$RELEASE_URL/v$v/$asset" 2>/dev/null; then
+  if ! get -o "$FETCH_TMP" "$RELEASE_URL/v$v/$asset" 2>/dev/null; then
     echo "  could not download $asset v$v from $RELEASE_URL" >&2; rm -f "$FETCH_TMP"; return 1
   fi
   if [ -z "$want" ] || [ "$(sha256 "$FETCH_TMP")" != "$want" ]; then

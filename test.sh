@@ -1116,6 +1116,19 @@ if section install; then
   assert_match "fetch: a broken tower in the bin dir is moved aside" "$out" "moved +.*$B8/tower.old"
   assert_eq "fetch: ... kept as tower.old"              "$(cat "$B8/tower.old")" "$(printf '#!/bin/sh\nexit 1')"
   assert_eq "fetch: ... and replaced by the release binary" "$("$B8/tower" --help 2>&1)" "tower $V (fixture)"
+  # Every download gives up on a server that stalls: a connect timeout and a
+  # stall limit, and never a redirect to plain http. (A curl on PATH that logs
+  # its arguments, then runs the real one.)
+  SPY="$TMP/curlspy"; mkdir -p "$SPY"; : > "$TMP/curl.log"
+  printf '#!/bin/sh
+echo "$*" >> "%s"
+exec "%s" "$@"
+' "$TMP/curl.log" "$(command -v curl)" > "$SPY/curl"; chmod +x "$SPY/curl"
+  out=$(fetch "$H5" "$TMP/bin10" PATH="$SPY:$U:$PATH")
+  assert_match "fetch: with the spy, tower is still fetched" "$out" 'exit=0$'
+  assert_eq "fetch: both downloads (checksums and binary) go through curl" "$(wc -l < "$TMP/curl.log" | tr -d ' ')" 2
+  assert_eq "fetch: each has a connect timeout, a stall limit and https-only redirects" \
+    "$(grep -c -- '--connect-timeout 15 .*--speed-limit 1024 --speed-time 30.*--proto-redir =https\|--proto-redir =https .*--connect-timeout 15 .*--speed-limit 1024 --speed-time 30' "$TMP/curl.log")" 2
   out=$(fetch "$H5" "$TMP/bin9" TOWER_RELEASE_URL="file://$TMP/no-release")
   assert_match "fetch: a release that cannot be reached is named" "$out" "could not fetch .*SHA256SUMS"
   out=$(env HOME="$H5" TOWER_BIN_DIR="$TMP/bin7" TOWER_RELEASE_URL="file://$REL" PATH="$U:$PATH" "$ROOT/install.sh" 2>&1; echo "exit=$?")
