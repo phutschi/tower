@@ -162,9 +162,9 @@ and do it in a lane anyway or suggest doing it without the kit.
       must-fix finding (the skill's "red") → add and brief R2. Red, no
       `look.json` or a changed checkout (a setup error) → no R2 this round;
       its areas count as skipped in step 12, and its table names them as
-      skipped with the reason. When the watch reports R1 `gone`, `blocked`,
-      `unreadable` or finished first, stop this wait and act on R1 (step 7); a round
-      whose look never finishes is a setup error.
+      skipped with the reason. When the watch reports R1 `gone`,
+      `blocked`, `unreadable` or finished first, stop this wait and act on
+      R1 (step 7); a round whose look never finishes is a setup error.
 
     `REVIEW_AREAS` narrows the areas; split what is left over the two
     slots. From round 2 the areas are the ones step 12 names, each in its

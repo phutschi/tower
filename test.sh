@@ -912,16 +912,19 @@ if section watch; then
   assert_match "herdr failing once: quiet"            "$out" 'exit=3$'
   # Only UNREADABLE_POLLS consecutive unreadable polls are attention, never
   # gone; a readable answer in between starts the count again.
-  printf 'unreachable\nunreachable\nworking\nunreachable\nunreachable\nworking\n' > "$S/a"
-  out=$(ROUND=1 UNREADABLE_POLLS=3 watch a)
-  assert_nomatch "herdr failing twice, then answering, twice again: no attention" "$out" '^attention: a '
-  assert_match "herdr failing twice, then answering, twice again: quiet" "$out" 'exit=3$'
+  printf 'unreachable\nunreachable\nworking\nunreachable\nunreachable\nblocked\n' > "$S/a"
+  out=$(UNREADABLE_POLLS=3 watch a)
+  assert_match "herdr failing twice, answering, twice again: the lane's own attention" "$out" '^attention: a blocked$'
+  assert_nomatch "herdr failing twice, answering, twice again: not unreadable" "$out" '^attention: a unreadable'
   echo unreachable > "$S/a"; : > "$HERDR_STUB_LOG"; out=$(UNREADABLE_POLLS=3 watch a)
   assert_match "herdr failing UNREADABLE_POLLS times: attention, unreadable" "$out" '^attention: a unreadable$'
   assert_nomatch "herdr failing UNREADABLE_POLLS times: not gone" "$out" '^attention: a gone'
   assert_match "herdr failing UNREADABLE_POLLS times: unreadable in the state table" "$out" '^a +unreadable$'
   assert_match "herdr failing UNREADABLE_POLLS times: exit 0" "$out" 'exit=0$'
   assert_match "herdr failing UNREADABLE_POLLS times: three polls and the resample" "$(grep -c '^herdr agent get a' "$HERDR_STUB_LOG")" '^4$'
+  echo unreachable > "$S/a"; out=$(UNREADABLE_POLLS=3 ON=$RUN_COMPLETE watch a)
+  assert_match "complete board, herdr failing: attention, unreadable" "$out" '^attention: a unreadable$'
+  assert_nomatch "complete board, herdr failing: the run is not complete for it" "$out" '^tower: run'
   echo shapeless > "$S/a"; out=$(UNREADABLE_POLLS=3 watch a)
   assert_match "an answer without a status: unreadable, not settled early" "$out" '^attention: a unreadable$'
   for bad in abc 0 -5 1.5; do
@@ -967,7 +970,7 @@ CLOCK
   chmod +x "$clock/date"
   # A background kill caps the run, so a regression fails instead of hanging.
   # The script itself is the background job, so the kill reaches it.
-  clocked() { (cd "$TMP" || exit; PATH="$clock:$PATH" GRACE_SECONDS=0 POLL_SECONDS=0 "$KIT/watch-lanes.sh" "$RUN" a 2>&1 & p=$!
+  clocked() { (cd "$TMP" || exit; PATH="$clock:$PATH" GRACE_SECONDS=0 POLL_SECONDS=0 "$KIT/watch-lanes.sh" "$RUN" "${@:-a}" 2>&1 & p=$!
     (sleep 20; kill "$p" 2>/dev/null) >/dev/null 2>&1 & k=$!; wait "$p"; rc=$?; kill "$k" 2>/dev/null; echo "exit=$rc"); }
   printf 'working\nworking\nworking\nblocked\n' > "$S/a"; printf 'need the API key\n' > "$S/a.tail"; rm -f "$clock/date.now"
   out=$(clocked)
@@ -993,6 +996,12 @@ CLOCK
   out=$(clocked)
   assert_match "idle, then working on the resample: reports idle again" "$out" '^attention: a idle-unexplained'
   assert_match "idle, then working on the resample: idle counts afresh" "$(grep -c '^herdr agent get a' "$HERDR_STUB_LOG")" '^6$'
+  # Another lane settling and working again on the resample does not start
+  # an unreadable agent's count again: a reaches 3 on its fourth read.
+  echo unreachable > "$S/a"; printf 'blocked\nworking\nblocked\nworking\n' > "$S/b"; rm -f "$clock/date.now"; : > "$HERDR_STUB_LOG"
+  out=$(UNREADABLE_POLLS=3 clocked a b)
+  assert_match "a flapping lane beside a failing herdr: attention, unreadable" "$out" '^attention: a unreadable$'
+  assert_match "a flapping lane beside a failing herdr: the count held" "$(grep -c '^herdr agent get a' "$HERDR_STUB_LOG")" '^4$'
   # A status the watch does not know settles the poll; it is attention, never
   # an endless quiet loop.
   echo waiting > "$S/a"; printf 'Choose an option\n' > "$S/a.tail"; rm -f "$clock/date.now"
@@ -1002,10 +1011,17 @@ CLOCK
   assert_match "an unknown status: exit 0" "$out" 'exit=0$'
   # Without a round limit, a herdr that never answers still ends the watch,
   # after the default count of unreadable polls.
-  echo unreachable > "$S/a"; rm -f "$clock/date.now"
+  echo unreachable > "$S/a"; rm -f "$clock/date.now"; : > "$HERDR_STUB_LOG"
   out=$(clocked)
   assert_match "no ROUND_SECONDS, herdr never answering: attention, unreadable" "$out" '^attention: a unreadable$'
   assert_match "no ROUND_SECONDS, herdr never answering: exit 0" "$out" 'exit=0$'
+  assert_match "no ROUND_SECONDS, herdr never answering: 12 polls and the resample" "$(grep -c '^herdr agent get a' "$HERDR_STUB_LOG")" '^13$'
+  # Unreadable up to the limit, working on the resample: it counts afresh, so
+  # the next unreadable poll alone settles nothing: 6 reads, not 5.
+  printf 'unreachable\nunreachable\nworking\nunreachable\nblocked\n' > "$S/a"; rm -f "$clock/date.now"; : > "$HERDR_STUB_LOG"
+  out=$(UNREADABLE_POLLS=2 clocked)
+  assert_match "unreadable, then working on the resample: the lane's own attention" "$out" '^attention: a blocked$'
+  assert_match "unreadable, then working on the resample: counts afresh" "$(grep -c '^herdr agent get a' "$HERDR_STUB_LOG")" '^6$'
   printf 'blocked\nworking\n' > "$S/a"; rm -f "$clock/date.now"
   out=$(ROUND_SECONDS=2500 clocked)
   assert_match "ROUND_SECONDS given, blocked then working: exit 3 as before" "$out" 'exit=3$'

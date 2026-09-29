@@ -16,6 +16,11 @@ All notable changes to this project are documented here. The format follows
   prints `tower wait` without `--timeout`, and `watch-lanes.sh` stops after a
   time limit only when `ROUND_SECONDS` sets one (a whole number of seconds;
   anything else is refused).
+- `watch-lanes.sh` no longer reads a failing herdr call as the agent gone:
+  gone is herdr's `agent_not_found` only. Any other failure is `unreadable`,
+  counted as working, and attention (`attention: <agent> unreadable`) only
+  after `UNREADABLE_POLLS` polls in a row (default 12, three minutes at the
+  default `POLL_SECONDS`).
 - `/tower:spec-to-plan` saves plans to
   `$TOWER_PLANS_DIR/<repo>_<branch>/plan.md`, by default under
   `${XDG_STATE_HOME:-$HOME/.local/state}/tower/plans`, instead of one

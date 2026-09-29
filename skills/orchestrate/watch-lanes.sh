@@ -17,19 +17,20 @@
 # see, the agent process itself.
 #
 # Output starts with one line per lane that needs the orchestrator:
-#   attention: <agent> blocked | idle-after-final-report | idle-unexplained | done | gone | unreadable | <any other status>
+#   attention: <agent> blocked | idle-after-final-report | idle-unexplained |
+#              done | gone | unreadable | <any other status>
 # then the state table with the pane tails, then the tower summary. gone is
 # herdr answering agent_not_found. Any other failing herdr call (a server
 # restarting, a timeout) or an answer without a status says nothing about the
 # agent: it reads unreadable and counts as working, so it never settles as
-# gone and never settles the loop on one poll (common.sh state_of). Only
-# UNREADABLE_POLLS consecutive unreadable polls of an agent are attention, as
-# unreadable: check herdr, not the lane. Any readable answer starts the count
-# again. herdr's own unknown status counts as working. Exit 0
-# with attention. Without ROUND_SECONDS it never exits quietly. With it, exit 3
-# when it passes with everyone still working, or when a sample settled and the
-# resample right after shows no attention (a blocked lane that was answered). A closed run is attention
-# too (`tower: run closed`), and so is a complete board once no watched agent
+# gone (common.sh state_of). Only UNREADABLE_POLLS consecutive unreadable
+# polls of an agent are attention, as unreadable: check herdr, not the lane.
+# Any readable answer of that agent starts its count again. herdr's own
+# unknown status counts as working. Exit 0 with attention. Without
+# ROUND_SECONDS it never exits quietly. With it, exit 3 when it passes with
+# everyone still working, or when a sample settled and the resample right
+# after shows no attention (a blocked lane that was answered). A closed run is
+# attention too (`tower: run closed`), and so is a complete board once no watched agent
 # is working (`tower: run complete`): a complete board alone is not, since a
 # lane's final review, preflight and the PR come after its last task.
 #
@@ -105,8 +106,7 @@ finished() { local b; if [ $# -ge 2 ]; then b=$2; else b=$(board); fi
 
 # IDLE_SEEN: consecutive idle polls past GRACE. UNREADABLE: consecutive polls
 # on which herdr could not be read for the agent.
-reset_counts() { local i=0 _; for _ in "${NAMES[@]}"; do IDLE_SEEN[$i]=0; UNREADABLE[$i]=0; i=$((i+1)); done; }
-IDLE_SEEN=(); UNREADABLE=(); reset_counts
+IDLE_SEEN=(); UNREADABLE=(); i=0; for _ in "${NAMES[@]}"; do IDLE_SEEN[$i]=0; UNREADABLE[$i]=0; i=$((i+1)); done
 started=$(date +%s)
 # Poll until a sample settles, the board is finished, or ROUND passes.
 poll() {
@@ -163,6 +163,7 @@ report() {
     esac
     printf '%-22s %s\n' "$name" "$state"
     case "$state" in
+      # No tail for unreadable: reading the pane asks the same failing herdr.
       working|unknown|unreadable|gone) ;;
       idle) [ "${IDLE_SEEN[$i]}" -ge 2 ] && tail_of "$name" | sed 's/^/    │ /' ;;
       *) tail_of "$name" | sed 's/^/    │ /' ;;
@@ -184,8 +185,14 @@ while :; do
   if out=$(report); then printf '%s\n' "$out"; exit 0; fi
   [ -z "$ROUND" ] || { printf '%s\n' "$out"; exit 3; }
   # The agent that settled was working again on the resample: an idle lane
-  # counts afresh, two consecutive idle polls as always, and so does an
-  # unreadable one.
-  reset_counts
+  # counts afresh, two consecutive idle polls as always. An unreadable count
+  # starts again only where it reached the limit (that agent answered on the
+  # resample); a lower one runs on, or a lane that settles and works again
+  # beside it would hold a failing herdr off for ever.
+  i=0; for _ in "${NAMES[@]}"; do
+    IDLE_SEEN[$i]=0
+    [ "${UNREADABLE[$i]}" -lt "$UNREADABLE_MAX" ] || UNREADABLE[$i]=0
+    i=$((i+1))
+  done
   sleep "$POLL"
 done
