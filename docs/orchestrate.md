@@ -41,7 +41,9 @@ tell me to restart Claude Code so the /tower: skills show up.
 ```
 
 It slices the spec into tasks, proposes the lanes, asks you to approve
-them, and writes `plan.md`. It writes no code.
+them, and writes `plan.md` to `$TOWER_PLANS_DIR/<repo>_<branch>/`, outside
+the repo (`TOWER_PLANS_DIR` defaults to
+`${XDG_STATE_HOME:-$HOME/.local/state}/tower/plans`). It writes no code.
 
 **3. Run.** In a new session, from a herdr pane, same repo and branch:
 

@@ -1,6 +1,6 @@
 ---
 name: spec-to-plan
-description: "Turn a spec into an orchestrate plan: tracer-bullet tasks with blocking edges, lanes and merge points, written as plan.md in the vault. No code."
+description: "Turn a spec into an orchestrate plan: tracer-bullet tasks with blocking edges, lanes and merge points, written as plan.md outside the repo. No code."
 disable-model-invocation: true
 ---
 
@@ -70,8 +70,12 @@ list and the split. Nothing is written before that.
 ## 5. Write plan.md
 
 Follow `plan-template.md` in this folder, section by section. Save to
-`$OBSIDIAN_VAULT_PATH/plans/<repo>_<branch>/plan.md` with `/` in the branch
-replaced by `-`. Per task:
+`$TOWER_PLANS_DIR/<repo>_<branch>/plan.md` with `/` in the branch replaced by
+`-`. `TOWER_PLANS_DIR` defaults to
+`${XDG_STATE_HOME:-$HOME/.local/state}/tower/plans`, next to tower's runs and
+outside the repo, so a plan is never committed: it goes stale once built.
+Anyone who keeps plans elsewhere, a notes folder for example, sets
+`TOWER_PLANS_DIR` there in their shell profile. Per task:
 
 - **Delivers**: the end-to-end behaviour, from the user's side.
 - **Acceptance criteria**: checkboxes, phrased like test names. Each is a
