@@ -17,10 +17,12 @@ export interface FakeIo extends Io {
 }
 
 export function fakeIo(overrides: Partial<Io> = {}): FakeIo {
-  // A state dir of its own, so a run without --run never lands in the real
-  // ~/.local/state; a test's own env is laid over it.
+  // State and config dirs of its own, so a run without --run never lands in
+  // the real ~/.local/state and no real config or theme leaks into a test;
+  // a test's own env is laid over them.
   const env = {
     XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "tower-state-")),
+    XDG_CONFIG_HOME: mkdtempSync(join(tmpdir(), "tower-config-")),
     ...overrides.env,
   };
   const io: FakeIo = {
