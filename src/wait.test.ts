@@ -201,7 +201,20 @@ describe("waitFor", () => {
       expect(result).toEqual({ exit: 0, lines: [printed] });
     });
 
-  test("a run that disappears ends the wait with exit 2", async () => {
+  test("with a timeout, a run that disappears still ends quietly with exit 3", async () => {
+    const { runDir } = seededRun();
+    setTimeout(() => rmSync(runDir, { recursive: true }), 20);
+    const result = await waitFor({
+      runDir,
+      timeoutMs: 80,
+      staleMinutes: 10,
+      now: () => NOW,
+      pollMs: 10,
+    });
+    expect(result).toEqual({ exit: 3, lines: [] });
+  });
+
+  test("without a timeout, a run that disappears ends the wait with exit 2", async () => {
     const { runDir } = seededRun();
     setTimeout(() => rmSync(runDir, { recursive: true }), 40);
     const wait = waitFor({

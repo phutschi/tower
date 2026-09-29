@@ -11,7 +11,7 @@ All notable changes to this project are documented here. The format follows
 - `tower wait` no longer needs `--timeout`. Without it, it waits until
   attention, completion or close and exits 0 with the reasons; it exits 3
   only when a timeout was given and passed, and 2 when the run dir disappears
-  during the wait. Additive: a minor version.
+  during a wait without a timeout. Additive: a minor version.
 - The orchestrate kit's watches wait without a time limit: `bootstrap.sh`
   prints `tower wait` without `--timeout`, and `watch-lanes.sh` stops after a
   time limit only when `ROUND_SECONDS` sets one (a whole number of seconds;

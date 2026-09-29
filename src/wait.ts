@@ -73,9 +73,10 @@ export async function waitFor(options: WaitOptions): Promise<WaitResult> {
     // deadline is real wall-clock time: a wait genuinely blocks a process.
     const now = options.now();
     // A run dir that vanished reads as no events, which never needs
-    // attention: without this, a wait with no timeout would never end.
+    // attention: without this, a wait with no timeout would never end. A
+    // timed wait keeps ending at its deadline, quietly, as it always has.
     const events = eventsPath(options.runDir);
-    if (!existsSync(events))
+    if (options.timeoutMs === undefined && !existsSync(events))
       throw new UsageError(`the run at ${options.runDir} is gone`, 2);
     const state = fold(run, readEvents(events, 0).lines, {
       now,
