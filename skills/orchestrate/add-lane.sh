@@ -88,8 +88,10 @@ if [ -n "$PANE" ]; then
   # (src/ids.ts expandIds; tower has no command that expands without
   # recording): tokens trimmed, empty ones dropped, an integer range expanded,
   # zero-padded when both ends are written at the same width (07-09).
-  # An id tower refuses is refused here with tower's words (exit 2).
-  rc=0; owned=$(tower state --json | python3 -c 'import json,re,sys
+  # An id tower refuses is refused with tower's words (the check exits 2;
+  # add-lane dies with its message).
+  board=$(tower state --json) || die "add-lane: tower state failed; rerun once tower answers"
+  rc=0; owned=$(printf '%s' "$board" | python3 -c 'import json,re,sys
 d=json.load(sys.stdin); want=set()
 def refuse(why): print(why); sys.exit(2)
 for t in map(str.strip, sys.argv[2].split(",")):
@@ -110,7 +112,7 @@ print(",".join(have)); sys.exit(0 if want == set(have) else 1)' "$LANE" "$TASKS"
   case $rc in
     0) ;;
     2) die "add-lane: $owned" ;;
-    *) die "lane $LANE owns $owned on the board, not $TASKS; rerun with those ids" ;;
+    *) die "lane $LANE owns ${owned:-nothing} on the board, not $TASKS; rerun with those ids" ;;
   esac
   # Only herdr's pane_not_found is a closed pane; any other failure says
   # nothing about it, and the map and the worktree stay.

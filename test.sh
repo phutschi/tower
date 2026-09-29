@@ -528,6 +528,13 @@ if section add-lane; then
   assert_match "rerun, an invalid id: refused as tower refuses it" "$out" '^add-lane: "a b" is not a valid task id \(letters, digits, \. _ -; no spaces\)$'
   assert_match "rerun, an invalid id: fails"           "$out" 'exit=1$'
   assert_nomatch "rerun, an invalid id: no start"      "$(cat "$HERDR_STUB_LOG")" '^herdr agent start'
+  # tower failing to read the record is said as such, not blamed on the ids.
+  chmod 000 "$RUNF/run.json"
+  reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNF" B feat/b main 2,3 2>&1; echo "exit=$?")
+  chmod 644 "$RUNF/run.json"
+  assert_match "rerun, tower state failing: says tower failed" "$out" '^add-lane: tower state failed; rerun once tower answers$'
+  assert_nomatch "rerun, tower state failing: the ids are not blamed" "$out" 'on the board, not'
+  assert_nomatch "rerun, tower state failing: no start" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start'
   reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNF" B feat/b main 2-3 2>&1; echo "exit=$?")
   assert_match "rerun, the same ids as a range: finishes" "$out" 'exit=0$'
   echo gone > "$HERDR_STUB_STATES_DIR/bun-vitest-lane-b"
