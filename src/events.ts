@@ -6,7 +6,7 @@
  * for a regular file on a local filesystem — so lanes in different worktrees
  * can report in the same millisecond and each line lands whole. That is the
  * entire concurrency story; there is no lock because none is needed. (It does
- * not hold on NFS. The README says so.)
+ * not hold on NFS. docs/cli.md says so.)
  */
 import { appendFileSync, readFileSync } from "node:fs";
 
