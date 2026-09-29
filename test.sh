@@ -301,8 +301,6 @@ if section bootstrap; then
   out=$(LANES="A=all" boot "$r" "$RUN" "All" main "$KIT/tests/example-plan.md"; echo "exit=$?")
   assert_match "LANES A=all: bootstrap finishes"        "$out" 'exit=0$'
   assert_eq "LANES A=all: every task is lane A's"       "$(board "$RUN" '" ".join(k+"="+",".join(v) for k,v in sorted(d["lanes"].items()))')" "A=1,2,3"
-  # all means every task, so it is the only spec; a bad spec is refused before
-  # the run exists.
   # all means every task, so it is the whole of LANES; a bad spec, lane or id
   # is refused before the run exists (tower init checks the ids).
   r=$(fixture_repo bun-vitest); : > "$r/A=zzz"
@@ -1181,6 +1179,13 @@ if section install; then
   assert_match "fetch: ... and fails"                   "$out" 'exit=1$'
   assert_eq "fetch: ... requesting only the checksums" "$(grep -c . "$TMP/curl.log")|$(grep -c 'SHA256SUMS$' "$TMP/curl.log")" "1|1"
   assert_eq "fetch: ... and leaves nothing in the bin dir" "$(ls -A "$TMP/bin13" 2>/dev/null)" ""
+  # A CRLF SHA256SUMS that lists the platform twice: the first line counts.
+  CRLF="$TMP/release-crlf"; mkdir -p "$CRLF/v$V"; cp "$REL/v$V/tower-linux-x64" "$CRLF/v$V/"
+  printf '%s  tower-linux-x64\r\n%s  tower-linux-x64\r\n' "$(awk '{print $1}' "$REL/v$V/SHA256SUMS")" \
+    0000000000000000000000000000000000000000000000000000000000000000 > "$CRLF/v$V/SHA256SUMS"
+  out=$(fetch "$H5" "$TMP/bin14" TOWER_RELEASE_URL="file://$CRLF")
+  assert_match "fetch: a CRLF SHA256SUMS with the platform twice: installed" "$out" 'exit=0$'
+  assert_eq "fetch: ... the binary verified by its first line" "$("$TMP/bin14/tower" --help 2>&1)" "tower $V (fixture)"
   out=$(fetch "$H5" "$TMP/bin9" TOWER_RELEASE_URL="file://$TMP/no-release")
   assert_match "fetch: a release that cannot be reached is named" "$out" "could not fetch .*SHA256SUMS"
   out=$(env HOME="$H5" TOWER_BIN_DIR="$TMP/bin7" TOWER_RELEASE_URL="file://$REL" PATH="$U:$PATH" "$ROOT/install.sh" 2>&1; echo "exit=$?")
