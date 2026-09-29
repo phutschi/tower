@@ -247,7 +247,7 @@ if section bootstrap; then
   assert_match "layout: bottom row first"               "$log" '^herdr pane split --current --direction down --ratio 0.7 '
   assert_match "layout: lane A right of the orchestrator" "$log" '^herdr pane split --current --direction right --ratio 0.3 '
   assert_match "layout: console right of checks"        "$log" '^herdr pane split --pane pane-1 --direction right --ratio 0.5 '
-  assert_match "layout: checks pane runs the runner in the checkout" "$log" "^herdr pane run pane-1 cd '$r/.' && bunx vitest --watch$"
+  assert_match "layout: checks pane runs the runner in the checkout" "$log" "^herdr pane run pane-1 cd $r/\. && bunx vitest --watch$"
   assert_match "layout: console runs tower"             "$log" '^herdr pane run pane-3 tower --stale 30$'
   assert_match "lane A: agent named and started"        "$log" '^herdr agent start bun-vitest-lane-a --kind claude --pane pane-2 -- --model claude-opus-5-5\[1m\]$'
   map=$(cat "$RUN/panes.txt")
@@ -365,8 +365,8 @@ if section bootstrap; then
   log=$(cat "$HERDR_STUB_LOG")
   assert_match "dev: bottom row in thirds, checks after dev" "$log" '^herdr pane split --pane pane-1 --direction right --ratio 0.34 '
   assert_match "dev: console after checks"              "$log" '^herdr pane split --pane pane-3 --direction right --ratio 0.5 '
-  assert_match "dev: dev pane runs in its dir"          "$log" "^herdr pane run pane-1 cd '$r/web' && make dev$"
-  assert_match "dev: checks pane runs make watch"       "$log" "^herdr pane run pane-3 cd '$r/.' && make watch$"
+  assert_match "dev: dev pane runs in its dir"          "$log" "^herdr pane run pane-1 cd $r/web && make dev$"
+  assert_match "dev: checks pane runs make watch"       "$log" "^herdr pane run pane-3 cd $r/\. && make watch$"
   assert_match "dev: pane map has dev, checks, console" "$(cat "$RUN/panes.txt")" '^dev: +pane-1 '
   assert_match "dev: console is pane-4"                 "$(cat "$RUN/panes.txt")" '^console: +pane-4 '
 
@@ -377,7 +377,25 @@ if section bootstrap; then
   RUN="$TMP/run-worktree"; reset_stub
   boot "$wt" "$RUN" "Worktree" wt-branch >/dev/null
   assert_match "worktree: lane A checkout is where bootstrap ran, not repo_root" "$(cat "$RUN/panes.txt")" '^lane A: +pane-2 +\(agent "[^"]+", kind claude, branch wt-branch, checkout '"$wt"', model '
-  assert_match "worktree: checks pane cds into the worktree"  "$(cat "$HERDR_STUB_LOG")" "^herdr pane run pane-1 cd '$wt/.' && "
+  assert_match "worktree: checks pane cds into the worktree"  "$(cat "$HERDR_STUB_LOG")" "^herdr pane run pane-1 cd $wt/\. && "
+
+  # The pane commands are shell code built around the checkout's path: a path
+  # with an apostrophe (or one crafted to run code) must stay one directory.
+  # Each pane's logged command is run as its shell would, with the runner
+  # replaced by one that prints where it ran.
+  mkdir -p "$TMP/fakebin"; printf '#!/bin/sh\npwd -P\n' > "$TMP/fakebin/bunx"; printf '#!/bin/sh\npwd -P\n' > "$TMP/fakebin/make"
+  chmod +x "$TMP/fakebin/bunx" "$TMP/fakebin/make"
+  ran_in() { PATH="$TMP/fakebin:$PATH" bash -c "$(sed -n "s/^herdr pane run $1 //p" "$HERDR_STUB_LOG")" 2>&1; }
+  for name in "rex's repo" "x'; touch pwned; '"; do
+    src=$(fixture_repo contract); r="$TMP/repos/quoted/$name"; mkdir -p "$TMP/repos/quoted"; mv "$src" "$r"; mkdir -p "$r/web"
+    RUN="$TMP/run-quoted"; rm -rf "$RUN"; reset_stub
+    out=$(boot "$r" "$RUN" "Quoted" main; echo "exit=$?")
+    assert_match "quoted path ($name): bootstrap finishes"    "$out" 'exit=0$'
+    assert_eq "quoted path ($name): checks pane runs in the checkout" "$(cd "$TMP/repos/quoted" && ran_in pane-3)" "$r"
+    assert_eq "quoted path ($name): dev pane runs in its dir"         "$(cd "$TMP/repos/quoted" && ran_in pane-1)" "$r/web"
+    assert_eq "quoted path ($name): no code in the path runs" "$([ -e "$TMP/repos/quoted/pwned" ] && echo ran || echo none)" none
+    rm -rf "$TMP/repos/quoted"
+  done
 
   # A new pane's shell may not be ready when the agent starts: herdr answers
   # agent_pane_busy, and the start is tried again.
