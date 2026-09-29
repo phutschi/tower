@@ -170,6 +170,29 @@ describe("boardRows", () => {
       );
     }
   });
+  describe("at 80 columns the title gives last", () => {
+    const s = demoState();
+    const long = s.tasks.find((t) => t.id === "15");
+    if (!long) throw new Error("demo lost task 15");
+    long.title = "Send the notifyTelegram message on every lane close";
+    const air = texts(boardRows(s, AIRPORT, 80, 40, opts)).slice(1, 4);
+    test.each([
+      ["a blocked row with its note", "⚠ 12", "Voice notes"],
+      ["an active row with elapsed and phase", "▸ 14", "The onDirectMessage…"],
+      ["an active row with a long title", "▸ 15", "Send the notifyTele…"],
+    ])("%s keeps its title", (_, id, title) => {
+      const row = air.find((r) => r.startsWith(id)) ?? "";
+      expect(row).toContain(title);
+      expect(row.length).toBeLessThanOrEqual(80);
+    });
+    test("the blocked note still starts in the model column", () => {
+      const blocked = air.find((r) => r.startsWith("⚠ 12")) ?? "";
+      const active = air.find((r) => r.startsWith("▸ 14")) ?? "";
+      expect(blocked.indexOf("holding short")).toBe(
+        active.indexOf("sonnet-5[1m]"),
+      );
+    });
+  });
   test("never exceeds the width", () => {
     for (const row of texts(boardRows(state, AIRPORT, 60, 40, opts)))
       expect(row.length).toBeLessThanOrEqual(60);

@@ -182,6 +182,8 @@ const ID_W = 8;
 const LANE_W = 2;
 const MODEL_W = 14;
 const AREA_W = 16;
+/** The title's floor: below it the tail (elapsed, phase, note) is cut instead. */
+const TITLE_MIN_W = 20;
 
 function tailFor(task: TaskState, theme: Theme, options: RowOptions): string {
   if (task.status === "blocked") return `${theme.states.blocked}: ${task.note}`;
@@ -237,7 +239,12 @@ function layoutFor(
       return Math.min(Math.max(0, tail - spare), 24);
     }),
   );
-  const titleW = Math.max(8, Math.min(32, columns - fixed - longestTail - 2));
+  const room = columns - fixed - 2;
+  const titleW = Math.max(
+    8,
+    Math.min(TITLE_MIN_W, room),
+    Math.min(32, room - longestTail),
+  );
   return { titleW, withArea, withModel };
 }
 
