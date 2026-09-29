@@ -178,4 +178,4 @@ else
 fi
 echo "       herdr agent prompt $LANE_A \"\$(cat $RUN_DIR/brief-A.md)\""
 echo "more lanes:  $KIT/add-lane.sh $RUN_DIR B <branch> $BRANCH <ids>"
-echo "watch:       tower wait --timeout 540 --stale $STALE   and   $KIT/watch-lanes.sh $RUN_DIR $LANE_A   (both in the background)"
+echo "watch:       tower wait --stale $STALE   and   $KIT/watch-lanes.sh $RUN_DIR $LANE_A   (both in the background)"

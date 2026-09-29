@@ -33,7 +33,7 @@ export const USAGE = `tower — a control tower for long-running agent implement
 
   scripts
     tower state --json
-    tower wait --timeout <seconds>            exit 0 when something needs a human, 3 when quiet
+    tower wait [--timeout <seconds>]          exit 0 when something needs a human, 3 when a timeout passes
 
   themes
     tower theme rules | new <name> | check <name> | preview <name>

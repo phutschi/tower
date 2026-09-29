@@ -6,6 +6,21 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- `tower wait` no longer needs `--timeout`. Without it, it waits until
+  attention, completion or close and exits 0 with the reasons; it exits 3
+  only when a timeout was given and passed, and 2 when the run dir disappears
+  during a wait without a timeout. Additive: a minor version.
+- The orchestrate kit's watches wait without a time limit: `bootstrap.sh`
+  prints `tower wait` without `--timeout`, and `watch-lanes.sh` stops after a
+  time limit only when `ROUND_SECONDS` sets one (a whole number of seconds;
+  anything else is refused).
+- `/tower:spec-to-plan` saves plans to
+  `$TOWER_PLANS_DIR/<repo>_<branch>/plan.md`, by default under
+  `${XDG_STATE_HOME:-$HOME/.local/state}/tower/plans`, instead of one
+  user's notes vault.
+
 ## [0.3.0] — 2026-09-07
 
 ### Added

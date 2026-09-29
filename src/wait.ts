@@ -1,15 +1,18 @@
 /**
  * Block until the run needs a human. This is the one thing every
  * orchestrator loop wants and the one thing a harness-neutral tool can offer:
- * exit 0 with the reasons printed, or exit 3 in silence when the timeout
- * passes with nothing to say.
+ * exit 0 with the reasons printed, or, when a timeout was given, exit 3 in
+ * silence once it passes with nothing to say.
  *
  * Polling, not fs.watch: a wait is long and rare, a 2 s poll is invisible,
  * and fs.watch on macOS has enough edge cases that the console pairs it with
  * a poll anyway.
  */
+import { existsSync } from "node:fs";
+
 import type { State } from "./state.ts";
 import { readEvents } from "./events.ts";
+import { UsageError } from "./io.ts";
 import { eventsPath, readRun } from "./run.ts";
 import { fold } from "./state.ts";
 
@@ -44,7 +47,8 @@ export function attentionLines(state: State, now: Date): string[] {
 
 export interface WaitOptions {
   runDir: string;
-  timeoutMs: number;
+  /** Omitted: wait until something needs a human, however long that takes. */
+  timeoutMs?: number;
   staleMinutes: number;
   now: () => Date;
   pollMs?: number;
@@ -68,13 +72,23 @@ export async function waitFor(options: WaitOptions): Promise<WaitResult> {
     // The fold's clock is injected (so a test can freeze staleness), but the
     // deadline is real wall-clock time: a wait genuinely blocks a process.
     const now = options.now();
-    const state = fold(run, readEvents(eventsPath(options.runDir), 0).lines, {
+    // A run dir that vanished reads as no events, which never needs
+    // attention: without this, a wait with no timeout would never end. A
+    // timed wait ends anyway, so it keeps its one contract: exit 3 at the
+    // deadline.
+    const events = eventsPath(options.runDir);
+    if (options.timeoutMs === undefined && !existsSync(events))
+      throw new UsageError(`the run at ${options.runDir} is gone`, 2);
+    const state = fold(run, readEvents(events, 0).lines, {
       now,
       staleMinutes: options.staleMinutes,
     });
     const lines = attentionLines(state, now);
     if (lines.length > 0) return { exit: 0, lines };
-    const remaining = options.timeoutMs - (Date.now() - started);
+    const remaining =
+      options.timeoutMs === undefined
+        ? poll
+        : options.timeoutMs - (Date.now() - started);
     if (remaining <= 0) return { exit: 3, lines: [] };
     await sleep(Math.min(poll, remaining));
   }

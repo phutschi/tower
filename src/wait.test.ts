@@ -1,3 +1,4 @@
+import { rmSync } from "node:fs";
 import { describe, expect, test } from "bun:test";
 
 import { appendEvent, readEvents } from "./events.ts";
@@ -164,6 +165,65 @@ describe("waitFor", () => {
     });
     expect(result.exit).toBe(0);
     expect(result.lines).toEqual(["blocked   1        later"]);
+  });
+
+  for (const [name, event, printed] of [
+    [
+      "attention",
+      {
+        v: 1,
+        kind: "report",
+        ts: NOW.toISOString(),
+        task: "1",
+        status: "blocked",
+        phase: "",
+        model: "",
+        note: "later",
+        commit: "",
+      },
+      "blocked   1        later",
+    ],
+    [
+      "close",
+      { v: 1, kind: "close", ts: NOW.toISOString(), text: "shipped" },
+      "closed    shipped",
+    ],
+  ] as const)
+    test(`without a timeout it keeps polling until ${name}`, async () => {
+      const { runDir } = seededRun();
+      setTimeout(() => appendEvent(eventsPath(runDir), event), 60);
+      const result = await waitFor({
+        runDir,
+        staleMinutes: 10,
+        now: () => NOW,
+        pollMs: 10,
+      });
+      expect(result).toEqual({ exit: 0, lines: [printed] });
+    });
+
+  test("with a timeout, a run that disappears still ends quietly with exit 3", async () => {
+    const { runDir } = seededRun();
+    setTimeout(() => rmSync(runDir, { recursive: true }), 20);
+    const result = await waitFor({
+      runDir,
+      timeoutMs: 80,
+      staleMinutes: 10,
+      now: () => NOW,
+      pollMs: 10,
+    });
+    expect(result).toEqual({ exit: 3, lines: [] });
+  });
+
+  test("without a timeout, a run that disappears ends the wait with exit 2", async () => {
+    const { runDir } = seededRun();
+    setTimeout(() => rmSync(runDir, { recursive: true }), 40);
+    const wait = waitFor({
+      runDir,
+      staleMinutes: 10,
+      now: () => NOW,
+      pollMs: 10,
+    });
+    await expect(wait).rejects.toMatchObject({ exit: 2 });
   });
 
   test("complete and closed also end the wait", async () => {

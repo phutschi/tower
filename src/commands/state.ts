@@ -55,17 +55,14 @@ export async function waitCommand(argv: string[], io: Io): Promise<number> {
       stale: { type: "string" },
     },
   });
-  if (values.timeout === undefined)
-    throw new UsageError(
-      "wait needs --timeout <seconds>; pick one under your harness's tool limit",
-    );
-  const seconds = Number(values.timeout);
-  if (!(seconds > 0))
+  const seconds =
+    values.timeout === undefined ? undefined : Number(values.timeout);
+  if (seconds !== undefined && !(seconds > 0))
     throw new UsageError(`--timeout expects seconds, got "${values.timeout}"`);
   const runDir = locateRun(io, values.run);
   const result = await waitFor({
     runDir,
-    timeoutMs: seconds * 1000,
+    ...(seconds !== undefined && { timeoutMs: seconds * 1000 }),
     staleMinutes: staleMinutes(io, values.stale),
     now: io.now,
   });
