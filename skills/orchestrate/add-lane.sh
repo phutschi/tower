@@ -24,6 +24,16 @@
 # START_TRIES (environment, default 10): how often an agent start is tried,
 # a second apart, while its new pane's shell is not ready yet (executor.sh).
 #
+# The lane's line goes into the pane map before its agent starts. When the
+# start fails, rerun the same call: when herdr does not find the lane's agent,
+# it is started again in the lane's pane and worktree, and nothing else is
+# redone (the task ids are already assigned). Refused: a lane whose agent
+# runs, any answer from herdr other than agent_not_found, a rerun with another
+# branch, kind, model or task ids than the first call's (ids read as tower
+# reads them), and a lane whose pane (herdr's pane_not_found) or worktree is
+# gone: the message says what to remove. A pane herdr cannot be asked about
+# is refused with nothing to remove; rerun once herdr answers.
+#
 # Never run this for real to see what it does; use DRY_RUN=1, which answers
 # every herdr, claude and codex call from tests/stub and opens nothing. tower
 # is the real CLI from this checkout (it needs bun): it records the run in the
@@ -49,7 +59,7 @@ case "$LANE" in
   A) die "lane A is started by bootstrap.sh" ;;
   *) die "lane must be B, C or D (four lanes at most)" ;;
 esac
-[ -z "$(lane_pane "$LANE")" ] || die "lane $LANE already exists (see $MAP)"
+PANE=$(lane_pane "$LANE")   # set: a rerun, the lane is already in the map
 TARGET=$(lane_pane "$ANCHOR")
 [ -n "$TARGET" ] || die "lane $LANE goes under lane $ANCHOR, which does not exist yet"
 
@@ -60,6 +70,65 @@ _here="$PWD"; cd "$REPO_ROOT"
 cd "$_here"; unset _here
 . "$KIT/executor.sh"       # EXECUTOR_KIND, EXECUTOR_MODEL, agent_name, start_agent*
 NAME="$(agent_name "-lane-$(echo "$LANE" | tr 'A-Z' 'a-z')")"
+lane_line() { printf 'lane %s:         %s   (agent "%s", kind %s, branch %s, checkout %s, model %s)\n' \
+  "$LANE" "$1" "$NAME" "$EXECUTOR_KIND" "$BRANCH" "$WT" "$EXECUTOR_MODEL"; }
+
+if [ -n "$PANE" ]; then
+  # A rerun. The lane's agent running means the lane exists. herdr not finding
+  # it means its start failed: start it again, in the lane's pane and worktree.
+  # Any other answer from herdr decides nothing.
+  case "$(state_of "$NAME")" in
+    gone) ;;
+    unreadable) die "lane $LANE: herdr cannot say whether agent $NAME runs; rerun once herdr answers" ;;
+    *) die "lane $LANE already exists (see $MAP)" ;;
+  esac
+  [ "$(grep "^lane $LANE:" "$MAP")" = "$(lane_line "$PANE")" ] \
+    || die "lane $LANE is in the pane map with another branch, kind or model; rerun with the ones it has (see $MAP)"
+  # The ids against what the lane owns on the board, read as tower reads them
+  # (src/ids.ts expandIds; tower has no command that expands without
+  # recording): tokens trimmed, empty ones dropped, an integer range expanded,
+  # zero-padded when both ends are written at the same width (07-09).
+  # An id tower refuses is refused with tower's words (the check exits 2;
+  # add-lane dies with its message).
+  board=$(tower state --json) || die "add-lane: tower state failed; rerun once tower answers"
+  rc=0; owned=$(printf '%s' "$board" | python3 -c 'import json,re,sys
+d=json.load(sys.stdin); want=set()
+def refuse(why): print(why); sys.exit(2)
+for t in map(str.strip, sys.argv[2].split(",")):
+    m = re.fullmatch(r"([0-9]+)-([0-9]+)", t)
+    if m:
+        lo, hi = m.groups()
+        if int(hi) < int(lo): refuse(f"range \"{t}\" runs backwards")
+        w = len(lo) if len(lo) == len(hi) else 0
+        want |= {str(n).zfill(w) for n in range(int(lo), int(hi) + 1)}
+    elif re.fullmatch(r"[A-Za-z]+-[A-Za-z]+", t):
+        refuse(f"range \"{t}\" must be integer to integer, like 7-9")
+    elif t and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", t):
+        refuse(f"\"{t}\" is not a valid task id (letters, digits, . _ -; no spaces)")
+    elif t:
+        want.add(t)
+have=d["lanes"].get(sys.argv[1], [])
+print(",".join(have)); sys.exit(0 if want == set(have) else 1)' "$LANE" "$TASKS") || rc=$?
+  case $rc in
+    0) ;;
+    2) die "add-lane: $owned" ;;
+    *) die "lane $LANE owns ${owned:-nothing} on the board, not $TASKS; rerun with those ids" ;;
+  esac
+  # Only herdr's pane_not_found is a closed pane; any other failure says
+  # nothing about it, and the map and the worktree stay.
+  if ! err=$(herdr pane get "$PANE" 2>&1 >/dev/null); then
+    case "$err" in
+      *'"pane_not_found"'*) die "lane $LANE's pane $PANE is gone (herdr pane get): remove its line from $MAP and the worktree $WT, then add the lane again" ;;
+      *) die "herdr cannot say whether lane $LANE's pane $PANE is open; rerun once herdr answers (herdr: ${err:-no output})" ;;
+    esac
+  fi
+  [ -d "$WT" ] || die "lane $LANE's checkout $WT is gone: close its pane $PANE and remove its line from $MAP, then add the lane again"
+  start_agent_with_trust_retry "$NAME" "$PANE" \
+    || die "add-lane: agent $NAME did not start in $PANE again; rerun  $KIT/add-lane.sh $RUN_DIR $LANE $BRANCH $BASE $TASKS  once it can"
+  [ -f "$WT/.env" ] || cp "$REPO_ROOT/.env" "$WT/.env" 2>/dev/null || true
+  echo "lane $LANE ready: agent $NAME in $PANE (started again) — next:  tower brief $LANE > $RUN_DIR/brief-$LANE.md, add the judgement (brief-template.md, with merge points in both briefs), then  herdr agent prompt $NAME \"\$(cat $RUN_DIR/brief-$LANE.md)\""
+  exit 0
+fi
 
 # Ownership first: tower refuses an unknown id, so a typo stops here, before a
 # worktree exists.
@@ -82,13 +151,15 @@ elif ! ( cd "$WT" && eval "$INSTALL_CMD" ) >"$INSTALL_LOG" 2>&1; then
   tail -n 5 "$INSTALL_LOG" >&2
 fi
 
-start_agent_with_trust_retry "$NAME" "$PANE"
+# The lane goes into the map before its agent starts, as bootstrap's does: a
+# start that fails leaves a lane a rerun can resume.
+lane_line "$PANE" >> "$MAP"
+start_agent_with_trust_retry "$NAME" "$PANE" \
+  || die "add-lane: agent $NAME did not start in $PANE; lane $LANE is in the pane map: rerun  $KIT/add-lane.sh $RUN_DIR $LANE $BRANCH $BASE $TASKS  to start it again"
 
 # .env (gitignored) only after the agent owns the pane: the pane's shell must
 # never see a .env at startup or on a cd, or a dotenv-style plugin prompts and
 # eats whatever is typed next. The brief arrives later, so the lane has it in time.
 [ -f "$WT/.env" ] || cp "$REPO_ROOT/.env" "$WT/.env" 2>/dev/null || true
 
-printf 'lane %s:         %s   (agent "%s", kind %s, branch %s, checkout %s, model %s)\n' \
-  "$LANE" "$PANE" "$NAME" "$EXECUTOR_KIND" "$BRANCH" "$WT" "$EXECUTOR_MODEL" >> "$MAP"
 echo "lane $LANE ready: agent $NAME in $PANE — next:  tower brief $LANE > $RUN_DIR/brief-$LANE.md, add the judgement (brief-template.md, with merge points in both briefs), then  herdr agent prompt $NAME \"\$(cat $RUN_DIR/brief-$LANE.md)\""

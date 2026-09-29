@@ -189,7 +189,8 @@ _Avoid_: hung, dead, silent, NORDO (rendering only)
 Derived: the run is not closed and something is blocked or stale. The one
 boolean a script needs. In an orchestrate run the watch also reports
 attention per agent, lane or Reviewer: herdr says it is blocked, done or
-gone, or it is idle with or without its end line.
+gone, or it is idle with or without its end line, or herdr could not be read
+for it all round (unreadable).
 _Avoid_: alert, alarm, needs-human, urgent
 
 **Complete**:

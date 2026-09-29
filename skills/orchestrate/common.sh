@@ -30,6 +30,21 @@ in_herdr() {
 need()     { local c; for c in "$@"; do command -v "$c" >/dev/null || die "missing dependency: $c"; done; }
 jsonq()    { python3 -c "import json,sys; d=json.load(sys.stdin); print($1)"; }
 pane_id()  { jsonq 'd["result"]["pane"]["pane_id"]'; }
+# An agent's state: herdr's agent_status (its own unknown included: an agent
+# herdr cannot classify); gone only when herdr answers agent_not_found;
+# unreadable when herdr fails for any other reason (a server restarting, a
+# timeout) or answers without a status, which says nothing about the agent.
+# herdr's errors are on stderr, read only when the call fails.
+state_of() {
+  local out err state
+  err=$(mktemp)
+  if out=$(herdr agent get "$1" 2>"$err"); then
+    state=$(echo "$out" | jsonq '((d.get("result") or {}).get("agent") or {}).get("agent_status") or "unreadable"' 2>/dev/null) || state=unreadable
+  elif grep -q '"agent_not_found"' "$err"; then state=gone
+  else state=unreadable
+  fi
+  rm -f "$err"; echo "$state"
+}
 # The main checkout's root, from any worktree of it.
 repo_root() { git rev-parse --path-format=absolute --git-common-dir | sed 's#/\.git$##'; }
 

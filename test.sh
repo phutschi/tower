@@ -69,7 +69,7 @@ done
 unset _tool _which
 command -v bun >/dev/null || { echo "test.sh: tower runs from this checkout with bun, and bun is not on PATH — refusing to run" >&2; exit 1; }
 command -v npm >/dev/null || { echo "test.sh: the look section runs npm scripts in its fixtures, and npm is not on PATH — refusing to run" >&2; exit 1; }
-reset_stub() { : > "$HERDR_STUB_LOG"; rm -f "$HERDR_STUB_COUNTER" "$HERDR_STUB_COUNTER.busy" "$HERDR_STUB_COUNTER.enters"; }
+reset_stub() { : > "$HERDR_STUB_LOG"; rm -f "$HERDR_STUB_COUNTER" "$HERDR_STUB_COUNTER.busy" "$HERDR_STUB_COUNTER.enters" "$HERDR_STUB_COUNTER.trust"; }
 # A new git repo built from tests/fixtures/<name> (or empty), named <name>, in
 # a directory of its own: every call is a fresh repo, so tower's run pointer
 # (in the repo's git dir) is never shared between two runs. Prints its path.
@@ -247,7 +247,7 @@ if section bootstrap; then
   assert_match "layout: bottom row first"               "$log" '^herdr pane split --current --direction down --ratio 0.7 '
   assert_match "layout: lane A right of the orchestrator" "$log" '^herdr pane split --current --direction right --ratio 0.3 '
   assert_match "layout: console right of checks"        "$log" '^herdr pane split --pane pane-1 --direction right --ratio 0.5 '
-  assert_match "layout: checks pane runs the runner in the checkout" "$log" "^herdr pane run pane-1 cd '$r/.' && bunx vitest --watch$"
+  assert_match "layout: checks pane runs the runner in the checkout" "$log" "^herdr pane run pane-1 cd $r/\. && bunx vitest --watch$"
   assert_match "layout: console runs tower"             "$log" '^herdr pane run pane-3 tower --stale 30$'
   assert_match "lane A: agent named and started"        "$log" '^herdr agent start bun-vitest-lane-a --kind claude --pane pane-2 -- --model claude-opus-5-5\[1m\]$'
   map=$(cat "$RUN/panes.txt")
@@ -365,8 +365,8 @@ if section bootstrap; then
   log=$(cat "$HERDR_STUB_LOG")
   assert_match "dev: bottom row in thirds, checks after dev" "$log" '^herdr pane split --pane pane-1 --direction right --ratio 0.34 '
   assert_match "dev: console after checks"              "$log" '^herdr pane split --pane pane-3 --direction right --ratio 0.5 '
-  assert_match "dev: dev pane runs in its dir"          "$log" "^herdr pane run pane-1 cd '$r/web' && make dev$"
-  assert_match "dev: checks pane runs make watch"       "$log" "^herdr pane run pane-3 cd '$r/.' && make watch$"
+  assert_match "dev: dev pane runs in its dir"          "$log" "^herdr pane run pane-1 cd $r/web && make dev$"
+  assert_match "dev: checks pane runs make watch"       "$log" "^herdr pane run pane-3 cd $r/\. && make watch$"
   assert_match "dev: pane map has dev, checks, console" "$(cat "$RUN/panes.txt")" '^dev: +pane-1 '
   assert_match "dev: console is pane-4"                 "$(cat "$RUN/panes.txt")" '^console: +pane-4 '
 
@@ -377,7 +377,28 @@ if section bootstrap; then
   RUN="$TMP/run-worktree"; reset_stub
   boot "$wt" "$RUN" "Worktree" wt-branch >/dev/null
   assert_match "worktree: lane A checkout is where bootstrap ran, not repo_root" "$(cat "$RUN/panes.txt")" '^lane A: +pane-2 +\(agent "[^"]+", kind claude, branch wt-branch, checkout '"$wt"', model '
-  assert_match "worktree: checks pane cds into the worktree"  "$(cat "$HERDR_STUB_LOG")" "^herdr pane run pane-1 cd '$wt/.' && "
+  assert_match "worktree: checks pane cds into the worktree"  "$(cat "$HERDR_STUB_LOG")" "^herdr pane run pane-1 cd $wt/\. && "
+
+  # The pane commands are shell code built around the checkout's path: a path
+  # with an apostrophe (or one crafted to run code) must stay one directory.
+  # Each pane's logged command is run as its shell would (bash, and zsh where
+  # it is installed), with the runner replaced by one that prints where it ran.
+  mkdir -p "$TMP/fakebin"; printf '#!/bin/sh\npwd -P\n' > "$TMP/fakebin/bunx"; printf '#!/bin/sh\npwd -P\n' > "$TMP/fakebin/make"
+  chmod +x "$TMP/fakebin/bunx" "$TMP/fakebin/make"
+  pane_cwd() { PATH="$TMP/fakebin:$PATH" "$1" -c "$(sed -n "s/^herdr pane run $2 //p" "$HERDR_STUB_LOG")" 2>&1; }
+  shells=bash; command -v zsh >/dev/null && shells="bash zsh"
+  for name in "rex's repo" "x'; touch pwned; '"; do
+    src=$(fixture_repo contract); r="$TMP/repos/quoted/$name"; mkdir -p "$TMP/repos/quoted"; mv "$src" "$r"; mkdir -p "$r/web"
+    RUN="$TMP/run-quoted"; rm -rf "$RUN"; reset_stub
+    out=$(boot "$r" "$RUN" "Quoted" main; echo "exit=$?")
+    assert_match "quoted path ($name): bootstrap finishes"    "$out" 'exit=0$'
+    for sh in $shells; do
+      assert_eq "quoted path ($name, $sh): checks pane runs in the checkout" "$(cd "$TMP/repos/quoted" && pane_cwd "$sh" pane-3)" "$r"
+      assert_eq "quoted path ($name, $sh): dev pane runs in its dir"         "$(cd "$TMP/repos/quoted" && pane_cwd "$sh" pane-1)" "$r/web"
+      assert_eq "quoted path ($name, $sh): no code in the path runs" "$([ -e "$TMP/repos/quoted/pwned" ] && echo ran || echo none)" none
+    done
+    rm -rf "$TMP/repos/quoted"
+  done
 
   # A new pane's shell may not be ready when the agent starts: herdr answers
   # agent_pane_busy, and the start is tried again.
@@ -392,6 +413,27 @@ if section bootstrap; then
   assert_match "busy pane: giving up shows herdr's answer" "$out" 'agent_pane_busy'
   assert_match "busy pane: giving up says what to do"   "$out" 'pane pane-2 is still not a ready shell after 3 tries; check it, or raise START_TRIES'
   assert_match "busy pane: giving up fails bootstrap"    "$out" 'exit=1$'
+
+  # A fresh checkout's trust prompt blocks the start: it is answered, and the
+  # agent is started again only when herdr says it is not there.
+  S="$HERDR_STUB_STATES_DIR"
+  for case in "gone:2:0" "working:1:0" "idle:1:0" "unreachable:1:1" "blocked:1:1" "unknown:1:1"; do
+    IFS=: read -r state starts code <<< "$case"
+    r=$(fixture_repo bun-vitest); RUN="$TMP/run-trust-$state"; reset_stub; echo "$state" > "$S/bun-vitest-lane-a"
+    out=$(HERDR_STUB_TRUST_STARTS=1 boot "$r" "$RUN" "Trust" main; echo "exit=$?")
+    assert_match "trust prompt: answered"                "$(cat "$HERDR_STUB_LOG")" '^herdr pane send-keys pane-2 Down Enter$'
+    assert_eq "trust prompt, agent $state: starts"       "$(grep -c '^herdr agent start bun-vitest-lane-a ' "$HERDR_STUB_LOG")" "$starts"
+    assert_match "trust prompt, agent $state: exit $code" "$out" "exit=$code\$"
+    case $state in
+      unreachable) assert_match "trust prompt, herdr failing: says so" "$out" 'herdr cannot say whether bun-vitest-lane-a started' ;;
+      unknown)     assert_match "trust prompt, agent unknown: says so" "$out" 'bun-vitest-lane-a is still unknown in pane pane-2 after its trust prompt was answered' ;;
+    esac
+  done
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-trust-keys"; reset_stub
+  out=$(HERDR_STUB_TRUST_STARTS=1 HERDR_STUB_SEND_KEYS_FAIL=1 boot "$r" "$RUN" "Trust" main; echo "exit=$?")
+  assert_match "trust prompt, send-keys failing: bootstrap fails, saying so" "$out" "could not answer bun-vitest-lane-a's trust prompt in pane pane-2"
+  assert_match "trust prompt, send-keys failing: exit 1" "$out" 'exit=1$'
+  rm -f "$S/bun-vitest-lane-a"
 fi
 
 # --- add-lane ----------------------------------------------------------------
@@ -444,6 +486,136 @@ if section add-lane; then
   assert_match "busy pane: add-lane finishes"         "$out" 'exit=0$'
   assert_nomatch "busy pane: add-lane shows no busy error" "$out" 'agent_pane_busy'
   assert_eq "busy pane: the lane's start is tried again" "$(grep -c '^herdr agent start bun-vitest-lane-c ' "$HERDR_STUB_LOG")" 2
+
+  # An agent that fails to start leaves its lane in the pane map, and a rerun
+  # starts the agent in that pane and worktree instead of creating them again.
+  r=$(fixture_repo bun-vitest); RUNF="$TMP/run-failstart"; reset_stub
+  (cd "$r" && "$KIT/bootstrap.sh" "$RUNF" "Fail start" main "$KIT/example-tasks.tsv" >/dev/null 2>&1)
+  reset_stub; out=$(cd "$r" && HERDR_STUB_BUSY_STARTS=99 START_TRIES=1 "$KIT/add-lane.sh" "$RUNF" B feat/b main 2,3 2>&1; echo "exit=$?")
+  assert_match "failed start: add-lane fails"          "$out" 'exit=1$'
+  assert_match "failed start: the lane is in the pane map" "$(cat "$RUNF/panes.txt")" '^lane B: +pane-[0-9]+ +\(agent "bun-vitest-lane-b", kind claude, branch feat/b, checkout '"$r"'/.worktrees/feat/b, model '
+  assert_match "failed start: says how to resume"      "$out" 'rerun  .*/add-lane\.sh .* B feat/b main 2,3  to start it again'
+  bpane=$(sed -nE 's/^lane B: +([^ ]+).*/\1/p' "$RUNF/panes.txt")
+  echo gone > "$HERDR_STUB_STATES_DIR/bun-vitest-lane-b"
+  mkdir -p "$r/.worktrees/feat/b"   # the stub's worktree create makes none
+  reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNF" B feat/b main 2,3 2>&1; echo "exit=$?"); log=$(cat "$HERDR_STUB_LOG")
+  assert_match "rerun: add-lane finishes"               "$out" 'exit=0$'
+  assert_nomatch "rerun: no second worktree"            "$log" '^herdr worktree create'
+  assert_nomatch "rerun: the pane is not moved again"   "$log" '^herdr pane move'
+  assert_match "rerun: the agent starts in the lane's pane" "$log" "^herdr agent start bun-vitest-lane-b --kind claude --pane $bpane "
+  assert_eq "rerun: one lane B line in the pane map"    "$(grep -c '^lane B:' "$RUNF/panes.txt")" 1
+  assert_match "rerun: prints the next step"            "$out" 'lane B ready'
+  assert_eq "rerun: lane B still owns its tasks"        "$(board "$RUNF" '",".join(d["lanes"].get("B", []))')" "2,3"
+  rm -f "$HERDR_STUB_STATES_DIR/bun-vitest-lane-b"
+  reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNF" B feat/b main 2,3 2>&1; echo "exit=$?")
+  assert_match "rerun, agent running: refused"         "$out" 'lane B already exists'
+  assert_nomatch "rerun, agent running: no start"      "$(cat "$HERDR_STUB_LOG")" '^herdr agent start'
+  echo unreachable > "$HERDR_STUB_STATES_DIR/bun-vitest-lane-b"
+  reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNF" B feat/b main 2,3 2>&1; echo "exit=$?")
+  assert_match "rerun, herdr failing: refused"         "$out" 'exit=1$'
+  assert_match "rerun, herdr failing: ... saying herdr cannot tell" "$out" 'herdr cannot say whether agent bun-vitest-lane-b runs'
+  assert_nomatch "rerun, herdr failing: no start"      "$(cat "$HERDR_STUB_LOG")" '^herdr agent start'
+  echo gone > "$HERDR_STUB_STATES_DIR/bun-vitest-lane-b"
+  reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNF" B feat/other main 2,3 2>&1; echo "exit=$?")
+  assert_match "rerun, another branch: refused"        "$out" 'lane B is in the pane map with another branch, kind or model'
+  assert_nomatch "rerun, another branch: no start"     "$(cat "$HERDR_STUB_LOG")" '^herdr agent start'
+  reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNF" B feat/b main 4,5 2>&1; echo "exit=$?")
+  assert_match "rerun, other task ids: refused, naming the lane's" "$out" 'lane B owns 2,3 on the board, not 4,5; rerun with those ids'
+  assert_nomatch "rerun, other task ids: no start"     "$(cat "$HERDR_STUB_LOG")" '^herdr agent start'
+  assert_eq "rerun, other task ids: the board keeps lane B's" "$(board "$RUNF" '",".join(d["lanes"].get("B", []))')" "2,3"
+  reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNF" B feat/b main 2,3,9-7 2>&1; echo "exit=$?")
+  assert_match "rerun, a backwards range: refused as tower refuses it" "$out" '^add-lane: range "9-7" runs backwards$'
+  assert_match "rerun, a backwards range: fails"       "$out" 'exit=1$'
+  assert_nomatch "rerun, a backwards range: no start"  "$(cat "$HERDR_STUB_LOG")" '^herdr agent start'
+  reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNF" B feat/b main '2,3,a-b' 2>&1; echo "exit=$?")
+  assert_match "rerun, a letter range: refused as tower refuses it" "$out" '^add-lane: range "a-b" must be integer to integer, like 7-9$'
+  assert_match "rerun, a letter range: fails"          "$out" 'exit=1$'
+  assert_nomatch "rerun, a letter range: no start"     "$(cat "$HERDR_STUB_LOG")" '^herdr agent start'
+  reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNF" B feat/b main '2,3,a b' 2>&1; echo "exit=$?")
+  assert_match "rerun, an invalid id: refused as tower refuses it" "$out" '^add-lane: "a b" is not a valid task id \(letters, digits, \. _ -; no spaces\)$'
+  assert_match "rerun, an invalid id: fails"           "$out" 'exit=1$'
+  assert_nomatch "rerun, an invalid id: no start"      "$(cat "$HERDR_STUB_LOG")" '^herdr agent start'
+  # tower failing to read the record is said as such, not blamed on the ids.
+  chmod 000 "$RUNF/run.json"
+  reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNF" B feat/b main 2,3 2>&1; echo "exit=$?")
+  chmod 644 "$RUNF/run.json"
+  assert_match "rerun, tower state failing: says tower failed" "$out" '^add-lane: tower state failed; rerun once tower answers$'
+  assert_nomatch "rerun, tower state failing: the ids are not blamed" "$out" 'on the board, not'
+  assert_nomatch "rerun, tower state failing: no start" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start'
+  reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNF" B feat/b main 2-3 2>&1; echo "exit=$?")
+  assert_match "rerun, the same ids as a range: finishes" "$out" 'exit=0$'
+  echo gone > "$HERDR_STUB_STATES_DIR/bun-vitest-lane-b"
+  rm -rf "$r/.worktrees/feat/b"
+  reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNF" B feat/b main 2,3 2>&1; echo "exit=$?")
+  assert_match "rerun, worktree removed: refused, saying what to remove" "$out" "lane B's checkout .*/\.worktrees/feat/b is gone: close its pane $bpane and remove its line"
+  assert_nomatch "rerun, worktree removed: no start"   "$(cat "$HERDR_STUB_LOG")" '^herdr agent start'
+  mkdir -p "$r/.worktrees/feat/b"; echo gone > "$HERDR_STUB_STATES_DIR/$bpane"
+  reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNF" B feat/b main 2,3 2>&1; echo "exit=$?")
+  assert_match "rerun, pane closed: refused, saying what to remove" "$out" "lane B's pane $bpane is gone \(herdr pane get\): remove its line"
+  assert_nomatch "rerun, pane closed: no start"        "$(cat "$HERDR_STUB_LOG")" '^herdr agent start'
+  # herdr failing to answer for the pane is not the pane closed: nothing is
+  # to be removed, and the map and the worktree stay.
+  echo unreachable > "$HERDR_STUB_STATES_DIR/$bpane"; before=$(cat "$RUNF/panes.txt")
+  reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNF" B feat/b main 2,3 2>&1; echo "exit=$?")
+  assert_match "rerun, pane get failing: refused, herdr named" "$out" "herdr cannot say whether lane B's pane $bpane is open; rerun once herdr answers \(herdr: .*server_unavailable"
+  assert_nomatch "rerun, pane get failing: no removal advice" "$out" 'remove its line'
+  assert_nomatch "rerun, pane get failing: no start"   "$(cat "$HERDR_STUB_LOG")" '^herdr agent start'
+  # add-lane only advises removal today; these guard against a cleanup added later.
+  assert_eq "rerun, pane get failing: the pane map is kept" "$(cat "$RUNF/panes.txt")" "$before"
+  assert_eq "rerun, pane get failing: the worktree is kept" "$([ -d "$r/.worktrees/feat/b" ] && echo kept || echo gone)" kept
+  rm -f "$HERDR_STUB_STATES_DIR/$bpane"
+  reset_stub; out=$(cd "$r" && HERDR_STUB_BUSY_STARTS=99 START_TRIES=1 "$KIT/add-lane.sh" "$RUNF" B feat/b main 2,3 2>&1; echo "exit=$?")
+  assert_match "rerun, start fails again: says to rerun" "$out" 'did not start in pane-[0-9]+ again; rerun  .*/add-lane\.sh .* B feat/b main 2,3  once it can'
+  assert_match "rerun, start fails again: fails"       "$out" 'exit=1$'
+  rm -f "$HERDR_STUB_STATES_DIR/bun-vitest-lane-b"
+
+  # A rerun reads the task ids as tower does: a padded range keeps its width,
+  # and spaces and empty tokens between commas are nothing.
+  r=$(fixture_repo bun-vitest); RUNP="$TMP/run-padded"; reset_stub
+  printf '07\tSeven\tcore\n08\tEight\tcore\n09\tNine\tcore\n10\tTen\tcore\n11\tEleven\tcore\n' > "$TMP/padded.tsv"
+  (cd "$r" && "$KIT/bootstrap.sh" "$RUNP" "Padded" main "$TMP/padded.tsv" >/dev/null 2>&1)
+  for spec in "B feat/b 07-09" "C feat/c 10, 11,"; do
+    read -r l br ids <<< "$spec"; ln=$(echo "$l" | tr 'A-Z' 'a-z')
+    reset_stub; out=$(cd "$r" && HERDR_STUB_BUSY_STARTS=99 START_TRIES=1 "$KIT/add-lane.sh" "$RUNP" "$l" "$br" main "$ids" 2>&1; echo "exit=$?")
+    assert_match "first call with '$ids': the start fails" "$out" 'exit=1$'
+    assert_match "first call with '$ids': the lane is in the pane map" "$(cat "$RUNP/panes.txt")" "^lane $l: "
+    echo gone > "$HERDR_STUB_STATES_DIR/bun-vitest-lane-$ln"; mkdir -p "$r/.worktrees/$br"
+    reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNP" "$l" "$br" main "$ids" 2>&1; echo "exit=$?")
+    assert_match "rerun with '$ids': the same ids, so it finishes" "$out" 'exit=0$'
+    assert_match "rerun with '$ids': the agent starts"  "$(cat "$HERDR_STUB_LOG")" "^herdr agent start bun-vitest-lane-$ln "
+    rm -f "$HERDR_STUB_STATES_DIR/bun-vitest-lane-$ln"
+  done
+  echo gone > "$HERDR_STUB_STATES_DIR/bun-vitest-lane-b"
+  reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNP" B feat/b main 7-9 2>&1; echo "exit=$?")
+  assert_match "rerun with '7-9' for 07,08,09: other ids, refused" "$out" 'lane B owns 07,08,09 on the board, not 7-9; rerun with those ids'
+  rm -f "$HERDR_STUB_STATES_DIR/bun-vitest-lane-b"
+  assert_eq "padded: the board has the lanes' ids as written" "$(board "$RUNP" '" ".join(k+"="+",".join(v) for k,v in sorted(d["lanes"].items()))')" "B=07,08,09 C=10,11"
+  # A trust prompt that cannot be answered, or an agent still blocked after
+  # the answer, fails the call: no ready line, and the lane stays in the map
+  # for a rerun.
+  r=$(fixture_repo bun-vitest); RUNT="$TMP/run-trust-lane"; reset_stub
+  (cd "$r" && "$KIT/bootstrap.sh" "$RUNT" "Trust" main "$KIT/example-tasks.tsv" >/dev/null 2>&1)
+  reset_stub; out=$(cd "$r" && HERDR_STUB_TRUST_STARTS=1 HERDR_STUB_SEND_KEYS_FAIL=1 "$KIT/add-lane.sh" "$RUNT" B feat/b main 2 2>&1; echo "exit=$?")
+  assert_match "trust, send-keys failing: fails"       "$out" 'exit=1$'
+  assert_match "trust, send-keys failing: says so"     "$out" "could not answer bun-vitest-lane-b's trust prompt"
+  assert_nomatch "trust, send-keys failing: no ready line" "$out" 'lane B ready'
+  assert_match "trust, send-keys failing: the lane is in the pane map" "$(cat "$RUNT/panes.txt")" '^lane B: '
+  # The start again after the answer can meet the prompt again: that fails,
+  # saying so, and is not tried a third time.
+  echo gone > "$HERDR_STUB_STATES_DIR/bun-vitest-lane-d"
+  reset_stub; out=$(cd "$r" && HERDR_STUB_TRUST_STARTS=2 "$KIT/add-lane.sh" "$RUNT" D feat/d main 4 2>&1; echo "exit=$?")
+  assert_match "trust, the start again fails: fails"   "$out" 'exit=1$'
+  assert_match "trust, the start again fails: says so" "$out" 'bun-vitest-lane-d did not start again in pane pane-[0-9]+ after its trust prompt'
+  assert_eq "trust, the start again fails: two starts" "$(grep -c '^herdr agent start bun-vitest-lane-d ' "$HERDR_STUB_LOG")" 2
+  assert_nomatch "trust, the start again fails: no ready line" "$out" 'lane D ready'
+  rm -f "$HERDR_STUB_STATES_DIR/bun-vitest-lane-d"
+  echo blocked > "$HERDR_STUB_STATES_DIR/bun-vitest-lane-c"
+  reset_stub; out=$(cd "$r" && HERDR_STUB_TRUST_STARTS=1 "$KIT/add-lane.sh" "$RUNT" C feat/c main 3 2>&1; echo "exit=$?")
+  assert_match "trust, still blocked: fails"           "$out" 'exit=1$'
+  assert_match "trust, still blocked: says so"         "$out" 'bun-vitest-lane-c is still blocked in pane pane-[0-9]+ after its trust prompt was answered'
+  assert_nomatch "trust, still blocked: no ready line" "$out" 'lane C ready'
+  assert_match "trust, still blocked: the lane is in the pane map" "$(cat "$RUNT/panes.txt")" '^lane C: '
+  rm -f "$HERDR_STUB_STATES_DIR/bun-vitest-lane-c"
 fi
 
 # --- add-reviewer ------------------------------------------------------------
@@ -496,6 +668,24 @@ if section add-reviewer; then
   assert_eq "within 3 checks, one Enter: no retry storm" "$(grep -c '^herdr pane send-keys pane-1 Enter$' "$HERDR_STUB_LOG")" 1
   assert_nomatch "that refusal starts no agent"       "$(cat "$HERDR_STUB_LOG")" '^herdr agent start'
   assert_nomatch "that refusal adds no board task"    "$(reviews "$RUN")" 'R1-3'
+  # herdr failing for another reason than agent_not_found is not the previous
+  # Reviewer having exited.
+  echo unreachable > "$S/bun-vitest-r1-2"; reset_stub
+  out=$(review R1 claude "Preflight R1" "$RUN/findings/preflight-r1.json")
+  assert_match "herdr failing: refused, the previous Reviewer's state unreadable" "$out" 'herdr cannot say whether Reviewer bun-vitest-r1-2 is still there'
+  assert_nomatch "herdr failing: nothing sent, nothing started" "$(cat "$HERDR_STUB_LOG")" '^herdr (pane send|agent start)'
+  assert_nomatch "herdr failing: no board task"       "$(reviews "$RUN")" 'R1-3'
+  printf 'idle\nunreachable\n' > "$S/bun-vitest-r1-2"; reset_stub
+  out=$(EXIT_WAIT_SECONDS=2 review R1 claude "Preflight R1" "$RUN/findings/preflight-r1.json")
+  assert_match "herdr failing after /exit: /exit was sent" "$(cat "$HERDR_STUB_LOG")" '^herdr pane send-text pane-1 /exit$'
+  assert_match "herdr failing after /exit: not read as exited, herdr named" "$out" 'herdr cannot say whether Reviewer bun-vitest-r1-2 exited'
+  assert_nomatch "herdr failing after /exit: no agent start" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start'
+  # herdr's own unknown status is an agent it cannot classify: it is there,
+  # and is sent /exit like an idle one.
+  echo unknown > "$S/bun-vitest-r1-2"; reset_stub
+  out=$(EXIT_WAIT_SECONDS=2 review R1 claude "Preflight R1" "$RUN/findings/preflight-r1.json")
+  assert_match "herdr's unknown: the previous Reviewer is sent /exit" "$(cat "$HERDR_STUB_LOG")" '^herdr pane send-text pane-1 /exit$'
+  assert_match "herdr's unknown: ... and waited for"  "$out" 'bun-vitest-r1-2 did not exit'
   echo gone > "$S/bun-vitest-r1-2"; reset_stub
   out=$(REVIEWER_MODEL=gpt-6-astra-pro review R1 claude "Preflight R1" "$RUN/findings/preflight-r1.json"); log=$(cat "$HERDR_STUB_LOG")
   assert_nomatch "an exited Reviewer is not sent /exit" "$log" '^herdr pane send-text'
@@ -605,6 +795,13 @@ if section add-reviewer; then
   assert_match "busy pane: add-reviewer finishes"     "$out" 'exit=0$'
   assert_nomatch "busy pane: add-reviewer shows no busy error" "$out" 'agent_pane_busy'
   assert_eq "busy pane: the Reviewer's start is tried again" "$(grep -c '^herdr agent start bun-vitest-r1-1 ' "$HERDR_STUB_LOG")" 2
+  # A trust prompt that cannot be answered fails the call, saying so.
+  RUN5="$TMP/run-review-trust"
+  r=$(fixture_repo bun-vitest); (cd "$r" && "$KIT/bootstrap.sh" "$RUN5" "Trust" main >/dev/null 2>&1); reset_stub
+  out=$(cd "$r" && HERDR_STUB_TRUST_STARTS=1 HERDR_STUB_SEND_KEYS_FAIL=1 "$KIT/add-reviewer.sh" "$RUN5" R1 claude "Trust" "$RUN5/findings/a.json" 2>&1; echo "exit=$?")
+  assert_match "trust, send-keys failing: add-reviewer fails" "$out" 'exit=1$'
+  assert_match "trust, send-keys failing: says so"     "$out" "could not answer bun-vitest-r1-1's trust prompt"
+  assert_nomatch "trust, send-keys failing: no ready line" "$out" 'reviewer R1 ready'
 fi
 
 # --- watch -------------------------------------------------------------------
@@ -708,6 +905,22 @@ if section watch; then
   assert_match "idle without a report is unexplained" "$out" '^attention: a idle-unexplained'
   echo gone > "$S/a"; out=$(watch a)
   assert_match "gone"                                 "$out" '^attention: a gone'
+  # herdr failing for another reason than agent_not_found says nothing about
+  # the agent: it reads unreadable, like working, and never settles as gone.
+  printf 'unreachable\nworking\n' > "$S/a"; out=$(ROUND=1 watch a)
+  assert_nomatch "herdr failing once: no attention"   "$out" '^attention: a '
+  assert_match "herdr failing once: quiet"            "$out" 'exit=3$'
+  # Failing on every poll of a whole round is attention, never gone.
+  echo unreachable > "$S/a"; out=$(ROUND=1 watch a)
+  assert_match "herdr failing all round: attention, unreadable" "$out" '^attention: a unreadable$'
+  assert_nomatch "herdr failing all round: not gone"  "$out" '^attention: a gone'
+  assert_match "herdr failing all round: unreadable in the state table" "$out" '^a +unreadable$'
+  assert_match "herdr failing all round: exit 0"      "$out" 'exit=0$'
+  echo shapeless > "$S/a"; out=$(ROUND=1 watch a)
+  assert_match "an answer without a status: unreadable, not settled early" "$out" '^attention: a unreadable$'
+  echo unreachable > "$S/a"; echo done > "$S/b"; out=$(watch a b)
+  assert_match "herdr failing for one lane: the settled one" "$out" '^attention: b done'
+  assert_nomatch "herdr failing for one lane: that lane is not gone" "$out" '^attention: a '
   echo working > "$S/a"; echo done > "$S/b"; out=$(watch a b)
   assert_match "two lanes: only the settled one"      "$out" '^attention: b done'
   assert_nomatch "two lanes: the working one is quiet" "$out" '^attention: a '

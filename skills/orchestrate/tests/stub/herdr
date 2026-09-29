@@ -2,15 +2,22 @@
 # Stand-in for herdr under DRY_RUN=1 and test.sh. Logs argv to HERDR_STUB_LOG and
 # answers with the JSON shapes the kit reads. Pane ids count up per process
 # tree through HERDR_STUB_COUNTER. Agent states come from
-# HERDR_STUB_STATES_DIR/<name> (a status word, or "gone"; with several lines,
-# each `agent get` answers the first and drops it, the last one stays), pane
-# tails from HERDR_STUB_STATES_DIR/<name>.tail. Every pane is in workspace
-# ws-0; `pane get` answers pane_not_found when HERDR_STUB_STATES_DIR/<pane-id>
-# says gone. HERDR_STUB_BUSY_STARTS=N answers the first N `agent start` calls
-# with agent_pane_busy (a pane whose shell is not ready yet), counted through
-# HERDR_STUB_COUNTER.busy. HERDR_STUB_EXIT_ON_ENTER=N: every `agent get` answers
-# gone once N `pane send-keys ... Enter` calls were made (counted through
+# HERDR_STUB_STATES_DIR/<name> (a status word, "gone", "unreachable": herdr
+# failing for another reason, or "shapeless": an answer with a null status;
+# with several lines, each `agent get` answers the first and drops it, the
+# last one stays), pane tails from HERDR_STUB_STATES_DIR/<name>.tail. Every
+# pane is in workspace ws-0; `pane get` answers pane_not_found when
+# HERDR_STUB_STATES_DIR/<pane-id> says gone, and server_unavailable when it
+# says unreachable.
+# HERDR_STUB_BUSY_STARTS=N answers the first N `agent start` calls with
+# agent_pane_busy (a pane whose shell is not ready yet), counted through
+# HERDR_STUB_COUNTER.busy. HERDR_STUB_TRUST_STARTS=N answers the first N with an
+# agent blocked during startup (a trust prompt), counted through
+# HERDR_STUB_COUNTER.trust. HERDR_STUB_SEND_KEYS_FAIL=1: every `pane
+# send-keys` fails. HERDR_STUB_EXIT_ON_ENTER=N: every `agent get` answers gone
+# once N `pane send-keys ... Enter` calls were made (counted through
 # HERDR_STUB_COUNTER.enters), as an agent that needs N Enters to exit.
+# Errors are JSON on stderr with exit 1, as herdr answers them.
 # HERDR_STUB=absent refuses to run, so herdr counts as not installed; it logs
 # each refused call as "herdr-absent <argv>".
 [ "${HERDR_STUB:-}" = absent ] && { printf 'herdr-absent %s\n' "$*" >> "${HERDR_STUB_LOG:-/dev/null}"; echo "herdr: not installed (stub)" >&2; exit 127; }
@@ -28,29 +35,40 @@ case "${1:-} ${2:-}" in
   "pane move")       echo "{\"result\":{\"move_result\":{\"pane\":{\"pane_id\":\"$(next_id)\"}}}}" ;;
   "pane list")       echo '{"result":{"panes":[]}}' ;;
   "pane get")
-    [ -n "$states" ] && [ "$(head -1 "$states/$3" 2>/dev/null)" = gone ] && { echo '{"error":{"code":"pane_not_found"}}'; exit 1; }
+    case "$([ -n "$states" ] && head -1 "$states/$3" 2>/dev/null)" in
+      gone)        echo '{"error":{"code":"pane_not_found"}}' >&2; exit 1 ;;
+      unreachable) echo '{"error":{"code":"server_unavailable","message":"herdr server is not answering"}}' >&2; exit 1 ;;
+    esac
     echo "{\"result\":{\"pane\":{\"pane_id\":\"$3\",\"workspace_id\":\"ws-0\"}}}" ;;
   "agent start")
+    trust=$(cat "$counter.trust" 2>/dev/null || echo 0)
+    if [ "$trust" -lt "${HERDR_STUB_TRUST_STARTS:-0}" ]; then
+      echo $((trust+1)) > "$counter.trust"
+      echo '{"error":{"code":"agent_start_failed","message":"agent blocked during startup"}}' >&2; exit 1
+    fi
     busy=$(cat "$counter.busy" 2>/dev/null || echo 0)
     if [ "$busy" -lt "${HERDR_STUB_BUSY_STARTS:-0}" ]; then
       echo $((busy+1)) > "$counter.busy"
       pane=$(printf '%s\n' "$@" | sed -n '/^--pane$/{n;p;q;}')
-      echo "{\"error\":{\"code\":\"agent_pane_busy\",\"message\":\"agent target pane $pane is not an available shell\"}}"; exit 1
+      echo "{\"error\":{\"code\":\"agent_pane_busy\",\"message\":\"agent target pane $pane is not an available shell\"}}" >&2; exit 1
     fi
     echo '{"result":{"agent":{"agent_status":"idle"}}}' ;;
   "pane send-keys")
+    [ "${HERDR_STUB_SEND_KEYS_FAIL:-}" != 1 ] || { echo '{"error":{"code":"server_unavailable","message":"herdr server is not answering"}}' >&2; exit 1; }
     case " $* " in *" Enter "*) echo $(( $(cat "$counter.enters" 2>/dev/null || echo 0) + 1 )) > "$counter.enters" ;; esac
     echo '{"result":{}}' ;;
   "agent get")
     if [ -n "${HERDR_STUB_EXIT_ON_ENTER:-}" ] && [ "$(cat "$counter.enters" 2>/dev/null || echo 0)" -ge "$HERDR_STUB_EXIT_ON_ENTER" ]; then
-      echo '{"error":{"code":"agent_not_found"}}'; exit 1
+      echo '{"error":{"code":"agent_not_found"}}' >&2; exit 1
     fi
     status=working
     if [ -n "$states" ] && [ -f "$states/$3" ]; then
       status=$(head -1 "$states/$3")
       [ "$(wc -l < "$states/$3")" -le 1 ] || { tail -n +2 "$states/$3" > "$states/$3.next"; mv "$states/$3.next" "$states/$3"; }
     fi
-    [ "$status" = gone ] && { echo '{"error":{"code":"agent_not_found"}}'; exit 1; }
+    [ "$status" = gone ] && { echo '{"error":{"code":"agent_not_found"}}' >&2; exit 1; }
+    [ "$status" = shapeless ] && { echo '{"result":{"agent":{"agent_status":null}}}'; exit 0; }
+    [ "$status" = unreachable ] && { echo '{"error":{"code":"server_unavailable","message":"herdr server is not answering"}}' >&2; exit 1; }
     echo "{\"result\":{\"agent\":{\"agent_status\":\"$status\"}}}" ;;
   "agent read")      [ -n "$states" ] && [ -f "$states/$3.tail" ] && cat "$states/$3.tail"; exit 0 ;;
   *)                 echo '{"result":{}}' ;;

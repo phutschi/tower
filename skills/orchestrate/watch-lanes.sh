@@ -13,12 +13,18 @@
 # see, the agent process itself.
 #
 # Output starts with one line per lane that needs the orchestrator:
-#   attention: <agent> blocked | idle-after-final-report | idle-unexplained | done | gone
-# then the state table with the pane tails, then the tower summary. Exit 0
-# with attention, 3 when everyone is still working. A closed run is attention
-# too (`tower: run closed`), and so is a complete board once no watched agent
-# is working (`tower: run complete`): a complete board alone is not, since a
-# lane's final review, preflight and the PR come after its last task.
+#   attention: <agent> blocked | idle-after-final-report | idle-unexplained | done | gone | unreadable
+# then the state table with the pane tails, then the tower summary. gone is
+# herdr answering agent_not_found. Any other failing herdr call (a server
+# restarting, a timeout) or an answer without a status says nothing about the
+# agent: it reads unreadable, counts as working and never settles the loop
+# (common.sh state_of). Only a round that runs out with herdr unreadable for
+# an agent on every poll is attention, as unreadable: check herdr, not the
+# lane. herdr's own unknown status counts as working. Exit 0 with attention,
+# 3 when everyone is still working. A closed run is attention too (`tower: run
+# closed`), and so is a complete board once no watched agent is working
+# (`tower: run complete`): a complete board alone is not, since a lane's final
+# review, preflight and the PR come after its last task.
 #
 # Idle is ambiguous: a lane that was just prompted, or is waiting on its own
 # review subagent, reads idle for a moment. So idle counts only after
@@ -65,7 +71,6 @@ for arg in "$@"; do
 done
 ROUND=${ROUND_SECONDS:-540}; GRACE=${GRACE_SECONDS:-45}; POLL=${POLL_SECONDS:-15}
 
-state_of() { herdr agent get "$1" 2>/dev/null | jsonq 'd["result"]["agent"]["agent_status"]' 2>/dev/null || echo gone; }
 tail_of()  { herdr agent read "$1" --source recent-unwrapped --lines 40 2>/dev/null | grep -v '^[[:space:]]*$' | tail -12; }
 # The end line of round $1: round 1 is the brief's report, a later round a fix
 # prompt's, with the round tag r<n> inside the brackets.
@@ -88,13 +93,17 @@ board()    { tower state --json --run "$RUN_DIR" 2>/dev/null | python3 -c 'impor
 finished() { local b; if [ $# -ge 2 ]; then b=$2; else b=$(board); fi
   case "$b" in closed) return 0 ;; complete) [ "$1" = 0 ] ;; *) return 1 ;; esac; }
 
-IDLE_SEEN=(); i=0; for _ in "${NAMES[@]}"; do IDLE_SEEN[$i]=0; i=$((i+1)); done
-started=$(date +%s)
+# UNREADABLE: the polls on which herdr could not be read for the agent. Only
+# a round that ran out with every poll unreadable is attention; a failing call
+# never settles the loop.
+IDLE_SEEN=(); UNREADABLE=(); i=0; for _ in "${NAMES[@]}"; do IDLE_SEEN[$i]=0; UNREADABLE[$i]=0; i=$((i+1)); done
+started=$(date +%s); polls=0; ran_out=1
 while [ $(( $(date +%s) - started )) -lt "$ROUND" ]; do
-  settled=0; working=0; i=0
+  settled=0; working=0; i=0; polls=$((polls+1))
   for name in "${NAMES[@]}"; do
     case "$(state_of "$name")" in
       working|unknown) IDLE_SEEN[$i]=0; working=1 ;;
+      unreadable) IDLE_SEEN[$i]=0; UNREADABLE[$i]=$(( UNREADABLE[$i] + 1 )); working=1 ;;
       idle) if [ $(( $(date +%s) - started )) -ge "$GRACE" ]; then
               IDLE_SEEN[$i]=$(( IDLE_SEEN[$i] + 1 ))
             fi
@@ -103,8 +112,8 @@ while [ $(( $(date +%s) - started )) -lt "$ROUND" ]; do
     esac
     i=$((i+1))
   done
-  [ "$settled" = 1 ] && break
-  finished "$working" && break
+  [ "$settled" = 1 ] && { ran_out=0; break; }
+  finished "$working" && { ran_out=0; break; }
   sleep "$POLL"
 done
 
@@ -118,6 +127,7 @@ for name in "${NAMES[@]}"; do
   case "$state" in
     idle) [ "${IDLE_SEEN[$i]}" -ge 2 ] && { alert=1; echo "attention: $name $(reason_for "$name" "$state" "${ROUNDS[$i]}")"; } ;;
     blocked|done|gone) alert=1; echo "attention: $name $(reason_for "$name" "$state" "${ROUNDS[$i]}")" ;;
+    unreadable) [ "$ran_out" = 1 ] && [ "${UNREADABLE[$i]}" -ge "$polls" ] && { alert=1; echo "attention: $name unreadable"; } ;;
   esac
   i=$((i+1))
 done
@@ -125,7 +135,7 @@ i=0; working=0
 for name in "${NAMES[@]}"; do
   state=${STATES[$i]}
   case "$state" in
-    working|unknown) working=1 ;;
+    working|unknown|unreadable) working=1 ;;
     idle) [ "${IDLE_SEEN[$i]}" -ge 2 ] || working=1 ;;
   esac
   printf '%-22s %s\n' "$name" "$state"
