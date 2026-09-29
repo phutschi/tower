@@ -167,13 +167,9 @@ link() {  # TARGET DIR NAME
 # own links go: into this repo, or into a herdr-orchestrate checkout that holds
 # the kit (bootstrap.sh at its root or in skills/orchestrate), or is gone.
 # Anybody else's skill of the same name stays.
-old_kit_link() {  # TARGET, absolute
-  local kit real
+old_kit_link() {  # TARGET: absolute, resolved (no links, no '..')
+  local kit
   case "$1" in "$ROOT"|"$ROOT"/*) return 0 ;; esac
-  # This repo through another path (a link to the checkout).
-  if real=$(cd "$1" 2>/dev/null && pwd -P); then
-    case "$real" in "$ROOT"|"$ROOT"/*) return 0 ;; esac
-  fi
   case "$1" in
     */herdr-orchestrate) kit=$1 ;;
     */herdr-orchestrate/*) kit="${1%%/herdr-orchestrate/*}/herdr-orchestrate" ;;
@@ -188,6 +184,8 @@ unlink_old() {  # DIR NAME
   [ -L "$1/$2" ] || return 0
   target=$(readlink "$1/$2")
   case "$target" in /*) ;; *) target="$1/$target" ;; esac  # relative to the link's dir
+  # Where it really points: links followed as far as they exist, '..' resolved.
+  target=$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$target") || return 0
   if old_kit_link "$target"; then
     must rm "$1/$2" && echo "  removed   $1/$2 (old layout)"
   fi

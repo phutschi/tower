@@ -997,6 +997,16 @@ if section install; then
   H10="$TMP/home10"; mkdir -p "$H10/.claude/skills"; ln -s "$TMP/via/kit/skills/preflight" "$H10/.claude/skills/preflight"
   out=$(HOME="$H10" "$ROOT/install.sh" 2>&1; echo "exit=$?")
   assert_match "install: a link to this repo through another path is removed" "$out" "removed +$H10/.claude/skills/preflight"
+  # A target is judged by where it really points: '..' out of this repo or out
+  # of an old checkout is somebody else's; a relative link into the kit is the kit's.
+  H11="$TMP/home11"; mkdir -p "$H11/.claude/skills"
+  ln -s "$ROOT/../acme-other-plugin/skills/spec-to-plan" "$H11/.claude/skills/spec-to-plan"
+  ln -s "$OLD/../elsewhere/preflight" "$H11/.claude/skills/preflight"
+  ln -s "../../../old/herdr-orchestrate" "$H11/.claude/skills/herdr-orchestrate"
+  out=$(HOME="$H11" "$ROOT/install.sh" 2>&1; echo "exit=$?")
+  assert_nomatch "install: a target that climbs out of this repo is left alone" "$out" "removed +$H11/.claude/skills/spec-to-plan"
+  assert_nomatch "install: a target that climbs out of an old checkout is left alone" "$out" "removed +$H11/.claude/skills/preflight"
+  assert_match "install: a relative link into the old kit is removed" "$out" "removed +$H11/.claude/skills/herdr-orchestrate"
   H8="$TMP/home8"; mkdir -p "$H8/.claude/skills"; ln -s "$TMP/plugin-x/preflight" "$H8/.claude/skills/preflight"
   out=$(HOME="$H8" "$ROOT/install.sh" 2>&1; echo "exit=$?")
   assert_eq "install: another plugin's preflight is left alone" "$(readlink "$H8/.claude/skills/preflight")" "$TMP/plugin-x/preflight"
