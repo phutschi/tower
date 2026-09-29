@@ -997,9 +997,10 @@ CLOCK
   assert_match "idle, then working on the resample: reports idle again" "$out" '^attention: a idle-unexplained'
   assert_match "idle, then working on the resample: idle counts afresh" "$(grep -c '^herdr agent get a' "$HERDR_STUB_LOG")" '^6$'
   # Another lane settling and working again on the resample does not start
-  # an unreadable agent's count again: a reaches 3 on its fourth read.
+  # an unreadable agent's count again, and each resample's failure adds to
+  # it: a reaches 4 on its fourth read (two polls, two resamples).
   echo unreachable > "$S/a"; printf 'blocked\nworking\nblocked\nworking\n' > "$S/b"; rm -f "$clock/date.now"; : > "$HERDR_STUB_LOG"
-  out=$(UNREADABLE_POLLS=3 clocked a b)
+  out=$(UNREADABLE_POLLS=4 clocked a b)
   assert_match "a flapping lane beside a failing herdr: attention, unreadable" "$out" '^attention: a unreadable$'
   assert_match "a flapping lane beside a failing herdr: the count held" "$(grep -c '^herdr agent get a' "$HERDR_STUB_LOG")" '^4$'
   # A resample on which the agent answers is a readable answer too: it starts

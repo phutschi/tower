@@ -107,9 +107,6 @@ finished() { local b; if [ $# -ge 2 ]; then b=$2; else b=$(board); fi
 # IDLE_SEEN: consecutive idle polls past GRACE. UNREADABLE: consecutive polls
 # on which herdr could not be read for the agent.
 IDLE_SEEN=(); UNREADABLE=(); i=0; for _ in "${NAMES[@]}"; do IDLE_SEEN[$i]=0; UNREADABLE[$i]=0; i=$((i+1)); done
-# report runs in a subshell: it leaves its resample here, one state a line in
-# NAMES order, for the loop below to count.
-RESAMPLE=$(mktemp); trap 'rm -f "$RESAMPLE"' EXIT
 started=$(date +%s)
 # Poll until a sample settles, the board is finished, or ROUND passes.
 poll() {
@@ -137,19 +134,31 @@ poll() {
   done
 }
 
-# Resample every agent and print the report; succeed when it has attention.
+# Sample every agent again into STATES, once poll has stopped. The resample is
+# one more poll: an answer starts the agent's unreadable count again, a
+# failure adds to it. It runs here, not in report's subshell, so the counts
+# carry on into the next poll.
+resample() {
+  local i=0 name
+  STATES=()
+  for name in "${NAMES[@]}"; do
+    STATES[$i]=$(state_of "$name")
+    if [ "${STATES[$i]}" = unreadable ]; then UNREADABLE[$i]=$(( UNREADABLE[$i] + 1 )); else UNREADABLE[$i]=0; fi
+    i=$((i+1))
+  done
+}
+
+# Print the report of the resample; succeed when it has attention.
 report() {
   local alert=0 i=0 working=0 name state b
   # idle only settles at IDLE_SEEN>=2 (see poll); reporting it on
   # a single fresh sample here would let a lane idle for its very first poll
   # report attention just because a *different* lane is what broke the loop.
-  STATES=()
   for name in "${NAMES[@]}"; do
-    state=$(state_of "$name"); STATES[$i]=$state; echo "$state" >> "$RESAMPLE"
+    state=${STATES[$i]}
     case "$state" in
       idle) [ "${IDLE_SEEN[$i]}" -ge 2 ] && { alert=1; echo "attention: $name $(reason_for "$name" "$state" "${ROUNDS[$i]}")"; } ;;
-      # The resample is one more unreadable poll on top of poll's count.
-      unreadable) [ $(( UNREADABLE[$i] + 1 )) -ge "$UNREADABLE_MAX" ] && { alert=1; echo "attention: $name unreadable"; } ;;
+      unreadable) [ "${UNREADABLE[$i]}" -ge "$UNREADABLE_MAX" ] && { alert=1; echo "attention: $name unreadable"; } ;;
       working|unknown) ;;
       # blocked, done, gone, and any status this script does not know: poll
       # settles on it, so it must be attention, never a quiet loop.
@@ -182,22 +191,15 @@ report() {
 # A sample can settle and the resample find the agent working again (a
 # blocked lane that was answered). With ROUND_SECONDS that ends the round
 # quietly, exit 3; without it there is no quiet exit, so poll on.
-# report runs in a subshell, so nothing it sets reaches this loop but its
-# resample, in RESAMPLE.
+# report runs in a subshell, so nothing it sets reaches this loop.
 while :; do
   poll
-  : > "$RESAMPLE"
+  resample
   if out=$(report); then printf '%s\n' "$out"; exit 0; fi
   [ -z "$ROUND" ] || { printf '%s\n' "$out"; exit 3; }
   # The agent that settled was working again on the resample: an idle lane
-  # counts afresh, two consecutive idle polls as always. The resample was one
-  # more poll of every agent: an answer starts its unreadable count again, a
-  # failure adds to it, so a lane that settles and works again beside a
-  # failing herdr holds nothing off.
-  i=0; while read -r state; do
-    IDLE_SEEN[$i]=0
-    if [ "$state" = unreadable ]; then UNREADABLE[$i]=$(( UNREADABLE[$i] + 1 )); else UNREADABLE[$i]=0; fi
-    i=$((i+1))
-  done < "$RESAMPLE"
+  # counts afresh, two consecutive idle polls as always (resample has
+  # counted the unreadable ones).
+  i=0; for _ in "${NAMES[@]}"; do IDLE_SEEN[$i]=0; i=$((i+1)); done
   sleep "$POLL"
 done
