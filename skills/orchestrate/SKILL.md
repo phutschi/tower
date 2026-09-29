@@ -82,11 +82,11 @@ and do it in a lane anyway or suggest doing it without the kit.
    it carries the run's stale threshold:
    `tower wait --stale <STALE>` for task-level attention and
    `watch-lanes.sh <run-dir> <agent>[:<n>]...` for the processes (`<n>`: the
-   lane's report round, step 8; a bare name is round 1). Pass
-   every lane agent and every live Reviewer agent. Neither has a timeout:
-   both exit only when something needs you, so a quiet stretch is no event
-   to restart or report. Re-run them after acting. Never poll `tower state` or the
-   panes in a loop.
+   lane's report round, step 8; a bare name is round 1). Pass every lane
+   agent and every live Reviewer agent. Neither has a timeout: both exit
+   only when something needs you, so a quiet stretch is no event to restart
+   or report. Re-run them after acting. Never poll `tower state` or the panes
+   in a loop.
 7. **Act on attention.** `blocked` → decide, then re-brief with what the lane
    asked for (a discovered task: you add it, then tell the lane). `stale` or
    `idle-unexplained` → read the pane tail, then re-brief or wait. A re-brief
