@@ -57,11 +57,8 @@ function Live(props: LiveProps) {
   });
 }
 
-/** The live console for this Io: what a terminal gets, colour and all. */
-export function liveConsole(
-  io: Io,
-  live: { runDir: string; run: RunFile; theme: Theme; stale: number },
-) {
+/** The live console for this Io: its clock, and colour unless NO_COLOR. */
+export function liveConsole(io: Io, live: Omit<LiveProps, "now" | "colour">) {
   return createElement(Live, {
     ...live,
     now: io.now,

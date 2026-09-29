@@ -41,9 +41,12 @@ describe("the live console", () => {
         stale: 20,
       }),
     );
-    const text = lastFrame() ?? "";
-    unmount();
-    return text;
+    try {
+      return lastFrame() ?? "";
+    } finally {
+      // Live watches the events file and polls it; unmount stops both.
+      unmount();
+    }
   };
 
   test("draws colour from an Io without NO_COLOR", () => {
