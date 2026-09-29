@@ -27,11 +27,10 @@
 #        └──────┴──────────┴──────────────────┘
 #
 # checks and dev come from .orchestrate (see example.orchestrate)
-# or the JS default (detect-stack.sh); both run in lane A's checkout (only the
-# declared command is shell code: the directory is quoted, so a checkout path
-# with an apostrophe or a space is one directory). With no
-# checks pane declared and no test runner detected, one info: line on stderr
-# says so. Lane A is EXECUTOR_KIND (claude | codex) on EXECUTOR_MODEL:
+# or the JS default (detect-stack.sh); both run in lane A's checkout, and only
+# their command is shell code: a checkout path with an apostrophe or a space
+# stays one directory. With no checks pane declared and no test runner
+# detected, one info: line on stderr says so. Lane A is EXECUTOR_KIND (claude | codex) on EXECUTOR_MODEL:
 # .orchestrate sets the run's default, the environment of this call
 # overrides it (executor.sh).
 #
@@ -134,7 +133,6 @@ tower note "reviewer: $REVIEWER"
 
 # --- the layout --------------------------------------------------------------
 split() { herdr pane split "$@" --cwd "$REPO" --no-focus | pane_id; }
-# Only the command is shell code: the directory is quoted, whatever it holds.
 run_in() { herdr pane run "$1" "cd $(printf %q "$REPO/$2") && $3" >/dev/null; }
 BOTTOM=$(split --current --direction down --ratio 0.7)
 LANE_A_PANE=$(split --current --direction right --ratio 0.3)

@@ -381,19 +381,22 @@ if section bootstrap; then
 
   # The pane commands are shell code built around the checkout's path: a path
   # with an apostrophe (or one crafted to run code) must stay one directory.
-  # Each pane's logged command is run as its shell would, with the runner
-  # replaced by one that prints where it ran.
+  # Each pane's logged command is run as its shell would (bash, and zsh where
+  # it is installed), with the runner replaced by one that prints where it ran.
   mkdir -p "$TMP/fakebin"; printf '#!/bin/sh\npwd -P\n' > "$TMP/fakebin/bunx"; printf '#!/bin/sh\npwd -P\n' > "$TMP/fakebin/make"
   chmod +x "$TMP/fakebin/bunx" "$TMP/fakebin/make"
-  ran_in() { PATH="$TMP/fakebin:$PATH" bash -c "$(sed -n "s/^herdr pane run $1 //p" "$HERDR_STUB_LOG")" 2>&1; }
+  pane_cwd() { PATH="$TMP/fakebin:$PATH" "$1" -c "$(sed -n "s/^herdr pane run $2 //p" "$HERDR_STUB_LOG")" 2>&1; }
+  shells=bash; command -v zsh >/dev/null && shells="bash zsh"
   for name in "rex's repo" "x'; touch pwned; '"; do
     src=$(fixture_repo contract); r="$TMP/repos/quoted/$name"; mkdir -p "$TMP/repos/quoted"; mv "$src" "$r"; mkdir -p "$r/web"
     RUN="$TMP/run-quoted"; rm -rf "$RUN"; reset_stub
     out=$(boot "$r" "$RUN" "Quoted" main; echo "exit=$?")
     assert_match "quoted path ($name): bootstrap finishes"    "$out" 'exit=0$'
-    assert_eq "quoted path ($name): checks pane runs in the checkout" "$(cd "$TMP/repos/quoted" && ran_in pane-3)" "$r"
-    assert_eq "quoted path ($name): dev pane runs in its dir"         "$(cd "$TMP/repos/quoted" && ran_in pane-1)" "$r/web"
-    assert_eq "quoted path ($name): no code in the path runs" "$([ -e "$TMP/repos/quoted/pwned" ] && echo ran || echo none)" none
+    for sh in $shells; do
+      assert_eq "quoted path ($name, $sh): checks pane runs in the checkout" "$(cd "$TMP/repos/quoted" && pane_cwd "$sh" pane-3)" "$r"
+      assert_eq "quoted path ($name, $sh): dev pane runs in its dir"         "$(cd "$TMP/repos/quoted" && pane_cwd "$sh" pane-1)" "$r/web"
+      assert_eq "quoted path ($name, $sh): no code in the path runs" "$([ -e "$TMP/repos/quoted/pwned" ] && echo ran || echo none)" none
+    done
     rm -rf "$TMP/repos/quoted"
   done
 
