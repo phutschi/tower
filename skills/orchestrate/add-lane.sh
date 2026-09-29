@@ -30,8 +30,9 @@
 # redone (the task ids are already assigned). Refused: a lane whose agent
 # runs, any answer from herdr other than agent_not_found, a rerun with another
 # branch, kind, model or task ids than the first call's (ids read as tower
-# reads them), and a lane whose pane
-# or worktree is gone (the message says what to remove).
+# reads them), and a lane whose pane (herdr's pane_not_found) or worktree is
+# gone: the message says what to remove. A pane herdr cannot be asked about
+# is refused with nothing to remove; rerun once herdr answers.
 #
 # Never run this for real to see what it does; use DRY_RUN=1, which answers
 # every herdr, claude and codex call from tests/stub and opens nothing. tower
@@ -100,8 +101,14 @@ for t in map(str.strip, sys.argv[2].split(",")):
 have=d["lanes"].get(sys.argv[1], [])
 print(",".join(have)); sys.exit(0 if want == set(have) else 1)' "$LANE" "$TASKS") \
     || die "lane $LANE owns $owned on the board, not $TASKS; rerun with those ids"
-  herdr pane get "$PANE" >/dev/null 2>&1 \
-    || die "lane $LANE's pane $PANE is gone (herdr pane get): remove its line from $MAP and the worktree $WT, then add the lane again"
+  # Only herdr's pane_not_found is a closed pane; any other failure says
+  # nothing about it, and the map and the worktree stay.
+  if ! err=$(herdr pane get "$PANE" 2>&1 >/dev/null); then
+    case "$err" in
+      *'"pane_not_found"'*) die "lane $LANE's pane $PANE is gone (herdr pane get): remove its line from $MAP and the worktree $WT, then add the lane again" ;;
+      *) die "herdr cannot say whether lane $LANE's pane $PANE is open; rerun once herdr answers" ;;
+    esac
+  fi
   [ -d "$WT" ] || die "lane $LANE's checkout $WT is gone: close its pane $PANE and remove its line from $MAP, then add the lane again"
   start_agent_with_trust_retry "$NAME" "$PANE" \
     || die "add-lane: agent $NAME did not start in $PANE again; rerun  $KIT/add-lane.sh $RUN_DIR $LANE $BRANCH $BASE $TASKS  once it can"

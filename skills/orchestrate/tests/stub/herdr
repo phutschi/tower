@@ -8,7 +8,7 @@
 # each `agent get` answers the first and drops it, the last one stays), pane
 # tails from HERDR_STUB_STATES_DIR/<name>.tail. Every pane is in workspace
 # ws-0; `pane get` answers pane_not_found when HERDR_STUB_STATES_DIR/<pane-id>
-# says gone. HERDR_STUB_BUSY_STARTS=N answers the first N `agent start` calls
+# says gone, and fails otherwise when it says unreachable. HERDR_STUB_BUSY_STARTS=N answers the first N `agent start` calls
 # with agent_pane_busy (a pane whose shell is not ready yet), counted through
 # HERDR_STUB_COUNTER.busy. HERDR_STUB_TRUST_STARTS=N answers the first N with an
 # agent blocked during startup (a trust prompt), counted through
@@ -34,6 +34,7 @@ case "${1:-} ${2:-}" in
   "pane list")       echo '{"result":{"panes":[]}}' ;;
   "pane get")
     [ -n "$states" ] && [ "$(head -1 "$states/$3" 2>/dev/null)" = gone ] && { echo '{"error":{"code":"pane_not_found"}}' >&2; exit 1; }
+    [ -n "$states" ] && [ "$(head -1 "$states/$3" 2>/dev/null)" = unreachable ] && { echo '{"error":{"code":"server_unavailable","message":"herdr server is not answering"}}' >&2; exit 1; }
     echo "{\"result\":{\"pane\":{\"pane_id\":\"$3\",\"workspace_id\":\"ws-0\"}}}" ;;
   "agent start")
     trust=$(cat "$counter.trust" 2>/dev/null || echo 0)
