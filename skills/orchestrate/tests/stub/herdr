@@ -5,9 +5,10 @@
 # HERDR_STUB_STATES_DIR/<name> (a status word, "gone", "unreachable": herdr
 # failing for another reason, or "shapeless": an answer with a null status;
 # with several lines, each `agent get` answers the first and drops it, the
-# last one stays), pane tails from HERDR_STUB_STATES_DIR/<name>.tail. Every pane is in workspace
-# ws-0; `pane get` answers pane_not_found when HERDR_STUB_STATES_DIR/<pane-id>
-# says gone, and server_unavailable when it says unreachable.
+# last one stays), pane tails from HERDR_STUB_STATES_DIR/<name>.tail. Every
+# pane is in workspace ws-0; `pane get` answers pane_not_found when
+# HERDR_STUB_STATES_DIR/<pane-id> says gone, and server_unavailable when it
+# says unreachable.
 # HERDR_STUB_BUSY_STARTS=N answers the first N `agent start` calls with
 # agent_pane_busy (a pane whose shell is not ready yet), counted through
 # HERDR_STUB_COUNTER.busy. HERDR_STUB_TRUST_STARTS=N answers the first N with an
