@@ -13,7 +13,10 @@
 # and the switches PR, REVIEW_AREAS, SUITE_SKIP and PR_TEMPLATE. Such a name,
 # an unknown one, or a pane or suite line is named on stderr and ignored; a
 # file that fails to load (a failing command, an exit) is refused; a missing
-# file is silent. It is read on every call, never pinned.
+# file is silent. It is never pinned. Its run switches are fixed at bootstrap:
+# the pane map's switches: line records them, and add-reviewer.sh takes them
+# from there, so a switch changed mid-run does not reach later reviews. Its
+# kind and model keys are read on every call.
 #
 # .orchestrate is plain bash in the repo root (see example.orchestrate):
 #   CHECK_CMD="bun run check"           the check gate; one-shot, must pass before a commit
