@@ -1288,6 +1288,16 @@ for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'],
   assert_match "look: output with a NUL byte is still read for a permission error" "$v" '^bin warn setup: '
   assert_match "look: a carriage return in the matched line becomes a space" "$v" '^cr warn setup: exit 1, a permission error \(10% error: PermissionDenied\)'
   assert_match "look: a step that passes with EACCES in its output passes" "$v" '^noisy pass '
+  # The permission error before a long summary: the whole output is searched.
+  printf '%s\n' "suite late 'echo \"error: PermissionDenied\"; for i in \$(seq 1 30); do echo summary-\$i; done; exit 1'" > "$r/.orchestrate"
+  out=$(look "$r" base "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: a permission error more than 20 lines before the end is a setup row" "$v" '^late warn setup: exit 1, a permission error \(error: PermissionDenied\)'
+  assert_match "look: ... it is a watchpoint"           "$(findings "$F/look.json")" '^suite watchpoint .* suite step late failed on a permission error \(exit 1\) \|'
+  ev=$(python3 -c "import json,sys; print([x['evidence'] for x in json.load(open(sys.argv[1]))['findings'] if x['area'] == 'suite'][0])" "$F/look.json")
+  assert_match "look: ... carrying the bounded tail"      "$ev" '^summary-30$'
+  assert_nomatch "look: ... only the tail"                "$ev" '^summary-10$'
+  assert_nomatch "look: ... not a must-fix"               "$(findings "$F/look.json")" 'must-fix'
+  assert_match "look: ... and the look is a setup error"  "$out" 'exit=2$'
   r=$(look_repo semgrep-rules rules); reset_stub; out=$(look "$r" base "$F")
   assert_match "look: the repo's .semgrep/ rules are added" "$(cat "$HERDR_STUB_LOG")" '^semgrep scan --config p/default --config \.semgrep '
   # A tracked file with edits the branch has not committed: the suite could

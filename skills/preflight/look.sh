@@ -38,7 +38,7 @@
 # either. A red suite step is a fail row and a
 # must-fix finding (area suite, file = the step's DIR, line null) carrying the
 # last 20 lines of its output, unredacted: it is the repo's own test output.
-# Steps get no stdin and no timeout. A red step whose last 20 lines have a
+# Steps get no stdin and no timeout. A red step whose output has a
 # permission error (PermissionDenied, Operation not permitted, EACCES) most
 # likely hit the sandbox, not the code: a warn row whose note starts
 # "setup:", with that line, and a watchpoint finding (not must-fix) with the
@@ -289,9 +289,9 @@ for i in ${STEP_NAMES[@]+"${!STEP_NAMES[@]}"}; do
   rc=0; (cd "$dir" && bash -c "$cmd") < /dev/null > "$WORK/step.out" 2>&1 || rc=$?
   if [ "$rc" = 0 ]; then verdict "$name" pass "$cmd"; continue; fi
   tail -n 20 "$WORK/step.out" > "$WORK/step.tail"
-  # A permission error in the tail: most likely the sandbox, not the code.
-  # -a: output with a NUL byte is still text to read.
-  perm=$(grep -a -m1 -E "$PERMISSION_ERROR" "$WORK/step.tail" | cut -c1-200 || true)
+  # A permission error anywhere in the output (a summary can follow it): most
+  # likely the sandbox, not the code. -a: a NUL byte does not make it binary.
+  perm=$(grep -a -m1 -E "$PERMISSION_ERROR" "$WORK/step.out" | cut -c1-200 || true)
   if [ -n "$perm" ]; then
     verdict "$name" warn "setup: exit $rc, a permission error ($perm): $cmd"
     SETUP_STEPS="$SETUP_STEPS $name"
