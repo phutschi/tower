@@ -16,7 +16,8 @@
 # pane map's switches: line, the run's values from bootstrap; this call's
 # environment wins over them). It works in lane A's checkout, read from the
 # pane map. <run-dir> and <findings-file> may be relative to where it is
-# called. The title must not hold a tab or a newline.
+# called. The title must not hold a tab or a newline: one that does is
+# refused before anything is written.
 #
 # The first call opens the review tab with two panes, slots R1 and R2, in the
 # run's workspace (the orchestrator pane's, from the pane map; an orchestrator
@@ -91,6 +92,8 @@ RUN_DIR="$1"; SLOT="$2"; LANE_KIND="$3"; TITLE="$4"; FINDINGS="$5"; LANE="${6:-}
 MAP="$RUN_DIR/panes.txt"
 [ -f "$MAP" ] || die "no pane map at $MAP: run bootstrap.sh first"
 case "$SLOT" in R1|R2) ;; *) die "slot must be R1 or R2 (got '$SLOT')" ;; esac
+# The title is one field of the slot's pane map line (and of the board).
+case "$TITLE" in *$'\t'*|*$'\n'*) die "the review title must not hold a tab or a newline" ;; esac
 # Absolute, since the rest runs from lane A's checkout.
 RUN_DIR="$(cd "$RUN_DIR" && pwd)"; MAP="$RUN_DIR/panes.txt"
 # Every tower call is about this run, wherever it is called from.

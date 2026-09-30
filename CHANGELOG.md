@@ -51,7 +51,8 @@ All notable changes to this project are documented here. The format follows
   resumes that review under the same agent and task, waiting, as a start
   does, for a Reviewer that does not accept input yet. A codex Reviewer gets
   `<run-dir>/tmp` as `TMPDIR`, `BUN_TMPDIR`, `BUN_INSTALL_CACHE_DIR` and
-  `npm_config_cache`.
+  `npm_config_cache`. A review title with a tab or a newline is refused
+  before anything is written.
 - `add-lane.sh` writes the lane's line before its agent starts, ending in
   ` starting` until the agent accepts input. A rerun of a starting lane takes
   an agent left running once it accepts input, starts one herdr no longer
