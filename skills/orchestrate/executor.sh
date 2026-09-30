@@ -67,13 +67,9 @@ model_default() {
 # VAR's default for KIND: VAR_<KIND upper>, e.g. kind_default EXECUTOR_MODEL codex.
 kind_default() { model_default "$1_$(printf '%s' "$2" | tr '[:lower:]' '[:upper:]')"; }
 
-# The kinds a lane may run.
-KINDS="claude codex cursor"
 EXECUTOR_KIND="${EXECUTOR_KIND:-claude}"
-case " $KINDS " in
-  *" $EXECUTOR_KIND "*) [ -n "${EXECUTOR_MODEL:-}" ] || EXECUTOR_MODEL=$(kind_default EXECUTOR_MODEL "$EXECUTOR_KIND") || exit 1 ;;
-  *) echo "EXECUTOR_KIND must be claude, codex or cursor (got '$EXECUTOR_KIND')" >&2; exit 2 ;;
-esac
+kind_known "$EXECUTOR_KIND" || { echo "EXECUTOR_KIND must be $(kinds_say) (got '$EXECUTOR_KIND')" >&2; exit 2; }
+[ -n "${EXECUTOR_MODEL:-}" ] || EXECUTOR_MODEL=$(kind_default EXECUTOR_MODEL "$EXECUTOR_KIND") || exit 1
 
 # The codex lane follows the same TDD skill as the claude lane. Codex reads user
 # skills from ~/.codex/skills; the mattpocock tdd skill ships an agents/openai.yaml
@@ -305,41 +301,55 @@ reviewer_candidates() {
   esac
 }
 
+# WORD... as prose: "a", "a and b", "a, b and c".
+and_list() {
+  local out="" i=1
+  while [ $# -gt 0 ]; do
+    if [ "$i" -eq 1 ]; then out=$1
+    elif [ $# -eq 1 ]; then out="$out and $1"
+    else out="$out, $1"; fi
+    i=$((i+1)); shift
+  done
+  printf '%s' "$out"
+}
+
 # Who reviews a lane of LANE_KIND [on LANE_MODEL] (ADR 0010). Prints one line:
 #   <kind>\t<model>\t<fallback note, or empty>
 # The first installed of reviewer_candidates, on REVIEWER_MODEL_<its kind>.
-# Otherwise the lane's own kind, with a fallback note: claude on
-# REVIEWER_MODEL_CLAUDE_SELF, cursor on REVIEWER_MODEL_CURSOR, codex on the
-# lane's model (a fresh agent). The lane's model is LANE_MODEL when given
-# (add-reviewer.sh reads it from the pane map), else EXECUTOR_MODEL when
-# EXECUTOR_KIND is LANE_KIND, else EXECUTOR_MODEL_CODEX. Every default is
-# kind_default's (model-defaults). REVIEWER_KIND=claude|codex|cursor forces the
-# kind (refused when not installed); REVIEWER_MODEL replaces the model the
-# rules picked.
+# Otherwise the lane's own kind, with a fallback note naming the candidates
+# passed over: claude on REVIEWER_MODEL_CLAUDE_SELF, cursor on
+# REVIEWER_MODEL_CURSOR, codex on the lane's model (a fresh agent; LANE_MODEL
+# when given, which add-reviewer.sh reads from the pane map, else
+# EXECUTOR_MODEL when EXECUTOR_KIND is codex, else EXECUTOR_MODEL_CODEX).
+# Every default is kind_default's (model-defaults). REVIEWER_KIND=claude|codex|cursor
+# forces the kind (refused when not installed); REVIEWER_MODEL replaces the
+# model the rules picked.
 reviewer_for() {
-  local lane="$1" lane_model="${2:-}" c kind="" model note=""
+  local lane="$1" lane_model="${2:-}" c kind="" model note="" passed=()
+  kind_known "$lane" || die "lane kind must be $(kinds_say) (got '$lane')"
   case "${REVIEWER_KIND:-other}" in
     other)
       for c in $(reviewer_candidates "$lane"); do
         if kind_installed "$c"; then kind=$c; break; fi
+        passed+=("$c")
       done
       if [ -z "$kind" ]; then
-        case "$lane" in
-          claude) note="fallback: codex is not installed, so claude reviews claude"
-                  c="codex and claude are not installed (cursor reviews a claude lane only with REVIEWER_KIND=cursor)" ;;
-          codex)  note="fallback: claude is not installed, so a fresh codex agent reviews codex"
-                  c="claude and codex are not installed (cursor reviews a codex lane only with REVIEWER_KIND=cursor)" ;;
-          cursor) note="fallback: claude and codex are not installed, so a fresh cursor agent reviews cursor"
-                  c="claude, codex and cursor are not installed" ;;
-          *) die "lane kind must be claude, codex or cursor (got '$lane')" ;;
-        esac
-        kind_installed "$lane" || die "no Reviewer for a $lane lane: $c"
+        if ! kind_installed "$lane"; then
+          note="no Reviewer for a $lane lane: $(and_list "${passed[@]}" "$lane") are not installed"
+          [ "$lane" = cursor ] || note="$note (cursor reviews a $lane lane only with REVIEWER_KIND=cursor)"
+          die "$note"
+        fi
         kind=$lane
+        note="$(and_list "${passed[@]}") $([ "${#passed[@]}" -gt 1 ] && echo are || echo is) not installed"
+        case "$lane" in
+          claude) note="fallback: $note, so claude reviews claude" ;;
+          *)      note="fallback: $note, so a fresh $lane agent reviews $lane" ;;
+        esac
       fi ;;
-    claude|codex|cursor)
+    *)
+      kind_known "$REVIEWER_KIND" || die "REVIEWER_KIND must be other, $(kinds_say) (got '$REVIEWER_KIND')"
       kind=$REVIEWER_KIND
       kind_installed "$kind" || die "REVIEWER_KIND=$kind, but $kind is not installed" ;;
-    *) die "REVIEWER_KIND must be other, claude, codex or cursor (got '$REVIEWER_KIND')" ;;
   esac
   case "$kind:$lane" in
     claude:claude) model=$(model_default REVIEWER_MODEL_CLAUDE_SELF) || exit 1 ;;

@@ -7,6 +7,11 @@
 # is recorded for real, in the run dir. test.sh runs everything this way.
 KIT="${KIT:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 die()      { echo "$*" >&2; exit 1; }
+# The kinds an executor or Reviewer runs in (CONTEXT.md Kind): kind_known K
+# says whether K is one; kinds_say prints them for a message.
+KINDS="claude codex cursor"
+kind_known() { case " $KINDS " in *" $1 "*) return 0 ;; esac; return 1; }
+kinds_say() { echo "claude, codex or cursor"; }
 # The run switches' names (detect-stack.sh gives them their values).
 SWITCHES="TASK_REVIEW LANE_REVIEW PREFLIGHT STATIC_BASELINE PR METHOD REVIEWER_KIND REVIEWER_MODEL REVIEW_AREAS SUITE_SKIP PR_TEMPLATE"
 if [ "${DRY_RUN:-0}" = 1 ]; then

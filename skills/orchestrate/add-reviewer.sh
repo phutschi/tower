@@ -7,9 +7,11 @@
 #
 # Run it from the orchestrator's pane after bootstrap.sh. lane-kind is the kind
 # (claude | codex | cursor) of the lane under review; for a preflight slot,
-# the kind whose other kind should review (executor.sh reviewer_candidates). [lane] (A-D) names the lane under review; its
-# pane map line must be of lane-kind, and its model is the one a codex Reviewer
-# of a codex lane runs on when claude is not installed or REVIEWER_KIND=codex.
+# the kind whose Reviewer is wanted (its candidates: executor.sh
+# reviewer_candidates). [lane] (A-D) names the lane under review; its pane map
+# line must be of lane-kind, and its model is the one a codex Reviewer of a
+# codex lane runs on when claude is not installed or REVIEWER_KIND=codex (a
+# cursor Reviewer of a cursor lane runs on REVIEWER_MODEL_CURSOR instead).
 # Without it, the first lane of lane-kind in the pane map stands in; with none,
 # executor.sh's default. The Reviewer's kind and model
 # come from executor.sh reviewer_for (REVIEWER_KIND and REVIEWER_MODEL from the
@@ -118,7 +120,7 @@ while IFS= read -r _kv; do
   [ -n "${!_k+set}" ] || export "$_kv"
 done <<< "$_words"
 unset _words _kv _k
-case "$LANE_KIND" in claude|codex|cursor) ;; *) die "lane kind must be claude, codex or cursor (got '$LANE_KIND')" ;; esac
+kind_known "$LANE_KIND" || die "lane kind must be $(kinds_say) (got '$LANE_KIND')"
 # The Reviewer works in lane A's checkout (the integration branch), where the
 # repo contract lives too.
 REPO=$(sed -nE 's/^lane A: .* checkout (.*), model .*/\1/p' "$MAP")

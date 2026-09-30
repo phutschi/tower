@@ -271,7 +271,8 @@ switch_allows() {  # NAME "a, b or c" VALUE...: refuse NAME unless its value is 
 for _v in TASK_REVIEW LANE_REVIEW PREFLIGHT STATIC_BASELINE; do switch_allows "$_v" "on or off" on off; done; unset _v
 switch_allows PR            "draft, ready or off"     draft ready off
 switch_allows METHOD        "tdd or plain"            tdd plain
-switch_allows REVIEWER_KIND "other, claude, codex or cursor" other claude codex cursor
+# shellcheck disable=SC2086  # KINDS: one word per kind
+switch_allows REVIEWER_KIND "other, $(kinds_say)" other $KINDS
 for _v in $SWITCHES; do  # one line each, for the pane map's switches: line
   case "${!_v}" in *$'\n'*) die "$_v must be one line" ;; esac
 done; unset _v

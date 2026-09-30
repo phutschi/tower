@@ -164,7 +164,7 @@ if section executor; then
   assert_match "reviewer: a forced kind that is not installed is refused" "$(CODEX_STUB=absent REVIEWER_KIND=codex rev claude; echo "exit=$?")" "REVIEWER_KIND=codex, but codex is not installed"
   assert_match "reviewer: the refusal exits non-zero" "$(CODEX_STUB=absent REVIEWER_KIND=codex rev claude; echo "exit=$?")" "exit=1$"
   assert_match "reviewer: an unknown REVIEWER_KIND is refused" "$(REVIEWER_KIND=Claude rev claude)" "REVIEWER_KIND must be other, claude, codex or cursor \(got 'Claude'\)"
-  assert_match "reviewer: neither kind installed is refused" "$(CODEX_STUB=absent CLAUDE_STUB=absent rev claude)" "no Reviewer for a claude lane: codex and claude are not installed \\(cursor reviews a claude lane only with REVIEWER_KIND=cursor\\)"
+  assert_match "reviewer: no candidate and the lane's own kind absent: refused" "$(CODEX_STUB=absent CLAUDE_STUB=absent rev claude)" "no Reviewer for a claude lane: codex and claude are not installed \\(cursor reviews a claude lane only with REVIEWER_KIND=cursor\\)"
   # An agent start: `start NAME [ENV...]` runs start_agent_with_trust_retry
   # for NAME in pane-9 of a codex executor, in repo $r.
   start() { local n=$1; shift; reset_stub; (cd "$r" && env HOME="$TMP/rev-home" EXECUTOR_KIND=codex "$@" bash -c ". \"\$KIT/common.sh\"; . \"\$KIT/executor.sh\"; start_agent_with_trust_retry $n pane-9; echo \"exit=\$?\"" 2>&1); }
@@ -1494,6 +1494,10 @@ if section cursor-reviewer; then
   reset_stub; out=$(review "$r" CLAUDE_STUB=absent CODEX_STUB=absent "$KIT/add-reviewer.sh" "$RUN" R1 cursor "Lane review A" "$RUN/findings/a.json" A)
   assert_match "cursor reviews cursor: on REVIEWER_MODEL_CURSOR" "$(cat "$RUN/panes.txt")" '^reviewer R1: .*kind cursor, model grok-4\.7-high-fast, review '
   assert_match "cursor reviews cursor: ... with the fallback note" "$out" '^reviewer: fallback: claude and codex are not installed, so a fresh cursor agent reviews cursor$'
+  assert_match "no candidate and a codex lane's own kind absent: refused, naming cursor's way in" "$(CLAUDE_STUB=absent CODEX_STUB=absent EXECUTOR_KIND=codex rev codex)" \
+    'no Reviewer for a codex lane: claude and codex are not installed \(cursor reviews a codex lane only with REVIEWER_KIND=cursor\)'
+  assert_match "an unknown lane kind is refused" "$(rev gemini)" "lane kind must be claude, codex or cursor \\(got 'gemini'\\)"
+  assert_match "an unknown lane kind is refused, a forced Reviewer kind too" "$(REVIEWER_KIND=cursor rev gemini)" "lane kind must be claude, codex or cursor \\(got 'gemini'\\)"
   assert_eq "reviewer_candidates: a cursor lane's, in order" "$(HOME="$TMP/cr-home" in_kit ". \"\$KIT/executor.sh\"; reviewer_candidates cursor" | tr '\n' ' ')" "claude codex "
 fi
 
