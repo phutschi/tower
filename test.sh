@@ -1589,6 +1589,14 @@ for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'],
   assert_match "look: a submodule is there for the suite" "$(verdict "$TMP/findings-tree/look.json" 2>&1)" '^sub pass '
   assert_eq "look: ... the temp worktree is gone" "$(tree_gone "$r")" gone
   rm -f "$mark"
+  # A TMPDIR reached through a symlink (macOS: /var -> /private/var): the
+  # suite sees one real path, the resolved one.
+  ln -sfn "$LT" "$TMP/look-tmp-link"; r=$(look_repo none tree-symlinked-tmp)
+  printf '%s\n' "suite phys '[ \"\$PWD\" = \"\$(pwd -P)\" ] || { echo \"logical \$PWD, physical \$(pwd -P)\"; exit 1; }'" > "$r/.orchestrate"; commit_contract "$r"
+  out=$(TMPDIR="$TMP/look-tmp-link" look "$r" base "$TMP/findings-tree")
+  assert_match "look: a symlinked TMPDIR: the suite runs in the resolved path" "$(verdict "$TMP/findings-tree/look.json" 2>&1)" '^phys pass '
+  assert_eq "look: ... the temp worktree is gone" "$(tree_gone "$r")" gone
+  rm -f "$TMP/look-tmp-link"
   unset -f tree_gone kit_repo kit_look
   rm -f "$mark"; r=$(look_repo none contract-committed); printf 'touch "%s"\n' "$mark" > "$r/.orchestrate"
   git -C "$r" add .orchestrate; git -C "$r" commit -qm contract

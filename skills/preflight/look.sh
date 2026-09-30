@@ -7,7 +7,7 @@
 # Run from the checkout. The diff is the merge base of <base-ref> and HEAD
 # against HEAD. look looks at HEAD, never at the checkout's files: it adds a
 # fresh detached worktree of HEAD in a temp dir under TMPDIR (git worktree add
-# --detach), and reads the kit (common.sh, detect-stack.sh), the repo contract
+# --detach; the temp dir resolved to its physical path), and reads the kit (common.sh, detect-stack.sh), the repo contract
 # and package.json from it, runs the install, both scanners and every suite
 # step in it, and removes it on every exit, a failure and a signal too. So
 # untracked files (a *.test.ts the suite would pick up), index bits
@@ -143,6 +143,10 @@ MERGE_BASE=$(git merge-base "$BASE" HEAD) || die "look: no merge base between '$
 # Under TMPDIR by name: macOS mktemp ignores it without a template, and a
 # sandboxed Reviewer can write only its own (executor.sh AGENT_TMP).
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/look.XXXXXX") || die "look: cannot make a temp dir under ${TMPDIR:-/tmp}"
+# Its physical path (macOS: /var is /private/var), so the suite sees one real
+# path: a test comparing a recorded path with its own finds them equal.
+_phys=$(cd "$WORK" && pwd -P) || { rm -rf "$WORK"; die "look: cannot resolve its temp dir $WORK"; }
+WORK=$_phys; unset _phys
 TREE="$WORK/tree"
 cleanup() {
   git -C "$TOP" worktree remove --force "$TREE" >/dev/null 2>&1 || true
