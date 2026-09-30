@@ -6,7 +6,20 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `tower ids <ids>` prints the ids a spec expands to, one per line, as
+  `tower assign` would record them, and refuses an id the run lacks. It
+  records nothing. Additive: a minor version.
+
 ### Changed
+
+- `add-lane.sh`'s rerun check reads task ids with `tower ids` instead of its
+  own parser, so an id tower refuses is refused in tower's words.
+- `add-lane.sh` resumes a lane whose pane move failed after the worktree was
+  created: the pane is in the pane map as `unplaced lane <X>:`, and a rerun
+  moves it instead of creating the worktree again. The install now runs
+  before the move.
 
 - `tower wait` no longer needs `--timeout`. Without it, it waits until
   attention, completion or close and exits 0 with the reasons; it exits 3
