@@ -1501,8 +1501,9 @@ fi
 # credits_left KIND: % left in the kind's tightest window, or nothing. The
 # keychain and the endpoints are fakes on PATH: `security` answers from
 # $CB/keychain/<service> (no file: the item is missing), `curl` answers from
-# $CB/reply only when the header lines it reads on stdin carry the fake token,
-# and logs its argv to $CB/curl.log.
+# $CB/reply only when the header lines it reads on stdin carry the fake token
+# (and, for claude's endpoint, the OAuth beta header), prints nothing and fails
+# as `curl -f` does otherwise, and logs its argv to $CB/curl.log.
 if section credits; then
   CB="$TMP/credits"; mkdir -p "$CB/bin" "$CB/keychain"
   TOK=tok-fake-rex-0001
@@ -1516,8 +1517,10 @@ SH
 #!/bin/sh
 printf '%s\n' "\$*" >> "$CB/curl.log"
 [ -n "\${FAKE_CURL_SLEEP:-}" ] && sleep "\$FAKE_CURL_SLEEP"
-grep -q "Authorization: Bearer $TOK" || { echo '{"error":"unauthorized"}'; exit 22; }
-[ "\${FAKE_CURL_STATUS:-200}" = 200 ] || { echo '{"error":"unauthorized"}'; exit 22; }
+h=\$(cat)
+case "\$h" in *"Authorization: Bearer $TOK"*) ;; *) exit 22 ;; esac
+case "\$*" in *oauth/usage*) case "\$h" in *"anthropic-beta: oauth-2025-04-20"*) ;; *) exit 22 ;; esac ;; esac
+[ "\${FAKE_CURL_STATUS:-200}" = 200 ] || exit 22
 cat "$CB/reply"
 SH
   chmod +x "$CB/bin/security" "$CB/bin/curl"
@@ -1527,6 +1530,7 @@ SH
   claude_creds
   echo '{"five_hour":{"utilization":31,"resets_at":null},"seven_day":{"utilization":85,"resets_at":null}}' > "$CB/reply"
   assert_eq "claude: the tightest of the 5-hour and 7-day windows" "$(credits claude)" 15
+  assert_match "claude: ... asked with curl -f, so an error status fails" "$(tail -1 "$CB/curl.log")" '^-sf '
   assert_eq "claude: a 401 prints nothing" "$(FAKE_CURL_STATUS=401 credits claude)" ""
   rm "$CB/keychain/Claude Code-credentials"
   assert_eq "claude: a missing keychain item prints nothing" "$(credits claude)" ""
@@ -1539,8 +1543,8 @@ SH
   assert_eq "cursor: malformed JSON prints nothing" "$(credits cursor)" ""
 
   # codex: the stub's app-server answers account/rateLimits/read with the
-  # result in $CODEX_STUB_RATE_LIMITS, errors without it, and never answers
-  # when it is `silent`.
+  # result in $CODEX_STUB_RATE_LIMITS, errors without it, answers with a
+  # JSON-RPC error when it is `error`, and never answers when it is `silent`.
   echo '{"rateLimits":{"primary":{"usedPercent":80,"windowDurationMins":300},"secondary":null}}' > "$CB/codex-limits"
   assert_eq "codex: primary only" "$(CODEX_STUB_RATE_LIMITS="$CB/codex-limits" credits codex)" 20
   echo '{"rateLimits":{"primary":{"usedPercent":10},"secondary":{"usedPercent":60}}}' > "$CB/codex-limits"
@@ -1548,15 +1552,24 @@ SH
   assert_eq "codex: the tightest of primary and secondary" "$(CODEX_STUB_RATE_LIMITS="$CB/codex-limits" credits codex)" 40
   assert_match "codex: ... read from codex app-server" "$(cat "$HERDR_STUB_LOG")" '^codex app-server$'
   assert_eq "codex: an app-server that errors prints nothing" "$(credits codex)" ""
+  assert_eq "codex: a JSON-RPC error reply prints nothing" "$(CODEX_STUB_RATE_LIMITS=error credits codex)" ""
   SECONDS=0
   assert_eq "codex: an app-server that never answers prints nothing" "$(CREDITS_TIMEOUT=1 CODEX_STUB_RATE_LIMITS=silent credits codex)" ""
-  [ "$SECONDS" -le 3 ] && ok "codex: ... within about the timeout" || bad "codex: ... within about the timeout" "took ${SECONDS}s"
+  [ "$SECONDS" -le 4 ] && ok "codex: ... within about the timeout" || bad "codex: ... within about the timeout" "took ${SECONDS}s"
+  pgrep -f 'sleep 31.7' >/dev/null && bad "codex: ... and leaves no app-server behind" || ok "codex: ... and leaves no app-server behind"
 
   claude_creds
   echo '{"five_hour":{"utilization":31},"seven_day":{"utilization":85}}' > "$CB/reply"
   SECONDS=0
-  assert_eq "a probe slower than its timeout prints nothing" "$(CREDITS_TIMEOUT=1 FAKE_CURL_SLEEP=8 credits claude)" ""
-  [ "$SECONDS" -le 3 ] && ok "... and returns within about the timeout" || bad "... and returns within about the timeout" "took ${SECONDS}s"
+  assert_eq "a probe slower than its timeout prints nothing" "$(CREDITS_TIMEOUT=1 FAKE_CURL_SLEEP=8.3 credits claude)" ""
+  [ "$SECONDS" -le 4 ] && ok "... and returns within about the timeout" || bad "... and returns within about the timeout" "took ${SECONDS}s"
+  pgrep -f 'sleep 8.3' >/dev/null && bad "... and leaves nothing it started behind" || ok "... and leaves nothing it started behind"
+  # A timeout set in the caller's shell, not exported, is the probe's too;
+  # and the module, sourced by a relative path, still probes after a cd.
+  assert_eq "a caller's CREDITS_TIMEOUT holds for the whole probe" \
+    "$(PATH="$CB/bin:$PATH" in_kit "CREDITS_TIMEOUT=6; . \"\$KIT/credits.sh\"; FAKE_CURL_SLEEP=3 credits_left claude")" 15
+  assert_eq "a module sourced by a relative path probes after a cd" \
+    "$(cd "$KIT" && PATH="$CB/bin:$PATH" in_kit ". ./credits.sh; cd /; credits_left claude")" 15
   assert_eq "an unknown kind prints nothing" "$(credits gemini)" ""
   assert_eq "no kind prints nothing" "$(credits '')" ""
 

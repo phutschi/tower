@@ -12,10 +12,13 @@
 # failure of any kind (no keychain, no item, 401, timeout, a reply of another
 # shape, an unknown kind) prints nothing, which the guard counts as enough.
 # A token only ever travels through a pipe (curl reads its header lines from
-# stdin): never argv, a file, stdout or stderr.
+# stdin): never argv, a file, stdout or stderr. `security` reads an item
+# without a prompt only when its ACL lets /usr/bin/security in; otherwise
+# macOS asks, the probe times out and prints nothing.
 #
 #   claude: the token in the keychain item "Claude Code-credentials"
-#           (claudeAiOauth.accessToken), then Anthropic's OAuth usage endpoint
+#           (claudeAiOauth.accessToken; a CLAUDE_CONFIG_DIR names another item,
+#           which is not read), then Anthropic's OAuth usage endpoint
 #           (api.anthropic.com/api/oauth/usage, internal): the least of
 #           100 - utilization over five_hour and seven_day.
 #   codex:  no token: `codex app-server` over stdio JSON-RPC (initialize,
@@ -27,7 +30,7 @@
 #           100 - planUsage.totalPercentUsed.
 
 CREDITS_TIMEOUT="${CREDITS_TIMEOUT:-2}"
-_CREDITS_SH="${BASH_SOURCE[0]}"
+_CREDITS_SH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/credits.sh"
 
 credits_left() {
   case "${1:-}" in claude|codex|cursor) ;; *) return 0 ;; esac
@@ -37,10 +40,10 @@ timeout, module, kind = float(sys.argv[1]), sys.argv[2], sys.argv[3]
 p = subprocess.Popen(["bash", "-c", '. "$0"; _credits_"$1"', module, kind],
                      stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                      stderr=subprocess.DEVNULL, start_new_session=True)
+# Everything the probe started is in its process group, which goes with it.
 try:
     out, _ = p.communicate(timeout=timeout)
 except subprocess.TimeoutExpired:
-    os.killpg(p.pid, signal.SIGKILL)
     sys.exit(0)
 finally:
     try: os.killpg(p.pid, signal.SIGKILL)
@@ -66,7 +69,7 @@ _credits_claude() {
   creds=$(security find-generic-password -s 'Claude Code-credentials' -w 2>/dev/null) || return 0
   tok=$(printf '%s' "$creds" | python3 -c 'import json,sys; print(json.load(sys.stdin)["claudeAiOauth"]["accessToken"])' 2>/dev/null) || return 0
   printf 'Authorization: Bearer %s\nanthropic-beta: oauth-2025-04-20\n' "$tok" \
-    | curl -sf --max-time "$CREDITS_TIMEOUT" -H @- https://api.anthropic.com/api/oauth/usage 2>/dev/null \
+    | curl -sf -H @- https://api.anthropic.com/api/oauth/usage 2>/dev/null \
     | _credits_tightest '[(d.get(w) or {}).get("utilization") for w in ("five_hour", "seven_day")]'
 }
 
@@ -80,13 +83,13 @@ def reply(i):
     for line in p.stdout:
         try: m = json.loads(line)
         except ValueError: continue
-        if m.get("id") == i: return m.get("result")
+        if m.get("id") == i: return m.get("result") or sys.exit(1)
     sys.exit(1)
 send({"id": 1, "method": "initialize", "params": {"clientInfo": {"name": "tower", "version": "0"}}})
 reply(1)
 send({"method": "initialized"})
 send({"id": 2, "method": "account/rateLimits/read"})
-print(json.dumps(reply(2)["rateLimits"]))
+print(json.dumps(reply(2).get("rateLimits") or {}))
 p.kill()' 2>/dev/null \
     | _credits_tightest '[(d.get(w) or {}).get("usedPercent") for w in ("primary", "secondary")]'
 }
@@ -95,7 +98,7 @@ _credits_cursor() {
   local tok
   tok=$(security find-generic-password -s cursor-access-token -w 2>/dev/null) || return 0
   printf 'Authorization: Bearer %s\nContent-Type: application/json\n' "$tok" \
-    | curl -sf --max-time "$CREDITS_TIMEOUT" -H @- --data '{}' \
+    | curl -sf -H @- --data '{}' \
         https://api2.cursor.sh/aiserver.v1.DashboardService/GetCurrentPeriodUsage 2>/dev/null \
     | _credits_tightest '[(d.get("planUsage") or {}).get("totalPercentUsed")]'
 }

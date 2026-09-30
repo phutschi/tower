@@ -4,8 +4,8 @@
 # (command -v still finds this stub).
 # `app-server` speaks JSON-RPC on stdin/stdout, one message a line: it answers
 # initialize, and answers account/rateLimits/read with the result held in the
-# file CODEX_STUB_RATE_LIMITS names. Unset, it errors; `silent`, it never
-# answers that request.
+# file CODEX_STUB_RATE_LIMITS names. Unset, it errors; `error`, it answers
+# with a JSON-RPC error; `silent`, it never answers that request.
 [ "${CODEX_STUB:-}" = absent ] && { echo "codex: not installed (stub)" >&2; exit 127; }
 printf 'codex %s\n' "$*" >> "${HERDR_STUB_LOG:-/dev/null}"
 case "${1:-}" in
@@ -16,7 +16,10 @@ case "${1:-}" in
       id=$(printf '%s' "$line" | sed -nE 's/.*"id": *([0-9]+).*/\1/p')
       case "$line" in
         *'"account/rateLimits/read"'*)
-          [ "$CODEX_STUB_RATE_LIMITS" = silent ] && { sleep 30; exit 0; }
+          case "$CODEX_STUB_RATE_LIMITS" in
+            silent) sleep 31.7; exit 0 ;;
+            error)  printf '{"id":%s,"error":{"code":-32601,"message":"unknown method (stub)"}}\n' "$id"; continue ;;
+          esac
           printf '{"id":%s,"result":%s}\n' "$id" "$(cat "$CODEX_STUB_RATE_LIMITS")" ;;
         *'"initialize"'*) printf '{"id":%s,"result":{"userAgent":"codex (stub)"}}\n' "$id" ;;
       esac
