@@ -12,11 +12,16 @@
 # step in it, and removes it on every exit, a failure and a signal too. So
 # untracked files (a *.test.ts the suite would pick up), index bits
 # (assume-unchanged, skip-worktree) and dirty kit files in the checkout do not
-# reach the look. look writes the git dir only for that worktree
-# (.git/worktrees); a sandbox that keeps it read-only is a setup error.
+# reach the look. The checkout's git hooks stay off while the worktree is
+# made (core.hooksPath=/dev/null); HEAD's submodules are checked out in it.
+# look writes the git dir only for that worktree (its worktrees/, and
+# modules/ for submodules); a sandbox that keeps those read-only, or a TMPDIR
+# look cannot write, is a setup error.
 #
 # What look still trusts: itself, as invoked; git, coreutils, python3 and the
-# scanners on PATH; and the kit beside look.sh when look.sh is not committed
+# scanners on PATH; the repo's git config (a filter such as git-lfs's smudge
+# runs as the worktree is made); and the kit beside look.sh when look.sh is
+# not committed
 # in the checkout (an installed plugin, outside what a lane edits). When it is
 # (the repo under review is the kit's own), the kit is HEAD's copy. Before the
 # worktree exists look runs git and coreutils only: the clean-tree check, the
@@ -68,8 +73,9 @@
 # "setup:", with that line, and a watchpoint finding (not must-fix) with the
 # tail; the look is then a setup error (exit 2). A SUITE_SKIP name that
 # matches no step is a warn row. What the suite changes (tracked files it
-# edits, untracked files it leaves, beside what the install left) it changes
-# in the temp worktree: one should-fix finding (area suite, file ".", line
+# edits, untracked files it leaves, beside what the install left; compared by
+# content, so a file the install changed and the suite changed again counts)
+# it changes in the temp worktree: one should-fix finding (area suite, file ".", line
 # null) names them, "the suite changed tracked files" or "the suite left
 # untracked files", and the worktree goes with them. Nothing is put back,
 # since the checkout was never touched.
@@ -88,8 +94,8 @@
 # Prints each suite step as it starts (stderr), the verdict table and the
 # findings file. Exit 0 when no finding is must-fix, 1 when one is, 2 on a
 # setup error (usage, uncommitted changes to tracked files, a repo contract
-# not committed as it is in HEAD or a symlink, unknown base, no temp
-# worktree, a failed install, a refused repo contract, a suite step's
+# not committed as it is in HEAD or a symlink, unknown base, no temp dir or
+# worktree, submodules that cannot be checked out, no kit, a failed install, a refused repo contract, a suite step's
 # permission error); look.json is
 # removed first, so after exit 2 there is none, except after a permission
 # error: every step ran, and look.json holds their rows and findings.
@@ -136,14 +142,23 @@ MERGE_BASE=$(git merge-base "$BASE" HEAD) || die "look: no merge base between '$
 # Everything below runs in it, and it goes on every exit.
 # Under TMPDIR by name: macOS mktemp ignores it without a template, and a
 # sandboxed Reviewer can write only its own (executor.sh AGENT_TMP).
-WORK=$(mktemp -d "${TMPDIR:-/tmp}/look.XXXXXX"); TREE="$WORK/tree"
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/look.XXXXXX") || die "look: cannot make a temp dir under ${TMPDIR:-/tmp}"
+TREE="$WORK/tree"
 cleanup() {
   git -C "$TOP" worktree remove --force "$TREE" >/dev/null 2>&1 || true
   rm -rf "$WORK"; git -C "$TOP" worktree prune >/dev/null 2>&1 || true
 }
 trap cleanup EXIT; trap 'exit 129' HUP; trap 'exit 130' INT; trap 'exit 143' TERM
-git worktree add --detach --quiet "$TREE" HEAD > "$WORK/worktree.err" 2>&1 \
-  || die "look: could not make a temp worktree of HEAD (git worktree add: $(grep -m1 . "$WORK/worktree.err" || echo "no output")); look needs to write the repo's git dir and TMPDIR"
+# The checkout's hooks stay off (-c reaches every git these start): a
+# post-checkout hook is code from the checkout.
+NOHOOKS=(-c core.hooksPath=/dev/null)
+git "${NOHOOKS[@]}" worktree add --detach --quiet "$TREE" HEAD > "$WORK/worktree.err" 2>&1 \
+  || die "look: could not make a temp worktree of HEAD (git worktree add: $(grep -m1 . "$WORK/worktree.err" || echo "no output")); look needs to write the git dir's worktrees/ and TMPDIR"
+# Submodules, as HEAD pins them: a checkout has them, so the suite may need them.
+if [ -f "$TREE/.gitmodules" ]; then
+  git -C "$TREE" "${NOHOOKS[@]}" submodule --quiet update --init --recursive > "$WORK/submodule.err" 2>&1 \
+    || die "look: could not check out HEAD's submodules in look's temp worktree (git submodule update: $(grep -m1 . "$WORK/submodule.err" || echo "no output"))"
+fi
 # The kit: HEAD's copy when look.sh is committed in this checkout (the repo
 # under review is the kit's own), else the one beside look.sh as invoked.
 KIT="$(dirname "$LOOK_DIR")/orchestrate"
@@ -151,7 +166,8 @@ case "$LOOK_DIR" in
   "$TOP"/*) REL=${LOOK_DIR#"$TOP"/}
             [ ! -f "$TREE/$REL/look.sh" ] || KIT="$TREE/$(dirname "$REL")/orchestrate" ;;
 esac
-cd "$TREE"
+cd "$TREE" || die "look: cannot enter its temp worktree $TREE"
+[ -f "$KIT/common.sh" ] && [ -f "$KIT/detect-stack.sh" ] || die "look: no orchestrate kit at $KIT (common.sh, detect-stack.sh)"
 . "$KIT/common.sh"
 die() { echo "$*" >&2; exit 2; }  # again: common.sh's exits 1
 need git python3
@@ -261,16 +277,41 @@ elif mode == "suite":
                       "file": where, "line": None,
                       "title": "suite step %s failed%s (exit %s)" % (name, " on a permission error" if setup else "", rc),
                       "evidence": "$ %s\n%s" % (cmd, tail)}))
+elif mode == "snapshot":
+    # Every path git status names, untracked ones one by one, with a hash of
+    # its content: two snapshots differ where a file changed, even when its
+    # status line did not.
+    import hashlib, os, subprocess
+    out = subprocess.run(["git", "status", "--porcelain=v1", "-z", "--untracked-files=all"],
+                         check=True, capture_output=True).stdout.decode("utf-8", "surrogateescape")
+    entries, snap, i = out.split("\0"), {}, 0
+    while i < len(entries):
+        e = entries[i]; i += 1
+        if len(e) < 4:
+            continue
+        code, path = e[:2], e[3:]
+        if code[0] in "RC":
+            i += 1  # the rename's source path follows
+        if os.path.islink(path):
+            h = "link:" + os.readlink(path)
+        elif os.path.isfile(path):
+            h = hashlib.sha1(open(path, "rb").read()).hexdigest()
+        else:
+            h = "dir" if os.path.isdir(path) else "missing"
+        snap[path] = [code, h]
+    json.dump(snap, open(sys.argv[2], "w"))
 elif mode == "changed":
-    # git status --porcelain lines new since before the suite: what it changed.
-    lines = [l.rstrip("\n") for l in open(sys.argv[2]) if l.strip()]
-    new = [l[3:] for l in lines if l.startswith("??")]
-    changed = [l[3:] for l in lines if not l.startswith("??")]
+    # What differs between the snapshots before and after the suite.
+    before, after = json.load(open(sys.argv[2])), json.load(open(sys.argv[3]))
+    paths = sorted(p for p in set(before) | set(after) if before.get(p) != after.get(p))
+    new = [p for p in paths if (after.get(p) or before[p])[0] == "??"]
+    changed = [p for p in paths if (after.get(p) or before[p])[0] != "??"]
     parts = (["changed: " + ", ".join(changed)] if changed else []) + \
             (["new, untracked: " + ", ".join(new)] if new else [])
-    print(json.dumps({"area": "suite", "severity": "should-fix", "file": ".", "line": None,
-                      "title": "the suite changed tracked files" if changed else "the suite left untracked files",
-                      "evidence": "; ".join(parts)}))
+    if paths:
+        print(json.dumps({"area": "suite", "severity": "should-fix", "file": ".", "line": None,
+                          "title": "the suite changed tracked files" if changed else "the suite left untracked files",
+                          "evidence": "; ".join(parts)}))
 elif mode == "write":
     verdict_file, findings_file, out = sys.argv[2:5]
     verdict = [dict(zip(("step", "status", "note"), l.rstrip("\n").split("\t")))
@@ -370,7 +411,7 @@ PERMISSION_ERROR='PermissionDenied|Operation not permitted|EACCES'; SETUP_STEPS=
 for name in ${SUITE_SKIP//,/ }; do
   case " ${STEP_NAMES[*]:-} " in *" $name "*) ;; *) verdict SUITE_SKIP warn "no suite step named $name" ;; esac
 done
-STATUS_BEFORE=$(git status --porcelain)
+py snapshot "$WORK/before.json" || die "look: git status failed in look's temp worktree"
 for i in ${STEP_NAMES[@]+"${!STEP_NAMES[@]}"}; do
   name="${STEP_NAMES[$i]}"; cmd="${STEP_CMDS[$i]}"; dir="${STEP_DIRS[$i]}"
   case "$SKIP" in *",$name,"*) verdict "$name" skip SUITE_SKIP; continue ;; esac
@@ -393,8 +434,8 @@ done
 
 # What the suite changed, it changed in the temp worktree, which goes with it:
 # a should-fix finding names it, and nothing is put back (header).
-comm -13 <(printf '%s\n' "$STATUS_BEFORE" | sort) <(git status --porcelain | sort) > "$WORK/changed"
-[ ! -s "$WORK/changed" ] || py changed "$WORK/changed" >> "$FINDINGS"
+py snapshot "$WORK/after.json" || die "look: git status failed in look's temp worktree"
+py changed "$WORK/before.json" "$WORK/after.json" >> "$FINDINGS"
 
 rc=0; py write "$VERDICT" "$FINDINGS" "$FINDINGS_DIR/look.json" || rc=$?
 [ -z "$SETUP_STEPS" ] || die "look: setup error: suite step(s)${SETUP_STEPS} failed on a permission error, most likely the sandbox, not the code. Give them writable temp and cache dirs, then look again; their output is in look.json as watchpoints."

@@ -1562,6 +1562,33 @@ for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'],
   out=$(TMPDIR="$LT" look "$r" base "$TMP/findings-tree"); f=$(findings "$TMP/findings-tree/look.json")
   assert_match "look: only new untracked files: named in the same finding" "$f" '^suite should-fix \.:None the suite left untracked files \| new, untracked: left\.txt$'
   assert_eq "look: ... none in the checkout" "$([ -e "$r/left.txt" ] && echo yes || echo no)" no
+  # The checkout's git hooks do not run when look adds its worktree.
+  rm -f "$mark"; r=$(look_repo none tree-hook)
+  printf '#!/bin/sh\ntouch "%s"\n' "$mark" > "$r/.git/hooks/post-checkout"; chmod +x "$r/.git/hooks/post-checkout"
+  out=$(TMPDIR="$LT" look "$r" base "$TMP/findings-tree")
+  assert_match "look: a post-checkout hook in the checkout: green" "$out" 'exit=0$'
+  [ -e "$mark" ] && bad "look: ... and the hook does not run" || ok "look: ... and the hook does not run"
+  # No temp dir is a setup error.
+  r=$(look_repo none tree-no-tmp)
+  out=$(TMPDIR="$TMP/no-such-tmp" look "$r" base "$TMP/findings-tree")
+  assert_match "look: no temp dir: a setup error" "$out" 'exit=2$'
+  assert_match "look: ... saying so" "$out" "look: cannot make a temp dir under $TMP/no-such-tmp"
+  # Suite changes are read by content: a file the install already changed,
+  # and a file in a directory the install left, still count.
+  r=$(look_repo none tree-install-then-suite)
+  printf '%s\n' "suite writes 'echo z >> app.js; echo n > cache/new.txt'" > "$r/.orchestrate"; commit_contract "$r"
+  out=$(TMPDIR="$LT" INSTALL_CMD='echo i >> app.js; mkdir cache; echo o > cache/old.txt' look "$r" base "$TMP/findings-tree"); f=$(findings "$TMP/findings-tree/look.json")
+  assert_match "look: a file the install changed, changed again by the suite, and one added in the install's dir: named" "$f" '^suite should-fix \.:None the suite changed tracked files \| changed: app\.js; new, untracked: cache/new\.txt$'
+  # Submodules are initialised in look's worktree, as they are in a checkout.
+  sub="$TMP/repos/look-submodule-src"; mkdir -p "$sub"; git -C "$sub" init -q
+  printf 'in the submodule\n' > "$sub/lib.txt"; git -C "$sub" add -A; git -C "$sub" commit -qm lib
+  r=$(look_repo none tree-submodule)
+  git -C "$r" -c protocol.file.allow=always submodule --quiet add "$sub" lib
+  printf '%s\n' "suite sub 'grep -q \"in the submodule\" lib/lib.txt'" > "$r/.orchestrate"; git -C "$r" add -A; git -C "$r" commit -qm sub
+  out=$(TMPDIR="$LT" GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=protocol.file.allow GIT_CONFIG_VALUE_0=always look "$r" base "$TMP/findings-tree")
+  assert_match "look: a submodule is there for the suite" "$(verdict "$TMP/findings-tree/look.json" 2>&1)" '^sub pass '
+  assert_eq "look: ... the temp worktree is gone" "$(tree_gone "$r")" gone
+  rm -f "$mark"
   unset -f tree_gone kit_repo kit_look
   rm -f "$mark"; r=$(look_repo none contract-committed); printf 'touch "%s"\n' "$mark" > "$r/.orchestrate"
   git -C "$r" add .orchestrate; git -C "$r" commit -qm contract

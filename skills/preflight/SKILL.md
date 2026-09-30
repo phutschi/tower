@@ -72,8 +72,9 @@ run, the `switches:` line of `panes.txt` has the values the run uses.
    `origin/`). Git commands take `origin/<base>`; `gh` takes `<base>`.
 3. **Static baseline and full suite.** Alone, or when your brief says so.
    `look.sh` looks at HEAD, in a temp worktree of its own that it removes
-   afterwards: untracked files and index bits in the checkout do not reach
-   it, and it installs the suite's dependencies there (`INSTALL_CMD`). It
+   afterwards: untracked files, index bits and git hooks in the checkout do
+   not reach it, and it checks out submodules and installs the suite's
+   dependencies there (`INSTALL_CMD`). It
    needs a clean tracked tree:
    `git status --short --untracked-files=no` prints nothing (untracked files
    are fine); it exits 2 otherwise. It also exits 2 when the repo contract
