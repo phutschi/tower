@@ -71,11 +71,13 @@ run, the `switches:` line of `panes.txt` has the values the run uses.
    default (`git symbolic-ref --short refs/remotes/origin/HEAD`, minus
    `origin/`). Git commands take `origin/<base>`; `gh` takes `<base>`.
 3. **Static baseline and full suite.** Alone, or when your brief says so.
-   `look.sh` looks at HEAD, in a temp worktree of its own that it removes
-   afterwards: untracked files, index bits and git hooks in the checkout do
-   not reach it, and it checks out submodules and installs the suite's
-   dependencies there (`INSTALL_CMD`). It
-   needs a clean tracked tree:
+   `look.sh` looks at HEAD, in a temp worktree of its own under
+   `$XDG_STATE_HOME/tower/look` (default `~/.local/state`), where no lane
+   may write, and removes it afterwards: untracked files, index bits and git
+   hooks in the checkout do not reach it, and it checks out submodules and
+   installs the suite's dependencies there (`INSTALL_CMD`). It exits 2 when
+   that dir is under the checkout, its git dir, the run dir, `/tmp` or
+   `$TMPDIR`. It needs a clean tracked tree:
    `git status --short --untracked-files=no` prints nothing (untracked files
    are fine); it exits 2 otherwise. It also exits 2 when the repo contract
    (`.orchestrate`, or `.herdr-orchestrate`) is untracked, differs from HEAD

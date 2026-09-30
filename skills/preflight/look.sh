@@ -6,23 +6,32 @@
 #
 # Run from the checkout. The diff is the merge base of <base-ref> and HEAD
 # against HEAD. look looks at HEAD, never at the checkout's files: it adds a
-# fresh detached worktree of HEAD in a temp dir under TMPDIR (git worktree add
-# --detach; the temp dir resolved to its physical path), and reads the kit
-# (common.sh, detect-stack.sh), the repo contract and package.json from it,
-# runs the install, both scanners and every suite step in it, and removes it
-# on every exit, a failure and a signal too. So untracked files (a *.test.ts
-# the suite would pick up), index bits (assume-unchanged, skip-worktree) and
-# dirty kit files in the checkout do not reach the look. The checkout's git
-# hooks stay off while the worktree is made (core.hooksPath=/dev/null); HEAD's
-# submodules are checked out in it. look writes the git dir only for that
-# worktree (its worktrees/, and modules/ for submodules); a sandbox that keeps
-# those read-only, or a TMPDIR look cannot write, is a setup error.
+# fresh detached worktree of HEAD (git worktree add --detach) in a temp dir
+# under $XDG_STATE_HOME/tower/look (default ~/.local/state; mode 700),
+# resolved to its physical path, and reads the kit (common.sh,
+# detect-stack.sh), the repo contract and package.json from it, runs the
+# install, both scanners and every suite step in it, and removes it on every
+# exit, a failure and a signal too. So untracked files (a *.test.ts the suite
+# would pick up), index bits (assume-unchanged, skip-worktree) and dirty kit
+# files in the checkout do not reach the look. That dir is outside everything
+# a lane may write, the same reason the contract pin lives beside it
+# (detect-stack.sh): a codex lane still running writes its checkout, the run
+# dir, the git dir, /tmp and TMPDIR, and could otherwise swap a test in while
+# the install runs. look refuses (exit 2) a worktree dir that resolves under
+# the git dir, the run dir (TOWER_RUN, when set), the checkout, TMPDIR or
+# /tmp. A codex Reviewer's sandbox may write that dir (add-reviewer.sh grants
+# it, and no lane: executor.sh AGENT_LOOK). Temp files (verdict rows, scanner
+# output) stay under TMPDIR. The checkout's git hooks stay off while the
+# worktree is made (core.hooksPath=/dev/null); HEAD's submodules are checked
+# out in it. look writes the git dir only for that worktree (its worktrees/,
+# and modules/ for submodules); a sandbox that keeps those read-only, or a
+# TMPDIR or worktree dir look cannot write, is a setup error.
 #
 # What look still trusts: itself, as invoked; git, coreutils, python3 and the
 # scanners on PATH; the repo's git config (a filter such as git-lfs's smudge
 # runs as the worktree is made); and the kit beside look.sh when look.sh is
-# not committed
-# in the checkout (an installed plugin, outside what a lane edits). When it is
+# not committed in the checkout (an installed plugin, outside what a lane
+# edits). When it is
 # (the repo under review is the kit's own), the kit is HEAD's copy. Before the
 # worktree exists look runs git and coreutils only: the clean-tree check, the
 # contract check and the merge base.
@@ -140,19 +149,37 @@ MERGE_BASE=$(git merge-base "$BASE" HEAD) || die "look: no merge base between '$
 
 # --- the temp worktree of HEAD -------------------------------------------------
 # Everything below runs in it, and it goes on every exit.
-# Under TMPDIR by name: macOS mktemp ignores it without a template, and a
-# sandboxed Reviewer can write only its own (executor.sh AGENT_TMP).
+# Temp files (verdict rows, scanner output) under TMPDIR, by name: macOS
+# mktemp ignores it without a template.
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/look.XXXXXX") || die "look: cannot make a temp dir under ${TMPDIR:-/tmp}"
-# Its physical path (macOS: /var is /private/var), so the suite sees one real
-# path: a test comparing a recorded path with its own finds them equal.
-_phys=$(cd "$WORK" && pwd -P) || { rm -rf "$WORK"; die "look: cannot resolve its temp dir $WORK"; }
-WORK=$_phys; unset _phys
-TREE="$WORK/tree"
+TREE_DIR=""
 cleanup() {
-  git -C "$TOP" worktree remove --force "$TREE" >/dev/null 2>&1 || true
+  [ -z "$TREE_DIR" ] || { git -C "$TOP" worktree remove --force "$TREE_DIR/tree" >/dev/null 2>&1 || true; rm -rf "$TREE_DIR"; }
   rm -rf "$WORK"; git -C "$TOP" worktree prune >/dev/null 2>&1 || true
 }
 trap cleanup EXIT; trap 'exit 129' HUP; trap 'exit 130' INT; trap 'exit 143' TERM
+# The worktree, whose code look runs, goes where no lane may write (a codex
+# lane writes its checkout, the run dir, the git dir, /tmp and TMPDIR; a codex
+# Reviewer is granted this dir alone: add-reviewer.sh AGENT_LOOK), by its
+# physical path (macOS: /var is /private/var), so the suite sees one real path.
+LOOK_ROOT="${XDG_STATE_HOME:-$HOME/.local/state}/tower/look"
+mkdir -p "$LOOK_ROOT" && chmod 700 "$LOOK_ROOT" || die "look: cannot make its worktree dir $LOOK_ROOT"
+LOOK_ROOT=$(cd "$LOOK_ROOT" && pwd -P) || die "look: cannot resolve its worktree dir $LOOK_ROOT"
+under() {  # WHAT DIR: refused when LOOK_ROOT is DIR or under it
+  local d; [ -n "$2" ] || return 0  # cd "" would stay here
+  d=$(cd "$2" 2>/dev/null && pwd -P) || return 0
+  case "$LOOK_ROOT/" in "${d%/}/"*)
+    die "look: its worktree dir $LOOK_ROOT is under $1 ($d), which a lane may write; set XDG_STATE_HOME elsewhere, then run look again" ;;
+  esac
+}
+under "the git dir" "$(git rev-parse --path-format=absolute --git-common-dir)"
+under "the git dir" "$(git rev-parse --path-format=absolute --git-dir)"
+[ -z "${TOWER_RUN:-}" ] || under "the run dir" "$TOWER_RUN"
+under "the checkout" "$TOP"
+[ -z "${TMPDIR:-}" ] || under "TMPDIR" "$TMPDIR"
+under "/tmp" /tmp
+TREE_DIR=$(mktemp -d "$LOOK_ROOT/look.XXXXXX") || die "look: cannot make a temp dir under $LOOK_ROOT"
+TREE="$TREE_DIR/tree"
 # The checkout's hooks stay off (-c reaches every git these start): a
 # post-checkout hook is code from the checkout.
 NOHOOKS=(-c core.hooksPath=/dev/null)

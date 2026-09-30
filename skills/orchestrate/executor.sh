@@ -27,6 +27,10 @@
 #           gives the commands it runs that dir as TMPDIR, BUN_TMPDIR,
 #           BUN_INSTALL_CACHE_DIR and npm_config_cache, through codex's
 #           shell_environment_policy: the defaults are outside its sandbox.
+#           AGENT_LOOK=<dir> (add-reviewer.sh sets it for a codex Reviewer,
+#           and only then; bootstrap.sh and add-lane.sh clear it) is one more
+#           writable dir: where preflight's look.sh makes its temp worktree,
+#           outside everything a lane may write.
 #
 # Expects `set -u`; provides agent_name SUFFIX, start_agent NAME PANE,
 # start_agent_with_trust_retry NAME PANE (it returns once the agent accepts
@@ -87,11 +91,13 @@ start_agent() {
       [ -n "${RUN_DIR:-}" ] && extra+=(--add-dir "$RUN_DIR")
       if [ "$gitdir" = "$common" ]; then
         extra+=(--add-dir "$common")
+        [ -z "${AGENT_LOOK:-}" ] || extra+=(--add-dir "$AGENT_LOOK")
       else
         # These roots replace any in the user's codex config, and the run dir
         # is listed here too in case they replace --add-dir's.
         for p in ${RUN_DIR:+"$RUN_DIR"} "$common/objects" "$common/refs" "$common/logs" \
-          "$common/packed-refs" "$common/packed-refs.lock" "$common/packed-refs.new" "$gitdir"; do
+          "$common/packed-refs" "$common/packed-refs.lock" "$common/packed-refs.new" "$gitdir" \
+          ${AGENT_LOOK:+"$AGENT_LOOK"}; do
           roots+="${roots:+,}$(toml_string "$p")"
         done
         extra+=(-c "sandbox_workspace_write.writable_roots=[$roots]")

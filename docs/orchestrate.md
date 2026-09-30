@@ -268,6 +268,13 @@ Its sandbox then does not contain `.git/hooks` or `.git/config`: a hook or a
 yours or the kit's. Run lane A as claude, or read `.git/hooks` and
 `git config --local --list` before you merge, when that matters.
 
+No lane, lane A included, may write `$XDG_STATE_HOME/tower/` (default
+`~/.local/state`): the contract pins live there, and preflight's `look.sh`
+makes its temp worktree of HEAD under `tower/look/`, whose code it runs. A
+codex Reviewer alone is granted `tower/look/`, so it can run look; look
+refuses a `tower/look/` that resolves under a checkout, its git dir, the run
+dir, `/tmp` or `$TMPDIR`.
+
 ## Testing the kit
 
 `./test.sh` runs without herdr, claude, codex, semgrep or gitleaks: stubs

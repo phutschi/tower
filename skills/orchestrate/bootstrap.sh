@@ -105,6 +105,7 @@ unset _seen _spec
 # what add-lane.sh uses for the worktree location of lanes B-D).
 REPO="$PWD"
 AGENT_CHECKOUT="$REPO"   # executor.sh: lane A's sandbox grant follows its checkout
+unset AGENT_LOOK         # executor.sh: look's worktree dir is a codex Reviewer's alone
 unset CONTRACT_RUN  # bootstrap reads the checkout's contract, and pins it
 
 need_tower

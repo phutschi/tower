@@ -169,6 +169,14 @@ if section executor; then
   log=$(start_in "$r")
   assert_match "codex lane in the main checkout: the whole common git dir" "$log" "--add-dir $C( |\$)"
   assert_nomatch "codex lane in the main checkout: no narrowed roots" "$log" 'writable_roots'
+  # AGENT_LOOK (add-reviewer.sh sets it for a codex Reviewer, and only then)
+  # is one more writable dir, beside the grants above.
+  log=$(start_in "$r" AGENT_LOOK=/state/look)
+  assert_match "AGENT_LOOK in the main checkout: added as a dir" "$log" "--add-dir /state/look( |\$)"
+  log=$(start_in "$wt" AGENT_LOOK=/state/look)
+  assert_match "AGENT_LOOK in a worktree: one of the writable roots" "$log" 'writable_roots=\[.*"/state/look".*\]'
+  log=$(start_in "$r")
+  assert_nomatch "no AGENT_LOOK: no look dir" "$log" 'state/look'
   # An agent that exits right after its start (codex updating itself, say)
   # is started once more; gone again, the start fails, saying so.
   printf 'gone\nidle\n' > "$HERDR_STUB_STATES_DIR/acme-lane-a.started"
@@ -721,6 +729,16 @@ if section add-lane; then
   log=$(grep '^herdr agent start bun-vitest-lane-b ' "$HERDR_STUB_LOG")
   assert_match "codex lane B: its own worktree's git dir is writable" "$log" "writable_roots=\\[.*\"$C/worktrees/x\"\\]"
   assert_nomatch "codex lane B: not the whole common git dir" "$log" "--add-dir $C( |\$)"
+  # look's worktree dir is a codex Reviewer's alone: never a lane's, even
+  # with AGENT_LOOK in the caller's environment.
+  r=$(fixture_repo bun-vitest); RUNL="$TMP/run-codex-look"; reset_stub
+  (cd "$r" && EXECUTOR_KIND=codex AGENT_LOOK="$XDG_STATE_HOME/tower/look" "$KIT/bootstrap.sh" "$RUNL" "Look" main "$KIT/example-tasks.tsv" >/dev/null 2>&1)
+  assert_match "codex lane A: started" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-lane-a --kind codex '
+  assert_nomatch "codex lane A: no grant of look's worktree dir" "$(cat "$HERDR_STUB_LOG")" 'tower/look'
+  git -C "$r" worktree add -q "$r/.worktrees/feat/l" -b feat/l; reset_stub
+  (cd "$r" && EXECUTOR_KIND=codex AGENT_LOOK="$XDG_STATE_HOME/tower/look" "$KIT/add-lane.sh" "$RUNL" B feat/l main 2 >/dev/null 2>&1)
+  assert_match "codex lane B (look): started" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-lane-b --kind codex '
+  assert_nomatch "codex lane B: no grant of look's worktree dir" "$(cat "$HERDR_STUB_LOG")" 'tower/look'
   # A start that never accepts input leaves the lane's line ending in
   # "starting" and its agent running; a rerun takes the agent once it accepts
   # input, starts it again when it is gone, and otherwise says to end it.
@@ -851,12 +869,16 @@ if section add-reviewer; then
     assert_match "codex Reviewer: $v is the run dir's tmp" "$log" "^herdr agent start bun-vitest-r1-1 .* -c shell_environment_policy\\.set\\.$v=\"$RUN/tmp\"( |\$)"
   done
   [ -d "$RUN/tmp" ] && ok "codex Reviewer: the run dir's tmp exists" || bad "codex Reviewer: the run dir's tmp exists"
+  # ... and it may write look's worktree dir, outside what any lane may write.
+  assert_match "codex Reviewer: look's worktree dir is writable" "$log" "^herdr agent start bun-vitest-r1-1 .* --add-dir $XDG_STATE_HOME/tower/look( |\$)"
+  assert_eq "codex Reviewer: ... it exists, mode 700" "$(ls -ld "$XDG_STATE_HOME/tower/look" 2>/dev/null | cut -c1-10)" drwx------
 
   reset_stub; out=$(review R2 codex "Lane review B" "$RUN/findings/lane-b.json"); log=$(cat "$HERDR_STUB_LOG")
   assert_nomatch "second call: no new tab"            "$log" '^herdr tab create'
   assert_nomatch "second call: no new pane"           "$log" '^herdr pane split'
   assert_match "R2: a codex lane gets a claude Reviewer in the R2 pane" "$log" '^herdr agent start bun-vitest-r2-1 --kind claude --pane pane-2 -- --model claude-opus-5-5$'
   assert_nomatch "claude Reviewer: no codex environment" "$log" 'shell_environment_policy'
+  assert_nomatch "claude Reviewer: no look dir grant" "$log" 'tower/look'
   assert_eq "R2: board task owned by R2"              "$(reviews "$RUN")" "R1-1@R1:Lane review A R2-1@R2:Lane review B"
   assert_eq "pane map: one review tab line"           "$(grep -c '^review tab:' "$RUN/panes.txt")" 1
 
@@ -1433,6 +1455,13 @@ if section look; then
   # No install in look's temp worktree unless a test asks for one (set, even
   # empty, INSTALL_CMD wins over the package manager's).
   export INSTALL_CMD=
+  # look makes its temp worktree under $XDG_STATE_HOME/tower/look and refuses
+  # one under /tmp, TMPDIR or the checkout: this run's state dir is under $TMP,
+  # which is one of those on macOS and Linux, so look gets one of its own here
+  # (gitignored; removed at the end of the section).
+  SAVED_XDG_STATE_HOME=$XDG_STATE_HOME
+  export XDG_STATE_HOME="$ROOT/.worktrees/.test-look-state.$$"; mkdir -p "$XDG_STATE_HOME"
+  LOOK_ROOT="$(cd "$XDG_STATE_HOME" && pwd -P)/tower/look"
   # Settings the caller's shell may carry; the fixtures decide them here.
   unset STATIC_BASELINE SUITE_SKIP PR METHOD REVIEWER_KIND TYPECHECK_TASK PM
   # A fixture repo on a branch: tag base, then one commit that changes app.js,
@@ -1509,7 +1538,10 @@ for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'],
   # checkout holds beyond HEAD (untracked files, index bits, dirty kit files)
   # does not reach the look.
   LT="$TMP/look-tmp"; mkdir -p "$LT"; LTP=$(cd "$LT" && pwd -P)
-  tree_gone() { [ -z "$(ls -A "$LT")" ] && [ "$(git -C "$1" worktree list | wc -l | tr -d ' ')" = 1 ] && echo gone || echo left; }
+  tree_gone() {  # REPO: look's temp worktree, its dir and its temp files are gone
+    [ -z "$(ls -A "$LT")" ] && [ -z "$(ls -A "$LOOK_ROOT" 2>/dev/null)" ] \
+      && [ "$(git -C "$1" worktree list | wc -l | tr -d ' ')" = 1 ] && echo gone || echo left
+  }
   rm -f "$mark"; r=$(look_repo none tree-untracked-test)
   printf '%s\n' "suite t 'for f in *.test.sh; do bash \"\$f\" || exit 1; done'" > "$r/.orchestrate"
   printf 'true\n' > "$r/ok.test.sh"; git -C "$r" add -A; git -C "$r" commit -qm tests
@@ -1540,7 +1572,7 @@ for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'],
   # manager's); one that fails is a setup error, and the worktree still goes.
   r=$(look_repo none tree-install); rm -f "$TMP/install-where"
   out=$(TMPDIR="$LT" INSTALL_CMD='pwd -P > "$INSTALL_WHERE"' INSTALL_WHERE="$TMP/install-where" look "$r" base "$TMP/findings-tree")
-  assert_match "look: the install runs in the temp worktree" "$(cat "$TMP/install-where" 2>/dev/null)" "^$LTP/"
+  assert_match "look: the install runs in the temp worktree, under look's own dir" "$(cat "$TMP/install-where" 2>/dev/null)" "^$LOOK_ROOT/look\.[^/]*/tree$"
   assert_match "look: ... and the look goes on" "$out" 'exit=0$'
   out=$(TMPDIR="$LT" INSTALL_CMD='echo "no lockfile" >&2; exit 4' look "$r" base "$TMP/findings-tree")
   assert_match "look: a failed install is a setup error" "$out" 'exit=2$'
@@ -1589,14 +1621,33 @@ for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'],
   assert_match "look: a submodule is there for the suite" "$(verdict "$TMP/findings-tree/look.json" 2>&1)" '^sub pass '
   assert_eq "look: ... the temp worktree is gone" "$(tree_gone "$r")" gone
   rm -f "$mark"
-  # A TMPDIR reached through a symlink (macOS: /var -> /private/var): the
+  # A state dir reached through a symlink (macOS: /var -> /private/var): the
   # suite sees one real path, the resolved one.
-  ln -sfn "$LT" "$TMP/look-tmp-link"; r=$(look_repo none tree-symlinked-tmp)
+  ln -sfn "$XDG_STATE_HOME" "$XDG_STATE_HOME.link"; r=$(look_repo none tree-symlinked-state)
   printf '%s\n' "suite phys '[ \"\$PWD\" = \"\$(pwd -P)\" ] || { echo \"logical \$PWD, physical \$(pwd -P)\"; exit 1; }'" > "$r/.orchestrate"; commit_contract "$r"
-  out=$(TMPDIR="$TMP/look-tmp-link" look "$r" base "$TMP/findings-tree")
-  assert_match "look: a symlinked TMPDIR: the suite runs in the resolved path" "$(verdict "$TMP/findings-tree/look.json" 2>&1)" '^phys pass '
+  out=$(TMPDIR="$LT" XDG_STATE_HOME="$XDG_STATE_HOME.link" look "$r" base "$TMP/findings-tree")
+  assert_match "look: a symlinked state dir: the suite runs in the resolved path" "$(verdict "$TMP/findings-tree/look.json" 2>&1)" '^phys pass '
   assert_eq "look: ... the temp worktree is gone" "$(tree_gone "$r")" gone
-  rm -f "$TMP/look-tmp-link"
+  rm -f "$XDG_STATE_HOME.link"
+  assert_eq "look: its worktree dir is the user's alone (mode 700)" "$(ls -ld "$LOOK_ROOT" | cut -c1-10)" drwx------
+  # Its worktree dir must be outside everything a lane may write: under the
+  # checkout, its git dir, the run dir, /tmp or TMPDIR it is refused.
+  r=$(look_repo none tree-where)
+  refused() {  # WHAT XDG_STATE_HOME [ENV...]
+    local what=$1 x=$2; shift 2
+    out=$(env TMPDIR="$LT" XDG_STATE_HOME="$x" "$@" bash -c 'cd "$1" && "$2" base "$3" 2>&1; echo "exit=$?"' _ "$r" "$PREFLIGHT_DIR/look.sh" "$TMP/findings-tree")
+    assert_match "look: a worktree dir under $what: refused" "$out" "look: its worktree dir .* is under $what"
+    assert_match "look: ... a setup error" "$out" 'exit=2$'
+    assert_eq "look: ... no worktree made" "$(git -C "$r" worktree list | wc -l | tr -d ' ')" 1
+  }
+  refused "the checkout" "$r/state"
+  refused "the git dir" "$r/.git/state"
+  mkdir -p "$ROOT/.worktrees/.test-look-run.$$"
+  refused "the run dir" "$ROOT/.worktrees/.test-look-run.$$/state" TOWER_RUN="$ROOT/.worktrees/.test-look-run.$$"
+  rm -rf "$ROOT/.worktrees/.test-look-run.$$"
+  refused "/tmp" "/tmp/test-look-state.$$"; rm -rf "/tmp/test-look-state.$$"
+  refused "TMPDIR" "$LT/state"; rm -rf "$LT/state"
+  unset -f refused
   unset -f tree_gone kit_repo kit_look
   rm -f "$mark"; r=$(look_repo none contract-committed); printf 'touch "%s"\n' "$mark" > "$r/.orchestrate"
   git -C "$r" add .orchestrate; git -C "$r" commit -qm contract
@@ -1820,6 +1871,7 @@ for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'],
   reset_stub; out=$(GIT_SSH="$TMP/ssh-stub" look "$r" origin/main "$F")
   assert_match "look: a GIT_SSH wrapper is used as it is"  "$(cat "$TMP/ssh.log")" 'git\.example\.invalid'
   assert_nomatch "look: ... without ssh's -o options"     "$(cat "$TMP/ssh.log")" 'BatchMode'
+  rm -rf "$XDG_STATE_HOME"; export XDG_STATE_HOME=$SAVED_XDG_STATE_HOME; unset SAVED_XDG_STATE_HOME LOOK_ROOT
   unset CHECK_CMD INSTALL_CMD SUITE_ORDER; unset -f look_repo findings verdict look
 fi
 
@@ -2155,7 +2207,10 @@ if section run; then
     "R1-1@R1:Lane review A, round 1|R2-1@R2:Lane review B, round 1|R1-2@R1:Lane review A, round 2|R1-3@R1:Preflight R1, round 1|R2-2@R2:Preflight R2, round 1"
 
   export SUITE_ORDER="$TMP/run-suite-order"; : > "$SUITE_ORDER"
-  out=$(in_repo "$PREFLIGHT_DIR/look.sh" base "$RUN/findings/preflight/1")
+  # look's worktree dir must be outside /tmp and TMPDIR, where this run's
+  # state dir is: one of its own (gitignored), as in the look section.
+  LS="$ROOT/.worktrees/.test-look-state.$$"
+  out=$(in_repo env XDG_STATE_HOME="$LS" "$PREFLIGHT_DIR/look.sh" base "$RUN/findings/preflight/1"); rm -rf "$LS"
   assert_match "run: look.sh names the findings file it wrote" "$out" "$RUN/findings/preflight/1/look.json"
   steps=$(python3 -c "import json,sys; print(' '.join(v['step']+':'+v['status'] for v in json.load(open(sys.argv[1]))['verdict']))" "$RUN/findings/preflight/1/look.json" 2>&1)
   assert_eq "run: look.json has a row for the base, each scanner and every suite step" "$steps" "base:skip semgrep:pass gitleaks:pass lint:skip test:fail build:pass"

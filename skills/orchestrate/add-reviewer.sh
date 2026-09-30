@@ -59,7 +59,10 @@
 #   the directory of <findings-file>;
 #   for a codex Reviewer, <run-dir>/tmp: the commands it runs get it as
 #   TMPDIR, BUN_TMPDIR, BUN_INSTALL_CACHE_DIR and npm_config_cache, since its
-#   sandbox writes only the checkout and the run dir (executor.sh AGENT_TMP).
+#   sandbox writes only the checkout and the run dir (executor.sh AGENT_TMP);
+#   for a codex Reviewer, $XDG_STATE_HOME/tower/look (mode 700), which its
+#   sandbox may write so preflight's look.sh can make its temp worktree there
+#   (executor.sh AGENT_LOOK); no lane is granted it.
 #
 # The Reviewer ends its report with  [[FINDINGS WRITTEN]] <findings-file>;
 # watch-lanes.sh then reads it as idle-after-final-report. The review tab and
@@ -264,6 +267,13 @@ mkdir -p "$(dirname "$FINDINGS")"
 # A codex Reviewer's sandbox writes only the checkout and the run dir: its
 # temp files and package caches (bunx, npm) go to the run dir's tmp.
 if [ "$R_KIND" = codex ]; then AGENT_TMP="$RUN_DIR/tmp"; mkdir -p "$AGENT_TMP"; fi
+# ... and it may write where look.sh makes its temp worktree (look.sh's
+# LOOK_ROOT, the same path), which no lane may write: a codex Reviewer alone.
+AGENT_LOOK=""
+if [ "$R_KIND" = codex ]; then
+  AGENT_LOOK="${XDG_STATE_HOME:-$HOME/.local/state}/tower/look"
+  mkdir -p "$AGENT_LOOK" && chmod 700 "$AGENT_LOOK" || die "add-reviewer: cannot make look's worktree dir $AGENT_LOOK"
+fi
 LINE=$(printf 'reviewer %s:    %s   (agent "%s", kind %s, model %s, review "%s", findings %s)' \
   "$SLOT" "$PANE" "$NAME" "$R_KIND" "$R_MODEL" "$TITLE" "$FINDINGS")
 # The map is rewritten through a temp file of this call's own: the other

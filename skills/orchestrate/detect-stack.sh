@@ -30,6 +30,8 @@
 # (~/.local/state)/tower/contracts/, named by the run dir's path, outside
 # everything a codex lane may write (its worktree, the run dir, the git dir,
 # /tmp and $TMPDIR: an XDG_STATE_HOME under those two gives that up).
+# preflight's look.sh makes its temp worktree beside it, under
+# $XDG_STATE_HOME/tower/look, for the same reason.
 # With CONTRACT_RUN set to the run dir (add-lane.sh, add-reviewer.sh) that pin
 # is the contract; without a pin the call is refused.
 # A value set in the environment of the bootstrap or add-lane call wins over the
