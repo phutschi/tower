@@ -7,16 +7,16 @@
 # Run from the checkout. The diff is the merge base of <base-ref> and HEAD
 # against HEAD. look looks at HEAD, never at the checkout's files: it adds a
 # fresh detached worktree of HEAD in a temp dir under TMPDIR (git worktree add
-# --detach; the temp dir resolved to its physical path), and reads the kit (common.sh, detect-stack.sh), the repo contract
-# and package.json from it, runs the install, both scanners and every suite
-# step in it, and removes it on every exit, a failure and a signal too. So
-# untracked files (a *.test.ts the suite would pick up), index bits
-# (assume-unchanged, skip-worktree) and dirty kit files in the checkout do not
-# reach the look. The checkout's git hooks stay off while the worktree is
-# made (core.hooksPath=/dev/null); HEAD's submodules are checked out in it.
-# look writes the git dir only for that worktree (its worktrees/, and
-# modules/ for submodules); a sandbox that keeps those read-only, or a TMPDIR
-# look cannot write, is a setup error.
+# --detach; the temp dir resolved to its physical path), and reads the kit
+# (common.sh, detect-stack.sh), the repo contract and package.json from it,
+# runs the install, both scanners and every suite step in it, and removes it
+# on every exit, a failure and a signal too. So untracked files (a *.test.ts
+# the suite would pick up), index bits (assume-unchanged, skip-worktree) and
+# dirty kit files in the checkout do not reach the look. The checkout's git
+# hooks stay off while the worktree is made (core.hooksPath=/dev/null); HEAD's
+# submodules are checked out in it. look writes the git dir only for that
+# worktree (its worktrees/, and modules/ for submodules); a sandbox that keeps
+# those read-only, or a TMPDIR look cannot write, is a setup error.
 #
 # What look still trusts: itself, as invoked; git, coreutils, python3 and the
 # scanners on PATH; the repo's git config (a filter such as git-lfs's smudge
