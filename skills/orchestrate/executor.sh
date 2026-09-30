@@ -7,9 +7,17 @@
 #   claude: claude-opus-5-5[1m], started with --model.
 #   codex:  gpt-6-astra, started with -m, no approval prompts (-a never), writes
 #           limited to the worktree (-s workspace-write) with network allowed
-#           for installs and fetches. Two dirs outside the worktree are added as
-#           writable: the run dir (tower task|block|note append to it) and the
-#           repo's common git dir (a lane worktree commits into it). Its
+#           for installs and fetches. Outside the worktree, the run dir is
+#           writable (tower task|block|note append to it), and what a commit
+#           needs in the repo's common git dir. A lane in a worktree (lanes
+#           B-D) gets only objects, refs, logs, packed-refs(.lock) and its own
+#           worktrees/<lane> (sandbox_workspace_write.writable_roots): hooks
+#           and config stay read-only. A lane in the main checkout (lane A, and
+#           a Reviewer, which works there) keeps its index, HEAD and rebase
+#           and stash state in the common dir itself, so it gets the whole
+#           common dir: its sandbox does not contain .git/hooks or .git/config,
+#           and a hook or core.fsmonitor it writes runs outside the sandbox on
+#           the orchestrator's next git command. Its
 #           startup update check is off (-c check_for_update_on_startup=false):
 #           a codex that updates itself on start exits before its brief.
 #           AGENT_TMP=<dir> (add-reviewer.sh sets it for a codex Reviewer)
@@ -68,9 +76,20 @@ start_agent() {
   case "$EXECUTOR_KIND" in
     claude) herdr agent start "$name" --kind claude --pane "$pane" -- --model "$EXECUTOR_MODEL" ;;
     codex)
-      local extra=()
+      local extra=() common gitdir roots="" p
+      common=$(git rev-parse --path-format=absolute --git-common-dir)
+      gitdir=$(git rev-parse --path-format=absolute --git-dir)
       [ -n "${RUN_DIR:-}" ] && extra+=(--add-dir "$RUN_DIR")
-      extra+=(--add-dir "$(git rev-parse --path-format=absolute --git-common-dir)")
+      if [ "$gitdir" = "$common" ]; then
+        extra+=(--add-dir "$common")
+      else
+        # The run dir is listed here too: these roots may replace --add-dir's.
+        for p in ${RUN_DIR:+"$RUN_DIR"} "$common/objects" "$common/refs" "$common/logs" \
+          "$common/packed-refs" "$common/packed-refs.lock" "$gitdir"; do
+          roots+="${roots:+,}$(toml_string "$p")"
+        done
+        extra+=(-c "sandbox_workspace_write.writable_roots=[$roots]")
+      fi
       if [ -n "${AGENT_TMP:-}" ]; then
         local v q; q=$(toml_string "$AGENT_TMP")
         for v in TMPDIR BUN_TMPDIR BUN_INSTALL_CACHE_DIR npm_config_cache; do

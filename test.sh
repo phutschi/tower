@@ -156,6 +156,19 @@ if section executor; then
   assert_match "codex start: its startup update check is off" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start acme-lane-a --kind codex --pane pane-9 -- .* -c check_for_update_on_startup=false( |$)'
   out=$(start acme-lane-a 'AGENT_TMP=/run/it"s \tmp')
   assert_match "AGENT_TMP: a TOML string, quote and backslash escaped" "$(cat "$HERDR_STUB_LOG")" '-c shell_environment_policy\.set\.TMPDIR="/run/it\\"s \\\\tmp"'
+  # A codex lane in a worktree may write only what its commits need in the
+  # common git dir, never its hooks or config (#10); lane A in the main
+  # checkout keeps the whole common dir, as its index and HEAD live there.
+  C=$(git -C "$r" rev-parse --path-format=absolute --git-common-dir)
+  start_in() { local d=$1; shift; reset_stub; (cd "$d" && env HOME="$TMP/rev-home" EXECUTOR_KIND=codex RUN_DIR=/run/x "$@" bash -c ". \"\$KIT/common.sh\"; . \"\$KIT/executor.sh\"; start_agent_with_trust_retry acme-lane-b pane-9" >/dev/null 2>&1); cat "$HERDR_STUB_LOG"; }
+  log=$(start_in "$wt")
+  assert_match "codex worktree lane: writes only objects, refs, logs, packed-refs and its own git dir" "$log" \
+    "^herdr agent start acme-lane-b .* -c sandbox_workspace_write\\.writable_roots=\\[\"/run/x\",\"$C/objects\",\"$C/refs\",\"$C/logs\",\"$C/packed-refs\",\"$C/packed-refs\\.lock\",\"$C/worktrees/some-branch\"\\]( |\$)"
+  assert_nomatch "codex worktree lane: not the whole common git dir" "$log" "--add-dir $C( |\$)"
+  assert_match "codex worktree lane: the run dir still added" "$log" "--add-dir /run/x( |\$)"
+  log=$(start_in "$r")
+  assert_match "codex lane in the main checkout: the whole common git dir" "$log" "--add-dir $C( |\$)"
+  assert_nomatch "codex lane in the main checkout: no narrowed roots" "$log" 'writable_roots'
   # An agent that exits right after its start (codex updating itself, say)
   # is started once more; gone again, the start fails, saying so.
   printf 'gone\nidle\n' > "$HERDR_STUB_STATES_DIR/acme-lane-a.started"

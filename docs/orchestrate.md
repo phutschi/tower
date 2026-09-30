@@ -241,6 +241,18 @@ its runs to codex in `.orchestrate` (`EXECUTOR_KIND=codex`, model
 differ: `EXECUTOR_KIND=codex` in that bootstrap or add-lane call. Mixed runs
 are fine.
 
+A codex agent runs in codex's workspace-write sandbox, with its startup update
+check off. Outside its checkout it may write the run dir and what a commit
+needs in the repo's common git dir. A lane in a worktree (lanes B-D) gets only
+`objects`, `refs`, `logs`, `packed-refs` and its own `worktrees/<lane>`, so the
+repo's hooks and config stay out of its reach. Lane A and the Reviewers work
+in the main checkout, whose index, HEAD and rebase and stash state live in the
+common git dir itself, so a codex agent there gets the whole common git dir.
+Its sandbox then does not contain `.git/hooks` or `.git/config`: a hook or a
+`core.fsmonitor` it writes runs outside the sandbox on the next git command,
+yours or the kit's. Run lane A as claude, or read `.git/hooks` and
+`git config --local --list` before you merge, when that matters.
+
 ## Testing the kit
 
 `./test.sh` runs without herdr, claude, codex, semgrep or gitleaks: stubs
