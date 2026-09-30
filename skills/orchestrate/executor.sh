@@ -52,8 +52,8 @@ MODEL_DEFAULTS_FILE="${MODEL_DEFAULTS_FILE:-$KIT/model-defaults}"
 
 # KEY's default: its value in this shell (the call's environment, the repo
 # contract or the user contract) when set, else the model-defaults file's
-# (ADR 0012). A key neither sets fails,
-# saying so: a caller runs it as  v=$(model_default KEY) || exit 1 .
+# (ADR 0012). A key that none of them sets fails, saying so: a caller runs it
+# as  v=$(model_default KEY) || exit 1 .
 model_default() {
   local key="$1"
   if [ -n "${!key:-}" ]; then printf '%s\n' "${!key}"; return; fi

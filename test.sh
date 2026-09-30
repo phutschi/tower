@@ -1272,6 +1272,8 @@ if section model-defaults; then
   assert_nomatch "model-defaults: ... with no Reviewer line" "$out" "^codex$T"
   out=$(HOME="$TMP/md-home" MODEL_DEFAULTS_FILE="$TMP/nope" in_kit ". \"\$KIT/executor.sh\"; echo \"exit=\$?\"")
   assert_match "model-defaults: a missing file is refused" "$out" "no EXECUTOR_MODEL_CLAUDE in $TMP/nope"
+  out=$(MODEL_DEFAULTS_FILE="$TMP/nope" boot "$(fixture_repo bun-vitest)" "$TMP/run-md-nofile" "No file" main; echo "exit=$?")
+  assert_match "model-defaults: a missing file fails bootstrap, naming it" "$out" "no EXECUTOR_MODEL_CLAUDE in $TMP/nope"
   # No model id is left in the kit's logic; cursor's defaults are Grok -fast only.
   assert_nomatch "model-defaults: no model id in executor.sh or bootstrap.sh" \
     "$(cat "$KIT/executor.sh" "$KIT/bootstrap.sh")" '(claude-(opus|sonnet|fable|haiku)|gpt-[0-9]|grok-|\b(sonnet|opus|haiku)\b)'
@@ -1329,7 +1331,8 @@ if section user-contract; then
   out=$(boot "$r" "$RUN" "User" main)
   assert_match "user contract: its REVIEWER_MODEL_CODEX is a codex Reviewer's model" "$(cat "$RUN/panes.txt")" '^reviewer: +kind codex, model rev-user$'
   # Repo-only keys and unknown keys are named, and ignored.
-  detect_in() { (cd "$1" && env XDG_CONFIG_HOME="$UC" bash -c ". \"\$KIT/common.sh\"; . \"\$KIT/detect-stack.sh\"; $2" 2>&1); }
+  # As the kit's scripts run: set -euo pipefail.
+  detect_in() { (cd "$1" && env XDG_CONFIG_HOME="$UC" bash -c "set -euo pipefail; . \"\$KIT/common.sh\"; . \"\$KIT/detect-stack.sh\"; $2" 2>&1); }
   r=$(fixture_repo bun-vitest)
   for key in CHECK_CMD INSTALL_CMD PM TYPECHECK_TASK TEST_PKG TEST_FILTER; do
     uc "$key=from-user"
@@ -1349,6 +1352,31 @@ if section user-contract; then
   assert_match "user contract: ... and not read" "$out" '^\[\]$'
   uc MODLE=x
   assert_match "user contract: an unknown key is named" "$(detect_in "$r" true)" "^$UC/tower/orchestrate: 'MODLE' is not a setting the kit reads"
+  uc USER_CONTRACT_VARS=CHECK_CMD CHECK_CMD=from-user PATH=/nowhere STALE=9
+  out=$(detect_in "$r" 'echo "[$CHECK_CMD] [$STALE]"')
+  assert_match "user contract: it cannot widen its own allowed keys" "$out" "^$UC/tower/orchestrate: 'CHECK_CMD' is a repo contract setting"
+  assert_match "user contract: ... nor break its reader with PATH" "$out" '^\[bun run typecheck && bun run test\] \[9\]$'
+  # A contract that fails part way is refused, naming the file, never half read.
+  for body in 'STALE=9; false' 'STALE=9; exit 3' 'STALE=9; if' 'STALE=9; echo "$UNSET_IN_TEST"'; do
+    uc "$body"
+    out=$(detect_in "$r" 'echo "reached [$STALE]"'; echo "exit=$?")
+    assert_match "user contract: '$body' is refused" "$out" 'exit=1$'
+    assert_match "user contract: '$body' ... naming the file" "$out" "^$UC/tower/orchestrate: it failed to load"
+    assert_nomatch "user contract: '$body' ... before anything runs on it" "$out" '^reached'
+  done
+  uc LANE_REVIEW=maybe
+  out=$(detect_in "$r" 'echo reached'; echo "exit=$?")
+  assert_match "user contract: a bad switch value is refused" "$out" "LANE_REVIEW must be on or off \\(got 'maybe'\\)"
+  assert_match "user contract: ... and fails" "$out" 'exit=1$'
+  uc LANE_REVIEW=off
+  assert_eq "user contract: the call's environment wins over its switch" "$(LANE_REVIEW=on detect_in "$r" 'echo $LANE_REVIEW')" on
+  # add-reviewer reads it too.
+  uc REVIEWER_MODEL_CODEX=rev-user
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-uc-review"
+  out=$(boot "$r" "$RUN" "Review" main "$KIT/example-tasks.tsv")
+  uc REVIEWER_MODEL_CODEX=rev-later
+  out=$(cd "$r" && env HOME="$TMP/uc-home" XDG_CONFIG_HOME="$UC" EXIT_WAIT_SECONDS=3 "$KIT/add-reviewer.sh" "$RUN" R1 claude "Lane review A" "$RUN/findings/a.json" 2>&1)
+  assert_match "user contract: add-reviewer's Reviewer takes its REVIEWER_MODEL_CODEX" "$(cat "$RUN/panes.txt")" '^reviewer R1: .*kind codex, model rev-later, '
 fi
 
 # --- watch -------------------------------------------------------------------
