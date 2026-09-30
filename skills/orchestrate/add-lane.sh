@@ -37,16 +37,16 @@
 # worktree; and a starting lane's agent left running is taken ("resumed") once
 # it accepts input, or refused, saying to answer or end it, while it does not.
 # Nothing else is redone (the worktree exists and the task ids are assigned).
-# Refused: a started lane whose agent runs, any
-# answer from herdr other than agent_not_found, a rerun with another branch,
-# kind, model or task ids than the first call's (ids expanded by `tower ids`,
-# so an id tower refuses is refused in its words), and a lane whose pane
-# (herdr's pane_not_found) or worktree is gone: the message says what to
-# remove. A pane herdr cannot be asked about is refused with nothing to
-# remove; rerun once herdr answers. Not resumed, but said: a worktree create
-# that fails or answers with no pane (remove what it made, then rerun), and a
-# move whose answer names no pane (the moved pane's id goes into the map by
-# hand; the install ran before the move).
+# Refused: a started lane whose agent runs, any answer from herdr other than
+# agent_not_found, a rerun with another branch, kind, model or task ids than
+# the first call's (ids expanded by `tower ids`, so an id tower refuses is
+# refused in its words), and a lane whose pane (herdr's pane_not_found) or
+# worktree is gone: the message says what to remove. A pane herdr cannot be
+# asked about is refused with nothing to remove; rerun once herdr answers.
+# Not resumed, but said: a worktree create that fails or answers with no pane
+# (remove what it made, then rerun), and a move whose answer names no pane
+# (the moved pane's id goes into the map by hand; the install ran before the
+# move).
 #
 # Never run this for real to see what it does; use DRY_RUN=1, which answers
 # every herdr, claude and codex call from tests/stub and opens nothing. tower
@@ -121,15 +121,17 @@ check_rerun() {
   [ -d "$WT" ] || die "lane $LANE's checkout $WT is gone: close its pane $2 and remove its $3 from $MAP, then add the lane again"
 }
 
-# The lane's line with $1 in place of its current one, through a scratch file
-# of this call's own; the map is kept whole when that fails.
-set_lane_line() {
+# Replaces the pane map's line matching $1 (a grep pattern) with $2, through a
+# scratch file of this call's own; on failure the map is kept whole and the
+# call dies with $3.
+replace_map_line() {
   local tmp rc=0
-  tmp=$(mktemp "$MAP.XXXXXX") || die "add-lane: could not rewrite $MAP; set lane $LANE's line to  $1  and rerun"
-  grep -v "^lane $LANE:" "$MAP" > "$tmp" || rc=$?
-  { [ "$rc" -le 1 ] && echo "$1" >> "$tmp"; } || { rm -f "$tmp"; die "add-lane: could not rewrite $MAP; set lane $LANE's line to  $1  and rerun"; }
+  tmp=$(mktemp "$MAP.XXXXXX") || die "$3"
+  grep -v "$1" "$MAP" > "$tmp" || rc=$?
+  { [ "$rc" -le 1 ] && echo "$2" >> "$tmp"; } || { rm -f "$tmp"; die "$3"; }
   mv "$tmp" "$MAP"
 }
+set_lane_line() { replace_map_line "^lane $LANE:" "$1" "add-lane: could not rewrite $MAP; set lane $LANE's line to  $1  and rerun"; }
 RERUN="$KIT/add-lane.sh $RUN_DIR $LANE $BRANCH $BASE $TASKS"
 STARTED_AGAIN="started again"
 
@@ -148,6 +150,7 @@ if [ -n "$PANE" ]; then
   esac
   check_rerun "$(lane_line "$PANE")$STARTING" "$PANE" line
   if [ "$state" = gone ]; then
+    set_lane_line "$(lane_line "$PANE") starting"
     start_agent_with_trust_retry "$NAME" "$PANE" \
       || die "add-lane: agent $NAME is not ready in $PANE; lane $LANE is in the pane map, starting: rerun  $RERUN  to resume it"
   else
@@ -202,11 +205,7 @@ PANE=$(echo "$moved" | jsonq 'd["result"].get("move_result", d["result"])["pane"
 # The read is checked on its own: grep's 1 is no line left, anything else a
 # failed read, which stops here with the map as it was.
 rewrite_failed="add-lane: could not rewrite $MAP; lane $LANE's pane is $PANE: turn its unplaced line into  lane $LANE: $PANE  (the rest as it is) and rerun"
-new_map=$(mktemp "$MAP.XXXXXX") || die "$rewrite_failed"
-rc=0; grep -v "^unplaced lane $LANE:" "$MAP" > "$new_map" || rc=$?
-{ [ "$rc" -le 1 ] && echo "$(lane_line "$PANE") starting" >> "$new_map"; } \
-  || { rm -f "$new_map"; die "$rewrite_failed"; }
-mv "$new_map" "$MAP"
+replace_map_line "^unplaced lane $LANE:" "$(lane_line "$PANE") starting" "$rewrite_failed"
 start_agent_with_trust_retry "$NAME" "$PANE" \
   || die "add-lane: agent $NAME is not ready in $PANE; lane $LANE is in the pane map, starting: rerun  $RERUN  to resume it"
 set_lane_line "$(lane_line "$PANE")"

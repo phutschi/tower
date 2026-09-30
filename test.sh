@@ -727,6 +727,16 @@ if section add-lane; then
   assert_match "rerun, agent now ready: its line is no longer starting" "$(cat "$RUNR/panes.txt")" '^lane B: .*model [^ ]+\)$'
   reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNR" B feat/b main 2 2>&1; echo "exit=$?")
   assert_match "rerun of a started lane: refused as existing" "$out" 'lane B already exists'
+  # A started lane whose agent has gone is started again as starting: a
+  # restart that times out leaves a lane the next rerun resumes.
+  echo gone > "$HERDR_STUB_STATES_DIR/bun-vitest-lane-b"; echo unready > "$HERDR_STUB_STATES_DIR/bun-vitest-lane-b.started"
+  reset_stub; out=$(cd "$r" && READY_WAIT_SECONDS=1 "$KIT/add-lane.sh" "$RUNR" B feat/b main 2 2>&1; echo "exit=$?")
+  rm -f "$HERDR_STUB_STATES_DIR/bun-vitest-lane-b.started"
+  assert_match "restart never ready: fails"            "$out" 'exit=1$'
+  assert_match "restart never ready: the line says starting again" "$(cat "$RUNR/panes.txt")" '^lane B: .* starting$'
+  echo idle > "$HERDR_STUB_STATES_DIR/bun-vitest-lane-b"
+  reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNR" B feat/b main 2 2>&1; echo "exit=$?")
+  assert_match "restart never ready, then ready: resumed" "$out" 'lane B ready: .*\(resumed\)'
   rm -f "$HERDR_STUB_STATES_DIR/bun-vitest-lane-b"
 
   # A pane move that fails after the worktree is created leaves the lane

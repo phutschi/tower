@@ -122,7 +122,7 @@ if [ -n "$LANE" ]; then
 else
   _line=$(grep -E "^lane [A-D]: +[^ ]+ +\(agent \"[^\"]*\", kind $LANE_KIND, " "$MAP" | head -1 || true)
 fi
-LANE_MODEL=$(echo "$_line" | sed -nE 's/.*, model (.*)\)$/\1/p'); unset _line _kind
+LANE_MODEL=$(echo "$_line" | sed -nE 's/.*, model (.*)\)( starting)?$/\1/p')   # a lane still starting too; unset _line _kind
 
 _here="$PWD"; cd "$REPO"
 . "$KIT/detect-stack.sh"   # REVIEWER_KIND, REVIEWER_MODEL (the environment wins)
