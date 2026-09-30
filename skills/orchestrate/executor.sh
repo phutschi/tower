@@ -1,13 +1,17 @@
 # Sourced by bootstrap.sh and add-lane.sh: everything that depends on which
-# agent runs a lane. EXECUTOR_KIND=claude (default) | codex, chosen per lane:
+# agent runs a lane. EXECUTOR_KIND=claude (default) | codex | cursor, chosen per lane:
 # the repo's .orchestrate sets the run's default, the environment of the
 # bootstrap or add-lane call overrides it (so source detect-stack.sh first).
 # EXECUTOR_MODEL overrides the kind's default model the same way. Every
 # default model is data: EXECUTOR_MODEL_<KIND> and the Reviewer's keys in
-# model-defaults (MODEL_DEFAULTS_FILE, default $KIT/model-defaults), which a
-# value in the call's environment or the repo contract replaces (ADR 0012).
+# model-defaults (MODEL_DEFAULTS_FILE, default $KIT/model-defaults), which the
+# same key in the call's environment, the repo contract or the user contract
+# replaces, in that order (detect-stack.sh loads the two contracts; ADR 0012).
 #
 #   claude: started with --model.
+#   cursor: cursor-agent, started with --model, trusted (--trust), without
+#           approvals (--force) or self-update (--disable-auto-update), no
+#           sandbox flag; the run dir and the common git dir are added dirs.
 #   codex:  started with -m, no approval prompts (-a never), writes
 #           limited to the worktree (-s workspace-write) with network allowed
 #           for installs and fetches. Outside the worktree, the run dir is
@@ -49,21 +53,26 @@
 
 MODEL_DEFAULTS_FILE="${MODEL_DEFAULTS_FILE:-$KIT/model-defaults}"
 
-# KEY's default: its value in this shell (the call's environment or the repo
-# contract) when set, else the model-defaults file's (ADR 0012).
+# KEY's default: its value in this shell (the call's environment, the repo
+# contract or the user contract) when set, else the model-defaults file's
+# (ADR 0012). A key that none of them sets fails, saying so: a caller runs it
+# as  v=$(model_default KEY) || exit 1 .
 model_default() {
   local key="$1"
   if [ -n "${!key:-}" ]; then printf '%s\n' "${!key}"; return; fi
   # shellcheck source=/dev/null  # the kit's data file, or a test's copy
-  ( unset "$key"; . "$MODEL_DEFAULTS_FILE" && printf '%s\n' "${!key:-}" )
+  ( unset "$key"; . "$MODEL_DEFAULTS_FILE" 2>/dev/null && [ -n "${!key:-}" ] && printf '%s\n' "${!key}" ) \
+    || { echo "model-defaults: no $key in $MODEL_DEFAULTS_FILE" >&2; return 1; }
 }
 # VAR's default for KIND: VAR_<KIND upper>, e.g. kind_default EXECUTOR_MODEL codex.
 kind_default() { model_default "$1_$(printf '%s' "$2" | tr '[:lower:]' '[:upper:]')"; }
 
+# The kinds, the one list every kind check uses.
+KINDS="claude codex cursor"
 EXECUTOR_KIND="${EXECUTOR_KIND:-claude}"
-case "$EXECUTOR_KIND" in
-  claude|codex) EXECUTOR_MODEL="${EXECUTOR_MODEL:-$(kind_default EXECUTOR_MODEL "$EXECUTOR_KIND")}" ;;
-  *) echo "EXECUTOR_KIND must be claude or codex (got '$EXECUTOR_KIND')" >&2; exit 2 ;;
+case " $KINDS " in
+  *" $EXECUTOR_KIND "*) [ -n "${EXECUTOR_MODEL:-}" ] || EXECUTOR_MODEL=$(kind_default EXECUTOR_MODEL "$EXECUTOR_KIND") || exit 1 ;;
+  *) echo "EXECUTOR_KIND must be claude, codex or cursor (got '$EXECUTOR_KIND')" >&2; exit 2 ;;
 esac
 
 # The codex lane follows the same TDD skill as the claude lane. Codex reads user
@@ -78,6 +87,21 @@ info: ~/.codex/skills/tdd is missing — the codex lane cannot load the tdd skil
         ln -s $S/tdd ~/.codex/skills/tdd
         ln -s $S/codebase-design ~/.codex/skills/codebase-design
         ln -s $S/code-review ~/.codex/skills/code-review
+MSG
+fi
+# A cursor lane reads skills from ~/.agents/skills, ~/.claude/skills and
+# ~/.codex/skills: the tdd skill in any of them will do.
+if [ "$EXECUTOR_KIND" = cursor ] && [ ! -e "$HOME/.agents/skills/tdd" ] \
+  && [ ! -e "$HOME/.claude/skills/tdd" ] && [ ! -e "$HOME/.codex/skills/tdd" ]; then
+  cat >&2 <<'MSG'
+info: no tdd skill in ~/.agents/skills, ~/.claude/skills or ~/.codex/skills — the cursor
+      lane cannot load the tdd skill the brief asks for. To add it (and the two skills it
+      references):
+        S=~/.claude/plugins/marketplaces/mattpocock/skills/engineering
+        mkdir -p ~/.agents/skills
+        ln -s $S/tdd ~/.agents/skills/tdd
+        ln -s $S/codebase-design ~/.agents/skills/codebase-design
+        ln -s $S/code-review ~/.agents/skills/code-review
 MSG
 fi
 
@@ -98,6 +122,20 @@ start_agent() {
   local name="$1" pane="$2"
   case "$EXECUTOR_KIND" in
     claude) herdr agent start "$name" --kind claude --pane "$pane" -- --model "$EXECUTOR_MODEL" ;;
+    cursor)
+      # --trust, never an answered trust box: herdr reads cursor's trust box
+      # as idle and ready, so a brief would be typed into it. --force runs
+      # commands without approvals; no --sandbox, so the user's own sandbox
+      # setting applies. --disable-auto-update is undocumented: it keeps the
+      # harness version still under a running lane. The run dir (tower's
+      # record) and the common git dir (commits from a lane worktree) are
+      # added dirs.
+      local common co="${AGENT_CHECKOUT:-.}"
+      # Under DRY_RUN the stub's worktree create makes no worktree.
+      [ -d "$co" ] || [ "${DRY_RUN:-0}" != 1 ] || co=.
+      common=$(git -C "$co" rev-parse --path-format=absolute --git-common-dir) || return 1
+      herdr agent start "$name" --kind cursor --pane "$pane" -- --model "$EXECUTOR_MODEL" \
+        --trust --force --disable-auto-update ${RUN_DIR:+--add-dir "$RUN_DIR"} --add-dir "$common" ;;
     codex)
       local extra=() common gitdir roots="" p co="${AGENT_CHECKOUT:-.}"
       # Under DRY_RUN the stub's worktree create makes no worktree.
@@ -144,6 +182,8 @@ toml_string() { local s=${1//\\/\\\\}; printf '"%s"' "${s//\"/\\\"}"; }
 # "blocked during startup". Claude's prompt wants Down Enter ("Yes, I trust this
 # folder" is the second option); codex's wants Enter ("Yes, continue" is the
 # first). Answer it, and try once more if herdr then says the agent is gone.
+# cursor's is never answered: it starts with --trust, and one still blocked
+# fails the start, saying to check the pane.
 # It returns 1, saying why, when the answer cannot be sent or the agent is
 # then neither working nor idle (blocked, herdr's unknown, anything else).
 # Once started, the agent is given START_SETTLE_SECONDS, then read about once
@@ -206,6 +246,11 @@ start_answering_trust() {
     if echo "$out" | grep -q agent_pane_busy && [ "$tries" -lt "${START_TRIES:-10}" ]; then
       tries=$((tries+1))
       [ "${DRY_RUN:-0}" = 1 ] || sleep 1
+    elif echo "$out" | grep -q "blocked during startup" && [ "$EXECUTOR_KIND" = cursor ]; then
+      # cursor starts with --trust: a box it still shows is not one to
+      # answer blind (herdr reads it as idle and ready).
+      echo "agent start: $name is blocked during startup in pane $pane although it started with --trust; check the pane" >&2
+      return 1
     elif echo "$out" | grep -q "blocked during startup"; then
       # Every failure returns 1 itself: callers run this under || too, where
       # errexit is off.
@@ -235,9 +280,13 @@ start_answering_trust() {
   done
 }
 
-# Is KIND (claude | codex) installed and runnable? --version answers in well
-# under a second; keep the probe that cheap (macOS has no timeout(1)).
-kind_installed() { command -v "$1" >/dev/null && "$1" --version >/dev/null 2>&1; }
+# Is KIND (one of KINDS) installed and runnable? --version answers in well
+# under a second; keep the probe that cheap (macOS has no timeout(1)). cursor's
+# CLI is cursor-agent (a plain cursor may be the editor).
+kind_installed() {
+  local c=$1; [ "$c" != cursor ] || c=cursor-agent
+  command -v "$c" >/dev/null && "$c" --version >/dev/null 2>&1
+}
 
 # Who reviews a lane of LANE_KIND [on LANE_MODEL] (ADR 0010). Prints one line:
 #   <kind>\t<model>\t<fallback note, or empty>
@@ -270,12 +319,12 @@ reviewer_for() {
     *) die "REVIEWER_KIND must be other, claude or codex (got '$REVIEWER_KIND')" ;;
   esac
   case "$kind:$lane" in
-    codex:claude|claude:codex) model=$(kind_default REVIEWER_MODEL "$kind") ;;
-    claude:claude) model=$(model_default REVIEWER_MODEL_CLAUDE_SELF) ;;
+    claude:claude) model=$(model_default REVIEWER_MODEL_CLAUDE_SELF) || exit 1 ;;
     codex:codex)
       if [ -n "$lane_model" ]; then model=$lane_model
       elif [ "$EXECUTOR_KIND" = codex ]; then model=$EXECUTOR_MODEL
-      else model=$(kind_default EXECUTOR_MODEL codex); fi ;;
+      else model=$(kind_default EXECUTOR_MODEL "$lane") || exit 1; fi ;;
+    *) model=$(kind_default REVIEWER_MODEL "$kind") || exit 1 ;;
   esac
   model="${REVIEWER_MODEL:-$model}"
   printf '%s\t%s\t%s\n' "$kind" "$model" "$note"

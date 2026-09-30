@@ -31,7 +31,7 @@
 # their command is shell code: a checkout path with an apostrophe or a space
 # stays one directory. With no checks pane declared and no test runner
 # detected, one info: line on stderr says so. Lane A is EXECUTOR_KIND
-# (claude | codex) on EXECUTOR_MODEL: .orchestrate sets the run's default,
+# (claude | codex | cursor) on EXECUTOR_MODEL: .orchestrate sets the run's default,
 # the environment of this call overrides it (executor.sh).
 #
 # Writes <run-dir>/panes.txt, the pane map for the whole run, then prints it
@@ -112,8 +112,8 @@ need_tower
 
 . "$KIT/detect-stack.sh"  # PM, CHECK_CMD, PANE_*, INSTALL_CMD, and .orchestrate's EXECUTOR_*/reviewer models
 . "$KIT/executor.sh"      # EXECUTOR_KIND, EXECUTOR_MODEL, agent_name, start_agent*
-SPEC_REVIEWER_MODEL="${SPEC_REVIEWER_MODEL:-$(kind_default SPEC_REVIEWER_MODEL "$EXECUTOR_KIND")}"
-QUALITY_REVIEWER_MODEL="${QUALITY_REVIEWER_MODEL:-$(kind_default QUALITY_REVIEWER_MODEL "$EXECUTOR_KIND")}"
+[ -n "${SPEC_REVIEWER_MODEL:-}" ] || SPEC_REVIEWER_MODEL=$(kind_default SPEC_REVIEWER_MODEL "$EXECUTOR_KIND")
+[ -n "${QUALITY_REVIEWER_MODEL:-}" ] || QUALITY_REVIEWER_MODEL=$(kind_default QUALITY_REVIEWER_MODEL "$EXECUTOR_KIND")
 STALE="${STALE:-30}"
 LANE_A="$(agent_name -lane-a)"
 # Who reviews lane A (and every lane of its kind); refused here, before the run

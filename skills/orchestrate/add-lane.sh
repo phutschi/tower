@@ -2,7 +2,7 @@
 # Add a lane: a git worktree with its own executor, placed in the lane grid,
 # owning the given task ids.
 #
-#   [EXECUTOR_KIND=claude|codex] add-lane.sh <run-dir> <B|C|D> <branch> <base-branch> <task-ids>
+#   [EXECUTOR_KIND=claude|codex|cursor] add-lane.sh <run-dir> <B|C|D> <branch> <base-branch> <task-ids>
 #
 # Four lanes at most. Lane A is started by bootstrap.sh in the main checkout;
 # B goes right of A, C under A, D under B:
