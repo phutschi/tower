@@ -255,10 +255,11 @@ Anything else is the repo's (the check gate, install, panes, suite and
 toolchain, the unsuffixed `EXECUTOR_MODEL` and friends, `PR`,
 `REVIEW_AREAS`, `SUITE_SKIP`, `PR_TEMPLATE`): the user contract names such a
 key on stderr and ignores it. A file that fails to load is refused, and a
-missing one is silent. It is never pinned. Its run switches are fixed at
-bootstrap: the pane map's `switches:` line records them, and each review takes
-them from there, so a switch you change mid-run does not reach later reviews.
-Its kind and model keys are read on every call.
+missing one is silent. The file itself is never pinned, but its run switches
+are fixed at bootstrap: the pane map's `switches:` line records them, and each
+review takes them from there, so a switch you change mid-run does not reach
+later reviews (`STALE`, too, is read only at bootstrap). Its model keys and
+`EXECUTOR_KIND` are read on every call.
 
 Precedence, first wins: the environment of a kit call, the repo contract,
 the user contract, the kit's `model-defaults`. The unsuffixed
