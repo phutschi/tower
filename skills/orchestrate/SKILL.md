@@ -71,8 +71,9 @@ and do it in a lane anyway or suggest doing it without the kit.
    the lane gets a worktree under `.worktrees/`, and the pane goes into the
    grid (B right of A, C under A, D under B). When the pane's move into
    the grid or its agent's start fails, rerun the same call: it moves the
-   pane or starts the agent, and creates nothing again. Any other failure
-   prints what to fix before the rerun.
+   pane, starts the agent again, or takes the agent left running once it
+   accepts input, and creates nothing again. Any other failure prints what
+   to fix before the rerun.
 5. **Brief.** Per lane: `tower brief <X> > <run-dir>/brief-<X>.md`, then add
    the judgement from `brief-template.md` above it (method, other lanes,
    merge points, the boundary sentence, the review tail for the lane's kind).

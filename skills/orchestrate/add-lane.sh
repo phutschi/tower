@@ -30,11 +30,14 @@
 # fails the call and is left running in its pane (executor.sh).
 #
 # The new pane goes into the pane map as  unplaced lane <X>:  before it is
-# moved into the grid, and becomes the lane's line before its agent starts.
-# When the move or the start fails, rerun the same call: an unplaced lane's
-# pane is moved again, and a lane whose agent herdr does not find is started
-# again in the lane's pane and worktree; nothing else is redone (the worktree
-# exists and the task ids are assigned). Refused: a lane whose agent runs, any
+# moved into the grid, and becomes the lane's line before its agent starts,
+# ending in " starting" until the agent accepts input. When the move or the
+# start fails, rerun the same call: an unplaced lane's pane is moved again; a
+# lane whose agent herdr does not find is started again in the lane's pane and
+# worktree; and a starting lane's agent left running is taken ("resumed") once
+# it accepts input, or refused, saying to answer or end it, while it does not.
+# Nothing else is redone (the worktree exists and the task ids are assigned).
+# Refused: a started lane whose agent runs, any
 # answer from herdr other than agent_not_found, a rerun with another branch,
 # kind, model or task ids than the first call's (ids expanded by `tower ids`,
 # so an id tower refuses is refused in its words), and a lane whose pane
@@ -118,20 +121,43 @@ check_rerun() {
   [ -d "$WT" ] || die "lane $LANE's checkout $WT is gone: close its pane $2 and remove its $3 from $MAP, then add the lane again"
 }
 
+# The lane's line with $1 in place of its current one, through a scratch file
+# of this call's own; the map is kept whole when that fails.
+set_lane_line() {
+  local tmp rc=0
+  tmp=$(mktemp "$MAP.XXXXXX") || die "add-lane: could not rewrite $MAP; set lane $LANE's line to  $1  and rerun"
+  grep -v "^lane $LANE:" "$MAP" > "$tmp" || rc=$?
+  { [ "$rc" -le 1 ] && echo "$1" >> "$tmp"; } || { rm -f "$tmp"; die "add-lane: could not rewrite $MAP; set lane $LANE's line to  $1  and rerun"; }
+  mv "$tmp" "$MAP"
+}
+RERUN="$KIT/add-lane.sh $RUN_DIR $LANE $BRANCH $BASE $TASKS"
+STARTED_AGAIN="started again"
+
 if [ -n "$PANE" ]; then
-  # A rerun. The lane's agent running means the lane exists. herdr not finding
-  # it means its start failed: start it again, in the lane's pane and worktree.
-  # Any other answer from herdr decides nothing.
-  case "$(state_of "$NAME")" in
+  # A rerun. A line still ending in " starting" is a start that failed: its
+  # agent is taken when it accepts input, started again when herdr does not
+  # find it, and otherwise left to the human. On a started lane, its agent
+  # running means the lane exists, and herdr not finding it means it is
+  # started again. Any other answer from herdr decides nothing.
+  STARTING=""; case "$(grep -E "^lane $LANE:" "$MAP")" in *" starting") STARTING=" starting" ;; esac
+  state=$(state_of "$NAME")
+  case "$state" in
     gone) ;;
     unreadable) die "lane $LANE: herdr cannot say whether agent $NAME runs; rerun once herdr answers" ;;
-    *) die "lane $LANE already exists (see $MAP)" ;;
+    *) [ -n "$STARTING" ] || die "lane $LANE already exists (see $MAP)" ;;
   esac
-  check_rerun "$(lane_line "$PANE")" "$PANE" line
-  start_agent_with_trust_retry "$NAME" "$PANE" \
-    || die "add-lane: agent $NAME did not start in $PANE again; rerun  $KIT/add-lane.sh $RUN_DIR $LANE $BRANCH $BASE $TASKS  once it can"
+  check_rerun "$(lane_line "$PANE")$STARTING" "$PANE" line
+  if [ "$state" = gone ]; then
+    start_agent_with_trust_retry "$NAME" "$PANE" \
+      || die "add-lane: agent $NAME is not ready in $PANE; lane $LANE is in the pane map, starting: rerun  $RERUN  to resume it"
+  else
+    ready=$(ready_of "$NAME")
+    [ "$ready" = ready ] || die "add-lane: agent $NAME is in $PANE but does not accept input ($ready): answer or end it there, then rerun  $RERUN"
+    STARTED_AGAIN="resumed"
+  fi
+  set_lane_line "$(lane_line "$PANE")"
   [ -f "$WT/.env" ] || cp "$REPO_ROOT/.env" "$WT/.env" 2>/dev/null || true
-  echo "lane $LANE ready: agent $NAME in $PANE (started again) — next:  tower brief $LANE > $RUN_DIR/brief-$LANE.md, add the judgement (brief-template.md, with merge points in both briefs), then  herdr agent prompt $NAME \"\$(cat $RUN_DIR/brief-$LANE.md)\""
+  echo "lane $LANE ready: agent $NAME in $PANE ($STARTED_AGAIN) — next:  tower brief $LANE > $RUN_DIR/brief-$LANE.md, add the judgement (brief-template.md, with merge points in both briefs), then  herdr agent prompt $NAME \"\$(cat $RUN_DIR/brief-$LANE.md)\""
   exit 0
 fi
 
@@ -178,11 +204,12 @@ PANE=$(echo "$moved" | jsonq 'd["result"].get("move_result", d["result"])["pane"
 rewrite_failed="add-lane: could not rewrite $MAP; lane $LANE's pane is $PANE: turn its unplaced line into  lane $LANE: $PANE  (the rest as it is) and rerun"
 new_map=$(mktemp "$MAP.XXXXXX") || die "$rewrite_failed"
 rc=0; grep -v "^unplaced lane $LANE:" "$MAP" > "$new_map" || rc=$?
-{ [ "$rc" -le 1 ] && lane_line "$PANE" >> "$new_map"; } \
+{ [ "$rc" -le 1 ] && echo "$(lane_line "$PANE") starting" >> "$new_map"; } \
   || { rm -f "$new_map"; die "$rewrite_failed"; }
 mv "$new_map" "$MAP"
 start_agent_with_trust_retry "$NAME" "$PANE" \
-  || die "add-lane: agent $NAME did not start in $PANE; lane $LANE is in the pane map: rerun  $KIT/add-lane.sh $RUN_DIR $LANE $BRANCH $BASE $TASKS  to start it again"
+  || die "add-lane: agent $NAME is not ready in $PANE; lane $LANE is in the pane map, starting: rerun  $RERUN  to resume it"
+set_lane_line "$(lane_line "$PANE")"
 
 # .env (gitignored) only after the agent owns the pane: the pane's shell must
 # never see a .env at startup or on a cd, or a dotenv-style plugin prompts and

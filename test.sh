@@ -563,7 +563,7 @@ if section add-lane; then
   reset_stub; out=$(cd "$r" && HERDR_STUB_BUSY_STARTS=99 START_TRIES=1 "$KIT/add-lane.sh" "$RUNF" B feat/b main 2,3 2>&1; echo "exit=$?")
   assert_match "failed start: add-lane fails"          "$out" 'exit=1$'
   assert_match "failed start: the lane is in the pane map" "$(cat "$RUNF/panes.txt")" '^lane B: +pane-[0-9]+ +\(agent "bun-vitest-lane-b", kind claude, branch feat/b, checkout '"$r"'/.worktrees/feat/b, model '
-  assert_match "failed start: says how to resume"      "$out" 'rerun  .*/add-lane\.sh .* B feat/b main 2,3  to start it again'
+  assert_match "failed start: says how to resume"      "$out" 'lane B is in the pane map, starting: rerun  .*/add-lane\.sh .* B feat/b main 2,3  to resume it'
   bpane=$(sed -nE 's/^lane B: +([^ ]+).*/\1/p' "$RUNF/panes.txt")
   echo gone > "$HERDR_STUB_STATES_DIR/bun-vitest-lane-b"
   mkdir -p "$r/.worktrees/feat/b"   # the stub's worktree create makes none
@@ -640,7 +640,7 @@ if section add-lane; then
   assert_eq "rerun, pane get failing: the worktree is kept" "$([ -d "$r/.worktrees/feat/b" ] && echo kept || echo gone)" kept
   rm -f "$HERDR_STUB_STATES_DIR/$bpane"
   reset_stub; out=$(cd "$r" && HERDR_STUB_BUSY_STARTS=99 START_TRIES=1 "$KIT/add-lane.sh" "$RUNF" B feat/b main 2,3 2>&1; echo "exit=$?")
-  assert_match "rerun, start fails again: says to rerun" "$out" 'did not start in pane-[0-9]+ again; rerun  .*/add-lane\.sh .* B feat/b main 2,3  once it can'
+  assert_match "rerun, start fails again: says to rerun" "$out" 'is not ready in pane-[0-9]+; lane B is in the pane map, starting: rerun  .*/add-lane\.sh .* B feat/b main 2,3  to resume it'
   assert_match "rerun, start fails again: fails"       "$out" 'exit=1$'
   rm -f "$HERDR_STUB_STATES_DIR/bun-vitest-lane-b"
 
@@ -702,6 +702,32 @@ if section add-lane; then
   log=$(grep '^herdr agent start bun-vitest-lane-b ' "$HERDR_STUB_LOG")
   assert_match "codex lane B: its own worktree's git dir is writable" "$log" "writable_roots=\\[.*\"$C/worktrees/x\"\\]"
   assert_nomatch "codex lane B: not the whole common git dir" "$log" "--add-dir $C( |\$)"
+  # A start that never accepts input leaves the lane's line ending in
+  # "starting" and its agent running; a rerun takes the agent once it accepts
+  # input, starts it again when it is gone, and otherwise says to end it.
+  r=$(fixture_repo bun-vitest); RUNR="$TMP/run-slow-lane"; reset_stub
+  (cd "$r" && "$KIT/bootstrap.sh" "$RUNR" "Slow" main "$KIT/example-tasks.tsv" >/dev/null 2>&1); reset_stub
+  echo unready > "$HERDR_STUB_STATES_DIR/bun-vitest-lane-b.started"
+  out=$(cd "$r" && READY_WAIT_SECONDS=1 "$KIT/add-lane.sh" "$RUNR" B feat/b main 2 2>&1; echo "exit=$?")
+  rm -f "$HERDR_STUB_STATES_DIR/bun-vitest-lane-b.started"; mkdir -p "$r/.worktrees/feat/b"
+  assert_match "never ready: add-lane fails"           "$out" 'exit=1$'
+  assert_nomatch "never ready: no ready line"          "$out" 'lane B ready'
+  assert_match "never ready: the lane's line says starting" "$(cat "$RUNR/panes.txt")" '^lane B: .* starting$'
+  assert_match "never ready: says a rerun resumes it"  "$out" "lane B is in the pane map, starting: rerun  .*/add-lane\.sh .* B feat/b main 2  to resume it"
+  echo blocked > "$HERDR_STUB_STATES_DIR/bun-vitest-lane-b"
+  reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNR" B feat/b main 2 2>&1; echo "exit=$?")
+  assert_match "rerun, agent blocked: refused"         "$out" 'exit=1$'
+  assert_match "rerun, agent blocked: says to end it"  "$out" "agent bun-vitest-lane-b is in pane-[0-9]+ but does not accept input \(blocked\): answer or end it there, then rerun"
+  assert_nomatch "rerun, agent blocked: no start"      "$(cat "$HERDR_STUB_LOG")" '^herdr agent start'
+  echo idle > "$HERDR_STUB_STATES_DIR/bun-vitest-lane-b"
+  reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNR" B feat/b main 2 2>&1; echo "exit=$?")
+  assert_match "rerun, agent now ready: finishes"      "$out" 'exit=0$'
+  assert_nomatch "rerun, agent now ready: not started again" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start'
+  assert_match "rerun, agent now ready: resumed"       "$out" 'lane B ready: agent bun-vitest-lane-b in pane-[0-9]+ \(resumed\)'
+  assert_match "rerun, agent now ready: its line is no longer starting" "$(cat "$RUNR/panes.txt")" '^lane B: .*model [^ ]+\)$'
+  reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNR" B feat/b main 2 2>&1; echo "exit=$?")
+  assert_match "rerun of a started lane: refused as existing" "$out" 'lane B already exists'
+  rm -f "$HERDR_STUB_STATES_DIR/bun-vitest-lane-b"
 
   # A pane move that fails after the worktree is created leaves the lane
   # recorded as unplaced, and a rerun moves that pane and finishes the lane
