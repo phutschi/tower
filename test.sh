@@ -1214,6 +1214,24 @@ for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'],
   assert_match "look: ... and not a failure"             "$out" 'exit=0$'
   r=$(look_repo suite-noscripts noscripts); out=$(unset CHECK_CMD; look "$r" base "$F"); v=$(verdict "$F/look.json")
   assert_match "look: a package.json without scripts and no CHECK_CMD is a skip row" "$v" '^check skip no suite lines, no package.json scripts, no CHECK_CMD$'
+  # A step that fails on a permission error is the sandbox, not the code: a
+  # setup verdict, not a must-fix suite finding.
+  r=$(look_repo none perm)
+  printf '%s\n' "suite lint 'echo \"error: bun is unable to write files to tempdir: PermissionDenied\"; exit 1'" "suite ok true" > "$r/.orchestrate"
+  out=$(look "$r" base "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: a step failing on a permission error is a setup row" "$v" '^lint warn setup: exit 1, a permission error \(error: bun is unable to write files to tempdir: PermissionDenied\): echo'
+  assert_eq "look: ... not a suite finding"              "$(findings "$F/look.json")" ""
+  assert_match "look: ... the steps after it still run"  "$v" '^ok pass true$'
+  assert_match "look: ... and the look is a setup error, with look.json kept" "$out" 'exit=2$'
+  assert_match "look: ... it says which step and why"    "$out" '^look: setup error: suite step\(s\) lint failed on a permission error'
+  printf '%s\n' "suite rm 'echo \"rm: /cache/x: Operation not permitted\" >&2; exit 1'" \
+    "suite npm 'echo \"npm ERR! code EACCES\"; exit 243'" "suite unit 'echo \"expected 1, got 2\"; exit 1'" > "$r/.orchestrate"
+  out=$(look "$r" base "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: Operation not permitted, on stderr, is a setup row" "$v" '^rm warn setup: exit 1, a permission error \(rm: /cache/x: Operation not permitted\)'
+  assert_match "look: EACCES is a setup row"             "$v" '^npm warn setup: exit 243, a permission error \(npm ERR! code EACCES\)'
+  assert_match "look: a step failing otherwise is still a must-fix suite finding" "$(findings "$F/look.json")" '^suite must-fix .* suite step unit failed \(exit 1\)'
+  assert_match "look: ... the setup error still wins the exit" "$out" 'exit=2$'
+  assert_match "look: ... and names every setup step"   "$out" 'suite step\(s\) rm npm failed'
   r=$(look_repo semgrep-rules rules); reset_stub; out=$(look "$r" base "$F")
   assert_match "look: the repo's .semgrep/ rules are added" "$(cat "$HERDR_STUB_LOG")" '^semgrep scan --config p/default --config \.semgrep '
   # A tracked file with edits the branch has not committed: the suite could

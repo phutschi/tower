@@ -99,7 +99,12 @@ run, the `switches:` line of `panes.txt` has the values the run uses.
      `skip` row per area, note `look is red`, and go to step 5.
    - Exit 2, or exit 1 with no `look.json`: setup error. Alone: report the
      printed error and stop. A Reviewer: write your findings file with one
-     `warn` row per area, the error as its note, and go to step 5.
+     `warn` row per area, the error as its note, and go to step 5. One
+     setup error keeps its `look.json`: a suite step that failed on a
+     permission error (`PermissionDenied`, `Operation not permitted`,
+     `EACCES`) hit the sandbox, not the code. Its row is a `warn` whose note
+     starts `setup:`, and it is no suite finding. Fix the environment, not
+     the code, and look again.
 
 4. **Agent review by area.** The areas are the files in `areas/` next to
    this file, plus the repo's `.preflight/areas/*.md`. A repo file with a

@@ -38,8 +38,11 @@
 # either. A red suite step is a fail row and a
 # must-fix finding (area suite, file = the step's DIR, line null) carrying the
 # last 20 lines of its output, unredacted: it is the repo's own test output.
-# Steps get no stdin and no timeout. A SUITE_SKIP name that matches no step is
-# a warn row.
+# Steps get no stdin and no timeout. A red step whose output has a permission
+# error (PermissionDenied, Operation not permitted, EACCES) hit the sandbox,
+# not the code: a warn row whose note starts "setup:", with that line, and no
+# finding; the look is then a setup error (exit 2). A SUITE_SKIP name that
+# matches no step is a warn row.
 #
 # Settings (environment > .orchestrate, read through detect-stack.sh):
 #   STATIC_BASELINE=off   skip both scanners; their rows say so
@@ -55,8 +58,9 @@
 # Prints each suite step as it starts (stderr), the verdict table and the
 # findings file. Exit 0 when no finding is must-fix, 1 when one is, 2 on a
 # setup error (usage, uncommitted changes to tracked files, unknown base, a
-# refused repo contract); look.json is removed first, so after exit 2 there
-# is none.
+# refused repo contract, a suite step's permission error); look.json is
+# removed first, so after exit 2 there is none, except after a permission
+# error: every step ran, and look.json holds their rows and findings.
 #
 # The checkout must have no uncommitted changes to tracked files (untracked
 # files are fine): whatever the suite then leaves changed is the suite's own,
@@ -267,6 +271,7 @@ else
   fi
 fi
 SKIP=",${SUITE_SKIP// /},"
+PERMISSION_ERROR='PermissionDenied|Operation not permitted|EACCES'; SETUP_STEPS=""
 for name in ${SUITE_SKIP//,/ }; do
   case " ${STEP_NAMES[*]:-} " in *" $name "*) ;; *) verdict SUITE_SKIP warn "no suite step named $name" ;; esac
 done
@@ -275,8 +280,13 @@ for i in ${STEP_NAMES[@]+"${!STEP_NAMES[@]}"}; do
   case "$SKIP" in *",$name,"*) verdict "$name" skip SUITE_SKIP; continue ;; esac
   echo "look: suite step $name: $cmd" >&2
   rc=0; (cd "$dir" && bash -c "$cmd") < /dev/null > "$WORK/step.out" 2>&1 || rc=$?
+  # A step that failed on a permission error hit the sandbox, not the code.
+  perm=$(grep -m1 -E "$PERMISSION_ERROR" "$WORK/step.out" | cut -c1-200 || true)
   if [ "$rc" = 0 ]; then
     verdict "$name" pass "$cmd"
+  elif [ -n "$perm" ]; then
+    verdict "$name" warn "setup: exit $rc, a permission error ($perm): $cmd"
+    SETUP_STEPS="$SETUP_STEPS $name"
   else
     verdict "$name" fail "exit $rc: $cmd"
     tail -n 20 "$WORK/step.out" > "$WORK/step.tail"
@@ -284,4 +294,6 @@ for i in ${STEP_NAMES[@]+"${!STEP_NAMES[@]}"}; do
   fi
 done
 
-py write "$VERDICT" "$FINDINGS" "$FINDINGS_DIR/look.json"
+rc=0; py write "$VERDICT" "$FINDINGS" "$FINDINGS_DIR/look.json" || rc=$?
+[ -z "$SETUP_STEPS" ] || die "look: setup error: suite step(s)${SETUP_STEPS} failed on a permission error, which is the sandbox, not the code. Give them writable temp and cache dirs, then look again."
+exit "$rc"
