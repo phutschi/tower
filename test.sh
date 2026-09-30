@@ -1482,6 +1482,12 @@ for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'],
   assert_match "look: a modified contract git is told to ignore: refused" "$out" 'exit=2$'
   assert_match "look: ... naming it" "$out" 'look: \.orchestrate is not committed as it is in HEAD'
   [ -e "$mark" ] && bad "look: ... and not run" || ok "look: ... and not run"
+  rm -f "$mark"; r=$(look_repo none contract-symlink); printf 'touch "%s"\n' "$mark" > "$r/contract.sh"
+  ln -s contract.sh "$r/.orchestrate"; git -C "$r" add contract.sh .orchestrate; git -C "$r" commit -qm contract
+  out=$(look "$r" base "$TMP/findings-contract")
+  assert_match "look: a committed symlink contract: refused" "$out" 'exit=2$'
+  assert_match "look: ... saying it is a symlink" "$out" 'look: \.orchestrate is a symlink'
+  [ -e "$mark" ] && bad "look: ... and what it points at is not run" || ok "look: ... and what it points at is not run"
   rm -f "$mark"; r=$(look_repo none contract-committed); printf 'touch "%s"\n' "$mark" > "$r/.orchestrate"
   git -C "$r" add .orchestrate; git -C "$r" commit -qm contract
   out=$(look "$r" base "$TMP/findings-contract")

@@ -59,7 +59,7 @@
 # Prints each suite step as it starts (stderr), the verdict table and the
 # findings file. Exit 0 when no finding is must-fix, 1 when one is, 2 on a
 # setup error (usage, uncommitted changes to tracked files, a repo contract
-# not committed as it is in HEAD, unknown base, a refused repo contract, a
+# not committed as it is in HEAD or a symlink, unknown base, a refused repo contract, a
 # suite step's permission error); look.json is
 # removed first, so after exit 2 there is none, except after a permission
 # error: every step ran, and look.json holds their rows and findings.
@@ -68,9 +68,9 @@
 # files are fine): whatever the suite then leaves changed is the suite's own,
 # and  git checkout -- <files>  puts it back without touching anyone's edits.
 # The repo contract (.orchestrate, or .herdr-orchestrate) is the exception: it
-# is bash look runs, so an untracked one, or one whose bytes differ from
-# HEAD's, is refused before it is read, naming the file. A Reviewer sees only
-# what is committed.
+# is bash look runs, so an untracked one, one whose bytes differ from HEAD's,
+# or a symlink is refused before it is read, naming the file. A Reviewer sees
+# only what is committed.
 set -euo pipefail
 LOOK_DIR="$(cd "$(dirname "$0")" && pwd -P)"
 KIT="$(dirname "$LOOK_DIR")/orchestrate"  # the orchestrate skill beside this one
@@ -95,6 +95,8 @@ CHECK_CMD_FROM_ENV="${CHECK_CMD:+yes}"
 CONTRACT=.orchestrate
 [ -f "$CONTRACT" ] || [ ! -f .herdr-orchestrate ] || CONTRACT=.herdr-orchestrate
 if [ -f "$CONTRACT" ]; then
+  [ ! -L "$CONTRACT" ] \
+    || die "look: $CONTRACT is a symlink: look runs what it points at as bash, and a Reviewer sees only the link's target name in a diff. Commit the contract itself in its place, then run look again."
   git cat-file -e "HEAD:$CONTRACT" 2>/dev/null && git show "HEAD:$CONTRACT" | cmp -s - "$CONTRACT" \
     || die "look: $CONTRACT is not committed as it is in HEAD (untracked, or changed since): look runs it as bash, and no Reviewer sees it in a diff. Commit it, or move it out of the checkout, then run look again."
 fi
