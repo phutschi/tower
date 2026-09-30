@@ -102,9 +102,12 @@ run, the `switches:` line of `panes.txt` has the values the run uses.
      `warn` row per area, the error as its note, and go to step 5. One
      setup error keeps its `look.json`: a suite step that failed on a
      permission error (`PermissionDenied`, `Operation not permitted`,
-     `EACCES`) hit the sandbox, not the code. Its row is a `warn` whose note
-     starts `setup:`, and it is no suite finding. Fix the environment, not
-     the code, and look again.
+     `EACCES`) most likely hit the sandbox, not the code. Its row is a
+     `warn` whose note starts `setup:`, and its output tail is a
+     `watchpoint` suite finding. Fix the environment and look again. The
+     other steps' must-fix findings in that `look.json` still count: the
+     look can be red as well. A Reviewer carries them into its findings
+     file beside the `warn` rows.
 
 4. **Agent review by area.** The areas are the files in `areas/` next to
    this file, plus the repo's `.preflight/areas/*.md`. A repo file with a

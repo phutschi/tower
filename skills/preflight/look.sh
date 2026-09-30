@@ -38,10 +38,11 @@
 # either. A red suite step is a fail row and a
 # must-fix finding (area suite, file = the step's DIR, line null) carrying the
 # last 20 lines of its output, unredacted: it is the repo's own test output.
-# Steps get no stdin and no timeout. A red step whose output has a permission
-# error (PermissionDenied, Operation not permitted, EACCES) hit the sandbox,
-# not the code: a warn row whose note starts "setup:", with that line, and no
-# finding; the look is then a setup error (exit 2). A SUITE_SKIP name that
+# Steps get no stdin and no timeout. A red step whose last 20 lines have a
+# permission error (PermissionDenied, Operation not permitted, EACCES) most
+# likely hit the sandbox, not the code: a warn row whose note starts
+# "setup:", with that line, and a watchpoint finding (not must-fix) with the
+# tail; the look is then a setup error (exit 2). A SUITE_SKIP name that
 # matches no step is a warn row.
 #
 # Settings (environment > .orchestrate, read through detect-stack.sh):
@@ -88,8 +89,8 @@ MERGE_BASE=$(git merge-base "$BASE" HEAD) || die "look: no merge base between '$
 
 WORK=$(mktemp -d); trap 'rm -rf "$WORK"' EXIT
 VERDICT="$WORK/verdict.tsv"; FINDINGS="$WORK/findings.jsonl"; : > "$VERDICT"; : > "$FINDINGS"
-verdict() {  # STEP STATUS NOTE; tabs and newlines in NOTE become spaces
-  local note="${3//$'\t'/ }"
+verdict() {  # STEP STATUS NOTE; tabs, carriage returns and newlines in NOTE become spaces
+  local note="${3//$'\t'/ }"; note="${note//$'\r'/ }"
   printf '%s\t%s\t%s\n' "$1" "$2" "${note//$'\n'/ }" >> "$VERDICT"
 }
 
@@ -171,10 +172,13 @@ elif mode == "gitleaks":
         finding("must-fix", r["File"], r["StartLine"], r["Description"],
                 "gitleaks %s in commit %s: %s" % (r["RuleID"], r["Commit"][:7], r.get("Match", "")))
 elif mode == "suite":
-    name, rc, cmd, where, tail_file = sys.argv[2:7]
+    # A permission error (setup) is a watchpoint: its tail still reaches triage.
+    name, rc, cmd, where, tail_file, kind = sys.argv[2:8]
     tail = open(tail_file, errors="replace").read().rstrip("\n")
-    print(json.dumps({"area": "suite", "severity": "must-fix", "file": where, "line": None,
-                      "title": "suite step %s failed (exit %s)" % (name, rc),
+    setup = kind == "setup"
+    print(json.dumps({"area": "suite", "severity": "watchpoint" if setup else "must-fix",
+                      "file": where, "line": None,
+                      "title": "suite step %s failed%s (exit %s)" % (name, " on a permission error" if setup else "", rc),
                       "evidence": "$ %s\n%s" % (cmd, tail)}))
 elif mode == "write":
     verdict_file, findings_file, out = sys.argv[2:5]
@@ -280,20 +284,21 @@ for i in ${STEP_NAMES[@]+"${!STEP_NAMES[@]}"}; do
   case "$SKIP" in *",$name,"*) verdict "$name" skip SUITE_SKIP; continue ;; esac
   echo "look: suite step $name: $cmd" >&2
   rc=0; (cd "$dir" && bash -c "$cmd") < /dev/null > "$WORK/step.out" 2>&1 || rc=$?
-  # A step that failed on a permission error hit the sandbox, not the code.
-  perm=$(grep -m1 -E "$PERMISSION_ERROR" "$WORK/step.out" | cut -c1-200 || true)
-  if [ "$rc" = 0 ]; then
-    verdict "$name" pass "$cmd"
-  elif [ -n "$perm" ]; then
+  if [ "$rc" = 0 ]; then verdict "$name" pass "$cmd"; continue; fi
+  tail -n 20 "$WORK/step.out" > "$WORK/step.tail"
+  # A permission error in the tail: most likely the sandbox, not the code.
+  # -a: output with a NUL byte is still text to read.
+  perm=$(grep -a -m1 -E "$PERMISSION_ERROR" "$WORK/step.tail" | cut -c1-200 || true)
+  if [ -n "$perm" ]; then
     verdict "$name" warn "setup: exit $rc, a permission error ($perm): $cmd"
     SETUP_STEPS="$SETUP_STEPS $name"
+    py suite "$name" "$rc" "$cmd" "$dir" "$WORK/step.tail" setup >> "$FINDINGS"
   else
     verdict "$name" fail "exit $rc: $cmd"
-    tail -n 20 "$WORK/step.out" > "$WORK/step.tail"
-    py suite "$name" "$rc" "$cmd" "$dir" "$WORK/step.tail" >> "$FINDINGS"
+    py suite "$name" "$rc" "$cmd" "$dir" "$WORK/step.tail" red >> "$FINDINGS"
   fi
 done
 
 rc=0; py write "$VERDICT" "$FINDINGS" "$FINDINGS_DIR/look.json" || rc=$?
-[ -z "$SETUP_STEPS" ] || die "look: setup error: suite step(s)${SETUP_STEPS} failed on a permission error, which is the sandbox, not the code. Give them writable temp and cache dirs, then look again."
+[ -z "$SETUP_STEPS" ] || die "look: setup error: suite step(s)${SETUP_STEPS} failed on a permission error, most likely the sandbox, not the code. Give them writable temp and cache dirs, then look again; their output is in look.json as watchpoints."
 exit "$rc"

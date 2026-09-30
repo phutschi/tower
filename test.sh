@@ -1220,7 +1220,7 @@ for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'],
   printf '%s\n' "suite lint 'echo \"error: bun is unable to write files to tempdir: PermissionDenied\"; exit 1'" "suite ok true" > "$r/.orchestrate"
   out=$(look "$r" base "$F"); v=$(verdict "$F/look.json")
   assert_match "look: a step failing on a permission error is a setup row" "$v" '^lint warn setup: exit 1, a permission error \(error: bun is unable to write files to tempdir: PermissionDenied\): echo'
-  assert_eq "look: ... not a suite finding"              "$(findings "$F/look.json")" ""
+  assert_nomatch "look: ... not a must-fix suite finding" "$(findings "$F/look.json")" 'must-fix'
   assert_match "look: ... the steps after it still run"  "$v" '^ok pass true$'
   assert_match "look: ... and the look is a setup error, with look.json kept" "$out" 'exit=2$'
   assert_match "look: ... it says which step and why"    "$out" '^look: setup error: suite step\(s\) lint failed on a permission error'
@@ -1232,6 +1232,13 @@ for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'],
   assert_match "look: a step failing otherwise is still a must-fix suite finding" "$(findings "$F/look.json")" '^suite must-fix .* suite step unit failed \(exit 1\)'
   assert_match "look: ... the setup error still wins the exit" "$out" 'exit=2$'
   assert_match "look: ... and names every setup step"   "$out" 'suite step\(s\) rm npm failed'
+  assert_match "look: a setup step keeps its output tail, as a watchpoint for triage" "$(findings "$F/look.json")" '^suite watchpoint .* suite step npm failed on a permission error \(exit 243\) \| \$ echo .*npm ERR! code EACCES'
+  printf '%s\n' "suite bin 'printf \"x\\\\0y\\\\n\"; echo EACCES; exit 1'" "suite cr 'printf \"10%%\\\\rerror: PermissionDenied\\\\n\"; exit 1'" \
+    "suite noisy 'echo \"warn: EACCES on a probe, retried\"'" > "$r/.orchestrate"
+  out=$(look "$r" base "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: output with a NUL byte is still read for a permission error" "$v" '^bin warn setup: '
+  assert_match "look: a carriage return in the matched line becomes a space" "$v" '^cr warn setup: exit 1, a permission error \(10% error: PermissionDenied\)'
+  assert_match "look: a step that passes with EACCES in its output passes" "$v" '^noisy pass '
   r=$(look_repo semgrep-rules rules); reset_stub; out=$(look "$r" base "$F")
   assert_match "look: the repo's .semgrep/ rules are added" "$(cat "$HERDR_STUB_LOG")" '^semgrep scan --config p/default --config \.semgrep '
   # A tracked file with edits the branch has not committed: the suite could
