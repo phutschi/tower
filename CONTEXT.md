@@ -78,12 +78,19 @@ _Avoid_: supervisor, manager, lead, controller, main session, tower
 **Executor**:
 The agent working one lane's tasks and reporting on them. An executor holds
 whichever role the current phase needs. In an orchestrate run its kind is
-claude or codex, and it never adds, changes or removes a task (ADR 0008).
+claude, codex or cursor, and it never adds, changes or removes a task
+(ADR 0008).
 _Avoid_: worker, implementer (a role, not the agent), agent (too broad)
+
+**Kind**:
+The harness an orchestrate executor or Reviewer runs in: claude, codex or
+cursor. A kind is not a model family: cursor runs models of many families.
+_Avoid_: provider, vendor, model (the model is chosen separately)
 
 **Reviewer**:
 An agent in an orchestrate run that reviews finished work it did not write,
-by default of the other kind than the executors. It only reports findings;
+by default of another kind than the lane's: claude reviews codex and cursor,
+codex reviews claude. It only reports findings;
 the orchestrator decides what becomes a fix task and which lane does it
 (ADR 0010).
 _Avoid_: review lane, reviewer model (the spec and quality reviewer roles
@@ -324,15 +331,21 @@ _Avoid_: check gate (that runs per task), checks pane (that watches)
 The `.orchestrate` file in a repo root: its panes, its install command, its
 check gate, its full suite as named `suite` steps, and the run's defaults for
 the executor kind and model, the reviewer models, the stale threshold and the
-run switches. The environment of any kit call wins over the file; without
-either, the kit detects the repo's stack, and falls back to the JS default
-and claude.
+run switches. The environment of any kit call wins over the file, the file
+over the user contract; without any, the kit detects the repo's stack, and
+falls back to the JS default, claude and the kit's model defaults.
 _Avoid_: config, override file
+
+**User contract**:
+`~/.config/tower/orchestrate`: one person's run defaults for every repo, the
+same keys as the repo contract's kinds, models and run switches. The repo
+contract wins over it.
+_Avoid_: global config, user config, dotfile
 
 **Run switch**:
 One setting that turns a stage or choice of the run on, off or to a variant:
 per-task review, lane review, preflight, static baseline, PR mode, method,
-reviewer kind and model, review areas, skipped suite steps, PR template. The
+reviewer kind and model, Reviewer by credits, review areas, skipped suite steps, PR template. The
 repo contract sets its default, the user's message overrides it, and the pane
 map records the value the run used.
 _Avoid_: flag, option, profile
