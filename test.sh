@@ -163,8 +163,8 @@ if section executor; then
   assert_eq "reviewer: REVIEWER_MODEL overrides a fallback's model" "$(CODEX_STUB=absent REVIEWER_MODEL=sonnet rev claude)" "claude${T}sonnet${T}fallback: codex is not installed, so claude reviews claude"
   assert_match "reviewer: a forced kind that is not installed is refused" "$(CODEX_STUB=absent REVIEWER_KIND=codex rev claude; echo "exit=$?")" "REVIEWER_KIND=codex, but codex is not installed"
   assert_match "reviewer: the refusal exits non-zero" "$(CODEX_STUB=absent REVIEWER_KIND=codex rev claude; echo "exit=$?")" "exit=1$"
-  assert_match "reviewer: an unknown REVIEWER_KIND is refused" "$(REVIEWER_KIND=Claude rev claude)" "REVIEWER_KIND must be other, claude or codex \(got 'Claude'\)"
-  assert_match "reviewer: neither kind installed is refused" "$(CODEX_STUB=absent CLAUDE_STUB=absent rev claude)" "neither claude nor codex is installed"
+  assert_match "reviewer: an unknown REVIEWER_KIND is refused" "$(REVIEWER_KIND=Claude rev claude)" "REVIEWER_KIND must be other, claude, codex or cursor \(got 'Claude'\)"
+  assert_match "reviewer: neither kind installed is refused" "$(CODEX_STUB=absent CLAUDE_STUB=absent rev claude)" "no Reviewer for a claude lane: codex and claude are not installed \\(cursor reviews a claude lane only with REVIEWER_KIND=cursor\\)"
   # An agent start: `start NAME [ENV...]` runs start_agent_with_trust_retry
   # for NAME in pane-9 of a codex executor, in repo $r.
   start() { local n=$1; shift; reset_stub; (cd "$r" && env HOME="$TMP/rev-home" EXECUTOR_KIND=codex "$@" bash -c ". \"\$KIT/common.sh\"; . \"\$KIT/executor.sh\"; start_agent_with_trust_retry $n pane-9; echo \"exit=\$?\"" 2>&1); }
@@ -317,7 +317,7 @@ if section detect; then
   assert_match "switches: a bad value is refused with the allowed values" "$(detect_in "$r" 'echo reached')" "PR must be draft, ready or off \(got 'maybe'\)"
   assert_nomatch "switches: the refusal stops the script" "$(detect_in "$r" 'echo reached')" "^reached$"
   assert_match "switches: METHOD=fast is refused"          "$(METHOD=fast detect_in "$(fixture_repo none)" 'true')" "METHOD must be tdd or plain \(got 'fast'\)"
-  assert_match "switches: REVIEWER_KIND=cursor is refused" "$(REVIEWER_KIND=cursor detect_in "$(fixture_repo none)" 'true')" "REVIEWER_KIND must be other, claude or codex \(got 'cursor'\)"
+  assert_match "switches: an unknown REVIEWER_KIND is refused" "$(REVIEWER_KIND=gemini detect_in "$(fixture_repo none)" 'true')" "REVIEWER_KIND must be other, claude, codex or cursor \(got 'gemini'\)"
   assert_match "switches: a value on two lines is refused" "$(PR_TEMPLATE=$'a\nb' detect_in "$(fixture_repo none)" 'true')" "PR_TEMPLATE must be one line"
   assert_match "switches: LANE_REVIEW=yes is refused"      "$(LANE_REVIEW=yes detect_in "$(fixture_repo none)" 'true')" "LANE_REVIEW must be on or off \(got 'yes'\)"
   tr_="$TMP/repos/suite-typo"; mkdir -p "$tr_"; echo 'SUITE_SKP=build' > "$tr_/.orchestrate"
@@ -981,7 +981,7 @@ if section add-reviewer; then
   out=$(CODEX_STUB=absent review R2 claude "Preflight R2" "$RUN/findings/preflight-r2.json")
   assert_match "a fallback is printed"                "$out" '^reviewer: fallback: codex is not installed'
   assert_match "a slot other than R1 or R2 is refused" "$(review R3 claude "X" "$RUN/findings/x.json")" "slot must be R1 or R2 \(got 'R3'\)"
-  assert_match "a bad lane kind is refused"            "$(review R1 cursor "X" "$RUN/findings/x.json")" "lane kind must be claude or codex"
+  assert_match "a bad lane kind is refused"            "$(review R1 gemini "X" "$RUN/findings/x.json")" "lane kind must be claude, codex or cursor \(got 'gemini'\)"
   # A title is one field of one pane map line: a control character in it is
   # refused before the board, the map or an agent sees it.
   for c in "newline:$(printf 'two\nlines')" "tab:$(printf 'a\ttab')" "carriage return:$(printf 'a\rcr')"; do
@@ -1444,6 +1444,57 @@ if section cursor-lane; then
     mkdir -p "$TMP/cl-$d/$d/tdd"
     assert_eq "cursor tdd: in ~/$d, no hint" "$(hint_in "$TMP/cl-$d")" ""
   done
+fi
+
+# --- cursor-reviewer ---------------------------------------------------------
+# The Reviewer is the first installed of the lane's candidates (claude lane:
+# codex; codex lane: claude; cursor lane: claude, then codex), else the lane's
+# own kind with a note.
+if section cursor-reviewer; then
+  mkdir -p "$TMP/cr-home/.codex/skills/tdd" "$TMP/cr-home/.agents/skills/tdd"
+  rev() { HOME="$TMP/cr-home" in_kit ". \"\$KIT/executor.sh\"; reviewer_for $1"; }
+  T=$(printf '\t')
+  assert_eq "cursor lane: claude reviews it on claude-opus-5-5" "$(rev cursor)" "claude${T}claude-opus-5-5${T}"
+  assert_eq "cursor lane, claude absent: codex on gpt-6-astra" "$(CLAUDE_STUB=absent rev cursor)" "codex${T}gpt-6-astra${T}"
+  assert_eq "cursor lane, claude and codex absent: a fresh cursor agent, with a note" "$(CLAUDE_STUB=absent CODEX_STUB=absent rev cursor)" \
+    "cursor${T}grok-4.7-high-fast${T}fallback: claude and codex are not installed, so a fresh cursor agent reviews cursor"
+  assert_eq "claude lane, codex absent: never cursor, claude as before" "$(CODEX_STUB=absent rev claude)" \
+    "claude${T}claude-fable-5-1${T}fallback: codex is not installed, so claude reviews claude"
+  assert_eq "codex lane, claude absent: never cursor, codex as before" "$(CLAUDE_STUB=absent EXECUTOR_KIND=codex rev codex)" \
+    "codex${T}gpt-6-astra${T}fallback: claude is not installed, so a fresh codex agent reviews codex"
+  for lane in claude codex cursor; do
+    assert_eq "REVIEWER_KIND=cursor: a $lane lane gets cursor on REVIEWER_MODEL_CURSOR" "$(REVIEWER_KIND=cursor rev $lane)" "cursor${T}grok-4.7-high-fast${T}"
+  done
+  assert_match "REVIEWER_KIND=cursor: refused when cursor is not installed" "$(CURSOR_STUB=absent REVIEWER_KIND=cursor rev claude)" 'REVIEWER_KIND=cursor, but cursor is not installed'
+  assert_eq "REVIEWER_MODEL: replaces a cursor Reviewer's model" "$(REVIEWER_KIND=cursor REVIEWER_MODEL=rev-m rev cursor)" "cursor${T}rev-m${T}"
+  assert_eq "REVIEWER_MODEL: replaces the model for a cursor lane" "$(REVIEWER_MODEL=rev-m rev cursor)" "claude${T}rev-m${T}"
+  out=$(CLAUDE_STUB=absent CODEX_STUB=absent CURSOR_STUB=absent rev cursor)
+  assert_match "no candidate and the lane's own kind absent: refused, naming all three" "$out" 'no Reviewer for a cursor lane: claude, codex and cursor are not installed'
+  detect_in() { (cd "$1" && bash -c "set -euo pipefail; . \"\$KIT/common.sh\"; . \"\$KIT/detect-stack.sh\"; $2" 2>&1); }
+  r=$(fixture_repo bun-vitest)
+  assert_eq "REVIEWER_KIND=cursor: a valid switch value" "$(REVIEWER_KIND=cursor detect_in "$r" 'echo $REVIEWER_KIND')" cursor
+  assert_match "REVIEWER_KIND: an unknown kind is refused, listing cursor" "$(REVIEWER_KIND=gemini detect_in "$r" true)" "REVIEWER_KIND must be other, claude, codex or cursor \\(got 'gemini'\\)"
+  # add-reviewer: a cursor lane, and a cursor Reviewer.
+  review() { local d=$1; shift; (cd "$d" && env HOME="$TMP/cr-home" EXIT_WAIT_SECONDS=3 "$@" 2>&1); }
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-cr-lane"
+  out=$(review "$r" EXECUTOR_KIND=cursor "$KIT/bootstrap.sh" "$RUN" "Cursor" main "$KIT/example-tasks.tsv")
+  reset_stub; out=$(review "$r" "$KIT/add-reviewer.sh" "$RUN" R1 cursor "Lane review A" "$RUN/findings/a.json" A; echo "exit=$?")
+  assert_match "add-reviewer: lane kind cursor is accepted" "$out" 'exit=0$'
+  assert_match "add-reviewer: a cursor lane gets a claude Reviewer" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-r1-1 --kind claude --pane pane-[0-9]+ -- --model claude-opus-5-5$'
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-cr-kind"; C=$(git -C "$r" rev-parse --path-format=absolute --git-common-dir)
+  out=$(review "$r" REVIEWER_KIND=cursor "$KIT/bootstrap.sh" "$RUN" "Cursor reviews" main "$KIT/example-tasks.tsv")
+  assert_match "REVIEWER_KIND=cursor: the tower note names the cursor Reviewer" "$(notes "$RUN")" '^reviewer: kind cursor, model grok-4\.7-high-fast$'
+  reset_stub; out=$(review "$r" "$KIT/add-reviewer.sh" "$RUN" R1 claude "Lane review A" "$RUN/findings/a.json")
+  assert_match "REVIEWER_KIND=cursor: started with the cursor argv" "$(cat "$HERDR_STUB_LOG")" \
+    "^herdr agent start bun-vitest-r1-1 --kind cursor --pane pane-[0-9]+ -- --model grok-4\\.7-high-fast --trust --force --disable-auto-update --add-dir $RUN --add-dir $C\$"
+  assert_match "REVIEWER_KIND=cursor: the pane map's reviewer line" "$(cat "$RUN/panes.txt")" '^reviewer R1: +pane-[0-9]+ +\(agent "bun-vitest-r1-1", kind cursor, model grok-4\.7-high-fast, review '
+  # A cursor lane reviewed by cursor: the lane named, its line read from the pane map.
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-cr-self"
+  out=$(review "$r" EXECUTOR_KIND=cursor EXECUTOR_MODEL=lane-m "$KIT/bootstrap.sh" "$RUN" "Cursor" main "$KIT/example-tasks.tsv")
+  reset_stub; out=$(review "$r" CLAUDE_STUB=absent CODEX_STUB=absent "$KIT/add-reviewer.sh" "$RUN" R1 cursor "Lane review A" "$RUN/findings/a.json" A)
+  assert_match "cursor reviews cursor: on REVIEWER_MODEL_CURSOR" "$(cat "$RUN/panes.txt")" '^reviewer R1: .*kind cursor, model grok-4\.7-high-fast, review '
+  assert_match "cursor reviews cursor: ... with the fallback note" "$out" '^reviewer: fallback: claude and codex are not installed, so a fresh cursor agent reviews cursor$'
+  assert_eq "reviewer_candidates: a cursor lane's, in order" "$(HOME="$TMP/cr-home" in_kit ". \"\$KIT/executor.sh\"; reviewer_candidates cursor" | tr '\n' ' ')" "claude codex "
 fi
 
 # --- watch -------------------------------------------------------------------

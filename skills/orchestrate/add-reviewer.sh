@@ -2,12 +2,12 @@
 # Start a review: a fresh Reviewer in a slot of the review tab, and the review
 # on the board as a task owned by that slot.
 #
-#   [REVIEWER_KIND=other|claude|codex] [REVIEWER_MODEL=<model>] \
+#   [REVIEWER_KIND=other|claude|codex|cursor] [REVIEWER_MODEL=<model>] \
 #     add-reviewer.sh <run-dir> <R1|R2> <lane-kind> "<review title>" <findings-file> [lane]
 #
 # Run it from the orchestrator's pane after bootstrap.sh. lane-kind is the kind
-# (claude | codex) of the lane under review; for a preflight slot, the kind
-# whose other kind should review. [lane] (A-D) names the lane under review; its
+# (claude | codex | cursor) of the lane under review; for a preflight slot,
+# the kind whose other kind should review (executor.sh reviewer_candidates). [lane] (A-D) names the lane under review; its
 # pane map line must be of lane-kind, and its model is the one a codex Reviewer
 # of a codex lane runs on when claude is not installed or REVIEWER_KIND=codex.
 # Without it, the first lane of lane-kind in the pane map stands in; with none,
@@ -118,7 +118,7 @@ while IFS= read -r _kv; do
   [ -n "${!_k+set}" ] || export "$_kv"
 done <<< "$_words"
 unset _words _kv _k
-case "$LANE_KIND" in claude|codex) ;; *) die "lane kind must be claude or codex (got '$LANE_KIND')" ;; esac
+case "$LANE_KIND" in claude|codex|cursor) ;; *) die "lane kind must be claude, codex or cursor (got '$LANE_KIND')" ;; esac
 # The Reviewer works in lane A's checkout (the integration branch), where the
 # repo contract lives too.
 REPO=$(sed -nE 's/^lane A: .* checkout (.*), model .*/\1/p' "$MAP")

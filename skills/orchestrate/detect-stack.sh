@@ -33,7 +33,7 @@
 #   TASK_REVIEW LANE_REVIEW PREFLIGHT STATIC_BASELINE   on | off
 #   PR                                                   draft | ready | off
 #   METHOD                                               tdd | plain
-#   REVIEWER_KIND                                        other | claude | codex
+#   REVIEWER_KIND                                        other | claude | codex | cursor
 #   REVIEWER_MODEL REVIEW_AREAS SUITE_SKIP PR_TEMPLATE   free text, empty by default;
 #                                                        lists are comma-separated
 # Pinned: the file is bash, and this shell is the orchestrator's, so within a
@@ -271,7 +271,7 @@ switch_allows() {  # NAME "a, b or c" VALUE...: refuse NAME unless its value is 
 for _v in TASK_REVIEW LANE_REVIEW PREFLIGHT STATIC_BASELINE; do switch_allows "$_v" "on or off" on off; done; unset _v
 switch_allows PR            "draft, ready or off"     draft ready off
 switch_allows METHOD        "tdd or plain"            tdd plain
-switch_allows REVIEWER_KIND "other, claude or codex"  other claude codex
+switch_allows REVIEWER_KIND "other, claude, codex or cursor" other claude codex cursor
 for _v in $SWITCHES; do  # one line each, for the pane map's switches: line
   case "${!_v}" in *$'\n'*) die "$_v must be one line" ;; esac
 done; unset _v
