@@ -1654,6 +1654,25 @@ SH
   assert_nomatch "token: never in HERDR_STUB_LOG" "$(cat "$HERDR_STUB_LOG")" "$TOK"
 fi
 
+# --- brief-cursor ------------------------------------------------------------
+# The markdown a cursor lane, its orchestrator and a lone preflight read.
+if section brief-cursor; then
+  bt=$(cat "$KIT/brief-template.md"); os=$(cat "$KIT/SKILL.md"); ps=$(cat "$PREFLIGHT_DIR/SKILL.md")
+  assert_match "brief: the per-kind table has a cursor column" "$bt" '^\| +\| claude lane +\| codex lane +\| cursor lane +\|'
+  method=$(grep '^METHOD:' "$KIT/brief-template.md")
+  assert_match "brief: METHOD has a cursor variant with subagent reviews on the run's models" "$method" 'cursor: "a spec-compliance review subagent \(model \{\{SPEC_REVIEWER_MODEL\}\}\) and a code-quality review subagent \(model \{\{QUALITY_REVIEWER_MODEL\}\}\).*Pass the model explicitly on every dispatch'
+  assert_match "brief: the final review has a cursor variant" "$(grep '^WHEN YOUR LAST TASK IS DONE:' "$KIT/brief-template.md")" 'cursor: subagent, model \{\{QUALITY_REVIEWER_MODEL\}\}'
+  assert_match "brief: a cursor lane loads tdd from its own skill dirs" "$bt" 'own skill dirs: ~/\.agents/skills'
+  assert_match "preflight: alone on cursor, one subagent per area in parallel" "$ps" 'Alone on cursor: one subagent per area, in parallel'
+  assert_match "orchestrate: EXECUTOR_KIND names cursor" "$os" 'EXECUTOR_KIND=codex` or `EXECUTOR_KIND=cursor`'
+  assert_match "orchestrate: REVIEWER_KIND takes cursor" "$os" '^\| `REVIEWER_KIND` +\| other +\| claude, codex or cursor'
+  assert_match "orchestrate: the switches table has REVIEWER_BY_CREDITS" "$os" '^\| `REVIEWER_BY_CREDITS` +\| off +\|'
+  assert_match "orchestrate: the Reviewer order covers cursor" "$os" 'cursor lane: claude, then codex'
+  assert_match "orchestrate: red flag, cursor has subagents" "$os" '^\| Briefing a cursor lane .*subagents'
+  assert_match "orchestrate: red flag, never answer cursor's trust box" "$os" "^\\| Answering a cursor lane's trust box .*--trust"
+  assert_nomatch "no cursor model id is written into the three files" "$bt$os$ps" 'grok-'
+fi
+
 # --- look --------------------------------------------------------------------
 if section look; then
   # A harmless check gate for the fixtures without suite lines or scripts, so

@@ -130,6 +130,11 @@ run, the `switches:` line of `panes.txt` has the values the run uses.
      `<findings-dir>/<area>.json` to write, the rule that it writes that
      file and nothing else, and from round 2 the earlier rounds' findings
      dirs with their triage.
+   - Alone on cursor: one subagent per area, in parallel, each on the
+     Reviewer's model, passed explicitly on every dispatch: `REVIEWER_MODEL`
+     when set, else `REVIEWER_MODEL_CURSOR` (the repo contract, the user
+     contract, then the orchestrate kit's `model-defaults`). Its prompt holds
+     what claude's does.
    - Alone on codex: the areas one after another, each to
      `<findings-dir>/<area>.json`.
    - A Reviewer: your areas one after another, all into your one findings
