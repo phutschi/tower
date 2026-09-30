@@ -209,6 +209,10 @@ The same names in the environment of a bootstrap or add-lane call win over
 the file for that call. A name the kit does not read is pointed out on stderr.
 `START_TRIES` (environment only, default 10) is how often an agent start is
 tried, a second apart, while a new pane's shell is not ready yet.
+`START_SETTLE_SECONDS` (default 3) and `READY_WAIT_SECONDS` (default 30),
+environment only too, are how long a started agent is given, and how many
+reads about a second apart it then gets, to accept input. An agent that never
+does fails the call and is left running in its pane.
 
 ## Run switches
 

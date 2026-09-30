@@ -26,6 +26,22 @@ All notable changes to this project are documented here. The format follows
   `${XDG_STATE_HOME:-$HOME/.local/state}/tower/plans`, instead of one
   user's notes vault.
 
+- The orchestrate kit reports an agent ready only once it accepts input
+  (herdr's `interactive_ready`): after a start it waits `START_SETTLE_SECONDS`
+  (default 3), then reads the agent about once a second, `READY_WAIT_SECONDS`
+  times (default 30). One that exits right after its start is started once
+  more; one that never accepts input fails the call and is left running in its
+  pane. codex agents start with their startup update check off.
+- `add-reviewer.sh` writes the slot's reviewer line before the start, ending in
+  ` starting` until the Reviewer accepts input; a rerun after a failed start
+  resumes that review under the same agent and task. A codex Reviewer gets
+  `<run-dir>/tmp` as `TMPDIR`, `BUN_TMPDIR`, `BUN_INSTALL_CACHE_DIR` and
+  `npm_config_cache`.
+- A codex lane in a worktree may write only `objects`, `refs`, `logs`,
+  `packed-refs` and its own `worktrees/<lane>` in the common git dir, no longer
+  its hooks or config. Lane A and Reviewers, in the main checkout, keep the
+  whole common git dir (docs/orchestrate.md says what that exposes).
+
 ## [0.3.0] — 2026-09-07
 
 ### Added
