@@ -337,9 +337,10 @@ falls back to the JS default, claude and the kit's model defaults.
 _Avoid_: config, override file
 
 **User contract**:
-`~/.config/tower/orchestrate`: one person's run defaults for every repo, the
-same keys as the repo contract's kinds, models and run switches. The repo
-contract wins over it.
+`~/.config/tower/orchestrate`: one person's run defaults for every repo: the
+executor and Reviewer kinds, the per-kind models, the stale threshold, the
+method and review switches and the credit guard. The repo contract wins over
+it, and it ignores the repo's own settings (check gate, panes, suite).
 _Avoid_: global config, user config, dotfile
 
 **Run switch**:

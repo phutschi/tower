@@ -14,8 +14,10 @@
 # Needs: herdr (the terminal), tower (the record and the console; it must run,
 # and install.sh fetches the release binary into TOWER_BIN_DIR, default
 # ~/.local/bin, when it is missing), git, bash, python3 (reads herdr's JSON),
-# node (reads package.json in JS repos), curl (fetches tower). Optional: claude (the plugin), codex (EXECUTOR_KIND=codex lanes),
-# semgrep and gitleaks (preflight's static baseline). Running it again changes
+# node (reads package.json in JS repos), curl (fetches tower). Optional: claude
+# (the plugin), codex (EXECUTOR_KIND=codex lanes), cursor-agent
+# (EXECUTOR_KIND=cursor lanes; it reads the skills linked for claude and codex,
+# so nothing more is linked), semgrep and gitleaks (preflight's static baseline). Running it again changes
 # nothing. A claude command, or a link or unlink of a skill, that fails is
 # printed as FAILED, and the install exits 1.
 set -u
@@ -102,6 +104,7 @@ have python3 "reads herdr's JSON"
 have node    "reads package.json in JS repos"
 opt  claude  "Claude Code, where the plugin is installed"
 opt  codex   "lanes with EXECUTOR_KIND=codex"
+opt  cursor-agent "lanes with EXECUTOR_KIND=cursor" --version
 opt  semgrep "preflight's static baseline (a warn row without it)" --version
 opt  gitleaks "preflight's secret scan (a warn row without it)" version
 [ "$ok" = 1 ] || { echo "install the missing dependencies first" >&2; exit 1; }

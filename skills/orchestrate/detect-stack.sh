@@ -24,7 +24,11 @@
 #   EXECUTOR_KIND=codex                 the lanes' harness: claude (default) | codex | cursor
 #   EXECUTOR_MODEL=gpt-6-astra          the lanes' model (model-defaults has each kind's default)
 #   SPEC_REVIEWER_MODEL=sonnet          the two reviewer models tower records for the run
-#   QUALITY_REVIEWER_MODEL=opus
+#   QUALITY_REVIEWER_MODEL=opus         (default: SPEC_/QUALITY_REVIEWER_MODEL_<run's kind>)
+#   EXECUTOR_MODEL_CURSOR=...           model-defaults' keys, per kind (<KIND>: CLAUDE, CODEX,
+#   REVIEWER_MODEL_CODEX=...            CURSOR): EXECUTOR_MODEL_<KIND>, REVIEWER_MODEL_<KIND>,
+#                                       REVIEWER_MODEL_CLAUDE_SELF, SPEC_/QUALITY_REVIEWER_MODEL_<KIND>
+#                                       and REVIEWER_CREDITS_MIN; each replaces the kit's default
 #   STALE=30                            minutes before the console and tower wait flag a lane as stale
 #   suite lint "bun run lint" [DIR]     suite NAME "CMD" [DIR]: the full suite as named steps, in order
 # plus PM, TYPECHECK_TASK, TEST_PKG and TEST_FILTER to steer the detection below,

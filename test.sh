@@ -1617,6 +1617,31 @@ SH
   unset CODEX_STUB_RATE_LIMITS
 fi
 
+# --- cursor-docs -------------------------------------------------------------
+# install.sh and the example repo contract know cursor, the user contract and
+# the credit guard.
+if section cursor-docs; then
+  out=$(HOME="$TMP/cd-home" CURSOR_STUB=absent "$ROOT/install.sh" --check 2>&1)
+  assert_match "install: cursor-agent is optional, for cursor lanes" "$out" '^  optional  cursor-agent lanes with EXECUTOR_KIND=cursor$'
+  assert_match "install: ... ok when it answers" "$(HOME="$TMP/cd-home" "$ROOT/install.sh" --check 2>&1)" '^  ok        cursor-agent \(optional\)$'
+  assert_nomatch "install: links no skill dir for cursor" "$(grep -E '^ *link ' "$ROOT/install.sh")" 'cursor'
+  ex="$KIT/example.orchestrate"
+  for key in 'EXECUTOR_KIND=cursor' 'EXECUTOR_MODEL_CURSOR=' 'EXECUTOR_MODEL_CLAUDE=' 'EXECUTOR_MODEL_CODEX=' 'REVIEWER_MODEL_CURSOR=' \
+    'REVIEWER_MODEL_CLAUDE_SELF=' 'SPEC_REVIEWER_MODEL_CURSOR=' 'REVIEWER_BY_CREDITS=off' 'REVIEWER_CREDITS_MIN=20' 'tower/orchestrate'; do
+    assert_match "example.orchestrate: documents $key" "$(cat "$ex")" "$key"
+  done
+  assert_match "example.orchestrate: REVIEWER_KIND lists cursor" "$(cat "$ex")" '^# REVIEWER_KIND=other +other \| claude \| codex \| cursor'
+  r=$(fixture_repo bun-vitest); cp "$ex" "$r/.orchestrate"
+  out=$(cd "$r" && bash -c "set -euo pipefail; . \"\$KIT/common.sh\"; . \"\$KIT/detect-stack.sh\"; echo parsed" 2>&1)
+  assert_match "example.orchestrate: parses" "$out" '^parsed$'
+  assert_nomatch "example.orchestrate: ... with no unknown setting" "$out" 'not a setting'
+  # Every KEY=value it shows in a comment is a setting the kit reads.
+  sed -nE 's/^# ([A-Z_]+=[^ "]*)( .*)?$/\1/p' "$ex" | grep -v '^EXECUTOR_KIND=' > "$r/.orchestrate"
+  out=$(cd "$r" && bash -c "set -euo pipefail; . \"\$KIT/common.sh\"; . \"\$KIT/detect-stack.sh\"; echo parsed" 2>&1)
+  assert_match "example.orchestrate: its commented settings, set, parse" "$out" '^parsed$'
+  assert_nomatch "example.orchestrate: ... every one a setting the kit reads" "$out" 'not a setting'
+fi
+
 # --- watch -------------------------------------------------------------------
 if section watch; then
   S="$HERDR_STUB_STATES_DIR"
