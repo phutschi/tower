@@ -33,6 +33,7 @@ Scripts ask tower instead of polling:
 
 ```sh
 tower state --json           # the folded state; literal, versioned
+tower ids 5,7-9              # the ids as tower reads them, one per line; records nothing
 tower wait                   # exit 0 with the reasons on attention, completion, or close
 tower wait --timeout 300     # the same, or 3 once 300 s pass quietly (foreground-only harnesses)
 ```

@@ -633,6 +633,7 @@ if section add-lane; then
   assert_match "failed move: add-lane fails"           "$out" 'exit=1$'
   assert_match "failed move: says how to resume"       "$out" "could not move lane B's pane $wtpane into the grid.*rerun  .*/add-lane\.sh .* B feat/b main 2,3  to place it"
   assert_nomatch "failed move: no agent start"         "$(cat "$HERDR_STUB_LOG")" '^herdr agent start'
+  assert_match "failed move: the worktree is installed before the move" "$out" '\[dry-run\] \(cd .*/.worktrees/feat/b && bun install\)'
   assert_nomatch "failed move: no placed lane B"       "$(cat "$RUNM/panes.txt")" '^lane B:'
   assert_match "failed move: the lane is recorded as unplaced" "$(cat "$RUNM/panes.txt")" "^unplaced lane B: +$wtpane +\(agent \"bun-vitest-lane-b\", kind claude, branch feat/b, checkout $r/\.worktrees/feat/b, model "
   mkdir -p "$r/.worktrees/feat/b"   # the stub's worktree create makes none
@@ -670,6 +671,8 @@ if section add-lane; then
   assert_match "failed worktree create: fails"         "$out" 'exit=1$'
   assert_match "failed worktree create: says what to remove" "$out" "herdr worktree create failed: remove .*/\.worktrees/feat/b and branch feat/b if they exist, then rerun  .*/add-lane\.sh "
   assert_nomatch "failed worktree create: no move"     "$(cat "$HERDR_STUB_LOG")" '^herdr pane move'
+  reset_stub; out=$(cd "$r" && HERDR_STUB_WORKTREE_FAIL=garbled "$KIT/add-lane.sh" "$RUNW" B feat/b main 2,3 2>&1; echo "exit=$?")
+  assert_match "worktree create answered without a pane: says to close it too" "$out" "herdr created .*/\.worktrees/feat/b but its answer names no pane: close the pane labelled bun-vitest-lane-b, remove .*/\.worktrees/feat/b and branch feat/b, then rerun "
 fi
 
 # --- add-reviewer ------------------------------------------------------------

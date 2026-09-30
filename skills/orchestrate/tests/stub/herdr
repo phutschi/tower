@@ -19,7 +19,8 @@
 # HERDR_STUB_COUNTER.enters), as an agent that needs N Enters to exit.
 # HERDR_STUB_MOVE_FAIL=1: every `pane move` fails, the pane staying where it is;
 # =garbled: it succeeds with an answer that has no pane in it.
-# HERDR_STUB_WORKTREE_FAIL=1: every `worktree create` fails.
+# HERDR_STUB_WORKTREE_FAIL=1: every `worktree create` fails; =garbled: it
+# succeeds with an answer that has no pane in it.
 # Errors are JSON on stderr with exit 1, as herdr answers them.
 # HERDR_STUB=absent refuses to run, so herdr counts as not installed; it logs
 # each refused call as "herdr-absent <argv>".
@@ -34,6 +35,7 @@ states="${HERDR_STUB_STATES_DIR:-}"
 case "${1:-} ${2:-}" in
   "pane split")      echo "{\"result\":{\"pane\":{\"pane_id\":\"$(next_id)\"}}}" ;;
   "worktree create")
+    [ "${HERDR_STUB_WORKTREE_FAIL:-}" != garbled ] || { echo '{"result":{}}'; exit 0; }
     [ "${HERDR_STUB_WORKTREE_FAIL:-}" != 1 ] || { echo '{"error":{"code":"server_unavailable","message":"herdr server is not answering"}}' >&2; exit 1; }
     echo "{\"result\":{\"root_pane\":{\"pane_id\":\"$(next_id)\"}}}" ;;
   "tab create")      p=$(next_id); echo "{\"result\":{\"tab\":{\"tab_id\":\"tab-${p#pane-}\"},\"root_pane\":{\"pane_id\":\"$p\"}}}" ;;
