@@ -9,6 +9,7 @@
 #   env: GRACE_SECONDS (45)  POLL_SECONDS (15)  ROUND_SECONDS (unset: no time
 #   limit; set it, in whole seconds, only in a harness that can only run
 #   commands in the foreground, and the watch exits 3 once it passes)
+#   UNREADABLE_POLLS (12: three minutes at the default POLL_SECONDS)
 #
 # Task-level attention (blocked / stale / complete / closed) is tower's job:
 # run  tower wait --stale <STALE>  beside this (bootstrap.sh
@@ -16,12 +17,20 @@
 # see, the agent process itself.
 #
 # Output starts with one line per lane that needs the orchestrator:
-#   attention: <agent> blocked | idle-after-final-report | idle-unexplained | done | gone | <any other status>
-# then the state table with the pane tails, then the tower summary. Exit 0
-# with attention. Without ROUND_SECONDS it never exits quietly. With it, exit 3
-# when it passes with everyone still working, or when a sample settled and the
-# resample right after shows no attention (a blocked lane that was answered). A closed run is attention
-# too (`tower: run closed`), and so is a complete board once no watched agent
+#   attention: <agent> blocked | idle-after-final-report | idle-unexplained |
+#              done | gone | unreadable | <any other status>
+# then the state table with the pane tails, then the tower summary. gone is
+# herdr answering agent_not_found. Any other failing herdr call (a server
+# restarting, a timeout) or an answer without a status says nothing about the
+# agent: it reads unreadable and counts as working, so it never settles as
+# gone (common.sh state_of). Only UNREADABLE_POLLS consecutive unreadable
+# polls of an agent are attention, as unreadable: check herdr, not the lane.
+# Any readable answer of that agent starts its count again. herdr's own
+# unknown status counts as working. Exit 0 with attention. Without
+# ROUND_SECONDS it never exits quietly. With it, exit 3 when it passes with
+# everyone still working, or when a sample settled and the resample right
+# after shows no attention (a blocked lane that was answered). A closed run is
+# attention too (`tower: run closed`), and so is a complete board once no watched agent
 # is working (`tower: run complete`): a complete board alone is not, since a
 # lane's final review, preflight and the PR come after its last task.
 #
@@ -70,8 +79,9 @@ for arg in "$@"; do
 done
 ROUND=${ROUND_SECONDS:-}; GRACE=${GRACE_SECONDS:-45}; POLL=${POLL_SECONDS:-15}
 [ -z "$ROUND" ] || [[ "$ROUND" =~ ^[1-9][0-9]*$ ]] || die "ROUND_SECONDS: a whole number of seconds >= 1, or unset for no time limit; got '$ROUND'"
+UNREADABLE_MAX=${UNREADABLE_POLLS:-12}
+[[ "$UNREADABLE_MAX" =~ ^[1-9][0-9]*$ ]] || die "UNREADABLE_POLLS: a whole number of polls >= 1; got '$UNREADABLE_MAX'"
 
-state_of() { herdr agent get "$1" 2>/dev/null | jsonq 'd["result"]["agent"]["agent_status"]' 2>/dev/null || echo gone; }
 tail_of()  { herdr agent read "$1" --source recent-unwrapped --lines 40 2>/dev/null | grep -v '^[[:space:]]*$' | tail -12; }
 # The end line of round $1: round 1 is the brief's report, a later round a fix
 # prompt's, with the round tag r<n> inside the brackets.
@@ -94,16 +104,22 @@ board()    { tower state --json --run "$RUN_DIR" 2>/dev/null | python3 -c 'impor
 finished() { local b; if [ $# -ge 2 ]; then b=$2; else b=$(board); fi
   case "$b" in closed) return 0 ;; complete) [ "$1" = 0 ] ;; *) return 1 ;; esac; }
 
-IDLE_SEEN=(); i=0; for _ in "${NAMES[@]}"; do IDLE_SEEN[$i]=0; i=$((i+1)); done
+# IDLE_SEEN: consecutive idle polls past GRACE. UNREADABLE: consecutive polls
+# on which herdr could not be read for the agent.
+IDLE_SEEN=(); UNREADABLE=(); i=0; for _ in "${NAMES[@]}"; do IDLE_SEEN[$i]=0; UNREADABLE[$i]=0; i=$((i+1)); done
 started=$(date +%s)
 # Poll until a sample settles, the board is finished, or ROUND passes.
 poll() {
-  local settled working i name
+  local settled working i name state
   while [ -z "$ROUND" ] || [ $(( $(date +%s) - started )) -lt "$ROUND" ]; do
     settled=0; working=0; i=0
     for name in "${NAMES[@]}"; do
-      case "$(state_of "$name")" in
+      state=$(state_of "$name")
+      [ "$state" = unreadable ] || UNREADABLE[$i]=0
+      case "$state" in
         working|unknown) IDLE_SEEN[$i]=0; working=1 ;;
+        unreadable) IDLE_SEEN[$i]=0; UNREADABLE[$i]=$(( UNREADABLE[$i] + 1 ))
+              if [ "${UNREADABLE[$i]}" -ge "$UNREADABLE_MAX" ]; then settled=1; else working=1; fi ;;
         idle) if [ $(( $(date +%s) - started )) -ge "$GRACE" ]; then
                 IDLE_SEEN[$i]=$(( IDLE_SEEN[$i] + 1 ))
               fi
@@ -118,17 +134,31 @@ poll() {
   done
 }
 
-# Resample every agent and print the report; succeed when it has attention.
+# Sample every agent again into STATES, once poll has stopped. The resample is
+# one more poll: an answer starts the agent's unreadable count again, a
+# failure adds to it. It runs here, not in report's subshell, so the counts
+# carry on into the next poll.
+resample() {
+  local i=0 name
+  STATES=()
+  for name in "${NAMES[@]}"; do
+    STATES[$i]=$(state_of "$name")
+    if [ "${STATES[$i]}" = unreadable ]; then UNREADABLE[$i]=$(( UNREADABLE[$i] + 1 )); else UNREADABLE[$i]=0; fi
+    i=$((i+1))
+  done
+}
+
+# Print the report of the resample; succeed when it has attention.
 report() {
   local alert=0 i=0 working=0 name state b
   # idle only settles at IDLE_SEEN>=2 (see poll); reporting it on
   # a single fresh sample here would let a lane idle for its very first poll
   # report attention just because a *different* lane is what broke the loop.
-  STATES=()
   for name in "${NAMES[@]}"; do
-    state=$(state_of "$name"); STATES[$i]=$state
+    state=${STATES[$i]}
     case "$state" in
       idle) [ "${IDLE_SEEN[$i]}" -ge 2 ] && { alert=1; echo "attention: $name $(reason_for "$name" "$state" "${ROUNDS[$i]}")"; } ;;
+      unreadable) [ "${UNREADABLE[$i]}" -ge "$UNREADABLE_MAX" ] && { alert=1; echo "attention: $name unreadable"; } ;;
       working|unknown) ;;
       # blocked, done, gone, and any status this script does not know: poll
       # settles on it, so it must be attention, never a quiet loop.
@@ -140,12 +170,13 @@ report() {
   for name in "${NAMES[@]}"; do
     state=${STATES[$i]}
     case "$state" in
-      working|unknown) working=1 ;;
+      working|unknown|unreadable) working=1 ;;
       idle) [ "${IDLE_SEEN[$i]}" -ge 2 ] || working=1 ;;
     esac
     printf '%-22s %s\n' "$name" "$state"
     case "$state" in
-      working|unknown|gone) ;;
+      # No tail for unreadable: reading the pane asks the same failing herdr.
+      working|unknown|unreadable|gone) ;;
       idle) [ "${IDLE_SEEN[$i]}" -ge 2 ] && tail_of "$name" | sed 's/^/    │ /' ;;
       *) tail_of "$name" | sed 's/^/    │ /' ;;
     esac
@@ -163,10 +194,12 @@ report() {
 # report runs in a subshell, so nothing it sets reaches this loop.
 while :; do
   poll
+  resample
   if out=$(report); then printf '%s\n' "$out"; exit 0; fi
   [ -z "$ROUND" ] || { printf '%s\n' "$out"; exit 3; }
   # The agent that settled was working again on the resample: an idle lane
-  # counts afresh, two consecutive idle polls as always.
+  # counts afresh, two consecutive idle polls as always (resample has
+  # counted the unreadable ones).
   i=0; for _ in "${NAMES[@]}"; do IDLE_SEEN[$i]=0; i=$((i+1)); done
   sleep "$POLL"
 done

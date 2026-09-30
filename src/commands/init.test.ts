@@ -262,6 +262,8 @@ describe("tower init", () => {
     const out = io.out.join("");
     expect(out).toContain("0 tasks");
     const runDir = /run dir: (.+)/.exec(out)?.[1]?.trim() as string;
+    // A test never writes the real ~/.local/state.
+    expect(runDir.startsWith(`${io.env.XDG_STATE_HOME}/`)).toBe(true);
     const run = readRun(runDir);
     expect(run.tasks).toEqual([]);
     expect(run.plan).toBe("untitled");
@@ -272,6 +274,7 @@ describe("tower init", () => {
     const io = fakeIo({ cwd: gitRepo(), stdinText: () => "" });
     expect(await main(["init"], io)).toBe(0);
     expect(io.out.join("")).toContain("0 tasks");
+    expect(io.out.join("")).toContain(`run dir: ${io.env.XDG_STATE_HOME}/`);
   });
 
   test("with no source, --lane is refused because there is nothing to assign", async () => {

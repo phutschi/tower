@@ -16,13 +16,24 @@ export interface FakeIo extends Io {
   err: string[];
 }
 
+// State and config dirs for every fakeIo, so a run without --run never lands
+// in the real ~/.local/state and no real config or theme leaks into a test.
+// Made once and shared: run dirs carry a random repo name, so they don't
+// collide.
+let xdg: { XDG_STATE_HOME: string; XDG_CONFIG_HOME: string } | undefined;
+
 export function fakeIo(overrides: Partial<Io> = {}): FakeIo {
+  xdg ??= {
+    XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "tower-state-")),
+    XDG_CONFIG_HOME: mkdtempSync(join(tmpdir(), "tower-config-")),
+  };
+  // A test's own env is laid over them.
+  const env = { ...xdg, ...overrides.env };
   const io: FakeIo = {
     out: [],
     err: [],
     stdout: (t) => io.out.push(t),
     stderr: (t) => io.err.push(t),
-    env: {},
     cwd: mkdtempSync(join(tmpdir(), "tower-cwd-")),
     now: () => new Date("2026-09-04T20:00:00.000Z"),
     isTTY: false,
@@ -30,6 +41,7 @@ export function fakeIo(overrides: Partial<Io> = {}): FakeIo {
     rows: 30,
     stdinText: () => undefined,
     ...overrides,
+    env,
   };
   return io;
 }

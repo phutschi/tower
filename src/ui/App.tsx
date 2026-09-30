@@ -28,11 +28,15 @@ export const MIN_COLUMNS = 60;
 // smallest board (3) and transcript (3) it will ever collapse to.
 export const MIN_ROWS = 15;
 
-function Line({ row }: { row: Row }) {
-  const color = COLOR[row.tone];
+/** Text's color prop, or none at all when colour is off or there is none. */
+function tint(colour: boolean, hue: string | undefined) {
+  return colour && hue !== undefined ? { color: hue } : {};
+}
+
+function Line({ row, colour }: { row: Row; colour: boolean }) {
   return (
     <Text
-      {...(color !== undefined ? { color } : {})}
+      {...tint(colour, COLOR[row.tone])}
       bold={row.tone === "title" || row.tone === "heading"}
       wrap="truncate"
     >
@@ -47,9 +51,11 @@ export interface AppProps {
   options: RowOptions;
   /** Test hook: a fixed size instead of the terminal's. */
   size?: { columns: number; rows: number };
+  /** False draws no colour (NO_COLOR); bold stays. */
+  colour?: boolean;
 }
 
-export function App({ state, theme, options, size }: AppProps) {
+export function App({ state, theme, options, size, colour = true }: AppProps) {
   const { exit } = useApp();
   const { stdout } = useStdout();
   const [dims, setDims] = useState(
@@ -70,13 +76,13 @@ export function App({ state, theme, options, size }: AppProps) {
 
   if (dims.columns < MIN_COLUMNS)
     return (
-      <Text color="yellow">
+      <Text {...tint(colour, "yellow")}>
         widen the terminal to at least {MIN_COLUMNS} columns
       </Text>
     );
   if (dims.rows < MIN_ROWS)
     return (
-      <Text color="yellow">
+      <Text {...tint(colour, "yellow")}>
         make the terminal taller — at least {MIN_ROWS} rows
       </Text>
     );
@@ -100,28 +106,30 @@ export function App({ state, theme, options, size }: AppProps) {
   return (
     <Box flexDirection="column" width={dims.columns}>
       {header.map((row, i) => (
-        <Line key={`h${i}`} row={row} />
+        <Line key={`h${i}`} row={row} colour={colour} />
       ))}
       <Text> </Text>
       {lanes.map((row, i) => (
-        <Line key={`l${i}`} row={row} />
+        <Line key={`l${i}`} row={row} colour={colour} />
       ))}
       {lanes.length > 0 && <Text> </Text>}
       <Text bold>{theme.board}</Text>
       {board.map((row, i) => (
         <Box key={`b${i}`} paddingLeft={1}>
-          <Line row={row} />
+          <Line row={row} colour={colour} />
         </Box>
       ))}
       <Text> </Text>
       <Text bold>{theme.transcript}</Text>
       {transcript.map((row, i) => (
         <Box key={`t${i}`} paddingLeft={1}>
-          <Line row={row} />
+          <Line row={row} colour={colour} />
         </Box>
       ))}
       <Text> </Text>
-      <Text color="gray">[q] close the {theme.title.toLowerCase()}</Text>
+      <Text {...tint(colour, "gray")}>
+        [q] close the {theme.title.toLowerCase()}
+      </Text>
     </Box>
   );
 }

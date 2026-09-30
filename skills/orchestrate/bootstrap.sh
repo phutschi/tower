@@ -27,11 +27,12 @@
 #        └──────┴──────────┴──────────────────┘
 #
 # checks and dev come from .orchestrate (see example.orchestrate)
-# or the JS default (detect-stack.sh); both run in lane A's checkout. With no
-# checks pane declared and no test runner detected, one info: line on stderr
-# says so. Lane A is EXECUTOR_KIND (claude | codex) on EXECUTOR_MODEL:
-# .orchestrate sets the run's default, the environment of this call
-# overrides it (executor.sh).
+# or the JS default (detect-stack.sh); both run in lane A's checkout, and only
+# their command is shell code: a checkout path with an apostrophe or a space
+# stays one directory. With no checks pane declared and no test runner
+# detected, one info: line on stderr says so. Lane A is EXECUTOR_KIND
+# (claude | codex) on EXECUTOR_MODEL: .orchestrate sets the run's default,
+# the environment of this call overrides it (executor.sh).
 #
 # Writes <run-dir>/panes.txt, the pane map for the whole run, then prints it
 # with the next step. The pane map's  switches:  line holds every run switch
@@ -132,7 +133,7 @@ tower note "reviewer: $REVIEWER"
 
 # --- the layout --------------------------------------------------------------
 split() { herdr pane split "$@" --cwd "$REPO" --no-focus | pane_id; }
-run_in() { herdr pane run "$1" "cd '$REPO/$2' && $3" >/dev/null; }
+run_in() { herdr pane run "$1" "cd $(printf %q "$REPO/$2") && $3" >/dev/null; }
 BOTTOM=$(split --current --direction down --ratio 0.7)
 LANE_A_PANE=$(split --current --direction right --ratio 0.3)
 CHECKS_I=$(pane_index checks); DEV_I=$(pane_index dev)

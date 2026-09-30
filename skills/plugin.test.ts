@@ -204,6 +204,23 @@ test("CI and the release set up the same Node", () => {
   expect(nodeSetup(".github/workflows/release.yml")).toEqual(ci);
 });
 
+// A tag can be moved to other code; a commit cannot. Every action is pinned
+// to a full commit SHA, with the tag it stood for as a comment.
+test("every workflow pins its actions to a commit SHA", () => {
+  const uses: string[] = [];
+  const loose: string[] = [];
+  for (const file of readdirSync(join(root, ".github/workflows")))
+    for (const [line] of read(`.github/workflows/${file}`).matchAll(
+      /^\s*(?:-\s+)?uses:.*$/gm,
+    )) {
+      uses.push(line);
+      if (!/uses:\s*[\w.-]+(?:\/[\w.-]+)+@[0-9a-f]{40} # v\S+$/.test(line))
+        loose.push(`${file}: ${line.trim()}`);
+    }
+  expect(uses.length).toBeGreaterThan(0);
+  expect(loose).toEqual([]);
+});
+
 // watch-lanes.sh reads a Reviewer's end line untagged: each Reviewer is asked
 // once. No text that describes the end line may ask a Reviewer for a tag.
 test("a Reviewer's end line is never tagged with a round", () => {

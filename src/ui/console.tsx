@@ -28,12 +28,18 @@ export const ENTER_ALT = `${ESC}[?1049h${ESC}[?25l`;
 /** Show the cursor and leave the alternate screen — the shell exactly as it was. */
 export const LEAVE_ALT = `${ESC}[?25h${ESC}[?1049l`;
 
+/** https://no-color.org: a non-empty NO_COLOR turns colour off. */
+export function usesColour(io: Io): boolean {
+  return !io.env.NO_COLOR;
+}
+
 interface LiveProps {
   runDir: string;
   run: RunFile;
   theme: Theme;
   stale: number;
   now: () => Date;
+  colour: boolean;
 }
 
 function Live(props: LiveProps) {
@@ -47,6 +53,16 @@ function Live(props: LiveProps) {
     state,
     theme: props.theme,
     options: { now: props.now(), clock: localClock },
+    colour: props.colour,
+  });
+}
+
+/** The live console for this Io: its clock, and colour unless NO_COLOR. */
+export function liveConsole(io: Io, live: Omit<LiveProps, "now" | "colour">) {
+  return createElement(Live, {
+    ...live,
+    now: io.now,
+    colour: usesColour(io),
   });
 }
 
@@ -91,10 +107,9 @@ export async function consoleCommand(argv: string[], io: Io): Promise<number> {
   process.once("SIGTERM", restore);
   process.once("SIGHUP", restore);
   try {
-    const app = render(
-      createElement(Live, { runDir, run, theme, stale, now: io.now }),
-      { exitOnCtrlC: true },
-    );
+    const app = render(liveConsole(io, { runDir, run, theme, stale }), {
+      exitOnCtrlC: true,
+    });
     await app.waitUntilExit();
   } finally {
     process.off("exit", restore);

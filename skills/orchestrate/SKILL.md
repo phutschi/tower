@@ -69,7 +69,8 @@ and do it in a lane anyway or suggest doing it without the kit.
 4. **Lanes B to D.** `add-lane.sh <run-dir> B <branch> <base> <ids>` (`<branch>`
    is the lane's own branch, `<base>` the integration branch it forks from);
    the lane gets a worktree under `.worktrees/`, and the pane goes into the
-   grid (B right of A, C under A, D under B).
+   grid (B right of A, C under A, D under B). When its agent fails to
+   start, rerun the same call: it starts the agent in the lane's pane.
 5. **Brief.** Per lane: `tower brief <X> > <run-dir>/brief-<X>.md`, then add
    the judgement from `brief-template.md` above it (method, other lanes,
    merge points, the boundary sentence, the review tail for the lane's kind).
@@ -89,7 +90,9 @@ and do it in a lane anyway or suggest doing it without the kit.
    in a loop.
 7. **Act on attention.** `blocked` → decide, then re-brief with what the lane
    asked for (a discovered task: you add it, then tell the lane). `stale` or
-   `idle-unexplained` → read the pane tail, then re-brief or wait. A re-brief
+   `idle-unexplained` → read the pane tail, then re-brief or wait. `unreadable`
+   → herdr did not answer for that agent on `UNREADABLE_POLLS` polls in a
+   row: check herdr, and never start a second agent beside it. A re-brief
    asks for no new end line, so it keeps the lane's report round: watch it
    as before. tower
    wait's `complete` → keep `watch-lanes.sh` running: a lane's final review
@@ -159,9 +162,9 @@ and do it in a lane anyway or suggest doing it without the kit.
       must-fix finding (the skill's "red") → add and brief R2. Red, no
       `look.json` or a changed checkout (a setup error) → no R2 this round;
       its areas count as skipped in step 12, and its table names them as
-      skipped with the reason. When the watch reports R1 `gone`, `blocked`
-      or finished first, stop this wait and act on R1 (step 7); a round
-      whose look never finishes is a setup error.
+      skipped with the reason. When the watch reports R1 `gone`,
+      `blocked`, `unreadable` or finished first, stop this wait and act on
+      R1 (step 7); a round whose look never finishes is a setup error.
 
     `REVIEW_AREAS` narrows the areas; split what is left over the two
     slots. From round 2 the areas are the ones step 12 names, each in its

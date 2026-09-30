@@ -29,7 +29,10 @@
 # with a fresh context. The slot's previous Reviewer is refused while it is
 # still working, sent /exit and Enter when idle (Enter again about every 3
 # seconds while it is still there), and waited for (EXIT_WAIT_SECONDS, default 15)
-# until herdr no longer knows it.
+# until herdr answers agent_not_found for it. herdr failing otherwise is not an
+# exit: before the /exit it refuses the call, after it the wait goes on
+# (common.sh state_of, unreadable). herdr's own unknown status is an agent it
+# cannot classify, and is sent /exit like an idle one.
 #
 # In order, it writes:
 #   the board task, before anything opens:
@@ -121,13 +124,13 @@ slot_pane() { echo "$TAB_LINE" | sed -nE "s/.*[(, ]$1 ([^,)]+).*/\\1/p"; }
 
 # --- end the slot's previous Reviewer ----------------------------------------
 # agent start needs the pane back at its shell prompt. A Reviewer still working
-# is refused; an idle one is sent /exit, then we wait (EXIT_WAIT_SECONDS,
-# default 15) until herdr no longer knows it. codex can swallow the Enter after
+# is refused, and so is one herdr cannot be asked about (unreadable); any other
+# is sent /exit, then we wait (EXIT_WAIT_SECONDS, default 15) until herdr
+# answers agent_not_found for it. codex can swallow the Enter after
 # /exit (its slash-command popup takes it, or it lands before the text): so a
 # second's pause before it, and Enter again about every 3 seconds while the
 # Reviewer is still there. An extra Enter at a shell prompt does nothing.
 # EXIT_WAIT_SECONDS counts checks about a second apart.
-state_of() { herdr agent get "$1" 2>/dev/null | jsonq 'd["result"]["agent"]["agent_status"]' 2>/dev/null || echo gone; }
 PREV=$(sed -nE "s/^reviewer $SLOT: +[^ ]+ +\\(agent \"([^\"]+)\".*/\\1/p" "$MAP")
 N=1
 if [ -n "$PREV" ]; then
@@ -135,14 +138,18 @@ if [ -n "$PREV" ]; then
   case "$(state_of "$PREV")" in
     gone) ;;
     working) die "Reviewer $PREV is still working in $SLOT: wait until the slot is free, or use the other slot" ;;
+    unreadable) die "herdr cannot say whether Reviewer $PREV is still there (herdr agent get $PREV fails); rerun once herdr answers" ;;
     *)
       PANE=$(slot_pane "$SLOT")
       herdr pane send-text "$PANE" "/exit" >/dev/null
       [ "${DRY_RUN:-0}" = 1 ] || sleep 1
       herdr pane send-keys "$PANE" Enter >/dev/null
       waited=0
-      until [ "$(state_of "$PREV")" = gone ]; do
-        [ "$waited" -lt "${EXIT_WAIT_SECONDS:-15}" ] || die "Reviewer $PREV did not exit; end it in $PANE and rerun"
+      until state=$(state_of "$PREV"); [ "$state" = gone ]; do
+        if [ "$waited" -ge "${EXIT_WAIT_SECONDS:-15}" ]; then
+          [ "$state" != unreadable ] || die "herdr cannot say whether Reviewer $PREV exited; check $PANE, and rerun once herdr answers"
+          die "Reviewer $PREV did not exit; end it in $PANE and rerun"
+        fi
         if [ "$waited" -gt 0 ] && [ $((waited % 3)) -eq 0 ]; then
           herdr pane send-keys "$PANE" Enter >/dev/null 2>&1 || true   # best effort; the gone check decides
         fi

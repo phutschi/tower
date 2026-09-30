@@ -132,4 +132,4 @@ macOS and Linux on local filesystems. Windows is not supported (WSL works).
 Network filesystems are not supported: the append atomicity tower relies on
 does not hold on NFS.
 
-No telemetry, no update checks.
+No telemetry, no update checks. `NO_COLOR` is respected.

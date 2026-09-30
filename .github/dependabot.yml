@@ -1,0 +1,16 @@
+# The workflows pin every action to a commit SHA; this keeps the pins, and
+# the version comments beside them, current.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    # A release gets a week to be found out before it is proposed.
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: ci
+    groups:
+      actions:
+        patterns: ["*"]
