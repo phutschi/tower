@@ -18,8 +18,9 @@
 # (detect-stack.sh): a codex lane still running writes its checkout, the run
 # dir, the git dir, /tmp and TMPDIR, and could otherwise swap a test in while
 # the install runs. look refuses (exit 2) a worktree dir that resolves under
-# the git dir, the run dir (TOWER_RUN, when set), the checkout, TMPDIR or
-# /tmp. A codex Reviewer's sandbox may write that dir (add-reviewer.sh grants
+# the git dir, the run dir (TOWER_RUN, when set: the Reviewer's brief and a
+# codex Reviewer's environment set it), the checkout or any worktree of the
+# repo, TMPDIR or /tmp, and one that is a symlink or not the user's. A codex Reviewer's sandbox may write that dir (add-reviewer.sh grants
 # it, and no lane: executor.sh AGENT_LOOK). Temp files (verdict rows, scanner
 # output) stay under TMPDIR. The checkout's git hooks stay off while the
 # worktree is made (core.hooksPath=/dev/null); HEAD's submodules are checked
@@ -163,7 +164,12 @@ trap cleanup EXIT; trap 'exit 129' HUP; trap 'exit 130' INT; trap 'exit 143' TER
 # Reviewer is granted this dir alone: add-reviewer.sh AGENT_LOOK), by its
 # physical path (macOS: /var is /private/var), so the suite sees one real path.
 LOOK_ROOT="${XDG_STATE_HOME:-$HOME/.local/state}/tower/look"
-mkdir -p "$LOOK_ROOT" && chmod 700 "$LOOK_ROOT" || die "look: cannot make its worktree dir $LOOK_ROOT"
+mkdir -p "$LOOK_ROOT" || die "look: cannot make its worktree dir $LOOK_ROOT"
+# A symlink could point anywhere, one not the user's anyone may change:
+# refused before look touches it (the chmod below follows a symlink).
+[ ! -L "$LOOK_ROOT" ] && [ ! -L "$(dirname "$LOOK_ROOT")" ] \
+  || die "look: its worktree dir $LOOK_ROOT is a symlink (or its tower/ is): it could point where a lane writes; make it a plain dir, then run look again"
+[ -O "$LOOK_ROOT" ] || die "look: its worktree dir $LOOK_ROOT is not yours; remove it, then run look again"
 LOOK_ROOT=$(cd "$LOOK_ROOT" && pwd -P) || die "look: cannot resolve its worktree dir $LOOK_ROOT"
 under() {  # WHAT DIR: refused when LOOK_ROOT is DIR or under it
   local d; [ -n "$2" ] || return 0  # cd "" would stay here
@@ -176,8 +182,13 @@ under "the git dir" "$(git rev-parse --path-format=absolute --git-common-dir)"
 under "the git dir" "$(git rev-parse --path-format=absolute --git-dir)"
 [ -z "${TOWER_RUN:-}" ] || under "the run dir" "$TOWER_RUN"
 under "the checkout" "$TOP"
+while IFS= read -r _wt; do  # the main checkout and every lane's worktree
+  case "$_wt" in "worktree "*) under "a worktree of this repo" "${_wt#worktree }" ;; esac
+done < <(git worktree list --porcelain)
+unset _wt
 [ -z "${TMPDIR:-}" ] || under "TMPDIR" "$TMPDIR"
 under "/tmp" /tmp
+chmod 700 "$LOOK_ROOT" || die "look: cannot make its worktree dir $LOOK_ROOT the user's alone"
 TREE_DIR=$(mktemp -d "$LOOK_ROOT/look.XXXXXX") || die "look: cannot make a temp dir under $LOOK_ROOT"
 TREE="$TREE_DIR/tree"
 # The checkout's hooks stay off (-c reaches every git these start): a

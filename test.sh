@@ -38,7 +38,17 @@ section() {
   [ "$LIST" = 0 ] || { echo "$1"; return 1; }
 }
 
-TMP=$(cd "$(mktemp -d)" && pwd -P); trap 'chmod -R u+w "$TMP" 2>/dev/null; rm -rf "$TMP"' EXIT
+TMP=$(cd "$(mktemp -d)" && pwd -P)
+# preflight's look.sh refuses a worktree dir under /tmp, TMPDIR or a checkout
+# it looks at, and $TMP is under one of the first two: look's state dirs go
+# under this checkout's gitignored .worktrees/, or under ~/.cache when this
+# checkout is itself under /tmp or TMPDIR. Both go on exit.
+_lsb="$ROOT/.worktrees"
+case "$(cd "$ROOT" && pwd -P)/" in
+  "$(cd /tmp && pwd -P)"/*|"$(cd "${TMPDIR:-/tmp}" && pwd -P)"/*) _lsb="$HOME/.cache" ;;
+esac
+mkdir -p "$_lsb"; LOOK_STATE=$(cd "$(mktemp -d "$_lsb/tower-test-look.XXXXXX")" && pwd -P); unset _lsb
+trap 'chmod -R u+w "$TMP" 2>/dev/null; rm -rf "$TMP" "$LOOK_STATE"' EXIT
 export DRY_RUN=1 HERDR_ENV=1 HERDR_STUB_LOG="$TMP/log" HERDR_STUB_COUNTER="$TMP/counter" HERDR_STUB_STATES_DIR="$TMP/states"
 # common.sh only defaults HERDR_PANE_ID/HERDR_TAB_ID when unset, so running
 # test.sh from inside a real herdr pane (as its own agent does) would
@@ -175,8 +185,11 @@ if section executor; then
   assert_match "AGENT_LOOK in the main checkout: added as a dir" "$log" "--add-dir /state/look( |\$)"
   log=$(start_in "$wt" AGENT_LOOK=/state/look)
   assert_match "AGENT_LOOK in a worktree: one of the writable roots" "$log" 'writable_roots=\[.*"/state/look".*\]'
+  log=$(start_in "$r" AGENT_LOOK=/state/look)
+  assert_match "AGENT_LOOK: the run dir reaches look as TOWER_RUN" "$log" '-c shell_environment_policy\.set\.TOWER_RUN="/run/x"( |$)'
   log=$(start_in "$r")
   assert_nomatch "no AGENT_LOOK: no look dir" "$log" 'state/look'
+  assert_nomatch "no AGENT_LOOK: no TOWER_RUN" "$log" 'TOWER_RUN'
   # An agent that exits right after its start (codex updating itself, say)
   # is started once more; gone again, the start fails, saying so.
   printf 'gone\nidle\n' > "$HERDR_STUB_STATES_DIR/acme-lane-a.started"
@@ -879,6 +892,16 @@ if section add-reviewer; then
   assert_match "R2: a codex lane gets a claude Reviewer in the R2 pane" "$log" '^herdr agent start bun-vitest-r2-1 --kind claude --pane pane-2 -- --model claude-opus-5-5$'
   assert_nomatch "claude Reviewer: no codex environment" "$log" 'shell_environment_policy'
   assert_nomatch "claude Reviewer: no look dir grant" "$log" 'tower/look'
+  assert_match "brief: the Reviewer's look command names the run dir" "$(grep 'look.sh origin/main' "$KIT/brief-template.md")" 'TOWER_RUN=\{\{RUN_DIR\}\} '
+  # A tower/look that is a symlink could point anywhere: never granted.
+  L="$XDG_STATE_HOME/tower/look"; mv "$L" "$L.real"; mkdir -p "$TMP/sym-target"; ln -s "$TMP/sym-target" "$L"
+  echo gone > "$S/bun-vitest-r1-1"; reset_stub
+  out=$(review R1 claude "Sym" "$RUN/findings/sym.json"; echo "exit=$?")
+  rm "$L"; mv "$L.real" "$L"
+  assert_match "codex Reviewer, look dir a symlink: refused" "$out" "look's worktree dir $L is a symlink"
+  assert_match "... and fails"                        "$out" 'exit=1$'
+  assert_nomatch "... no agent start"                 "$(cat "$HERDR_STUB_LOG")" '^herdr agent start'
+  rm -f "$S/bun-vitest-r1-1"
   assert_eq "R2: board task owned by R2"              "$(reviews "$RUN")" "R1-1@R1:Lane review A R2-1@R2:Lane review B"
   assert_eq "pane map: one review tab line"           "$(grep -c '^review tab:' "$RUN/panes.txt")" 1
 
@@ -1457,10 +1480,9 @@ if section look; then
   export INSTALL_CMD=
   # look makes its temp worktree under $XDG_STATE_HOME/tower/look and refuses
   # one under /tmp, TMPDIR or the checkout: this run's state dir is under $TMP,
-  # which is one of those on macOS and Linux, so look gets one of its own here
-  # (gitignored; removed at the end of the section).
+  # so look gets one of its own here ($LOOK_STATE, above).
   SAVED_XDG_STATE_HOME=$XDG_STATE_HOME
-  export XDG_STATE_HOME="$ROOT/.worktrees/.test-look-state.$$"; mkdir -p "$XDG_STATE_HOME"
+  export XDG_STATE_HOME="$LOOK_STATE/xdg"; mkdir -p "$XDG_STATE_HOME"
   LOOK_ROOT="$(cd "$XDG_STATE_HOME" && pwd -P)/tower/look"
   # Settings the caller's shell may carry; the fixtures decide them here.
   unset STATIC_BASELINE SUITE_SKIP PR METHOD REVIEWER_KIND TYPECHECK_TASK PM
@@ -1634,17 +1656,28 @@ for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'],
   # checkout, its git dir, the run dir, /tmp or TMPDIR it is refused.
   r=$(look_repo none tree-where)
   refused() {  # WHAT XDG_STATE_HOME [ENV...]
-    local what=$1 x=$2; shift 2
-    out=$(env TMPDIR="$LT" XDG_STATE_HOME="$x" "$@" bash -c 'cd "$1" && "$2" base "$3" 2>&1; echo "exit=$?"' _ "$r" "$PREFLIGHT_DIR/look.sh" "$TMP/findings-tree")
-    assert_match "look: a worktree dir under $what: refused" "$out" "look: its worktree dir .* is under $what"
+    local what=$1 x=$2 n; shift 2; n=$(git -C "$r" worktree list | wc -l | tr -d ' ')
+    out=$(env TMPDIR="$LT" XDG_STATE_HOME="$x" "$@" bash -c 'cd "${LOOK_FROM:-$1}" && "$2" base "$3" 2>&1; echo "exit=$?"' _ "$r" "$PREFLIGHT_DIR/look.sh" "$TMP/findings-tree")
+    case "$what" in
+      "a symlink") assert_match "look: a worktree dir that is a symlink: refused" "$out" "look: its worktree dir .* is a symlink" ;;
+      *) assert_match "look: a worktree dir under $what: refused" "$out" "look: its worktree dir .* is under $what" ;;
+    esac
     assert_match "look: ... a setup error" "$out" 'exit=2$'
-    assert_eq "look: ... no worktree made" "$(git -C "$r" worktree list | wc -l | tr -d ' ')" 1
+    assert_eq "look: ... no worktree made" "$(git -C "$r" worktree list | wc -l | tr -d ' ')" "$n"
   }
   refused "the checkout" "$r/state"
   refused "the git dir" "$r/.git/state"
-  mkdir -p "$ROOT/.worktrees/.test-look-run.$$"
-  refused "the run dir" "$ROOT/.worktrees/.test-look-run.$$/state" TOWER_RUN="$ROOT/.worktrees/.test-look-run.$$"
-  rm -rf "$ROOT/.worktrees/.test-look-run.$$"
+  mkdir -p "$LOOK_STATE/run"
+  refused "the run dir" "$LOOK_STATE/run/state" TOWER_RUN="$LOOK_STATE/run"
+  wt2="$r/.worktrees/w"; git -C "$r" worktree add -q --detach "$wt2"; mkdir -p "$LOOK_STATE/elsewhere"
+  refused "a worktree of this repo" "$r/.worktrees/state" LOOK_FROM="$wt2"
+  git -C "$r" worktree remove --force "$wt2"
+  # A tower/look that is a symlink, or not the user's, is refused before
+  # look touches it: it could point anywhere.
+  mkdir -p "$LOOK_STATE/sym/tower" "$LOOK_STATE/target"; chmod 755 "$LOOK_STATE/target"
+  ln -s "$LOOK_STATE/target" "$LOOK_STATE/sym/tower/look"
+  refused "a symlink" "$LOOK_STATE/sym"
+  assert_eq "look: ... its target's mode untouched" "$(ls -ld "$LOOK_STATE/target" | cut -c1-10)" drwxr-xr-x
   refused "/tmp" "/tmp/test-look-state.$$"; rm -rf "/tmp/test-look-state.$$"
   refused "TMPDIR" "$LT/state"; rm -rf "$LT/state"
   unset -f refused
@@ -1871,7 +1904,7 @@ for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'],
   reset_stub; out=$(GIT_SSH="$TMP/ssh-stub" look "$r" origin/main "$F")
   assert_match "look: a GIT_SSH wrapper is used as it is"  "$(cat "$TMP/ssh.log")" 'git\.example\.invalid'
   assert_nomatch "look: ... without ssh's -o options"     "$(cat "$TMP/ssh.log")" 'BatchMode'
-  rm -rf "$XDG_STATE_HOME"; export XDG_STATE_HOME=$SAVED_XDG_STATE_HOME; unset SAVED_XDG_STATE_HOME LOOK_ROOT
+  export XDG_STATE_HOME=$SAVED_XDG_STATE_HOME; unset SAVED_XDG_STATE_HOME LOOK_ROOT
   unset CHECK_CMD INSTALL_CMD SUITE_ORDER; unset -f look_repo findings verdict look
 fi
 
@@ -2209,8 +2242,7 @@ if section run; then
   export SUITE_ORDER="$TMP/run-suite-order"; : > "$SUITE_ORDER"
   # look's worktree dir must be outside /tmp and TMPDIR, where this run's
   # state dir is: one of its own (gitignored), as in the look section.
-  LS="$ROOT/.worktrees/.test-look-state.$$"
-  out=$(in_repo env XDG_STATE_HOME="$LS" "$PREFLIGHT_DIR/look.sh" base "$RUN/findings/preflight/1"); rm -rf "$LS"
+  out=$(in_repo env XDG_STATE_HOME="$LOOK_STATE/run-xdg" "$PREFLIGHT_DIR/look.sh" base "$RUN/findings/preflight/1")
   assert_match "run: look.sh names the findings file it wrote" "$out" "$RUN/findings/preflight/1/look.json"
   steps=$(python3 -c "import json,sys; print(' '.join(v['step']+':'+v['status'] for v in json.load(open(sys.argv[1]))['verdict']))" "$RUN/findings/preflight/1/look.json" 2>&1)
   assert_eq "run: look.json has a row for the base, each scanner and every suite step" "$steps" "base:skip semgrep:pass gitleaks:pass lint:skip test:fail build:pass"

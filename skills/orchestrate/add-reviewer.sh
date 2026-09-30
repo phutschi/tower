@@ -146,6 +146,24 @@ EXECUTOR_KIND=$R_KIND; EXECUTOR_MODEL=$R_MODEL
 case "$R_KIND:$RUN_DIR" in
   codex:*[[:cntrl:]]*) die "the run dir $RUN_DIR holds a control character; a codex Reviewer cannot be given its tmp: use a run dir without one" ;;
 esac
+# A codex Reviewer may also write where look.sh makes its temp worktree
+# (look.sh's LOOK_ROOT, the same path), which no lane may write: it alone is
+# granted it (executor.sh AGENT_LOOK), and never a symlink, a dir not the
+# user's, or one under the run dir or the checkout, which lanes write.
+AGENT_LOOK=""
+if [ "$R_KIND" = codex ]; then
+  AGENT_LOOK="${XDG_STATE_HOME:-$HOME/.local/state}/tower/look"
+  mkdir -p "$AGENT_LOOK" || die "add-reviewer: cannot make look's worktree dir $AGENT_LOOK"
+  [ ! -L "$AGENT_LOOK" ] && [ ! -L "$(dirname "$AGENT_LOOK")" ] \
+    || die "add-reviewer: look's worktree dir $AGENT_LOOK is a symlink (or its tower/ is): it could point where a lane writes; make it a plain dir, then rerun"
+  [ -O "$AGENT_LOOK" ] || die "add-reviewer: look's worktree dir $AGENT_LOOK is not yours; remove it, then rerun"
+  AGENT_LOOK=$(cd "$AGENT_LOOK" && pwd -P)
+  for _d in "$RUN_DIR" "$REPO"; do
+    _d=$(cd "$_d" && pwd -P)
+    case "$AGENT_LOOK/" in "$_d"/*) die "add-reviewer: look's worktree dir $AGENT_LOOK is under $_d, which lanes write; set XDG_STATE_HOME elsewhere, then rerun" ;; esac
+  done; unset _d
+  chmod 700 "$AGENT_LOOK"
+fi
 
 TAB_LINE=$(sed -nE 's/^review tab: +(.*)$/\1/p' "$MAP")
 slot_pane() { echo "$TAB_LINE" | sed -nE "s/.*[(, ]$1 ([^,)]+).*/\\1/p"; }
@@ -267,13 +285,6 @@ mkdir -p "$(dirname "$FINDINGS")"
 # A codex Reviewer's sandbox writes only the checkout and the run dir: its
 # temp files and package caches (bunx, npm) go to the run dir's tmp.
 if [ "$R_KIND" = codex ]; then AGENT_TMP="$RUN_DIR/tmp"; mkdir -p "$AGENT_TMP"; fi
-# ... and it may write where look.sh makes its temp worktree (look.sh's
-# LOOK_ROOT, the same path), which no lane may write: a codex Reviewer alone.
-AGENT_LOOK=""
-if [ "$R_KIND" = codex ]; then
-  AGENT_LOOK="${XDG_STATE_HOME:-$HOME/.local/state}/tower/look"
-  mkdir -p "$AGENT_LOOK" && chmod 700 "$AGENT_LOOK" || die "add-reviewer: cannot make look's worktree dir $AGENT_LOOK"
-fi
 LINE=$(printf 'reviewer %s:    %s   (agent "%s", kind %s, model %s, review "%s", findings %s)' \
   "$SLOT" "$PANE" "$NAME" "$R_KIND" "$R_MODEL" "$TITLE" "$FINDINGS")
 # The map is rewritten through a temp file of this call's own: the other

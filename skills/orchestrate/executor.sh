@@ -30,7 +30,8 @@
 #           AGENT_LOOK=<dir> (add-reviewer.sh sets it for a codex Reviewer,
 #           and only then; bootstrap.sh and add-lane.sh clear it) is one more
 #           writable dir: where preflight's look.sh makes its temp worktree,
-#           outside everything a lane may write.
+#           outside everything a lane may write; with it, the agent's
+#           commands get TOWER_RUN=<RUN_DIR>, which look.sh checks against.
 #
 # Expects `set -u`; provides agent_name SUFFIX, start_agent NAME PANE,
 # start_agent_with_trust_retry NAME PANE (it returns once the agent accepts
@@ -101,6 +102,11 @@ start_agent() {
           roots+="${roots:+,}$(toml_string "$p")"
         done
         extra+=(-c "sandbox_workspace_write.writable_roots=[$roots]")
+      fi
+      # A Reviewer's look.sh refuses a worktree dir under the run dir: it
+      # needs to know it.
+      if [ -n "${AGENT_LOOK:-}" ] && [ -n "${RUN_DIR:-}" ]; then
+        extra+=(-c "shell_environment_policy.set.TOWER_RUN=$(toml_string "$RUN_DIR")")
       fi
       if [ -n "${AGENT_TMP:-}" ]; then
         local v q; q=$(toml_string "$AGENT_TMP")

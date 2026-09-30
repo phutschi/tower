@@ -76,8 +76,8 @@ run, the `switches:` line of `panes.txt` has the values the run uses.
    may write, and removes it afterwards: untracked files, index bits and git
    hooks in the checkout do not reach it, and it checks out submodules and
    installs the suite's dependencies there (`INSTALL_CMD`). It exits 2 when
-   that dir is under the checkout, its git dir, the run dir, `/tmp` or
-   `$TMPDIR`. It needs a clean tracked tree:
+   that dir is a symlink, or is under a worktree of the repo, its git dir,
+   the run dir (`TOWER_RUN`), `/tmp` or `$TMPDIR`. It needs a clean tracked tree:
    `git status --short --untracked-files=no` prints nothing (untracked files
    are fine); it exits 2 otherwise. It also exits 2 when the repo contract
    (`.orchestrate`, or `.herdr-orchestrate`) is untracked, differs from HEAD
