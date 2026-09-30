@@ -1865,6 +1865,9 @@ if section brief-cursor; then
   (cd "$r" && XDG_CONFIG_HOME="$UCB" "$KIT/bootstrap.sh" "$RB" "Brief cursor 2" main "$KIT/example-tasks.tsv" >/dev/null 2>&1)
   assert_eq "brief: ... the user contract over the kit, the repo contract over both" "$(cursor_models "$r" "$RB" "$UCB")" "user-s repo-q"
   assert_eq "brief: ... and the environment over all" "$(cursor_models "$r" "$RB" "$UCB" SPEC_REVIEWER_MODEL_CURSOR=env-s)" "env-s repo-q"
+  mkdir -p "$TMP/home-no-skills"
+  assert_eq "brief: ... printing only the two, whatever kind add-lane.sh was given" \
+    "$(HOME="$TMP/home-no-skills" cursor_models "$r" "$RB" "$UCB" EXECUTOR_KIND=cursor)" "user-s repo-q"
   for m in $(sed -n 's/^[A-Z_]*_CURSOR=//p' "$KIT/model-defaults" | sort -u); do
     case "$bt$os$ps" in *"$m"*) bad "no cursor default ($m) is written into the three files" ;; *) ok "no cursor default ($m) is written into the three files" ;; esac
   done
