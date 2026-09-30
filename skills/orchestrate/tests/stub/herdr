@@ -17,7 +17,9 @@
 # send-keys` fails. HERDR_STUB_EXIT_ON_ENTER=N: every `agent get` answers gone
 # once N `pane send-keys ... Enter` calls were made (counted through
 # HERDR_STUB_COUNTER.enters), as an agent that needs N Enters to exit.
-# HERDR_STUB_MOVE_FAIL=1: every `pane move` fails, the pane staying where it is.
+# HERDR_STUB_MOVE_FAIL=1: every `pane move` fails, the pane staying where it is;
+# =garbled: it succeeds with an answer that has no pane in it.
+# HERDR_STUB_WORKTREE_FAIL=1: every `worktree create` fails.
 # Errors are JSON on stderr with exit 1, as herdr answers them.
 # HERDR_STUB=absent refuses to run, so herdr counts as not installed; it logs
 # each refused call as "herdr-absent <argv>".
@@ -31,9 +33,12 @@ next_id() { local n; n=$(cat "$counter" 2>/dev/null || echo 0); n=$((n+1)); echo
 states="${HERDR_STUB_STATES_DIR:-}"
 case "${1:-} ${2:-}" in
   "pane split")      echo "{\"result\":{\"pane\":{\"pane_id\":\"$(next_id)\"}}}" ;;
-  "worktree create") echo "{\"result\":{\"root_pane\":{\"pane_id\":\"$(next_id)\"}}}" ;;
+  "worktree create")
+    [ "${HERDR_STUB_WORKTREE_FAIL:-}" != 1 ] || { echo '{"error":{"code":"server_unavailable","message":"herdr server is not answering"}}' >&2; exit 1; }
+    echo "{\"result\":{\"root_pane\":{\"pane_id\":\"$(next_id)\"}}}" ;;
   "tab create")      p=$(next_id); echo "{\"result\":{\"tab\":{\"tab_id\":\"tab-${p#pane-}\"},\"root_pane\":{\"pane_id\":\"$p\"}}}" ;;
   "pane move")
+    [ "${HERDR_STUB_MOVE_FAIL:-}" != garbled ] || { echo '{"result":{}}'; exit 0; }
     [ "${HERDR_STUB_MOVE_FAIL:-}" != 1 ] || { echo '{"error":{"code":"server_unavailable","message":"herdr server is not answering"}}' >&2; exit 1; }
     echo "{\"result\":{\"move_result\":{\"pane\":{\"pane_id\":\"$(next_id)\"}}}}" ;;
   "pane list")       echo '{"result":{"panes":[]}}' ;;

@@ -638,9 +638,16 @@ if section add-lane; then
   mkdir -p "$r/.worktrees/feat/b"   # the stub's worktree create makes none
   echo gone > "$HERDR_STUB_STATES_DIR/$wtpane"
   reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNM" B feat/b main 2,3 2>&1; echo "exit=$?")
-  assert_match "failed move, pane closed: refused, saying what to remove" "$out" "lane B's pane $wtpane is gone \(herdr pane get\): remove its unplaced line from .* and the worktree"
+  assert_match "failed move, pane closed: says the move may have gone through" "$out" "lane B's pane $wtpane is gone \(herdr pane get\).*look for .*/\.worktrees/feat/b in the grid"
   assert_nomatch "failed move, pane closed: no move"   "$(cat "$HERDR_STUB_LOG")" '^herdr pane move'
   rm -f "$HERDR_STUB_STATES_DIR/$wtpane"
+  reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNM" B feat/other main 2,3 2>&1; echo "exit=$?")
+  assert_match "failed move, rerun with another branch: refused" "$out" 'lane B is in the pane map with another branch, kind or model'
+  assert_nomatch "failed move, rerun with another branch: no move" "$(cat "$HERDR_STUB_LOG")" '^herdr pane move'
+  reset_stub; out=$(cd "$r" && HERDR_STUB_MOVE_FAIL=garbled "$KIT/add-lane.sh" "$RUNM" B feat/b main 2,3 2>&1; echo "exit=$?")
+  assert_match "move answered without a pane: fails"   "$out" 'exit=1$'
+  assert_match "move answered without a pane: says what to do" "$out" "herdr moved lane B's pane $wtpane but its answer names no pane: find the lane's pane in the grid .* into  lane B: <that pane's id> "
+  assert_nomatch "move answered without a pane: no agent start" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start'
   reset_stub; out=$(cd "$r" && HERDR_STUB_MOVE_FAIL=1 "$KIT/add-lane.sh" "$RUNM" B feat/b main 2,3 2>&1; echo "exit=$?")
   assert_match "failed move, rerun fails to move again: says to rerun" "$out" "could not move lane B's pane $wtpane into the grid.*to place it"
   assert_eq "failed move, rerun fails to move again: one unplaced line" "$(grep -c '^unplaced lane B:' "$RUNM/panes.txt")" 1
@@ -653,6 +660,16 @@ if section add-lane; then
   assert_nomatch "failed move, rerun: no unplaced line left" "$(cat "$RUNM/panes.txt")" '^unplaced lane B:'
   assert_match "failed move, rerun: prints the next step" "$out" 'lane B ready'
   assert_eq "failed move, rerun: lane B owns its tasks" "$(board "$RUNM" '",".join(d["lanes"].get("B", []))')" "2,3"
+  assert_match "failed move, rerun: the rest of the pane map is kept" "$(cat "$RUNM/panes.txt")" '^lane A: '
+  assert_match "failed move, rerun: ... the switches line too" "$(cat "$RUNM/panes.txt")" '^switches:'
+  assert_eq "failed move, rerun: no scratch map left" "$(compgen -G "$RUNM/panes.txt.*" || true)" ""
+  # A worktree create that fails says what may be left behind.
+  r=$(fixture_repo bun-vitest); RUNW="$TMP/run-failwt"; reset_stub
+  (cd "$r" && "$KIT/bootstrap.sh" "$RUNW" "Fail worktree" main "$KIT/example-tasks.tsv" >/dev/null 2>&1)
+  reset_stub; out=$(cd "$r" && HERDR_STUB_WORKTREE_FAIL=1 "$KIT/add-lane.sh" "$RUNW" B feat/b main 2,3 2>&1; echo "exit=$?")
+  assert_match "failed worktree create: fails"         "$out" 'exit=1$'
+  assert_match "failed worktree create: says what to remove" "$out" "herdr worktree create failed: remove .*/\.worktrees/feat/b and branch feat/b if they exist, then rerun  .*/add-lane\.sh "
+  assert_nomatch "failed worktree create: no move"     "$(cat "$HERDR_STUB_LOG")" '^herdr pane move'
 fi
 
 # --- add-reviewer ------------------------------------------------------------

@@ -35,7 +35,9 @@
 # so an id tower refuses is refused in its words), and a lane whose pane
 # (herdr's pane_not_found) or worktree is gone: the message says what to
 # remove. A pane herdr cannot be asked about is refused with nothing to
-# remove; rerun once herdr answers.
+# remove; rerun once herdr answers. Not resumed, but said: a worktree create
+# that fails (remove what it may have made, then rerun), and a move whose
+# answer names no pane (the moved pane's id goes into the map by hand).
 #
 # Never run this for real to see what it does; use DRY_RUN=1, which answers
 # every herdr, claude and codex call from tests/stub and opens nothing. tower
@@ -97,7 +99,12 @@ check_rerun() {
   # nothing about it, and the map and the worktree stay.
   if ! err=$(herdr pane get "$2" 2>&1 >/dev/null); then
     case "$err" in
-      *'"pane_not_found"'*) die "lane $LANE's pane $2 is gone (herdr pane get): remove its $3 from $MAP and the worktree $WT, then add the lane again" ;;
+      *'"pane_not_found"'*)
+        # herdr gives a moved pane a new id: an unplaced pane that is gone may
+        # be in the grid already, its move done but not recorded.
+        [ "$3" != "unplaced line" ] \
+          || die "lane $LANE's pane $2 is gone (herdr pane get), or was moved without its new id recorded: look for $WT in the grid; if a pane has it, turn  unplaced lane $LANE: $2  in $MAP into  lane $LANE: <that pane's id>  (the rest as it is) and rerun, else remove the unplaced line from $MAP and the worktree $WT, then add the lane again"
+        die "lane $LANE's pane $2 is gone (herdr pane get): remove its $3 from $MAP and the worktree $WT, then add the lane again" ;;
       *) die "herdr cannot say whether lane $LANE's pane $2 is open; rerun once herdr answers (herdr: ${err:-no output})" ;;
     esac
   fi
@@ -130,15 +137,17 @@ else
   # Ownership first: tower refuses an unknown id, so a typo stops here, before
   # a worktree exists.
   tower assign -- "$LANE" "$TASKS"
-  out=$(herdr worktree create --cwd "$REPO_ROOT" --branch "$BRANCH" --base "$BASE" --path "$WT" --label "$NAME" --no-focus)
-  WT_PANE=$(echo "$out" | jsonq 'd["result"]["root_pane"]["pane_id"]')
+  out=$(herdr worktree create --cwd "$REPO_ROOT" --branch "$BRANCH" --base "$BASE" --path "$WT" --label "$NAME" --no-focus) \
+    && WT_PANE=$(echo "$out" | jsonq 'd["result"]["root_pane"]["pane_id"]' 2>/dev/null) \
+    || die "add-lane: herdr worktree create failed: remove $WT and branch $BRANCH if they exist, then rerun  $KIT/add-lane.sh $RUN_DIR $LANE $BRANCH $BASE $TASKS"
   # The new pane goes into the map before it is moved: a move that fails
   # leaves a lane a rerun can place.
   echo "unplaced $(lane_line "$WT_PANE")" >> "$MAP"
 fi
 moved=$(herdr pane move "$WT_PANE" --tab "$HERDR_TAB_ID" --split "$SPLIT" --target-pane "$TARGET" --ratio 0.5 --no-focus) \
   || die "add-lane: herdr could not move lane $LANE's pane $WT_PANE into the grid; it is in the pane map as unplaced: rerun  $KIT/add-lane.sh $RUN_DIR $LANE $BRANCH $BASE $TASKS  to place it"
-PANE=$(echo "$moved" | jsonq 'd["result"].get("move_result", d["result"])["pane"]["pane_id"]')
+PANE=$(echo "$moved" | jsonq 'd["result"].get("move_result", d["result"])["pane"]["pane_id"]' 2>/dev/null) \
+  || die "add-lane: herdr moved lane $LANE's pane $WT_PANE but its answer names no pane: find the lane's pane in the grid (checkout $WT), turn  unplaced lane $LANE: $WT_PANE  in $MAP into  lane $LANE: <that pane's id>  (the rest as it is), and rerun  $KIT/add-lane.sh $RUN_DIR $LANE $BRANCH $BASE $TASKS"
 
 # The install runs here, not typed into the pane: text sent to a shell that is
 # still starting up can be swallowed by a startup hook reading the tty (the
@@ -155,8 +164,9 @@ fi
 # The lane goes into the map, in place of its unplaced line, before its agent
 # starts, as bootstrap's does: a start that fails leaves a lane a rerun can
 # resume.
-{ grep -v "^unplaced lane $LANE:" "$MAP" || true; lane_line "$PANE"; } > "$MAP.new"
-mv "$MAP.new" "$MAP"
+new_map=$(mktemp "$MAP.XXXXXX")
+{ grep -v "^unplaced lane $LANE:" "$MAP" || [ $? -eq 1 ]; lane_line "$PANE"; } > "$new_map"
+mv "$new_map" "$MAP"
 start_agent_with_trust_retry "$NAME" "$PANE" \
   || die "add-lane: agent $NAME did not start in $PANE; lane $LANE is in the pane map: rerun  $KIT/add-lane.sh $RUN_DIR $LANE $BRANCH $BASE $TASKS  to start it again"
 
