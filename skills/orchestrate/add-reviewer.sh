@@ -169,13 +169,15 @@ if [ -n "$PREV" ]; then
         || die "add-reviewer: tower state failed; rerun once tower answers"
       case "$prev_status" in pending|missing) RESUME=1; N=${PREV##*-} ;; esac ;;
   esac
-  case "$(state_of "$PREV")" in
+  # A resumed review's agent that accepts input, of this call's kind and
+  # model, is kept, working or not.
+  if [ "$RESUME" = 1 ] && [[ "$PREV_LINE" == *", kind $R_KIND, model $R_MODEL, review "* ]] \
+    && [ "$(ready_of "$PREV")" = ready ]; then KEEP=1; fi
+  [ "$KEEP" = 1 ] || case "$(state_of "$PREV")" in
     gone) ;;
     working) die "Reviewer $PREV is still working in $SLOT: wait until the slot is free, or use the other slot" ;;
     unreadable) die "herdr cannot say whether Reviewer $PREV is still there (herdr agent get $PREV fails); rerun once herdr answers" ;;
     *)
-      if [ "$RESUME" = 1 ] && [[ "$PREV_LINE" == *", kind $R_KIND, model $R_MODEL, review "* ]] \
-        && [ "$(ready_of "$PREV")" = ready ]; then KEEP=1; else
       PANE=$(slot_pane "$SLOT")
       herdr pane send-text "$PANE" "/exit" >/dev/null
       [ "${DRY_RUN:-0}" = 1 ] || sleep 1
@@ -191,8 +193,7 @@ if [ -n "$PREV" ]; then
         fi
         [ "${DRY_RUN:-0}" = 1 ] || sleep 1
         waited=$((waited+1))
-      done
-      fi ;;
+      done ;;
   esac
 fi
 ID="$SLOT-$N"

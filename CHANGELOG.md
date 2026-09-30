@@ -20,7 +20,6 @@ All notable changes to this project are documented here. The format follows
   created: the pane is in the pane map as `unplaced lane <X>:`, and a rerun
   moves it instead of creating the worktree again. The install now runs
   before the move.
-
 - `tower wait` no longer needs `--timeout`. Without it, it waits until
   attention, completion or close and exits 0 with the reasons; it exits 3
   only when a timeout was given and passed, and 2 when the run dir disappears
@@ -38,7 +37,6 @@ All notable changes to this project are documented here. The format follows
   `$TOWER_PLANS_DIR/<repo>_<branch>/plan.md`, by default under
   `${XDG_STATE_HOME:-$HOME/.local/state}/tower/plans`, instead of one
   user's notes vault.
-
 - The orchestrate kit reports an agent ready only once it accepts input
   (herdr's `interactive_ready`): after a start it waits `START_SETTLE_SECONDS`
   (default 3), then reads the agent about once a second, `READY_WAIT_SECONDS`
@@ -50,6 +48,10 @@ All notable changes to this project are documented here. The format follows
   resumes that review under the same agent and task. A codex Reviewer gets
   `<run-dir>/tmp` as `TMPDIR`, `BUN_TMPDIR`, `BUN_INSTALL_CACHE_DIR` and
   `npm_config_cache`.
+- `add-lane.sh` writes the lane's line before its agent starts, ending in
+  ` starting` until the agent accepts input. A rerun of a starting lane takes
+  an agent left running once it accepts input, starts one herdr no longer
+  finds again, and otherwise says to answer or end it.
 - A codex lane in a worktree may write only `objects`, `refs`, `logs`,
   `packed-refs` and its own `worktrees/<lane>` in the common git dir, no longer
   its hooks or config. Lane A and Reviewers, in the main checkout, keep the

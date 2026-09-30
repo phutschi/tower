@@ -204,7 +204,8 @@ if section executor; then
   assert_match "blocked after its start: fails, naming the state" "$out" 'acme-lane-a does not accept input in pane pane-9 after 2 checks \(blocked\)'
   echo unreachable > "$HERDR_STUB_STATES_DIR/acme-lane-a.started"
   out=$(start acme-lane-a READY_WAIT_SECONDS=2)
-  assert_match "herdr failing after the start: fails, saying herdr cannot tell" "$out" 'acme-lane-a does not accept input in pane pane-9 after 2 checks \(unreadable\)'
+  assert_match "herdr failing after the start: fails, saying herdr cannot tell" "$out" 'herdr cannot say whether acme-lane-a runs in pane-9 after 2 checks; rerun once herdr answers'
+  assert_nomatch "herdr failing after the start: not said to be running" "$out" 'left running'
   # An older herdr answers without interactive_ready: idle is then ready.
   echo legacy > "$HERDR_STUB_STATES_DIR/acme-lane-a.started"
   out=$(start acme-lane-a READY_WAIT_SECONDS=2)
@@ -502,6 +503,14 @@ if section bootstrap; then
   out=$(HERDR_STUB_TRUST_STARTS=1 HERDR_STUB_SEND_KEYS_FAIL=1 boot "$r" "$RUN" "Trust" main; echo "exit=$?")
   assert_match "trust prompt, send-keys failing: bootstrap fails, saying so" "$out" "could not answer bun-vitest-lane-a's trust prompt in pane pane-2"
   assert_match "trust prompt, send-keys failing: exit 1" "$out" 'exit=1$'
+  # Lane A's agent exits twice: nothing to brief, and bootstrap says so.
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-gone-a"; reset_stub
+  printf 'gone\ngone\n' > "$S/bun-vitest-lane-a.started"
+  out=$(boot "$r" "$RUN" "Gone" main; echo "exit=$?")
+  rm -f "$S"/bun-vitest-lane-a*
+  assert_match "lane A gone twice: bootstrap fails" "$out" 'exit=1$'
+  assert_match "lane A gone twice: says there is no agent to brief" "$out" "lane A's agent bun-vitest-lane-a is not running in pane-2: .*rerun bootstrap\.sh with a new run dir"
+  assert_nomatch "lane A gone twice: not told to brief it" "$out" 'brief it once it accepts input'
   rm -f "$S/bun-vitest-lane-a"
 fi
 
@@ -977,7 +986,7 @@ if section add-reviewer; then
   out=$(cd "$r" && HERDR_STUB_TRUST_STARTS=1 "$KIT/add-reviewer.sh" "$RUNB" R1 claude "Blocked" "$RUNB/findings/a.json" 2>&1; echo "exit=$?")
   assert_match "blocked after its start: add-reviewer fails" "$out" 'exit=1$'
   assert_match "blocked after its start: its agent is in the pane map" "$(cat "$RUNB/panes.txt")" '^reviewer R1: +pane-1 +\(agent "bun-vitest-r1-1", .*review "Blocked"'
-  printf 'blocked\ngone\n' > "$S/bun-vitest-r1-1"; : > "$HERDR_STUB_LOG"
+  printf 'blocked\nblocked\ngone\n' > "$S/bun-vitest-r1-1"; : > "$HERDR_STUB_LOG"   # read for resuming, for ending, then gone
   out=$(cd "$r" && EXIT_WAIT_SECONDS=3 "$KIT/add-reviewer.sh" "$RUNB" R1 claude "Blocked again" "$RUNB/findings/a.json" 2>&1; echo "exit=$?"); log=$(cat "$HERDR_STUB_LOG")
   assert_match "rerun: finishes"                      "$out" 'exit=0$'
   assert_match "rerun: the agent left in the slot is sent /exit" "$log" '^herdr pane send-text pane-1 /exit$'
@@ -998,6 +1007,15 @@ if section add-reviewer; then
   assert_match "rerun, agent now ready: says it resumes it" "$out" 'resuming bun-vitest-r2-1 in pane-2'
   assert_match "rerun, agent now ready: ready"        "$out" 'reviewer R2 ready \(task R2-1\)'
   assert_match "rerun, agent now ready: its line is no longer starting" "$(cat "$RUNB/panes.txt")" '^reviewer R2: .*review "Slow".*\)$'
+  # A starting Reviewer that is working and accepts input is kept, as
+  # add-lane keeps such a lane.
+  echo unready > "$S/bun-vitest-r2-2.started"; echo gone > "$S/bun-vitest-r2-1"; reset_stub
+  out=$(cd "$r" && READY_WAIT_SECONDS=1 "$KIT/add-reviewer.sh" "$RUNB" R2 claude "Busy" "$RUNB/findings/w.json" 2>&1; echo "exit=$?")
+  rm -f "$S/bun-vitest-r2-2.started"; echo working > "$S/bun-vitest-r2-2"; : > "$HERDR_STUB_LOG"
+  out=$(cd "$r" && "$KIT/add-reviewer.sh" "$RUNB" R2 claude "Busy" "$RUNB/findings/w.json" 2>&1; echo "exit=$?")
+  assert_match "starting, working and ready: resumed" "$out" 'resuming bun-vitest-r2-2 in pane-2'
+  assert_nomatch "starting, working and ready: not refused as working" "$out" 'still working'
+  rm -f "$S"/bun-vitest-r2-2*
   assert_nomatch "rerun, agent now ready: not said to have not started" "$out" 'did not start'
   # A kept agent must be of the kind and model this call picks: another one
   # is ended and started again.

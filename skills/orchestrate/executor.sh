@@ -153,7 +153,11 @@ until_ready() {
     [ "$checks" -lt "${READY_WAIT_SECONDS:-30}" ] || break
     [ "${DRY_RUN:-0}" = 1 ] || sleep 1
   done
-  echo "agent start: $name does not accept input in pane $pane after $checks checks ($state); it is left running in $pane: brief it once  herdr agent get $name  shows interactive_ready true, or end it and start it again" >&2
+  if [ "$state" = unreadable ]; then
+    echo "agent start: herdr cannot say whether $name runs in $pane after $checks checks; rerun once herdr answers" >&2
+  else
+    echo "agent start: $name does not accept input in pane $pane after $checks checks ($state); it is left running in $pane: brief it once  herdr agent get $name  shows interactive_ready true, or end it and start it again" >&2
+  fi
   return 2
 }
 
