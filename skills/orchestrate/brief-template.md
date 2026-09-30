@@ -33,10 +33,15 @@ from its own skill dirs: ~/.agents/skills, ~/.claude/skills or
 lane's reviewer models. In a run bootstrapped on cursor, they are the
 `spec-reviewer` and `quality-reviewer` roles `tower brief` prints. For a
 cursor lane added to a run of another kind, those roles are that kind's:
-use `SPEC_REVIEWER_MODEL_CURSOR` and `QUALITY_REVIEWER_MODEL_CURSOR` instead
-(the repo contract, the user contract, then the kit's `model-defaults`), and
-say in the brief that they replace the roles tower prints. Never write a
-model from memory.
+ask the kit for cursor's, from lane A's checkout, in the environment you
+gave add-lane.sh:
+
+    bash -c '. "$0/common.sh"; CONTRACT_RUN="$1" . "$0/detect-stack.sh"; . "$0/executor.sh"; kind_default SPEC_REVIEWER_MODEL cursor; kind_default QUALITY_REVIEWER_MODEL cursor' <kit> <run-dir>
+
+It prints the two, in that order, each resolved as every kit default is:
+the environment, then the run's repo contract, then the user contract, then
+the kit's `model-defaults`. Say in the brief that they replace the roles
+tower prints. Never write a model from memory.
 
 |                     | claude lane                                                     | codex lane                                                        | cursor lane                                                        |
 |---------------------|-----------------------------------------------------------------|-------------------------------------------------------------------|--------------------------------------------------------------------|

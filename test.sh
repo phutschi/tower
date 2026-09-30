@@ -1847,9 +1847,24 @@ if section brief-cursor; then
   assert_match "orchestrate: red flag, cursor has subagents" "$os" '^\| Briefing a cursor lane .*subagents'
   assert_match "orchestrate: red flag, never answer cursor's trust box" "$os" "^\\| Answering a cursor lane's trust box .*--trust"
   assert_nomatch "brief: the cursor variant names no claude model" "$(printf '%s\n' "$method" | sed -n 's/.*cursor: "\([^"]*\)".*/\1/p')" 'sonnet|opus'
-  assert_match "brief: a cursor lane in a run of another kind gets cursor's reviewer models" "$bt" 'SPEC_REVIEWER_MODEL_CURSOR'
   assert_nomatch "orchestrate: a cursor lane is never sent to the run's roles alone" "$os" "cursor.*run's reviewer models|run's .spec-reviewer. and .quality-reviewer. models"
   assert_nomatch "no two-kind wording is left in the three files" "$bt$os$ps" 'both kinds|either kind|claude or codex|one Reviewer of each kind'
+  # The command the template gives for a cursor lane's reviewer models in a
+  # run of another kind, run as written: every layer, the environment first.
+  cmd=$(sed -n 's/^    \(bash -c .*kind_default SPEC_REVIEWER_MODEL cursor.*\)$/\1/p' "$KIT/brief-template.md")
+  assert_match "brief: the template gives the command" "$cmd" 'kind_default QUALITY_REVIEWER_MODEL cursor'
+  cursor_models() { (cd "$1" && env XDG_CONFIG_HOME="$3" ${4:+"$4"} bash -c "$(printf '%s' "$cmd" | sed "s#<kit>#$KIT#g; s#<run-dir>#$2#g")" 2>&1 | paste -sd' ' -); }  # CHECKOUT RUN_DIR XDG [VAR=value]
+  kit_spec=$(sed -n 's/^SPEC_REVIEWER_MODEL_CURSOR=//p' "$KIT/model-defaults"); kit_quality=$(sed -n 's/^QUALITY_REVIEWER_MODEL_CURSOR=//p' "$KIT/model-defaults")
+  r=$(fixture_repo bun-vitest); RB="$TMP/run-brief-cursor"; reset_stub
+  (cd "$r" && XDG_CONFIG_HOME="$TMP/xdg-brief-none" "$KIT/bootstrap.sh" "$RB" "Brief cursor" main "$KIT/example-tasks.tsv" >/dev/null 2>&1)
+  assert_eq "brief: in a claude run, cursor's reviewer models are the kit's" "$(cursor_models "$r" "$RB" "$TMP/xdg-brief-none")" "$kit_spec $kit_quality"
+  UCB="$TMP/xdg-brief"; mkdir -p "$UCB/tower"
+  printf 'SPEC_REVIEWER_MODEL_CURSOR=user-s\nQUALITY_REVIEWER_MODEL_CURSOR=user-q\n' > "$UCB/tower/orchestrate"
+  r=$(fixture_repo bun-vitest); RB="$TMP/run-brief-cursor-2"
+  echo 'QUALITY_REVIEWER_MODEL_CURSOR=repo-q' > "$r/.orchestrate"; git -C "$r" add .orchestrate; git -C "$r" commit -qm contract; reset_stub
+  (cd "$r" && XDG_CONFIG_HOME="$UCB" "$KIT/bootstrap.sh" "$RB" "Brief cursor 2" main "$KIT/example-tasks.tsv" >/dev/null 2>&1)
+  assert_eq "brief: ... the user contract over the kit, the repo contract over both" "$(cursor_models "$r" "$RB" "$UCB")" "user-s repo-q"
+  assert_eq "brief: ... and the environment over all" "$(cursor_models "$r" "$RB" "$UCB" SPEC_REVIEWER_MODEL_CURSOR=env-s)" "env-s repo-q"
   for m in $(sed -n 's/^[A-Z_]*_CURSOR=//p' "$KIT/model-defaults" | sort -u); do
     case "$bt$os$ps" in *"$m"*) bad "no cursor default ($m) is written into the three files" ;; *) ok "no cursor default ($m) is written into the three files" ;; esac
   done
