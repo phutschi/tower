@@ -29,9 +29,10 @@
 # it is started again in the lane's pane and worktree, and nothing else is
 # redone (the task ids are already assigned). Refused: a lane whose agent
 # runs, any answer from herdr other than agent_not_found, a rerun with another
-# branch, kind, model or task ids than the first call's (ids read as tower
-# reads them), and a lane whose pane (herdr's pane_not_found) or worktree is
-# gone: the message says what to remove. A pane herdr cannot be asked about
+# branch, kind, model or task ids than the first call's (ids expanded by
+# `tower ids`, so an id tower refuses is refused in its words), and a lane
+# whose pane (herdr's pane_not_found) or worktree is gone: the message says
+# what to remove. A pane herdr cannot be asked about
 # is refused with nothing to remove; rerun once herdr answers.
 #
 # Never run this for real to see what it does; use DRY_RUN=1, which answers
@@ -84,36 +85,14 @@ if [ -n "$PANE" ]; then
   esac
   [ "$(grep "^lane $LANE:" "$MAP")" = "$(lane_line "$PANE")" ] \
     || die "lane $LANE is in the pane map with another branch, kind or model; rerun with the ones it has (see $MAP)"
-  # The ids against what the lane owns on the board, read as tower reads them
-  # (src/ids.ts expandIds; tower has no command that expands without
-  # recording): tokens trimmed, empty ones dropped, an integer range expanded,
-  # zero-padded when both ends are written at the same width (07-09).
-  # An id tower refuses is refused with tower's words (the check exits 2;
-  # add-lane dies with its message).
+  # The ids against what the lane owns on the board, expanded by tower itself
+  # (tower ids, which records nothing). An id tower refuses is refused with
+  # tower's words.
   board=$(tower state --json) || die "add-lane: tower state failed; rerun once tower answers"
-  rc=0; owned=$(printf '%s' "$board" | python3 -c 'import json,re,sys
-d=json.load(sys.stdin); want=set()
-def refuse(why): print(why); sys.exit(2)
-for t in map(str.strip, sys.argv[2].split(",")):
-    m = re.fullmatch(r"([0-9]+)-([0-9]+)", t)
-    if m:
-        lo, hi = m.groups()
-        if int(hi) < int(lo): refuse(f"range \"{t}\" runs backwards")
-        w = len(lo) if len(lo) == len(hi) else 0
-        want |= {str(n).zfill(w) for n in range(int(lo), int(hi) + 1)}
-    elif re.fullmatch(r"[A-Za-z]+-[A-Za-z]+", t):
-        refuse(f"range \"{t}\" must be integer to integer, like 7-9")
-    elif t and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", t):
-        refuse(f"\"{t}\" is not a valid task id (letters, digits, . _ -; no spaces)")
-    elif t:
-        want.add(t)
-have=d["lanes"].get(sys.argv[1], [])
-print(",".join(have)); sys.exit(0 if want == set(have) else 1)' "$LANE" "$TASKS") || rc=$?
-  case $rc in
-    0) ;;
-    2) die "add-lane: $owned" ;;
-    *) die "lane $LANE owns ${owned:-nothing} on the board, not $TASKS; rerun with those ids" ;;
-  esac
+  want=$(tower ids "$TASKS" 2>&1) || die "add-lane: ${want#tower: }"
+  owned=$(printf '%s' "$board" | jsonq "','.join(d['lanes'].get('$LANE', []))")
+  [ "$(printf '%s\n' "$want" | sort)" = "$(printf '%s\n' "$owned" | tr , '\n' | sort)" ] \
+    || die "lane $LANE owns ${owned:-nothing} on the board, not $TASKS; rerun with those ids"
   # Only herdr's pane_not_found is a closed pane; any other failure says
   # nothing about it, and the map and the worktree stay.
   if ! err=$(herdr pane get "$PANE" 2>&1 >/dev/null); then

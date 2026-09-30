@@ -535,6 +535,10 @@ if section add-lane; then
   assert_match "rerun, an invalid id: refused as tower refuses it" "$out" '^add-lane: "a b" is not a valid task id \(letters, digits, \. _ -; no spaces\)$'
   assert_match "rerun, an invalid id: fails"           "$out" 'exit=1$'
   assert_nomatch "rerun, an invalid id: no start"      "$(cat "$HERDR_STUB_LOG")" '^herdr agent start'
+  reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNF" B feat/b main 2,3,99 2>&1; echo "exit=$?")
+  assert_match "rerun, an id the run lacks: refused as tower refuses it" "$out" '^add-lane: unknown task "99"'
+  assert_match "rerun, an id the run lacks: fails"     "$out" 'exit=1$'
+  assert_nomatch "rerun, an id the run lacks: no start" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start'
   # tower failing to read the record is said as such, not blamed on the ids.
   chmod 000 "$RUNF/run.json"
   reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNF" B feat/b main 2,3 2>&1; echo "exit=$?")
@@ -587,7 +591,7 @@ if section add-lane; then
   done
   echo gone > "$HERDR_STUB_STATES_DIR/bun-vitest-lane-b"
   reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNP" B feat/b main 7-9 2>&1; echo "exit=$?")
-  assert_match "rerun with '7-9' for 07,08,09: other ids, refused" "$out" 'lane B owns 07,08,09 on the board, not 7-9; rerun with those ids'
+  assert_match "rerun with '7-9' for 07,08,09: ids the run lacks, refused as tower refuses them" "$out" '^add-lane: unknown task "7" — did you mean 07\?'
   rm -f "$HERDR_STUB_STATES_DIR/bun-vitest-lane-b"
   assert_eq "padded: the board has the lanes' ids as written" "$(board "$RUNP" '" ".join(k+"="+",".join(v) for k,v in sorted(d["lanes"].items()))')" "B=07,08,09 C=10,11"
   # A trust prompt that cannot be answered, or an agent still blocked after
