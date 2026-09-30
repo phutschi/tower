@@ -165,7 +165,13 @@ if section executor; then
   out=$(start acme-lane-a)
   assert_eq "gone twice: no third start" "$(grep -c '^herdr agent start acme-lane-a ' "$HERDR_STUB_LOG")" 2
   assert_match "gone twice: the start fails" "$out" 'exit=1$'
-  assert_match "gone twice: ... saying so" "$out" 'acme-lane-a exited again right after its second start in pane pane-9'
+  assert_match "gone twice: ... saying so" "$out" 'acme-lane-a exited again after it was started once more in pane pane-9'
+  # The trust prompt answered, the agent reads working, then it exits: it is
+  # started once more.
+  rm -f "$HERDR_STUB_STATES_DIR/acme-lane-a.started"; printf 'working\ngone\n' > "$HERDR_STUB_STATES_DIR/acme-lane-a"
+  out=$(start acme-lane-a HERDR_STUB_TRUST_STARTS=1)
+  assert_eq "trust answered, then gone: started once more" "$(grep -c '^herdr agent start acme-lane-a ' "$HERDR_STUB_LOG")" 2
+  assert_match "trust answered, then gone: ... then it runs" "$out" 'exit=0$'
   rm -f "$HERDR_STUB_STATES_DIR"/acme-lane-a*
 fi
 
@@ -737,7 +743,8 @@ if section add-reviewer; then
   assert_match "that refusal exits non-zero"          "$out" 'exit=1$'
   sed -i.bak "s/^switches: .*/switches:       BASH_ENV=x/" "$RUNQ/panes.txt"
   assert_match "a switches: line naming something else is refused" "$(cd "$r" && "$KIT/add-reviewer.sh" "$RUNQ" R2 claude "Bad" "$RUNQ/findings/b.json" 2>&1)" "holds 'BASH_ENV=x', not a run switch"
-  RELD="$TMP/rel"; mkdir -p "$RELD"; cp -R "$RUNK" "$RELD/run"; reset_stub; echo gone > "$S/bun-vitest-r2-1"
+  RELD="$TMP/rel"; mkdir -p "$RELD"; cp -R "$RUNK" "$RELD/run"; reset_stub
+  echo gone > "$S/bun-vitest-r2-1"   # R2's earlier Reviewer has exited (its start above made it run)
   out=$(cd "$RELD" && EXIT_WAIT_SECONDS=0 REVIEWER_KIND=codex "$KIT/add-reviewer.sh" run R2 claude "Rel" run/findings/rel.json 2>&1)
   assert_match "a relative run dir is made absolute" "$(cat "$RELD/run/panes.txt")" "^reviewer R2: .*findings $RELD/run/findings/rel.json\\)$"
   assert_match "from outside the repo, the review lands on the given run" "$(reviews "$RELD/run")" 'R2-[0-9]+@R2:Rel$'

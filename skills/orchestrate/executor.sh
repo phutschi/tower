@@ -19,6 +19,8 @@
 # reviewer_for LANE_KIND [LANE_MODEL] (the Reviewer's kind and model; see below).
 # START_TRIES (default 10) is how often an agent start is tried, a second apart,
 # while herdr answers agent_pane_busy (a new pane's shell is not ready yet).
+# START_SETTLE_SECONDS (default 3) is how long a started agent is given before
+# it is read again to see it is still there.
 
 EXECUTOR_KIND="${EXECUTOR_KIND:-claude}"
 case "$EXECUTOR_KIND" in
@@ -77,18 +79,25 @@ start_agent() {
 # first). Answer it, and try once more if herdr then says the agent is gone.
 # It returns 1, saying why, when the answer cannot be sent or the agent is
 # then neither working nor idle (blocked, herdr's unknown, anything else).
-# Once started, the agent must still be there: one that exited right after
-# its start (codex updating itself, say) is started once more, and a second
-# exit fails the start, saying so.
+# Once started, the agent must still be there START_SETTLE_SECONDS later: one
+# that exited right after its start (codex updating itself, say) is started
+# once more, and an exit after that fails the start, saying so.
 start_agent_with_trust_retry() {
   local name="$1" pane="$2"
   start_answering_trust "$name" "$pane" || return 1
-  [ "$(state_of "$name")" = gone ] || return 0
+  stayed "$name" && return 0
   echo "agent start: $name exited right after its start in pane $pane; starting it once more" >&2
   start_answering_trust "$name" "$pane" || return 1
-  [ "$(state_of "$name")" = gone ] || return 0
-  echo "agent start: $name exited again right after its second start in pane $pane; read the pane for why, then start it again" >&2
+  stayed "$name" && return 0
+  echo "agent start: $name exited again after it was started once more in pane $pane; read the pane for why, then start it again" >&2
   return 1
+}
+
+# Is NAME still there once it had START_SETTLE_SECONDS to settle? Only herdr
+# saying agent_not_found is an exit (common.sh state_of).
+stayed() {
+  [ "${DRY_RUN:-0}" = 1 ] || sleep "${START_SETTLE_SECONDS:-3}"
+  [ "$(state_of "$1")" != gone ]
 }
 
 start_answering_trust() {
