@@ -1635,7 +1635,7 @@ if section run; then
   out=$(in_repo "$PREFLIGHT_DIR/look.sh" base "$RUN/findings/preflight/1")
   assert_match "run: look.sh names the findings file it wrote" "$out" "$RUN/findings/preflight/1/look.json"
   steps=$(python3 -c "import json,sys; print(' '.join(v['step']+':'+v['status'] for v in json.load(open(sys.argv[1]))['verdict']))" "$RUN/findings/preflight/1/look.json" 2>&1)
-  assert_eq "run: look.json has a row for each scanner and every suite step" "$steps" "semgrep:pass gitleaks:pass lint:skip test:fail build:pass"
+  assert_eq "run: look.json has a row for the base, each scanner and every suite step" "$steps" "base:skip semgrep:pass gitleaks:pass lint:skip test:fail build:pass"
   unset SUITE_ORDER
 
   assert_eq "run: one switches line in the pane map" "$(grep -c '^switches:' "$RUN/panes.txt")" 1
