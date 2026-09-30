@@ -1027,6 +1027,28 @@ if section add-reviewer; then
   assert_nomatch "starting, working and ready: not refused as working" "$out" 'still working'
   rm -f "$S"/bun-vitest-r2-2*
   assert_nomatch "rerun, agent now ready: not said to have not started" "$out" 'did not start'
+  # A starting Reviewer that is working but not ready for input yet is waited
+  # for, as its start waits, and then kept.
+  echo gone > "$S/bun-vitest-r2-2"; echo unready > "$S/bun-vitest-r2-3.started"; reset_stub
+  out=$(cd "$r" && READY_WAIT_SECONDS=1 "$KIT/add-reviewer.sh" "$RUNB" R2 claude "Loading" "$RUNB/findings/l.json" 2>&1; echo "exit=$?")
+  rm -f "$S/bun-vitest-r2-3.started"; printf 'busy-unready\nbusy-unready\nworking\n' > "$S/bun-vitest-r2-3"; : > "$HERDR_STUB_LOG"
+  out=$(cd "$r" && READY_WAIT_SECONDS=5 "$KIT/add-reviewer.sh" "$RUNB" R2 claude "Loading" "$RUNB/findings/l.json" 2>&1; echo "exit=$?"); log=$(cat "$HERDR_STUB_LOG")
+  assert_match "starting, working, not ready: finishes" "$out" 'exit=0$'
+  assert_match "starting, working, not ready: resumed once ready" "$out" 'resuming bun-vitest-r2-3 in pane-2'
+  assert_nomatch "starting, working, not ready: not refused as working" "$out" 'still working'
+  assert_nomatch "starting, working, not ready: not ended, not started" "$log" '^herdr (pane send-text|agent start)'
+  # One that stays so: the rerun says it is still starting, and a rerun
+  # resumes it once it accepts input.
+  echo gone > "$S/bun-vitest-r2-3"; echo unready > "$S/bun-vitest-r2-4.started"; reset_stub
+  out=$(cd "$r" && READY_WAIT_SECONDS=1 "$KIT/add-reviewer.sh" "$RUNB" R2 claude "Stuck" "$RUNB/findings/s.json" 2>&1; echo "exit=$?")
+  rm -f "$S/bun-vitest-r2-4.started"; echo busy-unready > "$S/bun-vitest-r2-4"; : > "$HERDR_STUB_LOG"
+  out=$(cd "$r" && READY_WAIT_SECONDS=2 "$KIT/add-reviewer.sh" "$RUNB" R2 claude "Stuck" "$RUNB/findings/s.json" 2>&1; echo "exit=$?"); log=$(cat "$HERDR_STUB_LOG")
+  assert_match "starting, never ready on the rerun: fails" "$out" 'exit=1$'
+  assert_match "starting, never ready on the rerun: says it is still starting" "$out" 'Reviewer bun-vitest-r2-4 is still starting in pane-2: .*rerun  .*add-reviewer\.sh .* R2 claude Stuck .*/findings/s\.json  to resume it once it accepts input'
+  assert_nomatch "starting, never ready on the rerun: not refused as working" "$out" 'still working'
+  assert_nomatch "starting, never ready on the rerun: not ended, not started" "$log" '^herdr (pane send-text|agent start)'
+  assert_match "starting, never ready on the rerun: its line still starting" "$(cat "$RUNB/panes.txt")" '^reviewer R2: .*review "Stuck".* starting$'
+  rm -f "$S"/bun-vitest-r2-3* "$S"/bun-vitest-r2-4*
   # A kept agent must be of the kind and model this call picks: another one
   # is ended and started again.
   echo gone > "$S/bun-vitest-r1-1"; echo unready > "$S/bun-vitest-r1-2.started"; reset_stub

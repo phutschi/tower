@@ -45,7 +45,8 @@ All notable changes to this project are documented here. The format follows
   pane. codex agents start with their startup update check off.
 - `add-reviewer.sh` writes the slot's reviewer line before the start, ending in
   ` starting` until the Reviewer accepts input; a rerun after a failed start
-  resumes that review under the same agent and task. A codex Reviewer gets
+  resumes that review under the same agent and task, waiting for a Reviewer
+  still loading as its start waits. A codex Reviewer gets
   `<run-dir>/tmp` as `TMPDIR`, `BUN_TMPDIR`, `BUN_INSTALL_CACHE_DIR` and
   `npm_config_cache`.
 - `add-lane.sh` writes the lane's line before its agent starts, ending in

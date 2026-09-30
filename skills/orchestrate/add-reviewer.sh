@@ -49,9 +49,12 @@
 #   is written before the agent starts, ending in " starting" until the agent
 #   accepts input: a start that fails leaves it so, says to rerun, and a rerun
 #   for the slot resumes that review under the same agent and task while
-#   nobody has worked on the task. The agent left in the slot is kept when it
-#   now accepts input and is of this call's kind and model ("resuming ..."),
-#   else ended as a previous Reviewer is, then started again;
+#   nobody has worked on the task. The agent left in the slot, when it is of
+#   this call's kind and model, is kept once it accepts input ("resuming
+#   ..."): one herdr says does not accept input yet is waited for as a start
+#   is (READY_WAIT_SECONDS), and when it still does not, the call fails,
+#   saying it is still starting and that a rerun resumes it. Any other agent
+#   left there is ended as a previous Reviewer is, then started again;
 #   the directory of <findings-file>;
 #   for a codex Reviewer, <run-dir>/tmp: the commands it runs get it as
 #   TMPDIR, BUN_TMPDIR, BUN_INSTALL_CACHE_DIR and npm_config_cache, since its
@@ -154,10 +157,11 @@ slot_pane() { echo "$TAB_LINE" | sed -nE "s/.*[(, ]$1 ([^,)]+).*/\\1/p"; }
 # until the agent accepts input. A line still ending so, whose task nobody has
 # worked on (pending on the board, or not there), is a start that failed: a
 # rerun resumes that review, under the same agent name and task. Its agent,
-# still in the slot, is kept when it accepts input (executor.sh ready_of) and
-# is of this call's kind and model; otherwise it is ended as above, then
-# started again. A starting line whose task was worked on is a review that
+# still in the slot and of this call's kind and model, is kept once it accepts
+# input (executor.sh ready_of), waited for while it does not yet; otherwise it
+# is ended as above, then started again. A starting line whose task was worked on is a review that
 # happened: the next one starts fresh.
+RERUN_ARGS=$(printf ' %q' "$RUN_DIR" "$SLOT" "$LANE_KIND" "$TITLE" "$FINDINGS" ${LANE:+"$LANE"})
 PREV_LINE=$(grep -E "^reviewer $SLOT: " "$MAP" || true)
 PREV=$(echo "$PREV_LINE" | sed -nE "s/^reviewer $SLOT: +[^ ]+ +\\(agent \"([^\"]+)\".*/\\1/p")
 N=1; RESUME=0; KEEP=0
@@ -169,10 +173,22 @@ if [ -n "$PREV" ]; then
         || die "add-reviewer: tower state failed; rerun once tower answers"
       case "$prev_status" in pending|missing) RESUME=1; N=${PREV##*-} ;; esac ;;
   esac
-  # A resumed review's agent that accepts input, of this call's kind and
-  # model, is kept, working or not.
-  if [ "$RESUME" = 1 ] && [[ "$PREV_LINE" == *", kind $R_KIND, model $R_MODEL, review "* ]] \
-    && [ "$(ready_of "$PREV")" = ready ]; then KEEP=1; fi
+  # A resumed review's agent of this call's kind and model is kept once it
+  # accepts input, working or not; one that does not yet is still starting,
+  # and is waited for as its start waits (executor.sh until_ready).
+  if [ "$RESUME" = 1 ] && [[ "$PREV_LINE" == *", kind $R_KIND, model $R_MODEL, review "* ]]; then
+    case "$(ready_of "$PREV")" in
+      ready) KEEP=1 ;;
+      *", not ready for input")
+        rc=0; until_ready "$PREV" "$(slot_pane "$SLOT")" || rc=$?
+        case $rc in
+          0) KEEP=1 ;;
+          2) [ "$(state_of "$PREV")" != unreadable ] \
+               || die "herdr cannot say whether Reviewer $PREV is still there (herdr agent get $PREV fails); rerun once herdr answers"
+             die "Reviewer $PREV is still starting in $(slot_pane "$SLOT"): rerun  $KIT/add-reviewer.sh$RERUN_ARGS  to resume it once it accepts input" ;;
+        esac ;;   # 1: gone, so started again below
+    esac
+  fi
   [ "$KEEP" = 1 ] || case "$(state_of "$PREV")" in
     gone) ;;
     working) die "Reviewer $PREV is still working in $SLOT: wait until the slot is free, or use the other slot" ;;
@@ -252,9 +268,8 @@ slot_line() {
 slot_line "$LINE starting"
 if [ "$KEEP" = 1 ]; then echo "resuming $NAME in $PANE: its start failed earlier, and it now accepts input"
 else
-  _args=$(printf ' %q' "$RUN_DIR" "$SLOT" "$LANE_KIND" "$TITLE" "$FINDINGS" ${LANE:+"$LANE"})
   ( cd "$REPO" && start_agent_with_trust_retry "$NAME" "$PANE" ) \
-    || die "add-reviewer: Reviewer $NAME is not ready in $PANE; its review is in the pane map, starting: rerun  $KIT/add-reviewer.sh$_args  to resume it"
+    || die "add-reviewer: Reviewer $NAME is not ready in $PANE; its review is in the pane map, starting: rerun  $KIT/add-reviewer.sh$RERUN_ARGS  to resume it"
 fi
 slot_line "$LINE"
 

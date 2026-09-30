@@ -20,7 +20,8 @@
 # state file, as what the new agent then answers ("gone": it exited right
 # after its start; "unready idle": not yet accepting input, then idle).
 # `agent get` answers interactive_ready true, false for the word "unready"
-# (an idle agent not accepting input yet); the word "legacy" answers idle
+# (an idle agent not accepting input yet) and for "busy-unready" (a working
+# one, as an agent still loading); the word "legacy" answers idle
 # without the field, as an older herdr does.
 # HERDR_STUB_SEND_KEYS_FAIL=1: every `pane send-keys` fails.
 # HERDR_STUB_EXIT_ON_ENTER=N: every `agent get` answers gone once N `pane
@@ -100,6 +101,7 @@ case "${1:-} ${2:-}" in
     [ "$status" = shapeless ] && { echo '{"result":{"agent":{"agent_status":null}}}'; exit 0; }
     [ "$status" = legacy ] && { echo '{"result":{"agent":{"agent_status":"idle"}}}'; exit 0; }
     [ "$status" = unready ] && { echo '{"result":{"agent":{"agent_status":"idle","interactive_ready":false}}}'; exit 0; }
+    [ "$status" = busy-unready ] && { echo '{"result":{"agent":{"agent_status":"working","interactive_ready":false}}}'; exit 0; }
     [ "$status" = unreachable ] && { echo '{"error":{"code":"server_unavailable","message":"herdr server is not answering"}}' >&2; exit 1; }
     echo "{\"result\":{\"agent\":{\"agent_status\":\"$status\",\"interactive_ready\":true}}}" ;;
   "agent read")      [ -n "$states" ] && [ -f "$states/$3.tail" ] && cat "$states/$3.tail"; exit 0 ;;
