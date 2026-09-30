@@ -40,8 +40,9 @@ Find your role first; it decides which half you run.
   plus the findings you deferred during lane reviews.
 
 Look only reports. Whoever runs it (a Reviewer, or an area subagent) writes
-its findings file and nothing else: no edit, commit, push or PR. The one
-change it makes is putting back what the suite changed (look step 3).
+its findings file and nothing else: no edit, commit, push or PR. The suite
+runs in look's own temp worktree, so it changes nothing in the checkout
+(look step 3).
 
 ## Settings
 
@@ -62,15 +63,26 @@ run, the `switches:` line of `panes.txt` has the values the run uses.
    round 1 and keep earlier rounds after it. Inside a run the preflight dir
    is `<run-dir>/findings/preflight/`. A Reviewer: the directory of its
    findings file.
-2. **Base.** Run `git fetch origin`. The base branch `<base>` is the name
+2. **Base.** Alone: run `git fetch origin`. A Reviewer: do not fetch. The
+   orchestrator fetched before it briefed you, and a sandbox may keep `.git`
+   read-only. The base branch `<base>` is the name
    the PR goes into, without `origin/`: an open PR's
    (`gh pr view --json baseRefName -q .baseRefName`), else the remote's
    default (`git symbolic-ref --short refs/remotes/origin/HEAD`, minus
    `origin/`). Git commands take `origin/<base>`; `gh` takes `<base>`.
 3. **Static baseline and full suite.** Alone, or when your brief says so.
-   `look.sh` needs a clean tracked tree:
+   `look.sh` looks at HEAD, in a temp worktree of its own under
+   `$XDG_STATE_HOME/tower/look` (default `~/.local/state`), where no lane
+   may write and where it also keeps the files it reads its verdict from,
+   and removes it afterwards: untracked files, index bits and git
+   hooks in the checkout do not reach it, and it checks out submodules and
+   installs the suite's dependencies there (`INSTALL_CMD`). It exits 2 when
+   that dir is a symlink, or is under a worktree of the repo, its git dir,
+   the run dir (`TOWER_RUN`), `/tmp` or `$TMPDIR`. It needs a clean tracked tree:
    `git status --short --untracked-files=no` prints nothing (untracked files
-   are fine); it exits 2 otherwise. Alone, when that prints files: ask the
+   are fine); it exits 2 otherwise. It also exits 2 when the repo contract
+   (`.orchestrate`, or `.herdr-orchestrate`) is untracked, differs from HEAD
+   or is a symlink, since look runs it. Alone, when that prints files: ask the
    human whether to commit or stash them first. Then run
 
    ```bash
@@ -78,11 +90,17 @@ run, the `switches:` line of `panes.txt` has the values the run uses.
    ```
 
    Its header is its manual. It writes `look.json` and prints the verdict.
-   If `git status --short --untracked-files=no` now lists files, the suite
-   changed them: add a `should-fix` finding (area `suite`) naming them, and
-   put them back with `git checkout -- <files>`. The tree was clean, so this
-   returns the checkout to how look found it. Name new untracked files the
-   suite left in the same finding, and leave them in place.
+   Its `base` row asks the remote, without fetching, whether `origin/<base>`
+   is current. A `warn` there is an expected case, never a setup error: go
+   on, and keep the row in your findings file so whoever triages sees it.
+   `base could not be refreshed`: the remote could not be asked (no network,
+   as in a sandbox) or no longer has the branch, and the look ran against
+   the base as last fetched.
+   `base is stale`: the remote has moved on; alone, fetch and look again.
+   Files the suite changed or left are in `look.json` as one `should-fix`
+   suite finding ("the suite changed tracked files" or "the suite left
+   untracked files"). They were changed in look's temp worktree, which is
+   gone: the checkout is as look found it, and there is nothing to put back.
    - Exit 0: green, go on.
    - Exit 1: a must-fix finding. None of them open: go on as for exit 0.
      Otherwise the look is red. **Stop before agent review.** Alone: see
@@ -90,7 +108,17 @@ run, the `switches:` line of `panes.txt` has the values the run uses.
      `skip` row per area, note `look is red`, and go to step 5.
    - Exit 2, or exit 1 with no `look.json`: setup error. Alone: report the
      printed error and stop. A Reviewer: write your findings file with one
-     `warn` row per area, the error as its note, and go to step 5.
+     `warn` row per area, the error as its note, and go to step 5. One
+     setup error keeps its `look.json`: a suite step that failed on a
+     permission error (`PermissionDenied`, `Operation not permitted`,
+     `EACCES`) most likely hit the sandbox, not the code. Its row is a
+     `warn` whose note starts `setup:`, and its output tail is a
+     `watchpoint` suite finding. Fix the environment and look again. The
+     other steps' must-fix findings in that `look.json` still count: the
+     look can be red as well. A Reviewer carries them into its findings
+     file beside the `warn` rows. A `setup:` row that comes back once the
+     environment is fixed is the step's own failure: triage its
+     watchpoint as a red suite step.
 
 4. **Agent review by area.** The areas are the files in `areas/` next to
    this file, plus the repo's `.preflight/areas/*.md`. A repo file with a

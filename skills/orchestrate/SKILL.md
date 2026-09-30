@@ -69,8 +69,11 @@ and do it in a lane anyway or suggest doing it without the kit.
 4. **Lanes B to D.** `add-lane.sh <run-dir> B <branch> <base> <ids>` (`<branch>`
    is the lane's own branch, `<base>` the integration branch it forks from);
    the lane gets a worktree under `.worktrees/`, and the pane goes into the
-   grid (B right of A, C under A, D under B). When its agent fails to
-   start, rerun the same call: it starts the agent in the lane's pane.
+   grid (B right of A, C under A, D under B). When the pane's move into
+   the grid or its agent's start fails, rerun the same call: it moves the
+   pane, starts the agent again, or takes the agent left running once it
+   accepts input, and creates nothing again. Any other failure prints what
+   to fix before the rerun.
 5. **Brief.** Per lane: `tower brief <X> > <run-dir>/brief-<X>.md`, then add
    the judgement from `brief-template.md` above it (method, other lanes,
    merge points, the boundary sentence, the review tail for the lane's kind).
@@ -136,7 +139,11 @@ and do it in a lane anyway or suggest doing it without the kit.
     them (`PREFLIGHT=off`: step 12 with the lane-review findings alone).
     Lane A's checkout first has a clean tracked tree
     (`git status --short --untracked-files=no` prints nothing): `look.sh`
-    refuses any other. Two Reviewers, one findings dir per round, apart from
+    refuses any other. From round 2, `git fetch origin` there before you
+    brief R1 (step 10 fetched for round 1): the Reviewer does not fetch, as
+    a sandbox may keep `.git` read-only. `look.sh`'s `base` row says whether
+    the base still matched the remote; a `warn` there is expected, not a
+    setup error. Two Reviewers, one findings dir per round, apart from
     the lane reviews':
 
     ```
@@ -159,8 +166,10 @@ and do it in a lane anyway or suggest doing it without the kit.
       d=<run-dir>/findings/preflight/<n>; until [ -e "$d/R1.json" ] || { python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$d/look.json" 2>/dev/null && [ -z "$(git -C <lane-A-checkout> status --short --untracked-files=no)" ]; }; do sleep 20; done
       ```
       Then, with `look.json` parsed and the checkout clean: no open
-      must-fix finding (the skill's "red") → add and brief R2. Red, no
-      `look.json` or a changed checkout (a setup error) → no R2 this round;
+      must-fix finding (the skill's "red") and no verdict row whose note
+      starts `setup:` → add and brief R2. Red, a `setup:` row (a suite step
+      that failed on a permission error), no `look.json` or a changed
+      checkout (a setup error) → no R2 this round;
       its areas count as skipped in step 12, and its table names them as
       skipped with the reason. When the watch reports R1 `gone`,
       `blocked`, `unreadable` or finished first, stop this wait and act on
@@ -204,8 +213,10 @@ and do it in a lane anyway or suggest doing it without the kit.
 ## Switches
 
 The pane map's `switches:` line has the values this run uses. Defaults come
-from the repo contract; the user's words override them ("no PR", "skip lane
-reviews", "plain, no tdd"): set them in bootstrap's environment.
+from the repo contract, which bootstrap pins for the run (the `contract:`
+line), so a lane's edit to `.orchestrate` applies from the next run. The
+user's words override them ("no PR", "skip lane reviews", "plain, no tdd"):
+set them in bootstrap's environment.
 `add-reviewer.sh` reads them back from the pane map; `look.sh` does not, so
 the preflight slot brief passes `STATIC_BASELINE` and `SUITE_SKIP` on its
 call.

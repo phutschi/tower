@@ -7,20 +7,42 @@
 #   claude: claude-opus-5-5[1m], started with --model.
 #   codex:  gpt-6-astra, started with -m, no approval prompts (-a never), writes
 #           limited to the worktree (-s workspace-write) with network allowed
-#           for installs and fetches. Two dirs outside the worktree are added as
-#           writable: the run dir (tower task|block|note append to it) and the
-#           repo's common git dir (a lane worktree commits into it). Its
+#           for installs and fetches. Outside the worktree, the run dir is
+#           writable (tower task|block|note append to it), and what a commit
+#           needs in the repo's common git dir. A lane in a worktree (lanes
+#           B-D) gets only objects, refs, logs, packed-refs(.lock, .new) and
+#           its own worktrees/<lane> (sandbox_workspace_write.writable_roots,
+#           which replaces any the user's codex config sets): hooks and config
+#           stay read-only. AGENT_CHECKOUT (default: the current directory) is
+#           the agent's checkout, which decides this; add-lane.sh and
+#           bootstrap.sh set it. A lane in the main checkout (lane A, and
+#           a Reviewer, which works there) keeps its index, HEAD and rebase
+#           and stash state in the common dir itself, so it gets the whole
+#           common dir: its sandbox does not contain .git/hooks or .git/config,
+#           and a hook or core.fsmonitor it writes runs outside the sandbox on
+#           the orchestrator's next git command. Its
 #           startup update check is off (-c check_for_update_on_startup=false):
 #           a codex that updates itself on start exits before its brief.
+#           AGENT_TMP=<dir> (add-reviewer.sh sets it for a codex Reviewer)
+#           gives the commands it runs that dir as TMPDIR, BUN_TMPDIR,
+#           BUN_INSTALL_CACHE_DIR and npm_config_cache, through codex's
+#           shell_environment_policy: the defaults are outside its sandbox.
+#           AGENT_LOOK=<dir> (add-reviewer.sh sets it for a codex Reviewer,
+#           and only then; bootstrap.sh and add-lane.sh clear it) is one more
+#           writable dir: where preflight's look.sh makes its temp worktree,
+#           outside everything a lane may write; with it, the agent's
+#           commands get TOWER_RUN=<RUN_DIR>, which look.sh checks against.
 #
 # Expects `set -u`; provides agent_name SUFFIX, start_agent NAME PANE,
-# start_agent_with_trust_retry NAME PANE (an agent that exits right after its
-# start is started once more, then the start fails), kind_installed KIND and
+# start_agent_with_trust_retry NAME PANE (it returns once the agent accepts
+# input; one that exits right after its start is started once more, then the
+# start fails), kind_installed KIND and
 # reviewer_for LANE_KIND [LANE_MODEL] (the Reviewer's kind and model; see below).
 # START_TRIES (default 10) is how often an agent start is tried, a second apart,
 # while herdr answers agent_pane_busy (a new pane's shell is not ready yet).
 # START_SETTLE_SECONDS (default 3) is how long a started agent is given before
-# it is read again to see it is still there.
+# it is read again; READY_WAIT_SECONDS (default 30) how many reads, about a
+# second apart, it then gets to accept input.
 
 EXECUTOR_KIND="${EXECUTOR_KIND:-claude}"
 case "$EXECUTOR_KIND" in
@@ -62,14 +84,44 @@ start_agent() {
   case "$EXECUTOR_KIND" in
     claude) herdr agent start "$name" --kind claude --pane "$pane" -- --model "$EXECUTOR_MODEL" ;;
     codex)
-      local extra=()
+      local extra=() common gitdir roots="" p co="${AGENT_CHECKOUT:-.}"
+      # Under DRY_RUN the stub's worktree create makes no worktree.
+      [ -d "$co" ] || [ "${DRY_RUN:-0}" != 1 ] || co=.
+      common=$(git -C "$co" rev-parse --path-format=absolute --git-common-dir) || return 1
+      gitdir=$(git -C "$co" rev-parse --path-format=absolute --git-dir) || return 1
       [ -n "${RUN_DIR:-}" ] && extra+=(--add-dir "$RUN_DIR")
-      extra+=(--add-dir "$(git rev-parse --path-format=absolute --git-common-dir)")
+      if [ "$gitdir" = "$common" ]; then
+        extra+=(--add-dir "$common")
+        [ -z "${AGENT_LOOK:-}" ] || extra+=(--add-dir "$AGENT_LOOK")
+      else
+        # These roots replace any in the user's codex config, and the run dir
+        # is listed here too in case they replace --add-dir's.
+        for p in ${RUN_DIR:+"$RUN_DIR"} "$common/objects" "$common/refs" "$common/logs" \
+          "$common/packed-refs" "$common/packed-refs.lock" "$common/packed-refs.new" "$gitdir" \
+          ${AGENT_LOOK:+"$AGENT_LOOK"}; do
+          roots+="${roots:+,}$(toml_string "$p")"
+        done
+        extra+=(-c "sandbox_workspace_write.writable_roots=[$roots]")
+      fi
+      # A Reviewer's look.sh refuses a worktree dir under the run dir: it
+      # needs to know it.
+      if [ -n "${AGENT_LOOK:-}" ] && [ -n "${RUN_DIR:-}" ]; then
+        extra+=(-c "shell_environment_policy.set.TOWER_RUN=$(toml_string "$RUN_DIR")")
+      fi
+      if [ -n "${AGENT_TMP:-}" ]; then
+        local v q; q=$(toml_string "$AGENT_TMP")
+        for v in TMPDIR BUN_TMPDIR BUN_INSTALL_CACHE_DIR npm_config_cache; do
+          extra+=(-c "shell_environment_policy.set.$v=$q")
+        done
+      fi
       herdr agent start "$name" --kind codex --pane "$pane" -- -m "$EXECUTOR_MODEL" \
         -a never -s workspace-write -c sandbox_workspace_write.network_access=true \
         -c check_for_update_on_startup=false "${extra[@]}" ;;
   esac
 }
+
+# S as a TOML basic string, for a codex -c value.
+toml_string() { local s=${1//\\/\\\\}; printf '"%s"' "${s//\"/\\\"}"; }
 
 # A new pane's shell may not be ready yet when the agent starts: herdr answers
 # agent_pane_busy. Try again once a second, START_TRIES times in all (default 10).
@@ -79,25 +131,58 @@ start_agent() {
 # first). Answer it, and try once more if herdr then says the agent is gone.
 # It returns 1, saying why, when the answer cannot be sent or the agent is
 # then neither working nor idle (blocked, herdr's unknown, anything else).
-# Once started, the agent must still be there START_SETTLE_SECONDS later: one
-# that exited right after its start (codex updating itself, say) is started
-# once more, and an exit after that fails the start, saying so.
+# Once started, the agent is given START_SETTLE_SECONDS, then read about once
+# a second (READY_WAIT_SECONDS checks, default 30) until it accepts input:
+# idle or working, and herdr's interactive_ready (an answer without that field
+# counts as ready: an older herdr). Only then is it ready. One that exited
+# (codex updating itself, say) is started once more, and an exit after that
+# fails the start, saying so; so does one that never accepts input, which is
+# left running in its pane.
 start_agent_with_trust_retry() {
-  local name="$1" pane="$2"
+  local name="$1" pane="$2" rc
   start_answering_trust "$name" "$pane" || return 1
-  stayed "$name" && return 0
+  rc=0; until_ready "$name" "$pane" || rc=$?
+  case $rc in 0) return 0 ;; 2) return 1 ;; esac
   echo "agent start: $name exited right after its start in pane $pane; starting it once more" >&2
   start_answering_trust "$name" "$pane" || return 1
-  stayed "$name" && return 0
+  rc=0; until_ready "$name" "$pane" || rc=$?
+  case $rc in 0) return 0 ;; 2) return 1 ;; esac
   echo "agent start: $name exited again after it was started once more in pane $pane; read the pane for why, then start it again" >&2
   return 1
 }
 
-# Is NAME still there once it had START_SETTLE_SECONDS to settle? Only herdr
-# saying agent_not_found is an exit (common.sh state_of).
-stayed() {
+# 0 once NAME accepts input; 1 when herdr says it is gone (agent_not_found);
+# 2, saying so, when READY_WAIT_SECONDS checks passed without either.
+until_ready() {
+  local name="$1" pane="$2" state checks=0
   [ "${DRY_RUN:-0}" = 1 ] || sleep "${START_SETTLE_SECONDS:-3}"
-  [ "$(state_of "$1")" != gone ]
+  while :; do
+    state=$(ready_of "$name"); checks=$((checks+1))
+    case "$state" in
+      ready) return 0 ;;
+      gone)  return 1 ;;
+    esac
+    [ "$checks" -lt "${READY_WAIT_SECONDS:-30}" ] || break
+    [ "${DRY_RUN:-0}" = 1 ] || sleep 1
+  done
+  if [ "$state" = unreadable ]; then
+    echo "agent start: herdr cannot say whether $name runs in $pane after $checks checks" >&2
+  else
+    echo "agent start: $name does not accept input in pane $pane after $checks checks ($state); it is left running in $pane: brief it once  herdr agent get $name  shows interactive_ready true, or end it and start it again" >&2
+  fi
+  return 2
+}
+
+# NAME's readiness: ready (idle or working, and interactive_ready), gone,
+# unreadable (common.sh agent_of), or its state when it does not accept input
+# yet ("idle, not ready for input" when herdr says idle but not ready).
+ready_of() {
+  local a; a=$(agent_of "$1")
+  case "$a" in
+    "idle True"|"working True")   echo ready ;;
+    "idle False"|"working False") echo "${a%% *}, not ready for input" ;;
+    *)                            echo "${a%% *}" ;;
+  esac
 }
 
 start_answering_trust() {
@@ -121,7 +206,7 @@ start_answering_trust() {
         working|idle) return 0 ;;
         gone) start_agent "$name" "$pane" >/dev/null || {
           echo "agent start: $name did not start again in pane $pane after its trust prompt; check it there" >&2; return 1; } ;;
-        unreadable) echo "agent start: herdr cannot say whether $name started after its trust prompt; check pane $pane, and rerun once herdr answers" >&2; return 1 ;;
+        unreadable) echo "agent start: herdr cannot say whether $name started after its trust prompt; check pane $pane" >&2; return 1 ;;
         *) echo "agent start: $name is still $state in pane $pane after its trust prompt was answered; answer it there, and the agent runs" >&2; return 1 ;;
       esac
       return 0

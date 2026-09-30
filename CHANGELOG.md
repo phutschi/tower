@@ -6,8 +6,34 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `tower ids <ids>` prints the ids a spec expands to, one per line, as
+  `tower assign` would record them, and refuses an id the run lacks. It
+  records nothing. Additive: a minor version.
+
 ### Changed
 
+- preflight's `look.sh` refuses a repo contract (`.orchestrate`) that is
+  untracked, differs from HEAD or is a symlink, as a setup error naming the
+  file: it is bash look runs, and a Reviewer sees only what is committed.
+- preflight's `look.sh` looks at HEAD in a temp worktree of its own (`git
+  worktree add --detach`, removed on every exit) under
+  `$XDG_STATE_HOME/tower/look`, which no lane may write and only a codex
+  Reviewer is granted (after `look.sh --dir`, the same check look makes);
+  look's verdict files live there too, never in TMPDIR, and its verdict
+  code is `look.py` beside it rather than a here-doc: it reads the kit, the repo
+  contract and package.json there, installs with `INSTALL_CMD` there, and runs
+  the scanners and the suite there. Untracked files, index bits and dirty kit
+  files in the checkout no longer reach the look. What the suite changes is
+  now a `should-fix` suite finding in `look.json`, and the checkout is never
+  touched.
+- `add-lane.sh`'s rerun check reads task ids with `tower ids` instead of its
+  own parser, so an id tower refuses is refused in tower's words.
+- `add-lane.sh` resumes a lane whose pane move failed after the worktree was
+  created: the pane is in the pane map as `unplaced lane <X>:`, and a rerun
+  moves it instead of creating the worktree again. The install now runs
+  before the move.
 - `tower wait` no longer needs `--timeout`. Without it, it waits until
   attention, completion or close and exits 0 with the reasons; it exits 3
   only when a timeout was given and passed, and 2 when the run dir disappears
@@ -25,6 +51,27 @@ All notable changes to this project are documented here. The format follows
   `$TOWER_PLANS_DIR/<repo>_<branch>/plan.md`, by default under
   `${XDG_STATE_HOME:-$HOME/.local/state}/tower/plans`, instead of one
   user's notes vault.
+- The orchestrate kit reports an agent ready only once it accepts input
+  (herdr's `interactive_ready`): after a start it waits `START_SETTLE_SECONDS`
+  (default 3), then reads the agent about once a second, `READY_WAIT_SECONDS`
+  times (default 30). One that exits right after its start is started once
+  more; one that never accepts input fails the call and is left running in its
+  pane. codex agents start with their startup update check off.
+- `add-reviewer.sh` writes the slot's reviewer line before the start, ending in
+  ` starting` until the Reviewer accepts input; a rerun after a failed start
+  resumes that review under the same agent and task, waiting, as a start
+  does, for a Reviewer that does not accept input yet. A codex Reviewer gets
+  `<run-dir>/tmp` as `TMPDIR`, `BUN_TMPDIR`, `BUN_INSTALL_CACHE_DIR` and
+  `npm_config_cache`. A review title with a tab, a newline or another
+  control character is refused before anything is written.
+- `add-lane.sh` writes the lane's line before its agent starts, ending in
+  ` starting` until the agent accepts input. A rerun of a starting lane takes
+  an agent left running once it accepts input, starts one herdr no longer
+  finds again, and otherwise says to answer or end it.
+- A codex lane in a worktree may write only `objects`, `refs`, `logs`,
+  `packed-refs` and its own `worktrees/<lane>` in the common git dir, no longer
+  its hooks or config. Lane A and Reviewers, in the main checkout, keep the
+  whole common git dir (docs/orchestrate.md says what that exposes).
 
 ## [0.3.0] — 2026-09-07
 
