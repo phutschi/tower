@@ -1,7 +1,7 @@
 /**
  * `ids`: expand a task-id spec against the open run and print the ids, one
- * per line, exactly as `assign` would record them. It writes nothing, so a
- * script can check ids the way tower reads them without recording anything.
+ * per line, as `assign` would record them. It refuses an id the run lacks and
+ * writes nothing, so a script can check ids as tower reads them.
  */
 import { parseArgs } from "node:util";
 
@@ -17,7 +17,7 @@ export async function idsCommand(argv: string[], io: Io): Promise<number> {
     allowPositionals: true,
   });
   const [spec] = positionals;
-  if (spec === undefined)
+  if (!spec)
     throw new UsageError("usage: tower ids <ids>   e.g. tower ids 5,7-9");
   const runDir = locateRun(io, values.run);
   const state = loadState(runDir, io);

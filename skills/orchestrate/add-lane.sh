@@ -87,7 +87,9 @@ check_rerun() {
   # tower's words.
   local board want owned err
   board=$(tower state --json) || die "add-lane: tower state failed; rerun once tower answers"
-  want=$(tower ids "$TASKS" 2>&1) || die "add-lane: ${want#tower: }"
+  # stdout alone is the ids; tower's refusal is asked for again, on failure only.
+  want=$(tower ids -- "$TASKS" 2>/dev/null) \
+    || die "add-lane: $(tower ids -- "$TASKS" 2>&1 >/dev/null | sed -e '1s/^tower: //' -e '2,$s/^/   /')"
   owned=$(printf '%s' "$board" | jsonq "','.join(d['lanes'].get('$LANE', []))")
   [ "$(printf '%s\n' "$want" | sort)" = "$(printf '%s\n' "$owned" | tr , '\n' | sort)" ] \
     || die "lane $LANE owns ${owned:-nothing} on the board, not $TASKS; rerun with those ids"
@@ -127,7 +129,7 @@ if [ -n "$UNPLACED" ]; then
 else
   # Ownership first: tower refuses an unknown id, so a typo stops here, before
   # a worktree exists.
-  tower assign "$LANE" "$TASKS"
+  tower assign -- "$LANE" "$TASKS"
   out=$(herdr worktree create --cwd "$REPO_ROOT" --branch "$BRANCH" --base "$BASE" --path "$WT" --label "$NAME" --no-focus)
   WT_PANE=$(echo "$out" | jsonq 'd["result"]["root_pane"]["pane_id"]')
   # The new pane goes into the map before it is moved: a move that fails

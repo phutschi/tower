@@ -65,7 +65,7 @@ tower remove 2
 | `tower block <id> "<need>"`                           | report blocked                                                      |
 | `tower note [--task\|--lane] "<text>"`                | narrate                                                             |
 | `tower state --json`                                  | the folded state                                                    |
-| `tower ids <ids>`                                     | expand and check ids against the run, as `assign` reads them        |
+| `tower ids <ids>`                                     | expand and check ids against the run, as `assign` records them      |
 | `tower wait [--timeout <s>]`                          | block until attention                                               |
 | `tower theme rules\|new\|check\|preview`              | author a theme                                                      |
 

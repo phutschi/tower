@@ -27,6 +27,20 @@ describe("tower ids", () => {
     expect(io.err.join("")).toBe('tower: range "9-7" runs backwards\n');
   });
 
+  test("refuses an empty spec, as assign does", async () => {
+    const { io } = seededRun();
+    expect(await main(["ids", ""], io)).toBe(1);
+    expect(io.err.join("")).toContain("usage: tower ids <ids>");
+  });
+
+  test("reads a spec after -- as ids, not as a flag", async () => {
+    const { io } = seededRun();
+    expect(await main(["ids", "--", "-1"], io)).toBe(1);
+    expect(io.err.join("")).toBe(
+      'tower: "-1" is not a valid task id (letters, digits, . _ -; no spaces)\n',
+    );
+  });
+
   test("records nothing", async () => {
     const { runDir, io } = seededRun();
     const before = readFileSync(join(runDir, "events.ndjson"), "utf8");
