@@ -1162,7 +1162,7 @@ for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'],
   mkdir -p "$r/sub"; reset_stub
   out=$(cd "$r/sub" && "$PREFLIGHT_DIR/look.sh" base rel-findings 2>&1; echo "exit=$?")
   assert_match "look: runs from a subdirectory"          "$(cat "$HERDR_STUB_LOG")" '^semgrep scan .* -- app\.js café app\.js new\.py$'
-  assert_eq "look: a relative findings dir is relative to where it was called" "$(verdict "$r/sub/rel-findings/look.json" | head -1)" "semgrep pass "
+  assert_eq "look: a relative findings dir is relative to where it was called" "$(verdict "$r/sub/rel-findings/look.json" | grep '^semgrep')" "semgrep pass "
   out=$(look "$r" nosuchref "$F")
   assert_match "look: an unknown base is refused"        "$out" "no merge base between 'nosuchref' and HEAD"
   assert_match "look: a setup error exits 2, not 1 (must-fix)" "$out" 'exit=2$'
@@ -1231,6 +1231,31 @@ for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'],
   assert_match "look: a staged edit is refused too"      "$out" 'exit=2$'
   git -C "$r" reset -q; git -C "$r" checkout -q -- app.js; reset_stub; out=$(look "$r" base "$F")
   assert_match "look: an untracked file alone is no refusal" "$out" 'exit=0$'
+  r=$(look_repo none local-base); reset_stub; out=$(look "$r" base "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: a base that is no remote branch is a skip row" "$v" '^base skip base is not a remote-tracking branch$'
+  assert_nomatch "look: ... and no remote is asked"      "$out" 'ls-remote|fatal'
+  # The base: look.sh never fetches (a sandboxed Reviewer cannot write .git);
+  # it asks the remote with ls-remote whether origin/<base> is current.
+  r=$(look_repo none remote); git init -q --bare "$TMP/repos/look-remote.git"
+  git -C "$r" remote add origin "$TMP/repos/look-remote.git"; git -C "$r" push -q origin base:refs/heads/main; git -C "$r" fetch -q origin
+  reset_stub; out=$(look "$r" origin/main "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: a current remote base is a pass row" "$v" "^base pass origin/main matches origin \($(git -C "$r" rev-parse --short base)\)$"
+  git -C "$r" push -q origin feat:refs/heads/main   # the remote moves on; origin/main is not fetched
+  git -C "$r" update-ref refs/remotes/origin/main base; rm -f "$r/.git/FETCH_HEAD"
+  reset_stub; out=$(look "$r" origin/main "$F"); v=$(verdict "$F/look.json")
+  assert_eq "look: never fetches (a sandbox keeps .git read-only)" "$(git -C "$r" rev-parse origin/main):$([ -e "$r/.git/FETCH_HEAD" ] && echo fetched || echo none)" "$(git -C "$r" rev-parse base):none"
+  assert_match "look: a base behind its remote is a warn row, named stale" "$v" "^base warn base is stale: origin/main is $(git -C "$r" rev-parse --short base), origin has $(git -C "$r" rev-parse feat | cut -c1-7); fetch, then look again$"
+  assert_match "look: ... not a failure"                 "$out" 'exit=0$'
+  git -C "$r" update-ref refs/remotes/origin/gone base   # fetched once, since deleted on the remote
+  reset_stub; out=$(look "$r" origin/gone "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: a base branch gone from its remote is a warn row" "$v" "^base warn base could not be refreshed: origin has no branch gone; origin/gone is $(git -C "$r" rev-parse --short base), as last fetched$"
+  assert_match "look: ... not a failure"                 "$out" 'exit=0$'
+  # A sandbox without network, or a remote that is gone: the named, expected case.
+  git -C "$r" remote set-url origin "$TMP/repos/no-such-remote.git"
+  reset_stub; out=$(look "$r" origin/main "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: a remote it cannot ask is a warn row: base could not be refreshed" "$v" "^base warn base could not be refreshed: git ls-remote origin failed \(.+\); origin/main is $(git -C "$r" rev-parse --short base), as last fetched$"
+  assert_match "look: ... not a setup error"             "$out" 'exit=0$'
+  assert_match "look: ... and the rest of the look runs" "$v" '^semgrep pass $'
   unset CHECK_CMD SUITE_ORDER; unset -f look_repo findings verdict look
 fi
 

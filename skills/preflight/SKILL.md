@@ -62,7 +62,9 @@ run, the `switches:` line of `panes.txt` has the values the run uses.
    round 1 and keep earlier rounds after it. Inside a run the preflight dir
    is `<run-dir>/findings/preflight/`. A Reviewer: the directory of its
    findings file.
-2. **Base.** Run `git fetch origin`. The base branch `<base>` is the name
+2. **Base.** Alone: run `git fetch origin`. A Reviewer: do not fetch. The
+   orchestrator fetched before it briefed you, and a sandbox may keep `.git`
+   read-only. The base branch `<base>` is the name
    the PR goes into, without `origin/`: an open PR's
    (`gh pr view --json baseRefName -q .baseRefName`), else the remote's
    default (`git symbolic-ref --short refs/remotes/origin/HEAD`, minus
@@ -78,6 +80,12 @@ run, the `switches:` line of `panes.txt` has the values the run uses.
    ```
 
    Its header is its manual. It writes `look.json` and prints the verdict.
+   Its `base` row asks the remote, without fetching, whether `origin/<base>`
+   is current. A `warn` there is an expected case, never a setup error: go
+   on, and keep the row in your findings file so whoever triages sees it.
+   `base could not be refreshed`: the remote could not be asked (no network,
+   as in a sandbox) and the look ran against the base as last fetched.
+   `base is stale`: the remote has moved on; alone, fetch and look again.
    If `git status --short --untracked-files=no` now lists files, the suite
    changed them: add a `should-fix` finding (area `suite`) naming them, and
    put them back with `git checkout -- <files>`. The tree was clean, so this

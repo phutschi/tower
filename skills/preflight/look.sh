@@ -6,6 +6,14 @@
 #
 # Run from the checkout. The diff is the merge base of <base-ref> and HEAD
 # against HEAD. Steps, each one verdict row:
+#   base      whether <base-ref> is what its remote has now. look.sh never
+#             fetches (a sandboxed Reviewer cannot write .git; whoever runs
+#             look fetches first); it asks with  git ls-remote , which writes
+#             nothing. pass when they match; warn "base is stale" when the
+#             remote moved on; warn "base could not be refreshed" when the
+#             remote cannot be asked (no network, no such remote) or no longer
+#             has the branch; skip when <base-ref> is no remote-tracking branch.
+#             Never a failure: the look goes on against the base as fetched.
 #   semgrep   its default rules (p/default), plus the repo's .semgrep/ when it
 #             exists, over the files the branch changed that are still in the
 #             checkout, reporting only results new since the merge base
@@ -78,6 +86,34 @@ verdict() {  # STEP STATUS NOTE; tabs and newlines in NOTE become spaces
   local note="${3//$'\t'/ }"
   printf '%s\t%s\t%s\n' "$1" "$2" "${note//$'\n'/ }" >> "$VERDICT"
 }
+
+# --- the base ----------------------------------------------------------------
+# Never a fetch: a sandboxed Reviewer cannot write .git. The remote is asked
+# with ls-remote, which writes nothing.
+BASE_REF=$(git rev-parse --symbolic-full-name "$BASE" 2>/dev/null || true)
+REMOTE=""
+for rem in $(git remote); do  # the longest remote name that prefixes the ref
+  case "$BASE_REF" in "refs/remotes/$rem/"*) [ "${#rem}" -le "${#REMOTE}" ] || REMOTE=$rem ;; esac
+done
+if [ -z "$REMOTE" ]; then
+  verdict base skip "$BASE is not a remote-tracking branch"
+else
+  BRANCH=${BASE_REF#"refs/remotes/$REMOTE/"}
+  LOCAL_SHA=$(git rev-parse --short "$BASE")
+  rc=0; GIT_TERMINAL_PROMPT=0 git ls-remote "$REMOTE" "refs/heads/$BRANCH" < /dev/null \
+    > "$WORK/ls-remote.out" 2> "$WORK/ls-remote.err" || rc=$?
+  REMOTE_SHA=$(cut -f1 "$WORK/ls-remote.out")
+  if [ "$rc" != 0 ]; then
+    reason=$(grep -m1 . "$WORK/ls-remote.err" || true)  # git's first complaint
+    verdict base warn "base could not be refreshed: git ls-remote $REMOTE failed (${reason:-exit $rc}); $BASE is $LOCAL_SHA, as last fetched"
+  elif [ -z "$REMOTE_SHA" ]; then
+    verdict base warn "base could not be refreshed: $REMOTE has no branch $BRANCH; $BASE is $LOCAL_SHA, as last fetched"
+  elif [ "$(git rev-parse "$BASE")" = "$REMOTE_SHA" ]; then
+    verdict base pass "$BASE matches $REMOTE ($LOCAL_SHA)"
+  else
+    verdict base warn "base is stale: $BASE is $LOCAL_SHA, $REMOTE has ${REMOTE_SHA:0:7}; fetch, then look again"
+  fi
+fi
 
 # Turns a scanner's JSON (stdin) into findings (JSON lines on stdout), and the
 # collected verdict rows and findings into look.json.

@@ -136,7 +136,11 @@ and do it in a lane anyway or suggest doing it without the kit.
     them (`PREFLIGHT=off`: step 12 with the lane-review findings alone).
     Lane A's checkout first has a clean tracked tree
     (`git status --short --untracked-files=no` prints nothing): `look.sh`
-    refuses any other. Two Reviewers, one findings dir per round, apart from
+    refuses any other. From round 2, `git fetch origin` there before you
+    brief R1 (step 10 fetched for round 1): the Reviewer does not fetch, as
+    a sandbox may keep `.git` read-only. `look.sh`'s `base` row says whether
+    the base still matched the remote; a `warn` there is expected, not a
+    setup error. Two Reviewers, one findings dir per round, apart from
     the lane reviews':
 
     ```
