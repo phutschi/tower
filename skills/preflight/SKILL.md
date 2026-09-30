@@ -132,8 +132,9 @@ run, the `switches:` line of `panes.txt` has the values the run uses.
      dirs with their triage.
    - Alone on cursor: one subagent per area, in parallel, each on the
      Reviewer's model, passed explicitly on every dispatch: `REVIEWER_MODEL`
-     when set, else `REVIEWER_MODEL_CURSOR` (the repo contract, the user
-     contract, then the orchestrate kit's `model-defaults`). Its prompt holds
+     when set, else `REVIEWER_MODEL_CURSOR` (the environment, the repo
+     contract, the user contract, then `../orchestrate/model-defaults`
+     beside this skill). Its prompt holds
      what claude's does.
    - Alone on codex: the areas one after another, each to
      `<findings-dir>/<area>.json`.

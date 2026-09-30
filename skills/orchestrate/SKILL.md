@@ -50,8 +50,9 @@ and do it in a lane anyway or suggest doing it without the kit.
    call's environment wins over the file). The user contract
    (`~/.config/tower/orchestrate`) sets a person's defaults for every repo:
    kinds, per-kind models (`EXECUTOR_MODEL_<KIND>`) and switches; the repo
-   contract wins over it, and it wins over the kit's `model-defaults`. Turn the user's words about the run into switches (see
-   "Switches") and set them in bootstrap's environment.
+   contract wins over it, and it wins over the kit's `model-defaults`. Turn
+   the user's words about the run into switches (see "Switches") and set
+   them in bootstrap's environment.
 2. **Bootstrap.**
    ```
    <kit>/bootstrap.sh <run-dir> "<title>" <branch> [plan.md | tasks.tsv]
@@ -155,9 +156,10 @@ and do it in a lane anyway or suggest doing it without the kit.
     <kit>/add-reviewer.sh <run-dir> R2 <kind> "Preflight R2, round <n>" <run-dir>/findings/preflight/<n>/R2.json
     ```
 
-    `<kind>`: in a single-kind run the lanes' kind, for both; in a mixed run
-    `claude` for R1 and `codex` for R2, so one Reviewer of each kind
-    reviews. Brief each with the preflight slot brief (`brief-template.md`):
+    `<kind>` is a lane kind, to which the script applies the Reviewer
+    order: in a single-kind run the lanes' kind, for both; in a mixed run
+    `claude` for R1 and `codex` for R2, so a codex and a claude Reviewer
+    review. Brief each with the preflight slot brief (`brief-template.md`):
     - R1: `look.sh` (static baseline and full suite), `spec` against the
       whole plan and its spec issue, `between-lanes`. Only R1 runs
       `look.sh`.
@@ -225,26 +227,25 @@ set them in bootstrap's environment.
 the preflight slot brief passes `STATIC_BASELINE` and `SUITE_SKIP` on its
 call.
 
-| Switch                 | Default | What it changes                                                         |
-| ---------------------- | ------- | ----------------------------------------------------------------------- |
-| `TASK_REVIEW`          | on      | off: briefs drop the per-task review tail                               |
-| `LANE_REVIEW`          | on      | off: a ready lane is merged without step 8                              |
-| `PREFLIGHT`            | on      | off: step 11 is skipped; act has only the deferred lane-review findings |
-| `STATIC_BASELINE`      | on      | off: `look.sh` skips semgrep and gitleaks                               |
-| `PR`                   | draft   | ready: a PR ready for review; off: no push, no PR                       |
-| `METHOD`               | tdd     | plain: briefs drop the tdd sentence                                     |
-| `REVIEWER_KIND`        | other   | claude, codex or cursor: that kind reviews every lane                   |
-| `REVIEWER_BY_CREDITS`  | off     | on: skip a Reviewer candidate low on credits (see "Reviewer order")     |
-| `REVIEWER_CREDITS_MIN` | 20      | the % of quota left below which the credit guard skips a candidate      |
-| `REVIEWER_MODEL`       | empty   | the Reviewer's model, instead of the kit's pick                         |
-| `REVIEW_AREAS`         | empty   | preflight's areas, comma-separated; empty: all                          |
-| `SUITE_SKIP`           | empty   | suite steps `look.sh` skips                                             |
-| `PR_TEMPLATE`          | empty   | the PR body template; empty: preflight's own                            |
+| Switch                 | Default | What it changes                                                                    |
+| ---------------------- | ------- | ---------------------------------------------------------------------------------- |
+| `TASK_REVIEW`          | on      | off: briefs drop the per-task review tail                                          |
+| `LANE_REVIEW`          | on      | off: a ready lane is merged without step 8                                         |
+| `PREFLIGHT`            | on      | off: step 11 is skipped; act has only the deferred lane-review findings            |
+| `STATIC_BASELINE`      | on      | off: `look.sh` skips semgrep and gitleaks                                          |
+| `PR`                   | draft   | ready: a PR ready for review; off: no push, no PR                                  |
+| `METHOD`               | tdd     | plain: briefs drop the tdd sentence                                                |
+| `REVIEWER_KIND`        | other   | other: the "Reviewer order"; claude, codex or cursor: that kind reviews every lane |
+| `REVIEWER_BY_CREDITS`  | off     | on: skip a Reviewer candidate low on credits (see "Reviewer order")                |
+| `REVIEWER_CREDITS_MIN` | 20      | the % of quota left below which the credit guard skips a candidate                 |
+| `REVIEWER_MODEL`       | empty   | the Reviewer's model, instead of the kit's pick                                    |
+| `REVIEW_AREAS`         | empty   | preflight's areas, comma-separated; empty: all                                     |
+| `SUITE_SKIP`           | empty   | suite steps `look.sh` skips                                                        |
+| `PR_TEMPLATE`          | empty   | the PR body template; empty: preflight's own                                       |
 
 ## Reviewer order
 
-A Reviewer is the first installed kind in the lane's list, never the lane's
-own kind while one of the list is installed:
+A Reviewer is the first installed kind in the lane's list:
 
 - claude lane: codex
 - codex lane: claude

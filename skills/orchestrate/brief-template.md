@@ -29,21 +29,24 @@ METHOD and of WHEN YOUR LAST TASK IS DONE. All three load the same tdd skill
 from its own skill dirs: ~/.agents/skills, ~/.claude/skills or
 ~/.codex/skills); "load the tdd skill" is the sentence that works for all.
 
-`{{SPEC_REVIEWER_MODEL}}` and `{{QUALITY_REVIEWER_MODEL}}` are the run's
-recorded reviewer models: the `spec-reviewer` and `quality-reviewer` roles
-`tower brief` prints (bootstrap resolved them from the contract and the
-model defaults for the run's kind). Fill them in; never write a model from
-memory.
+`{{SPEC_REVIEWER_MODEL}}` and `{{QUALITY_REVIEWER_MODEL}}` are the cursor
+lane's reviewer models. In a run bootstrapped on cursor, they are the
+`spec-reviewer` and `quality-reviewer` roles `tower brief` prints. For a
+cursor lane added to a run of another kind, those roles are that kind's:
+use `SPEC_REVIEWER_MODEL_CURSOR` and `QUALITY_REVIEWER_MODEL_CURSOR` instead
+(the repo contract, the user contract, then the kit's `model-defaults`), and
+say in the brief that they replace the roles tower prints. Never write a
+model from memory.
 
 |                     | claude lane                                                     | codex lane                                                        | cursor lane                                                        |
 |---------------------|-----------------------------------------------------------------|-------------------------------------------------------------------|--------------------------------------------------------------------|
 | per-task review     | spec-compliance review subagent (model sonnet) + code-quality review subagent (model opus); pass the model explicitly | review the task's diff itself, first against the task spec, then with the code-review skill; fix what it flags before the next task | spec-compliance review subagent (model `{{SPEC_REVIEWER_MODEL}}`) + code-quality review subagent (model `{{QUALITY_REVIEWER_MODEL}}`); pass the model explicitly on every dispatch |
 | final review        | final whole-implementation review subagent (model opus)         | final self-review of the whole lane diff with the code-review skill | final whole-implementation review subagent (model `{{QUALITY_REVIEWER_MODEL}}`) |
-| reviewer roles      | as tower prints them                                             | both reviewer roles are the lane's own model; say so in the brief | as tower prints them                                                |
+| reviewer roles      | as tower prints them                                             | both reviewer roles are the lane's own model; say so in the brief | `{{SPEC_REVIEWER_MODEL}}` and `{{QUALITY_REVIEWER_MODEL}}`          |
 
 A codex lane briefed with subagent instructions will improvise; match the
 tail to the kind. A cursor lane has subagents: brief it like claude, with
-the run's models, never claude's `sonnet` and `opus`.
+its own reviewer models, never claude's `sonnet` and `opus`.
 
 ## Switches
 

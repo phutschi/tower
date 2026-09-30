@@ -1665,12 +1665,17 @@ if section brief-cursor; then
   assert_match "brief: a cursor lane loads tdd from its own skill dirs" "$bt" 'own skill dirs: ~/\.agents/skills'
   assert_match "preflight: alone on cursor, one subagent per area in parallel" "$ps" 'Alone on cursor: one subagent per area, in parallel'
   assert_match "orchestrate: EXECUTOR_KIND names cursor" "$os" 'EXECUTOR_KIND=codex` or `EXECUTOR_KIND=cursor`'
-  assert_match "orchestrate: REVIEWER_KIND takes cursor" "$os" '^\| `REVIEWER_KIND` +\| other +\| claude, codex or cursor'
+  assert_match "orchestrate: REVIEWER_KIND takes cursor" "$os" '^\| `REVIEWER_KIND` +\| other +\| .*claude, codex or cursor: that kind reviews every lane'
   assert_match "orchestrate: the switches table has REVIEWER_BY_CREDITS" "$os" '^\| `REVIEWER_BY_CREDITS` +\| off +\|'
   assert_match "orchestrate: the Reviewer order covers cursor" "$os" 'cursor lane: claude, then codex'
   assert_match "orchestrate: red flag, cursor has subagents" "$os" '^\| Briefing a cursor lane .*subagents'
   assert_match "orchestrate: red flag, never answer cursor's trust box" "$os" "^\\| Answering a cursor lane's trust box .*--trust"
-  assert_nomatch "no cursor model id is written into the three files" "$bt$os$ps" 'grok-'
+  assert_nomatch "brief: the cursor variant names no claude model" "$(printf '%s\n' "$method" | sed -n 's/.*cursor: "\([^"]*\)".*/\1/p')" 'sonnet|opus'
+  assert_match "brief: a cursor lane in a run of another kind gets cursor's reviewer models" "$bt" 'SPEC_REVIEWER_MODEL_CURSOR'
+  assert_nomatch "no two-kind wording is left in the three files" "$bt$os$ps" 'both kinds|either kind|claude or codex|one Reviewer of each kind'
+  for m in $(sed -n 's/^[A-Z_]*_CURSOR=//p' "$KIT/model-defaults" | sort -u); do
+    case "$bt$os$ps" in *"$m"*) bad "no cursor default ($m) is written into the three files" ;; *) ok "no cursor default ($m) is written into the three files" ;; esac
+  done
 fi
 
 # --- look --------------------------------------------------------------------
