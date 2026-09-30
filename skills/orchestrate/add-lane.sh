@@ -169,10 +169,11 @@ PANE=$(echo "$moved" | jsonq 'd["result"].get("move_result", d["result"])["pane"
 # resume.
 # The read is checked on its own: grep's 1 is no line left, anything else a
 # failed read, which stops here with the map as it was.
-new_map=$(mktemp "$MAP.XXXXXX")
+rewrite_failed="add-lane: could not rewrite $MAP; lane $LANE's pane is $PANE: turn its unplaced line into  lane $LANE: $PANE  (the rest as it is) and rerun"
+new_map=$(mktemp "$MAP.XXXXXX") || die "$rewrite_failed"
 rc=0; grep -v "^unplaced lane $LANE:" "$MAP" > "$new_map" || rc=$?
 { [ "$rc" -le 1 ] && lane_line "$PANE" >> "$new_map"; } \
-  || { rm -f "$new_map"; die "add-lane: could not rewrite $MAP; lane $LANE's pane is $PANE: turn its unplaced line into  lane $LANE: $PANE  (the rest as it is) and rerun"; }
+  || { rm -f "$new_map"; die "$rewrite_failed"; }
 mv "$new_map" "$MAP"
 start_agent_with_trust_retry "$NAME" "$PANE" \
   || die "add-lane: agent $NAME did not start in $PANE; lane $LANE is in the pane map: rerun  $KIT/add-lane.sh $RUN_DIR $LANE $BRANCH $BASE $TASKS  to start it again"
