@@ -1233,18 +1233,27 @@ for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'],
   assert_match "look: an untracked file alone is no refusal" "$out" 'exit=0$'
   r=$(look_repo none local-base); reset_stub; out=$(look "$r" base "$F"); v=$(verdict "$F/look.json")
   assert_match "look: a base that is no remote branch is a skip row" "$v" '^base skip base is not a remote-tracking branch$'
-  assert_nomatch "look: ... and no remote is asked"      "$out" 'ls-remote|fatal'
+  git -C "$r" remote add origin "$TMP/repos/no-such-remote.git"
+  reset_stub; out=$(look "$r" base "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: ... even with a remote it cannot ask, which it does not ask" "$v" '^base skip base is not a remote-tracking branch$'
+  reset_stub; out=$(look "$r" "$(git -C "$r" rev-parse base)" "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: a base given as a commit is a skip row" "$v" '^base skip [0-9a-f]{40} is not a remote-tracking branch$'
   # The base: look.sh never fetches (a sandboxed Reviewer cannot write .git);
   # it asks the remote with ls-remote whether origin/<base> is current.
   r=$(look_repo none remote); git init -q --bare "$TMP/repos/look-remote.git"
   git -C "$r" remote add origin "$TMP/repos/look-remote.git"; git -C "$r" push -q origin base:refs/heads/main; git -C "$r" fetch -q origin
+  git -C "$r" push -q origin feat:refs/x/refs/heads/main   # ls-remote's pattern matches this too
   reset_stub; out=$(look "$r" origin/main "$F"); v=$(verdict "$F/look.json")
   assert_match "look: a current remote base is a pass row" "$v" "^base pass origin/main matches origin \($(git -C "$r" rev-parse --short base)\)$"
+  git -C "$r" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
+  reset_stub; out=$(look "$r" origin/HEAD "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: origin/HEAD is checked as the branch it points at" "$v" "^base pass origin/HEAD matches origin \($(git -C "$r" rev-parse --short base)\)$"
+  git -C "$r" config core.abbrev 12
   git -C "$r" push -q origin feat:refs/heads/main   # the remote moves on; origin/main is not fetched
   git -C "$r" update-ref refs/remotes/origin/main base; rm -f "$r/.git/FETCH_HEAD"
   reset_stub; out=$(look "$r" origin/main "$F"); v=$(verdict "$F/look.json")
   assert_eq "look: never fetches (a sandbox keeps .git read-only)" "$(git -C "$r" rev-parse origin/main):$([ -e "$r/.git/FETCH_HEAD" ] && echo fetched || echo none)" "$(git -C "$r" rev-parse base):none"
-  assert_match "look: a base behind its remote is a warn row, named stale" "$v" "^base warn base is stale: origin/main is $(git -C "$r" rev-parse --short base), origin has $(git -C "$r" rev-parse feat | cut -c1-7); fetch, then look again$"
+  assert_match "look: a base behind its remote is a warn row, named stale" "$v" "^base warn base is stale: origin/main is $(git -C "$r" rev-parse --short base), origin has $(git -C "$r" rev-parse --short feat); fetch, then look again$"
   assert_match "look: ... not a failure"                 "$out" 'exit=0$'
   git -C "$r" update-ref refs/remotes/origin/gone base   # fetched once, since deleted on the remote
   reset_stub; out=$(look "$r" origin/gone "$F"); v=$(verdict "$F/look.json")
@@ -1256,6 +1265,13 @@ for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'],
   assert_match "look: a remote it cannot ask is a warn row: base could not be refreshed" "$v" "^base warn base could not be refreshed: git ls-remote origin failed \(.+\); origin/main is $(git -C "$r" rev-parse --short base), as last fetched$"
   assert_match "look: ... not a setup error"             "$out" 'exit=0$'
   assert_match "look: ... and the rest of the look runs" "$v" '^semgrep pass $'
+  # An ssh remote must not wait on a passphrase or host-key prompt (ssh reads
+  # /dev/tty), nor on a network that drops packets.
+  printf '#!/bin/sh\necho "$*" >> "%s"; exit 255\n' "$TMP/ssh.log" > "$TMP/ssh-stub"; chmod +x "$TMP/ssh-stub"
+  git -C "$r" config core.sshCommand "$TMP/ssh-stub"; git -C "$r" remote set-url origin ssh://git.example.invalid/acme.git
+  reset_stub; out=$(look "$r" origin/main "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: ssh runs in batch mode, with a connect timeout" "$(cat "$TMP/ssh.log" 2>&1)" '-o BatchMode=yes -o ConnectTimeout=[0-9]+ .*git\.example\.invalid'
+  assert_match "look: ... and a failed ssh is base could not be refreshed" "$v" '^base warn base could not be refreshed: git ls-remote origin failed'
   unset CHECK_CMD SUITE_ORDER; unset -f look_repo findings verdict look
 fi
 

@@ -9,10 +9,12 @@
 #   base      whether <base-ref> is what its remote has now. look.sh never
 #             fetches (a sandboxed Reviewer cannot write .git; whoever runs
 #             look fetches first); it asks with  git ls-remote , which writes
-#             nothing. pass when they match; warn "base is stale" when the
-#             remote moved on; warn "base could not be refreshed" when the
-#             remote cannot be asked (no network, no such remote) or no longer
-#             has the branch; skip when <base-ref> is no remote-tracking branch.
+#             nothing, with ssh in batch mode and a 10-second connect
+#             timeout, so no prompt waits. pass when they match; warn "base
+#             is stale" when the remote moved on; warn "base could not be
+#             refreshed" when the remote cannot be asked (no network, no such
+#             remote) or no longer has the branch; skip when <base-ref> is no
+#             remote-tracking branch.
 #             Never a failure: the look goes on against the base as fetched.
 #   semgrep   its default rules (p/default), plus the repo's .semgrep/ when it
 #             exists, over the files the branch changed that are still in the
@@ -100,9 +102,12 @@ if [ -z "$REMOTE" ]; then
 else
   BRANCH=${BASE_REF#"refs/remotes/$REMOTE/"}
   LOCAL_SHA=$(git rev-parse --short "$BASE")
-  rc=0; GIT_TERMINAL_PROMPT=0 git ls-remote "$REMOTE" "refs/heads/$BRANCH" < /dev/null \
+  # No prompt may wait: git's own (https) nor ssh's, which reads /dev/tty.
+  SSH="${GIT_SSH_COMMAND:-$(git config core.sshCommand || echo ssh)} -o BatchMode=yes -o ConnectTimeout=10"
+  rc=0; GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="$SSH" git ls-remote "$REMOTE" "refs/heads/$BRANCH" < /dev/null \
     > "$WORK/ls-remote.out" 2> "$WORK/ls-remote.err" || rc=$?
-  REMOTE_SHA=$(cut -f1 "$WORK/ls-remote.out")
+  # The pattern also matches refs ending in it (refs/x/refs/heads/main): keep the exact one.
+  REMOTE_SHA=$(awk -v ref="refs/heads/$BRANCH" '$2 == ref { print $1 }' "$WORK/ls-remote.out")
   if [ "$rc" != 0 ]; then
     reason=$(grep -m1 . "$WORK/ls-remote.err" || true)  # git's first complaint
     verdict base warn "base could not be refreshed: git ls-remote $REMOTE failed (${reason:-exit $rc}); $BASE is $LOCAL_SHA, as last fetched"
@@ -111,7 +116,7 @@ else
   elif [ "$(git rev-parse "$BASE")" = "$REMOTE_SHA" ]; then
     verdict base pass "$BASE matches $REMOTE ($LOCAL_SHA)"
   else
-    verdict base warn "base is stale: $BASE is $LOCAL_SHA, $REMOTE has ${REMOTE_SHA:0:7}; fetch, then look again"
+    verdict base warn "base is stale: $BASE is $LOCAL_SHA, $REMOTE has ${REMOTE_SHA:0:${#LOCAL_SHA}}; fetch, then look again"
   fi
 fi
 

@@ -84,7 +84,8 @@ run, the `switches:` line of `panes.txt` has the values the run uses.
    is current. A `warn` there is an expected case, never a setup error: go
    on, and keep the row in your findings file so whoever triages sees it.
    `base could not be refreshed`: the remote could not be asked (no network,
-   as in a sandbox) and the look ran against the base as last fetched.
+   as in a sandbox) or no longer has the branch, and the look ran against
+   the base as last fetched.
    `base is stale`: the remote has moved on; alone, fetch and look again.
    If `git status --short --untracked-files=no` now lists files, the suite
    changed them: add a `should-fix` finding (area `suite`) naming them, and
