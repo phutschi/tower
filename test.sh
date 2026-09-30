@@ -915,7 +915,7 @@ if section add-reviewer; then
     assert_match "codex Reviewer, look dir under $what: refused" "$out" "its worktree dir .* is under $what"
     assert_match "... fails"                          "$out" 'exit=1$'
     assert_nomatch "... no agent start"               "$(cat "$HERDR_STUB_LOG")" '^herdr agent start'
-    rm -f "$S/bun-vitest-r1-1"
+    rm -f "$S/bun-vitest-r1-1"; rm -rf "$x"
   }
   grant_refused "the git dir" "$r/.git/xdg"
   git -C "$r" worktree add -q --detach "$LOOK_STATE/review-wt"
@@ -924,7 +924,7 @@ if section add-reviewer; then
   grant_refused "the run dir" "$RUN/xdg"
   grant_refused "the checkout" "$r/xdg"
   mkdir -p "$LOOK_STATE/review-tmp"; grant_refused "TMPDIR" "$LOOK_STATE/review-tmp/xdg" TMPDIR="$LOOK_STATE/review-tmp"
-  grant_refused "/tmp" "/tmp/tower-test-xdg.$$"; rm -rf "/tmp/tower-test-xdg.$$"
+  grant_refused "/tmp" "/tmp/tower-test-xdg.$$" TMPDIR="$LOOK_STATE/review-tmp"   # TMPDIR may be /tmp itself
   unset -f grant_refused
   rm -f "$S/bun-vitest-r1-1"
   assert_eq "R2: board task owned by R2"              "$(reviews "$RUN")" "R1-1@R1:Lane review A R2-1@R2:Lane review B"
@@ -1661,6 +1661,10 @@ for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'],
   assert_eq "look: ... nothing of look's in TMPDIR" "$(cat "$TMP/tmpdir-seen")" ""
   assert_match "look: ... a red step still fails the look" "$out" 'exit=1$'
   assert_match "look: ... and is in look.json" "$v" '^red fail exit 1'
+  # bash 3.2 (macOS) writes a here-doc or here-string to a temp file in TMPDIR
+  # and reads it back: look.sh has none, its verdict code is look.py beside it.
+  assert_eq "look: look.sh has no here-doc or here-string" "$(grep -c '<<' "$PREFLIGHT_DIR/look.sh")" 0
+  [ -f "$PREFLIGHT_DIR/look.py" ] && ok "look: ... its verdict code is look.py, beside it" || bad "look: ... its verdict code is look.py, beside it"
   # Suite changes are read by content: a file the install already changed,
   # and a file in a directory the install left, still count.
   r=$(look_repo none tree-install-then-suite)

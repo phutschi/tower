@@ -21,7 +21,8 @@ All notable changes to this project are documented here. The format follows
   worktree add --detach`, removed on every exit) under
   `$XDG_STATE_HOME/tower/look`, which no lane may write and only a codex
   Reviewer is granted (after `look.sh --dir`, the same check look makes);
-  look's verdict files live there too, never in TMPDIR: it reads the kit, the repo
+  look's verdict files live there too, never in TMPDIR, and its verdict
+  code is `look.py` beside it rather than a here-doc: it reads the kit, the repo
   contract and package.json there, installs with `INSTALL_CMD` there, and runs
   the scanners and the suite there. Untracked files, index bits and dirty kit
   files in the checkout no longer reach the look. What the suite changes is
