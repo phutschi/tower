@@ -1621,9 +1621,10 @@ fi
 # install.sh and the example repo contract know cursor, the user contract and
 # the credit guard.
 if section cursor-docs; then
-  out=$(HOME="$TMP/cd-home" CURSOR_STUB=absent "$ROOT/install.sh" --check 2>&1)
+  # TOWER_BIN_DIR in $TMP: install.sh puts it on PATH, never a real ~/.local/bin.
+  out=$(HOME="$TMP/cd-home" TOWER_BIN_DIR="$TMP/cd-home/bin" CURSOR_STUB=absent "$ROOT/install.sh" --check 2>&1)
   assert_match "install: cursor-agent is optional, for cursor lanes" "$out" '^  optional  cursor-agent lanes with EXECUTOR_KIND=cursor$'
-  assert_match "install: ... ok when it answers" "$(HOME="$TMP/cd-home" "$ROOT/install.sh" --check 2>&1)" '^  ok        cursor-agent \(optional\)$'
+  assert_match "install: ... ok when it answers" "$(HOME="$TMP/cd-home" TOWER_BIN_DIR="$TMP/cd-home/bin" "$ROOT/install.sh" --check 2>&1)" '^  ok        cursor-agent \(optional\)$'
   assert_nomatch "install: links no skill dir for cursor" "$(grep -E '^ *link ' "$ROOT/install.sh")" 'cursor'
   ex="$KIT/example.orchestrate"
   for key in 'EXECUTOR_KIND=cursor' 'EXECUTOR_MODEL_CURSOR=' 'EXECUTOR_MODEL_CLAUDE=' 'EXECUTOR_MODEL_CODEX=' 'REVIEWER_MODEL_CURSOR=' \

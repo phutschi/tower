@@ -288,7 +288,7 @@ start_answering_trust() {
 # CLI is cursor-agent (a plain cursor may be the editor).
 kind_installed() {
   local c=$1; [ "$c" != cursor ] || c=cursor-agent
-  command -v "$c" >/dev/null && "$c" --version >/dev/null 2>&1
+  command -v "$c" >/dev/null && "$c" --version </dev/null >/dev/null 2>&1
 }
 
 # The kinds that may review a lane of LANE_KIND, in order, one per line:

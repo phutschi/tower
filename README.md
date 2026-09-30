@@ -18,9 +18,8 @@ implements.
 3. `/tower:orchestrate <plan.md>`, from a pane in [herdr](https://herdr.dev)
    (a terminal for running coding agents side by side), opens the run. Each
    lane, up to four (A to D), gets an executor: Claude Code, Codex or Cursor
-   (`cursor-agent`). Lane A
-   works in your checkout, lanes B to D each in a worktree. The executors
-   implement and report each task to tower.
+   (`cursor-agent`). Lane A works in your checkout, lanes B to D each in a
+   worktree. The executors implement and report each task to tower.
 4. A Reviewer, a fresh agent that wrote none of the lane, reviews each
    finished lane; the orchestrator merges it. Preflight, a last review of the
    whole branch, follows. You triage its findings in one table, and a draft PR
@@ -43,9 +42,9 @@ to the close. `NO_COLOR` is respected.
 executor sessions yourself, in whatever tool you use; it briefs them, watches,
 and closes the run. It does not review, merge or open a PR. The skills use the
 open Agent Skills format. They are tested with Claude Code, and
-`/tower:orchestrate` can also run Codex and Cursor lanes, and
-[docs/orchestrate.md](docs/orchestrate.md) covers a user contract for your
-own run defaults and an opt-in credit guard for the Reviewer.
+`/tower:orchestrate` can also run Codex and Cursor lanes.
+[docs/orchestrate.md](docs/orchestrate.md) covers the user contract (your run
+defaults for every repo) and the opt-in credit guard.
 
 Or use the CLI on its own: `tower init` from a plan, `tower brief` for each
 executor, `tower` to watch. Executors report with `tower task`, `tower block`

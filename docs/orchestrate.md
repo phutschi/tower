@@ -66,8 +66,8 @@ git clone git@github.com:phutschi/tower.git ~/tools/tower
 ```
 
 That checks the dependencies (herdr, tower, git, bash, python3, node; claude,
-codex, cursor-agent, semgrep and gitleaks optional). tower is required and must run: a
-missing tower shows up here, not at the start of a run.
+codex, cursor-agent, semgrep and gitleaks optional). tower is required and
+must run: a missing tower shows up here, not at the start of a run.
 
 When tower is missing, install.sh fetches it. The primary path is the release
 binary for macOS or Linux (arm64 or x64) of this checkout's version, into
@@ -201,7 +201,7 @@ pane checks "make test-watch"     # pane NAME "COMMAND" [DIR]; NAME is checks or
 pane dev    "make dev" web
 EXECUTOR_KIND=codex               # the lanes' harness: claude (default), codex or cursor
 EXECUTOR_MODEL=gpt-6-astra        # the lanes' model, for this repo's runs
-EXECUTOR_MODEL_CURSOR=grok-4.7-high-fast  # a kind's default model (EXECUTOR_MODEL_<KIND>, REVIEWER_MODEL_<KIND>, ...)
+EXECUTOR_MODEL_CURSOR=grok-4.7-high-fast  # a kind's default model (see below)
 SPEC_REVIEWER_MODEL=sonnet        # the reviewer models tower records
 QUALITY_REVIEWER_MODEL=opus
 STALE=30                          # minutes before the console and tower wait flag a lane as stale
@@ -297,18 +297,26 @@ CLI (`EXECUTOR_KIND=cursor`, `cursor-agent`, model `grok-4.7-high-fast`) in
 `EXECUTOR_KIND=cursor` in that bootstrap or add-lane call. Mixed runs are
 fine.
 
-A cursor agent starts as
-`--model <m> --trust --force --disable-auto-update --add-dir <run-dir> --add-dir <git-common-dir>`:
-trusted, so no workspace trust box appears (herdr reads that box as idle and
-ready, and the brief would land in it; the kit never answers it with keys,
-and a cursor start still blocked there fails, asking you to check the pane);
-without approval prompts; without self-update for the run
-(`--disable-auto-update` is undocumented); and able to write the run dir and
-the common git dir. It gets no `--sandbox` flag, so your own cursor sandbox
-setting applies. One that exits right after its start is started once more,
-as the other kinds are. A cursor lane briefed with `METHOD=tdd` loads the tdd
-skill from `~/.agents/skills`, `~/.claude/skills` or `~/.codex/skills`; with
-it in none of them, the start prints how to link it.
+A cursor agent starts with these arguments:
+
+```
+--model <m> --trust --force --disable-auto-update
+--add-dir <run-dir> --add-dir <git-common-dir>
+```
+
+- `--trust`: no workspace trust box. herdr reads that box as idle and ready,
+  so the brief would land in it. The kit never answers it with keys; a start
+  still blocked there fails and asks you to check the pane.
+- `--force`: no approval prompts.
+- `--disable-auto-update`: no self-update during the run. The flag is
+  undocumented.
+- `--add-dir`: it may write the run dir and the common git dir.
+
+It gets no `--sandbox` flag, so your own cursor sandbox setting applies. One
+that exits right after its start is started once more, as the other kinds
+are. A cursor lane loads the tdd skill from `~/.agents/skills`,
+`~/.claude/skills` or `~/.codex/skills`. With it in none of them, the start
+prints how to link it.
 
 A codex agent runs in codex's workspace-write sandbox, with its startup update
 check off. Outside its checkout it may write the run dir and what a commit
@@ -353,17 +361,17 @@ gets a reply of another shape counts as enough credits. A candidate with less
 than `REVIEWER_CREDITS_MIN` % left (default 20) is skipped, and the record
 gets a tower note: `reviewer: skipped codex, 12% credits left`. With every
 candidate skipped, the lane's own kind reviews. The guard applies to lane
-reviews and preflight's slots alike. An explicit `REVIEWER_KIND` bypasses it,
-and with the guard off the kit never reads the keychain. Tokens are never
+reviews and preflight's Reviewer slots alike. A `REVIEWER_KIND` other than
+`other` bypasses it, and with the guard off the kit never reads the keychain. Tokens are never
 logged or written to the run dir. bootstrap's `reviewer:` line is a forecast
 made without probes; each review probes when it starts.
 
 ## Testing the kit
 
 `./test.sh` runs without herdr, claude, codex, cursor-agent, semgrep or
-gitleaks, and never reads the keychain or calls the network: stubs
-under `skills/orchestrate/tests/stub/` log what would be called, and the
-credit probes run against per-section fakes of `security` and `curl`. tower is the
+gitleaks, and never reads the keychain or calls the network: stubs under
+`skills/orchestrate/tests/stub/` log what would be called, and the credit
+probes run against per-section fakes of `security` and `curl`. tower is the
 real CLI from this checkout, run with bun, so a change to tower's commands or
 to `tower state --json` breaks the kit's tests in the same change.
 `DRY_RUN=1 skills/orchestrate/bootstrap.sh …` shows the same for a real repo,

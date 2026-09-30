@@ -9,12 +9,12 @@ All notable changes to this project are documented here. The format follows
 ### Added
 
 - The orchestrate kit runs lanes and Reviewers in Cursor's CLI
-  (`EXECUTOR_KIND=cursor`, `REVIEWER_KIND=cursor`; `cursor-agent`, on
-  `grok-4.7-high-fast` by default), started trusted, without approvals or
-  self-update, able to write the run dir and the common git dir. A run can mix
-  claude, codex and cursor lanes. The Reviewer is the first installed of an
-  ordered list: codex for a claude lane, claude for a codex lane, claude then
-  codex for a cursor lane.
+  (`cursor-agent`, `EXECUTOR_KIND=cursor`, `REVIEWER_KIND=cursor`). The
+  default model is `grok-4.7-high-fast`. A cursor agent starts trusted,
+  without approvals or self-update, and may write the run dir and the common
+  git dir. A run can mix claude, codex and cursor lanes. The Reviewer is the
+  first installed of an ordered list: codex for a claude lane, claude for a
+  codex lane, claude then codex for a cursor lane.
 - Model defaults are data: `skills/orchestrate/model-defaults`, keyed per kind
   (`EXECUTOR_MODEL_<KIND>`, `REVIEWER_MODEL_<KIND>`, ...). A user contract,
   `~/.config/tower/orchestrate`, sets one person's run defaults for every repo;
@@ -23,7 +23,6 @@ All notable changes to this project are documented here. The format follows
   `REVIEWER_CREDITS_MIN`, default 20%) skips a Reviewer kind nearly out of
   quota, read through undocumented endpoints and failing open, and notes each
   skip in the record (ADR 0013).
-
 - `tower ids <ids>` prints the ids a spec expands to, one per line, as
   `tower assign` would record them, and refuses an id the run lacks. It
   records nothing. Additive: a minor version.

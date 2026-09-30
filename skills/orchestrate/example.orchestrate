@@ -4,12 +4,11 @@
 # set in the environment of a bootstrap or add-lane call wins over this file.
 #
 # Your own run defaults for every repo go in the user contract,
-# ${XDG_CONFIG_HOME:-~/.config}/tower/orchestrate, in the same syntax: the
-# executor and Reviewer kinds, the per-kind models, STALE, the method and
-# review switches, and the credit guard. Precedence: the call's environment,
-# then this file, then the user contract, then the kit's model-defaults. The
-# user contract ignores this file's repo-only settings (check gate, install,
-# panes, suite, toolchain), with a warning.
+# ${XDG_CONFIG_HOME:-~/.config}/tower/orchestrate, in the same syntax. It may
+# set only the kinds, the per-kind models, STALE, the method and review
+# switches and the credit guard; anything else it names on stderr and
+# ignores. Precedence: the call's environment, then this file, then the user
+# contract, then the kit's model-defaults.
 
 # The check gate: one command every lane must pass before it commits a task.
 CHECK_CMD="bun run check"
@@ -27,27 +26,29 @@ pane checks "bun test --watch"
 # The lanes' harness (kind): claude (default), codex or cursor (cursor-agent).
 # EXECUTOR_KIND=cursor for one lane only goes in that add-lane call, so a run
 # can mix kinds.
-# EXECUTOR_KIND=codex
 # EXECUTOR_KIND=cursor
-# EXECUTOR_MODEL replaces the model of every lane this file's run opens; the
-# per-kind keys below set each kind's own default, and suit a mixed run.
-# EXECUTOR_MODEL=claude-opus-5-5[1m]
+# EXECUTOR_MODEL replaces the model of every lane of this repo's runs, of
+# whichever kind: pair it with the kind it names. The per-kind keys below
+# suit a mixed run.
+# EXECUTOR_MODEL=gpt-6-astra
 
-# Model defaults, per kind. The kit's own are in skills/orchestrate/model-defaults
-# (the values shown); set a key here, or in the user contract, to change it.
-# EXECUTOR_MODEL_CLAUDE=claude-opus-5-5[1m]
+# Model defaults, per kind. The kit's own are in
+# skills/orchestrate/model-defaults (the values shown); set a key here, or in
+# the user contract, to change it.
+# EXECUTOR_MODEL_CLAUDE='claude-opus-5-5[1m]'
 # EXECUTOR_MODEL_CODEX=gpt-6-astra
 # EXECUTOR_MODEL_CURSOR=grok-4.7-high-fast
-# The Reviewer's model per the Reviewer's kind; _CLAUDE_SELF when claude
-# reviews a claude lane (a codex Reviewer of a codex lane runs on the lane's model).
+# The Reviewer's model, per the Reviewer's kind. _CLAUDE_SELF is claude
+# reviewing a claude lane; a codex Reviewer of a codex lane runs on the
+# lane's model.
 # REVIEWER_MODEL_CLAUDE=claude-opus-5-5
 # REVIEWER_MODEL_CODEX=gpt-6-astra
 # REVIEWER_MODEL_CURSOR=grok-4.7-high-fast
 # REVIEWER_MODEL_CLAUDE_SELF=claude-fable-5-1
 
-# The reviewer models tower records for the run, and a lane's per-task
-# reviews use: per the run's executor kind (claude and codex: sonnet and opus;
-# cursor: grok-4.7-high-fast for both), or SPEC_/QUALITY_REVIEWER_MODEL for this run.
+# The spec and quality reviewer models: tower records them for the run, and
+# each lane's per-task reviews use them. Defaults per the run's executor
+# kind: sonnet and opus for claude and codex, grok-4.7-high-fast for cursor.
 # SPEC_REVIEWER_MODEL=sonnet
 # QUALITY_REVIEWER_MODEL=opus
 # SPEC_REVIEWER_MODEL_CURSOR=grok-4.7-high-fast
@@ -74,16 +75,20 @@ pane checks "bun test --watch"
 # STATIC_BASELINE=on    on | off    preflight scans the diff with semgrep and gitleaks
 # PR=draft              draft | ready | off    how the run's PR is opened, or no PR
 # METHOD=tdd            tdd | plain    plain briefs lanes without the tdd loop
-# REVIEWER_KIND=other   other | claude | codex | cursor    other: another kind than the
-#                       lane's (claude lane: codex; codex lane: claude; cursor lane:
-#                       claude, then codex), else the lane's own kind; cursor
-#                       reviews a claude or codex lane only when set here
+# REVIEWER_KIND=other   other | claude | codex | cursor
+#                       other: the first installed of the lane's candidates
+#                       (claude lane: codex; codex lane: claude; cursor lane:
+#                       claude, then codex), else the lane's own kind. cursor
+#                       reviews a claude or codex lane only when set here.
 # REVIEWER_MODEL=       the Reviewer's model; empty: the kit picks one per kind
-# REVIEWER_BY_CREDITS=off   off | on    the credit guard: skip a Reviewer kind nearly
-#                       out of quota. On, it reads OAuth tokens from the macOS
-#                       keychain and calls undocumented endpoints; unreadable
-#                       credits count as enough; each skip is a tower note
-# REVIEWER_CREDITS_MIN=20   0-100: the % left below which the guard skips a kind
+# REVIEWER_BY_CREDITS=off
+#                       off | on    the credit guard: skip a Reviewer kind
+#                       nearly out of quota. On, it reads claude's and
+#                       cursor's tokens from the macOS keychain and calls
+#                       undocumented endpoints. Unreadable credits count as
+#                       enough; each skip is a tower note.
+# REVIEWER_CREDITS_MIN=20
+#                       0-100: the % left below which the guard skips a kind
 # REVIEW_AREAS=         preflight's areas, comma-separated; empty: every area
 # SUITE_SKIP=           suite steps to skip, comma-separated (e.g. build)
 # PR_TEMPLATE=          a PR body template in the repo; empty: preflight's default

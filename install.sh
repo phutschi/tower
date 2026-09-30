@@ -16,9 +16,9 @@
 # ~/.local/bin, when it is missing), git, bash, python3 (reads herdr's JSON),
 # node (reads package.json in JS repos), curl (fetches tower). Optional: claude
 # (the plugin), codex (EXECUTOR_KIND=codex lanes), cursor-agent
-# (EXECUTOR_KIND=cursor lanes; it reads the skills linked for claude and codex,
-# so nothing more is linked), semgrep and gitleaks (preflight's static baseline). Running it again changes
-# nothing. A claude command, or a link or unlink of a skill, that fails is
+# (EXECUTOR_KIND=cursor lanes; it reads the skills linked for claude and
+# codex, so nothing more is linked), semgrep and gitleaks (preflight's static
+# baseline). Running it again changes nothing. A claude command, or a link or unlink of a skill, that fails is
 # printed as FAILED, and the install exits 1.
 set -u
 ROOT="$(cd "$(dirname "$0")" && pwd -P)"  # -P: run through a link, it still installs the real repo
@@ -91,10 +91,10 @@ if ! tower_ok; then
   elif [ "$CHECK_ONLY" = 0 ] && fetch_tower; then on_path
   fi
 fi
-have() { if command -v "$1" >/dev/null; then printf '  ok        %s\n' "$1"; else printf '  MISSING   %-8s %s\n' "$1" "$2"; ok=0; fi; }
-runs() { if tower_ok; then printf '  ok        tower\n'; else printf '  MISSING   %-8s %s\n' tower "the record and the console, and it must run — $TOWER_POINTER"; ok=0; fi; }
+have() { if command -v "$1" >/dev/null; then printf '  ok        %s\n' "$1"; else printf '  MISSING   %-12s %s\n' "$1" "$2"; ok=0; fi; }
+runs() { if tower_ok; then printf '  ok        tower\n'; else printf '  MISSING   %-12s %s\n' tower "the record and the console, and it must run — $TOWER_POINTER"; ok=0; fi; }
 # opt TOOL WHAT [PROBE-ARG]: with PROBE-ARG, the tool must also run (`TOOL PROBE-ARG`).
-opt()  { if command -v "$1" >/dev/null && { [ -z "${3:-}" ] || "$1" "$3" >/dev/null 2>&1; }; then printf '  ok        %s (optional)\n' "$1"; else printf '  optional  %-8s %s\n' "$1" "$2"; fi; }
+opt()  { if command -v "$1" >/dev/null && { [ -z "${3:-}" ] || "$1" "$3" </dev/null >/dev/null 2>&1; }; then printf '  ok        %s (optional)\n' "$1"; else printf '  optional  %-12s %s\n' "$1" "$2"; fi; }
 echo "dependencies:"
 have herdr   "the terminal this kit runs in"
 runs
