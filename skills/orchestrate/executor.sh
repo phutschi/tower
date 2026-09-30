@@ -5,7 +5,8 @@
 # EXECUTOR_MODEL overrides the kind's default model the same way. Every
 # default model is data: EXECUTOR_MODEL_<KIND> and the Reviewer's keys in
 # model-defaults (MODEL_DEFAULTS_FILE, default $KIT/model-defaults), which the
-# same key in the call's environment replaces (ADR 0012).
+# same key in the call's environment, the repo contract or the user contract
+# replaces, in that order (detect-stack.sh loads the two contracts; ADR 0012).
 #
 #   claude: started with --model.
 #   codex:  started with -m, no approval prompts (-a never), writes
@@ -49,8 +50,9 @@
 
 MODEL_DEFAULTS_FILE="${MODEL_DEFAULTS_FILE:-$KIT/model-defaults}"
 
-# KEY's default: its value in this shell (the call's environment) when set,
-# else the model-defaults file's (ADR 0012). A key neither sets fails,
+# KEY's default: its value in this shell (the call's environment, the repo
+# contract or the user contract) when set, else the model-defaults file's
+# (ADR 0012). A key neither sets fails,
 # saying so: a caller runs it as  v=$(model_default KEY) || exit 1 .
 model_default() {
   local key="$1"

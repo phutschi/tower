@@ -1282,6 +1282,75 @@ if section model-defaults; then
     "$(printf '%s\n' "$cursor_keys" | grep -cvE "^[A-Z_]+=['\"]?grok-[a-z0-9.-]+-fast['\"]?\$")" 0
 fi
 
+# --- user-contract -----------------------------------------------------------
+# One person's run defaults, ${XDG_CONFIG_HOME}/tower/orchestrate: under the
+# repo contract and the call's environment, over the kit's model-defaults.
+if section user-contract; then
+  UC="$TMP/uc-config"; mkdir -p "$UC/tower" "$TMP/uc-home/.codex/skills/tdd"
+  uc() { printf '%s\n' "$@" > "$UC/tower/orchestrate"; }
+  boot() { (cd "$1" && shift && env HOME="$TMP/uc-home" XDG_CONFIG_HOME="$UC" "$KIT/bootstrap.sh" "$@" 2>&1); }
+  lane_a() { sed -nE 's/^lane A: .*, kind ([a-z]+), .*, model (.*)\)$/\1 \2/p' "$1/panes.txt"; }
+  uc EXECUTOR_MODEL_CODEX=codex-user
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-uc-model"; reset_stub
+  out=$(EXECUTOR_KIND=codex boot "$r" "$RUN" "User" main)
+  assert_eq "user contract: its EXECUTOR_MODEL_CODEX is a codex lane's model" "$(lane_a "$RUN")" "codex codex-user"
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-uc-repo"; echo EXECUTOR_MODEL_CODEX=codex-repo > "$r/.orchestrate"
+  out=$(EXECUTOR_KIND=codex boot "$r" "$RUN" "User" main)
+  assert_eq "user contract: the repo contract wins over it" "$(lane_a "$RUN")" "codex codex-repo"
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-uc-env"; echo EXECUTOR_MODEL_CODEX=codex-repo > "$r/.orchestrate"
+  out=$(EXECUTOR_KIND=codex EXECUTOR_MODEL_CODEX=codex-env boot "$r" "$RUN" "User" main)
+  assert_eq "user contract: bootstrap's environment wins over both" "$(lane_a "$RUN")" "codex codex-env"
+  # add-lane reads the user contract too; the run's repo contract and the
+  # call's environment win over it.
+  lane() { (cd "$1" && shift && env HOME="$TMP/uc-home" XDG_CONFIG_HOME="$UC" "$@" 2>&1); }
+  lane_of() { sed -nE "s/^lane $2: .*, kind ([a-z]+), .*, model (.*)\\)\$/\\1 \\2/p" "$1/panes.txt"; }
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-uc-lanes"
+  out=$(boot "$r" "$RUN" "Lanes" main "$KIT/example-tasks.tsv")
+  out=$(lane "$r" EXECUTOR_KIND=codex "$KIT/add-lane.sh" "$RUN" B feat/b main 2)
+  out=$(lane "$r" EXECUTOR_KIND=codex EXECUTOR_MODEL_CODEX=codex-env "$KIT/add-lane.sh" "$RUN" C feat/c main 3)
+  assert_eq "user contract: an add-lane call reads it" "$(lane_of "$RUN" B)" "codex codex-user"
+  assert_eq "user contract: an add-lane call's environment wins over it" "$(lane_of "$RUN" C)" "codex codex-env"
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-uc-lanes-repo"; echo EXECUTOR_MODEL_CODEX=codex-repo > "$r/.orchestrate"
+  out=$(boot "$r" "$RUN" "Lanes" main "$KIT/example-tasks.tsv")
+  out=$(lane "$r" EXECUTOR_KIND=codex "$KIT/add-lane.sh" "$RUN" B feat/b main 2)
+  assert_eq "user contract: an add-lane call's repo contract wins over it" "$(lane_of "$RUN" B)" "codex codex-repo"
+  rm -f "$UC/tower/orchestrate"
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-uc-none"
+  out=$(EXECUTOR_KIND=codex boot "$r" "$RUN" "User" main)
+  assert_eq "user contract: without one, the defaults file's value" "$(lane_a "$RUN")" "codex gpt-6-astra"
+  assert_nomatch "user contract: a missing file is silent" "$out" 'tower/orchestrate'
+  uc EXECUTOR_KIND=codex LANE_REVIEW=off
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-uc-kind"
+  out=$(boot "$r" "$RUN" "User" main)
+  assert_eq "user contract: its EXECUTOR_KIND makes the lanes codex" "$(lane_a "$RUN")" "codex gpt-6-astra"
+  assert_match "user contract: its run switch is in the switches: line" "$(cat "$RUN/panes.txt")" '^switches: .* LANE_REVIEW=off '
+  uc REVIEWER_MODEL_CODEX=rev-user
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-uc-rev"
+  out=$(boot "$r" "$RUN" "User" main)
+  assert_match "user contract: its REVIEWER_MODEL_CODEX is a codex Reviewer's model" "$(cat "$RUN/panes.txt")" '^reviewer: +kind codex, model rev-user$'
+  # Repo-only keys and unknown keys are named, and ignored.
+  detect_in() { (cd "$1" && env XDG_CONFIG_HOME="$UC" bash -c ". \"\$KIT/common.sh\"; . \"\$KIT/detect-stack.sh\"; $2" 2>&1); }
+  r=$(fixture_repo bun-vitest)
+  for key in CHECK_CMD INSTALL_CMD PM TYPECHECK_TASK TEST_PKG TEST_FILTER; do
+    uc "$key=from-user"
+    out=$(detect_in "$r" "echo \"[\$$key]\"")
+    assert_match "user contract: repo-only $key is named, with the file" "$out" "^$UC/tower/orchestrate: '$key' is a repo contract setting"
+    assert_nomatch "user contract: ... and ignored" "$out" '^\[from-user\]$'
+  done
+  uc 'pane checks "make watch"' 'suite lint "make lint"'
+  out=$(detect_in "$r" 'echo "${PANE_CMDS[*]}|${#SUITE_NAMES[@]}"')
+  assert_match "user contract: repo-only pane is named" "$out" "^$UC/tower/orchestrate: 'pane' is a repo contract setting"
+  assert_match "user contract: repo-only suite is named" "$out" "^$UC/tower/orchestrate: 'suite' is a repo contract setting"
+  assert_match "user contract: ... and both ignored" "$out" '^bunx vitest --watch\|0$'
+  uc EXECUTOR_MODEL=lane-m
+  out=$(detect_in "$r" 'echo "[${EXECUTOR_MODEL:-}]"')
+  assert_match "user contract: an unsuffixed model is ignored, pointing to the per-kind key" "$out" \
+    "^$UC/tower/orchestrate: 'EXECUTOR_MODEL' is a repo contract setting; ignored here \\(set EXECUTOR_MODEL_<KIND>"
+  assert_match "user contract: ... and not read" "$out" '^\[\]$'
+  uc MODLE=x
+  assert_match "user contract: an unknown key is named" "$(detect_in "$r" true)" "^$UC/tower/orchestrate: 'MODLE' is not a setting the kit reads"
+fi
+
 # --- watch -------------------------------------------------------------------
 if section watch; then
   S="$HERDR_STUB_STATES_DIR"

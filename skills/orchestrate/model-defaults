@@ -1,6 +1,7 @@
 # The kit's default models, keyed per kind (ADR 0012). Plain KEY=value bash,
 # read by executor.sh model_default, never by hand. The same key set in the
-# environment of a kit call wins over the one here. A new model is a change
+# environment of a kit call, the repo contract or the user contract wins over
+# the one here. A new model is a change
 # to this file, not to the kit's logic.
 
 # The lanes' model, per the lane's kind.

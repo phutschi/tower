@@ -1,7 +1,15 @@
 #!/usr/bin/env bash
-# The repo contract and the JS default. Sourced (after common.sh) with $PWD at
-# the checkout. Resolution for every value: environment > .orchestrate >
-# detection > built-in default.
+# The repo contract, the user contract and the JS default. Sourced (after
+# common.sh) with $PWD at the checkout. Resolution for every value:
+# environment > .orchestrate > user contract > detection > built-in default.
+#
+# The user contract, USER_CONTRACT_FILE (${XDG_CONFIG_HOME:-~/.config}/tower/orchestrate),
+# is one person's run defaults for every repo, in the same syntax. It may set
+# only USER_CONTRACT_VARS: EXECUTOR_KIND, the per-kind model keys and
+# REVIEWER_CREDITS_MIN (model-defaults' keys), STALE, and the switches
+# TASK_REVIEW LANE_REVIEW PREFLIGHT STATIC_BASELINE METHOD REVIEWER_KIND. Any
+# other name, a pane or a suite line is named on stderr and ignored; a missing
+# file is silent. It is read on every call, never pinned.
 #
 # .orchestrate is plain bash in the repo root (see example.orchestrate):
 #   CHECK_CMD="bun run check"           the check gate; one-shot, must pass before a commit
@@ -50,7 +58,11 @@
 #       every switch above, exported; switches_line prints them all on one line,
 #       NAME=value, a value with spaces or quotes single-quoted the shell's way
 
-CONTRACT_VARS="EXECUTOR_KIND EXECUTOR_MODEL SPEC_REVIEWER_MODEL QUALITY_REVIEWER_MODEL STALE PM TYPECHECK_TASK CHECK_CMD INSTALL_CMD TEST_PKG TEST_FILTER $SWITCHES"
+# The per-kind model keys and the credit threshold: model-defaults' keys.
+MODEL_KEYS=$(sed -n 's/^\([A-Z_]*\)=.*/\1/p' "$KIT/model-defaults" | tr '\n' ' ')
+CONTRACT_VARS="EXECUTOR_KIND EXECUTOR_MODEL SPEC_REVIEWER_MODEL QUALITY_REVIEWER_MODEL STALE PM TYPECHECK_TASK CHECK_CMD INSTALL_CMD TEST_PKG TEST_FILTER $SWITCHES $MODEL_KEYS"
+USER_CONTRACT_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/tower/orchestrate"
+USER_CONTRACT_VARS="EXECUTOR_KIND STALE TASK_REVIEW LANE_REVIEW PREFLIGHT STATIC_BASELINE METHOD REVIEWER_KIND $MODEL_KEYS"
 PANE_NAMES=(); PANE_CMDS=(); PANE_DIRS=()
 SUITE_NAMES=(); SUITE_CMDS=(); SUITE_DIRS=()
 # The contract file; the kit's old name for it still works, with a note.
@@ -87,25 +99,58 @@ if [ -n "${CONTRACT_RUN:-}" ]; then  # pinned: never a checkout's file (header)
 elif [ -f "$CONTRACT_FILE" ]; then
   _kit_contract="./$CONTRACT_FILE"
 fi
+# Environment first: remember what the call set, apply the user contract,
+# source the repo contract, put the call's values back.
+_env=()
+for _v in $CONTRACT_VARS; do [ -z "${!_v+set}" ] || _env+=("$_v=${!_v}"); done
+# The user contract, read in a subshell: only USER_CONTRACT_VARS come back,
+# as NUL-separated name and value. Any other name it sets, and a pane or suite
+# line, is named on stderr and ignored.
+_user_contract() {
+  local _v _before
+  for _v in $CONTRACT_VARS; do unset "$_v"; done
+  pane()  { echo "$USER_CONTRACT_FILE: 'pane' is a repo contract setting; ignored here" >&2; }
+  suite() { echo "$USER_CONTRACT_FILE: 'suite' is a repo contract setting; ignored here" >&2; }
+  _before="$(compgen -v | sort)"
+  # shellcheck source=/dev/null  # the user's own file
+  . "$USER_CONTRACT_FILE" >&2
+  for _v in $(comm -13 <(echo "$_before") <(compgen -v | sort) | { grep -v '^_' || true; }); do
+    case " $USER_CONTRACT_VARS " in
+      *" $_v "*) printf '%s\0%s\0' "$_v" "${!_v}" ;;
+      *) case "$_v" in
+           EXECUTOR_MODEL|REVIEWER_MODEL|SPEC_REVIEWER_MODEL|QUALITY_REVIEWER_MODEL)
+             echo "$USER_CONTRACT_FILE: '$_v' is a repo contract setting; ignored here (set ${_v}_<KIND>, e.g. ${_v}_CLAUDE)" >&2 ;;
+           *) case " $CONTRACT_VARS " in
+                *" $_v "*) echo "$USER_CONTRACT_FILE: '$_v' is a repo contract setting; ignored here" >&2 ;;
+                *) echo "$USER_CONTRACT_FILE: '$_v' is not a setting the kit reads (see example.orchestrate)" >&2 ;;
+              esac ;;
+         esac ;;
+    esac
+  done
+}
+if [ -f "$USER_CONTRACT_FILE" ]; then
+  while IFS= read -r -d '' _k && IFS= read -r -d '' _val; do
+    printf -v "$_k" '%s' "$_val"
+  done < <(_user_contract)
+  unset _k _val
+fi
+unset -f _user_contract
 if [ -n "$_kit_contract" ]; then
-  # Environment first: remember what the call set, source the file, put the
-  # call's values back. Unknown names in the file are left alone but named,
-  # so a typo does not pass silently.
-  _env=()
-  for _v in $CONTRACT_VARS; do [ -z "${!_v+set}" ] || _env+=("$_v=${!_v}"); done
+  # Unknown names in the file are left alone but named, so a typo does not
+  # pass silently.
   _before="$(compgen -v | sort)"
   # shellcheck source=/dev/null  # the repo's own file
   . "$_kit_contract"
-  for _kv in ${_env[@]+"${_env[@]}"}; do export "$_kv"; done
   # grep finds nothing when the file adds no names (only pane and suite lines);
   # that is not an error for a caller running under set -e and pipefail.
   _new="$(comm -13 <(echo "$_before") <(compgen -v | sort) | { grep -vE '^(_|PANE_)' || true; })"
   for _v in $_new; do
     case " $CONTRACT_VARS " in *" $_v "*) ;; *) echo "$CONTRACT_FILE: '$_v' is not a setting the kit reads (see example.orchestrate)" >&2 ;; esac
   done
-  unset _env _v _kv _before _new
+  unset _before _new
 fi
-unset _kit_contract
+for _kv in ${_env[@]+"${_env[@]}"}; do export "$_kv"; done
+unset _kit_contract _env _v _kv
 
 # --- package manager ---------------------------------------------------------
 if [ -z "${PM:-}" ]; then
