@@ -46,7 +46,10 @@
 #     review tab:     <tab-id>   (R1 <pane-id>, R2 <pane-id>)   once, on the first call
 #     reviewer R1:    <pane-id>   (agent "<name>", kind <kind>, model <model>, review "<title>", findings <file>)
 #   one reviewer line per slot, replaced by each new review in that slot;
-#   the directory of <findings-file>.
+#   the directory of <findings-file>;
+#   for a codex Reviewer, <run-dir>/tmp: the commands it runs get it as
+#   TMPDIR, BUN_TMPDIR, BUN_INSTALL_CACHE_DIR and npm_config_cache, since its
+#   sandbox writes only the checkout and the run dir (executor.sh AGENT_TMP).
 #
 # The Reviewer ends its report with  [[FINDINGS WRITTEN]] <findings-file>;
 # watch-lanes.sh then reads it as idle-after-final-report. The review tab and
@@ -203,6 +206,9 @@ PANE=$(slot_pane "$SLOT")
 # --- a fresh Reviewer in the slot ---------------------------------------------
 NAME="$(cd "$REPO" && agent_name "-$(echo "$SLOT" | tr 'A-Z' 'a-z')-$N")"
 mkdir -p "$(dirname "$FINDINGS")"
+# A codex Reviewer's sandbox writes only the checkout and the run dir: its
+# temp files and package caches (bunx, npm) go to the run dir's tmp.
+if [ "$R_KIND" = codex ]; then AGENT_TMP="$RUN_DIR/tmp"; mkdir -p "$AGENT_TMP"; fi
 ( cd "$REPO" && start_agent_with_trust_retry "$NAME" "$PANE" )
 
 LINE=$(printf 'reviewer %s:    %s   (agent "%s", kind %s, model %s, review "%s", findings %s)' \

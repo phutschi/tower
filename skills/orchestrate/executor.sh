@@ -12,6 +12,10 @@
 #           repo's common git dir (a lane worktree commits into it). Its
 #           startup update check is off (-c check_for_update_on_startup=false):
 #           a codex that updates itself on start exits before its brief.
+#           AGENT_TMP=<dir> (add-reviewer.sh sets it for a codex Reviewer)
+#           gives the commands it runs that dir as TMPDIR, BUN_TMPDIR,
+#           BUN_INSTALL_CACHE_DIR and npm_config_cache, through codex's
+#           shell_environment_policy: the defaults are outside its sandbox.
 #
 # Expects `set -u`; provides agent_name SUFFIX, start_agent NAME PANE,
 # start_agent_with_trust_retry NAME PANE (it returns once the agent accepts
@@ -67,11 +71,20 @@ start_agent() {
       local extra=()
       [ -n "${RUN_DIR:-}" ] && extra+=(--add-dir "$RUN_DIR")
       extra+=(--add-dir "$(git rev-parse --path-format=absolute --git-common-dir)")
+      if [ -n "${AGENT_TMP:-}" ]; then
+        local v q; q=$(toml_string "$AGENT_TMP")
+        for v in TMPDIR BUN_TMPDIR BUN_INSTALL_CACHE_DIR npm_config_cache; do
+          extra+=(-c "shell_environment_policy.set.$v=$q")
+        done
+      fi
       herdr agent start "$name" --kind codex --pane "$pane" -- -m "$EXECUTOR_MODEL" \
         -a never -s workspace-write -c sandbox_workspace_write.network_access=true \
         -c check_for_update_on_startup=false "${extra[@]}" ;;
   esac
 }
+
+# S as a TOML basic string, for a codex -c value.
+toml_string() { local s=${1//\\/\\\\}; printf '"%s"' "${s//\"/\\\"}"; }
 
 # A new pane's shell may not be ready yet when the agent starts: herdr answers
 # agent_pane_busy. Try again once a second, START_TRIES times in all (default 10).

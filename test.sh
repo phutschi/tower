@@ -154,6 +154,8 @@ if section executor; then
   start() { local n=$1; shift; reset_stub; (cd "$r" && env HOME="$TMP/rev-home" EXECUTOR_KIND=codex "$@" bash -c ". \"\$KIT/common.sh\"; . \"\$KIT/executor.sh\"; start_agent_with_trust_retry $n pane-9; echo \"exit=\$?\"" 2>&1); }
   out=$(start acme-lane-a)
   assert_match "codex start: its startup update check is off" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start acme-lane-a --kind codex --pane pane-9 -- .* -c check_for_update_on_startup=false( |$)'
+  out=$(start acme-lane-a 'AGENT_TMP=/run/it"s \tmp')
+  assert_match "AGENT_TMP: a TOML string, quote and backslash escaped" "$(cat "$HERDR_STUB_LOG")" '-c shell_environment_policy\.set\.TMPDIR="/run/it\\"s \\\\tmp"'
   # An agent that exits right after its start (codex updating itself, say)
   # is started once more; gone again, the start fails, saying so.
   printf 'gone\nidle\n' > "$HERDR_STUB_STATES_DIR/acme-lane-a.started"
@@ -692,11 +694,18 @@ if section add-reviewer; then
   assert_eq "R1: the review is a board task owned by the slot" "$(reviews "$RUN")" "R1-1@R1:Lane review A"
   assert_match "R1: prints the task id and the next step" "$out" 'reviewer R1 ready \(task R1-1\): agent bun-vitest-r1-1'
   [ -d "$RUN/findings" ] && ok "R1: the findings dir exists" || bad "R1: the findings dir exists"
+  # A codex Reviewer's temp files and package caches go to the run dir, which
+  # its sandbox can write: the commands it runs get them in their environment.
+  for v in TMPDIR BUN_TMPDIR BUN_INSTALL_CACHE_DIR npm_config_cache; do
+    assert_match "codex Reviewer: $v is the run dir's tmp" "$log" "^herdr agent start bun-vitest-r1-1 .* -c shell_environment_policy\\.set\\.$v=\"$RUN/tmp\"( |\$)"
+  done
+  [ -d "$RUN/tmp" ] && ok "codex Reviewer: the run dir's tmp exists" || bad "codex Reviewer: the run dir's tmp exists"
 
   reset_stub; out=$(review R2 codex "Lane review B" "$RUN/findings/lane-b.json"); log=$(cat "$HERDR_STUB_LOG")
   assert_nomatch "second call: no new tab"            "$log" '^herdr tab create'
   assert_nomatch "second call: no new pane"           "$log" '^herdr pane split'
   assert_match "R2: a codex lane gets a claude Reviewer in the R2 pane" "$log" '^herdr agent start bun-vitest-r2-1 --kind claude --pane pane-2 -- --model claude-opus-5-5$'
+  assert_nomatch "claude Reviewer: no codex environment" "$log" 'shell_environment_policy'
   assert_eq "R2: board task owned by R2"              "$(reviews "$RUN")" "R1-1@R1:Lane review A R2-1@R2:Lane review B"
   assert_eq "pane map: one review tab line"           "$(grep -c '^review tab:' "$RUN/panes.txt")" 1
 
