@@ -243,7 +243,8 @@ call.
 
 ## Reviewer order
 
-A Reviewer is never the lane's own kind while another is installed:
+A Reviewer is the first installed kind in the lane's list, never the lane's
+own kind while one of the list is installed:
 
 - claude lane: codex
 - codex lane: claude
