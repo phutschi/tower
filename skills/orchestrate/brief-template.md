@@ -46,7 +46,7 @@ model from memory.
 
 A codex lane briefed with subagent instructions will improvise; match the
 tail to the kind. A cursor lane has subagents: brief it like claude, with
-its own reviewer models, never claude's `sonnet` and `opus`.
+its own reviewer models, never the claude column's.
 
 ## Switches
 

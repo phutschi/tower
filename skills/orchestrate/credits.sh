@@ -17,8 +17,8 @@
 # macOS asks, the probe times out and prints nothing.
 #
 #   claude: the token in the keychain item "Claude Code-credentials"
-#           (claudeAiOauth.accessToken; a CLAUDE_CONFIG_DIR names another item,
-#           which is not read), then Anthropic's OAuth usage endpoint
+#           (claudeAiOauth.accessToken; with CLAUDE_CONFIG_DIR set, the
+#           account is another item's, and the probe prints nothing), then Anthropic's OAuth usage endpoint
 #           (api.anthropic.com/api/oauth/usage, internal): the least of
 #           100 - utilization over five_hour and seven_day.
 #   codex:  no token: `codex app-server` over stdio JSON-RPC (initialize,
@@ -66,6 +66,7 @@ if used: print(max(0, min(100, math.floor(100 - max(used)))))'
 
 _credits_claude() {
   local creds tok
+  [ -z "${CLAUDE_CONFIG_DIR:-}" ] || return 0
   creds=$(security find-generic-password -s 'Claude Code-credentials' -w 2>/dev/null) || return 0
   tok=$(printf '%s' "$creds" | python3 -c 'import json,sys; print(json.load(sys.stdin)["claudeAiOauth"]["accessToken"])' 2>/dev/null) || return 0
   printf 'Authorization: Bearer %s\nanthropic-beta: oauth-2025-04-20\n' "$tok" \

@@ -62,8 +62,9 @@ unset HERDR_PANE_ID HERDR_TAB_ID
 # config stay in $TMP, never the user's.
 export XDG_STATE_HOME="$LOOK_STATE/xdg-state" XDG_CONFIG_HOME="$TMP/xdg-config"
 unset TOWER_RUN
-# The credit probes' knobs (credits.sh, the codex stub's app-server).
-unset CREDITS_TIMEOUT CODEX_STUB_RATE_LIMITS
+# The credit probes' knobs (credits.sh, the codex stub's app-server; the
+# claude probe reads nothing under a CLAUDE_CONFIG_DIR).
+unset CREDITS_TIMEOUT CODEX_STUB_RATE_LIMITS CLAUDE_CONFIG_DIR
 # The repo contract's names and the run switches: the fixtures decide them,
 # not the shell test.sh is started from (a codex lane exports EXECUTOR_KIND).
 unset EXECUTOR_KIND EXECUTOR_MODEL SPEC_REVIEWER_MODEL QUALITY_REVIEWER_MODEL STALE PM TYPECHECK_TASK \
@@ -1604,6 +1605,7 @@ SH
   assert_eq "claude: the tightest of the 5-hour and 7-day windows" "$(credits claude)" 15
   assert_match "claude: ... asked with curl -f, so an error status fails" "$(tail -1 "$CB/curl.log")" '^-sf '
   assert_eq "claude: a 401 prints nothing" "$(FAKE_CURL_STATUS=401 credits claude)" ""
+  assert_eq "claude: with CLAUDE_CONFIG_DIR, another account's item, nothing" "$(CLAUDE_CONFIG_DIR="$TMP/claude-other" credits claude)" ""
   rm "$CB/keychain/Claude Code-credentials"
   assert_eq "claude: a missing keychain item prints nothing" "$(credits claude)" ""
 
@@ -1672,6 +1674,7 @@ if section brief-cursor; then
   assert_match "orchestrate: red flag, never answer cursor's trust box" "$os" "^\\| Answering a cursor lane's trust box .*--trust"
   assert_nomatch "brief: the cursor variant names no claude model" "$(printf '%s\n' "$method" | sed -n 's/.*cursor: "\([^"]*\)".*/\1/p')" 'sonnet|opus'
   assert_match "brief: a cursor lane in a run of another kind gets cursor's reviewer models" "$bt" 'SPEC_REVIEWER_MODEL_CURSOR'
+  assert_nomatch "orchestrate: a cursor lane is never sent to the run's roles alone" "$os" "cursor.*run's reviewer models|run's .spec-reviewer. and .quality-reviewer. models"
   assert_nomatch "no two-kind wording is left in the three files" "$bt$os$ps" 'both kinds|either kind|claude or codex|one Reviewer of each kind'
   for m in $(sed -n 's/^[A-Z_]*_CURSOR=//p' "$KIT/model-defaults" | sort -u); do
     case "$bt$os$ps" in *"$m"*) bad "no cursor default ($m) is written into the three files" ;; *) ok "no cursor default ($m) is written into the three files" ;; esac

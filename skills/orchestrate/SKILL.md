@@ -296,29 +296,29 @@ is still working. The next `FINDINGS WRITTEN` frees a slot.
   then everything stays on this machine.
 - Reviewers only report; their findings go through you.
 - The brief's review tail matches the lane's kind (panes.txt): review
-  subagents for claude and cursor (cursor's on the run's reviewer models),
+  subagents for claude and cursor (cursor's on its own reviewer models),
   self-review with the code-review skill for codex.
 - Never close a pane you did not create; never close the console pane;
   close nothing until the user says so.
 
 ## Common mistakes
 
-| Mistake                                                          | Instead                                                                                                |
-| ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| Hand-rolling `herdr pane split` and `herdr agent start`          | Run `bootstrap.sh`; the layout and pane map are its job                                                |
-| Briefing before the task list exists                             | Load or derive it first; the board is the plan                                                         |
-| Drip-feeding one task per prompt                                 | One brief per lane with all its tasks; "do not stop between tasks" is in the template                  |
-| Briefing with the plan alone                                     | Brief = template judgement + derived part; method, other lanes, merge points, reporting                |
-| Letting a lane `tower add`                                       | The boundary sentence stays in every brief; a discovered task goes through you                         |
-| Waiting for lane A to merge lane B                               | You merge B into the integration branch after its lane review                                          |
-| Sleeping and re-reading panes                                    | The two watches in `run_in_background`; act only when one exits                                        |
-| Closing panes during teardown                                    | Nothing closes until the user says so; the console never                                               |
-| A second run in a repo with an open one                          | tower refuses; `tower close` the old one first                                                         |
-| Briefing a codex lane with subagent review instructions          | Codex has no subagents; it reviews its own diff with the code-review skill                             |
-| Briefing a cursor lane with self-review, or with claude's models | cursor has subagents: review subagents on the run's `spec-reviewer` and `quality-reviewer` models      |
-| Answering a cursor lane's trust box                              | Never send it keys: the kit starts cursor with `--trust`; a trust box means check the pane             |
-| Merging a lane the moment it reports ready                       | Lane review first (unless `LANE_REVIEW=off`)                                                           |
-| Asking the user about each lane-review finding                   | Triage alone; deferred findings wait for the one preflight table                                       |
-| Reusing a Reviewer for a second review                           | `add-reviewer.sh` again: every review gets a fresh agent                                               |
-| One findings file for every round of a lane                      | `lane-<X>-<n>.json`: a new round never overwrites deferred findings                                    |
-| Watching a lane by its bare name after a fix prompt              | `<agent>:<n>`, the fix prompt's report round: the old marker still in the pane reads as done otherwise |
+| Mistake                                                          | Instead                                                                                                   |
+| ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| Hand-rolling `herdr pane split` and `herdr agent start`          | Run `bootstrap.sh`; the layout and pane map are its job                                                   |
+| Briefing before the task list exists                             | Load or derive it first; the board is the plan                                                            |
+| Drip-feeding one task per prompt                                 | One brief per lane with all its tasks; "do not stop between tasks" is in the template                     |
+| Briefing with the plan alone                                     | Brief = template judgement + derived part; method, other lanes, merge points, reporting                   |
+| Letting a lane `tower add`                                       | The boundary sentence stays in every brief; a discovered task goes through you                            |
+| Waiting for lane A to merge lane B                               | You merge B into the integration branch after its lane review                                             |
+| Sleeping and re-reading panes                                    | The two watches in `run_in_background`; act only when one exits                                           |
+| Closing panes during teardown                                    | Nothing closes until the user says so; the console never                                                  |
+| A second run in a repo with an open one                          | tower refuses; `tower close` the old one first                                                            |
+| Briefing a codex lane with subagent review instructions          | Codex has no subagents; it reviews its own diff with the code-review skill                                |
+| Briefing a cursor lane with self-review, or with claude's models | cursor has subagents: review subagents on cursor's reviewer models (`brief-template.md`, "Executor kind") |
+| Answering a cursor lane's trust box                              | Never send it keys: the kit starts cursor with `--trust`; a trust box means check the pane                |
+| Merging a lane the moment it reports ready                       | Lane review first (unless `LANE_REVIEW=off`)                                                              |
+| Asking the user about each lane-review finding                   | Triage alone; deferred findings wait for the one preflight table                                          |
+| Reusing a Reviewer for a second review                           | `add-reviewer.sh` again: every review gets a fresh agent                                                  |
+| One findings file for every round of a lane                      | `lane-<X>-<n>.json`: a new round never overwrites deferred findings                                       |
+| Watching a lane by its bare name after a fix prompt              | `<agent>:<n>`, the fix prompt's report round: the old marker still in the pane reads as done otherwise    |

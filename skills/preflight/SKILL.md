@@ -134,8 +134,7 @@ run, the `switches:` line of `panes.txt` has the values the run uses.
      Reviewer's model, passed explicitly on every dispatch: `REVIEWER_MODEL`
      when set, else `REVIEWER_MODEL_CURSOR` (the environment, the repo
      contract, the user contract, then `../orchestrate/model-defaults`
-     beside this skill). Its prompt holds
-     what claude's does.
+     beside this skill). Its prompt holds what claude's does.
    - Alone on codex: the areas one after another, each to
      `<findings-dir>/<area>.json`.
    - A Reviewer: your areas one after another, all into your one findings
