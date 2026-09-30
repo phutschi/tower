@@ -8,8 +8,8 @@
 # only USER_CONTRACT_VARS: EXECUTOR_KIND, the per-kind model keys and the
 # credit guard's REVIEWER_CREDITS_MIN (model-defaults' keys), STALE, and the
 # switches TASK_REVIEW LANE_REVIEW PREFLIGHT STATIC_BASELINE METHOD
-# REVIEWER_KIND REVIEWER_BY_CREDITS. The rest is the repo's: its check gate, panes, suite and
-# toolchain, the unsuffixed models (they would give every kind one model),
+# REVIEWER_KIND REVIEWER_BY_CREDITS. The rest is the repo's: its check gate,
+# panes, suite and toolchain, the unsuffixed models (they would give every kind one model),
 # and the switches PR, REVIEW_AREAS, SUITE_SKIP and PR_TEMPLATE. Such a name,
 # an unknown one, or a pane or suite line is named on stderr and ignored; a
 # file that fails to load (a failing command, an exit) is refused; a missing
@@ -265,7 +265,8 @@ PREFLIGHT="${PREFLIGHT:-on}";     STATIC_BASELINE="${STATIC_BASELINE:-on}"
 PR="${PR:-draft}"; METHOD="${METHOD:-tdd}"; REVIEWER_KIND="${REVIEWER_KIND:-other}"
 REVIEWER_MODEL="${REVIEWER_MODEL:-}"; REVIEW_AREAS="${REVIEW_AREAS:-}"
 REVIEWER_BY_CREDITS="${REVIEWER_BY_CREDITS:-off}"
-# The credit guard's threshold: the defaults file's unless a contract sets it.
+# The credit guard's threshold: the defaults file's unless a contract sets it
+# (as executor.sh model_default reads it, which is not loaded yet).
 if [ -z "${REVIEWER_CREDITS_MIN:-}" ]; then
   _f="${MODEL_DEFAULTS_FILE:-$KIT/model-defaults}"
   # shellcheck source=/dev/null  # the kit's data file, or a test's copy
@@ -285,7 +286,7 @@ switch_allows METHOD        "tdd or plain"            tdd plain
 switch_allows REVIEWER_BY_CREDITS "on or off"         on off
 case "$REVIEWER_CREDITS_MIN" in
   ""|*[!0-9]*) false ;;
-  *) [ "$REVIEWER_CREDITS_MIN" -le 100 ] ;;
+  *) [ "${#REVIEWER_CREDITS_MIN}" -le 3 ] && [ "$REVIEWER_CREDITS_MIN" -le 100 ] ;;
 esac || die "REVIEWER_CREDITS_MIN must be a whole number from 0 to 100 (got '$REVIEWER_CREDITS_MIN')"
 # shellcheck disable=SC2086  # KINDS: one word per kind
 switch_allows REVIEWER_KIND "other, $(kinds_say)" other $KINDS

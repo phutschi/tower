@@ -72,7 +72,7 @@ unset EXECUTOR_KIND EXECUTOR_MODEL SPEC_REVIEWER_MODEL QUALITY_REVIEWER_MODEL ST
   REVIEWER_KIND REVIEWER_MODEL REVIEW_AREAS SUITE_SKIP PR_TEMPLATE
 # The model defaults (model-defaults): the kit's file, never the calling shell's keys.
 # shellcheck disable=SC2046  # the file's keys, one word each
-unset CURSOR_STUB MODEL_DEFAULTS_FILE $(sed -n 's/^\([A-Z_]*\)=.*/\1/p' "$KIT/model-defaults")
+unset CURSOR_STUB REVIEWER_BY_CREDITS MODEL_DEFAULTS_FILE $(sed -n 's/^\([A-Z_]*\)=.*/\1/p' "$KIT/model-defaults")
 mkdir -p "$HERDR_STUB_STATES_DIR"
 
 # Guard: every section below runs herdr/tower/claude/codex calls through common.sh's
@@ -1563,6 +1563,8 @@ SH
   left claude 50
   assert_eq "guard on: REVIEWER_CREDITS_MIN=60 makes 50% a skip" "$(REVIEWER_BY_CREDITS=on REVIEWER_CREDITS_MIN=60 CODEX_STUB=absent rev cursor)" \
     "cursor${T}grok-4.7-high-fast${T}reviewer: skipped claude, 50% credits left; fallback: codex is not installed and claude is low on credits, so a fresh cursor agent reviews cursor"
+  left codex 20
+  assert_eq "guard on: exactly the threshold is enough" "$(REVIEWER_BY_CREDITS=on rev claude)" "codex${T}gpt-6-astra${T}"
   left codex 1
   reset_stub
   assert_eq "guard on: REVIEWER_KIND=codex with codex at 1% is codex" "$(REVIEWER_BY_CREDITS=on REVIEWER_KIND=codex rev claude)" "codex${T}gpt-6-astra${T}"
@@ -1574,7 +1576,11 @@ SH
   r=$(fixture_repo bun-vitest)
   assert_match "switches: the guard is off by default, its threshold the defaults file's" "$(detect_in "$r" switches_line)" ' REVIEWER_BY_CREDITS=off REVIEWER_CREDITS_MIN=20 '
   assert_match "switches: REVIEWER_BY_CREDITS accepts only on or off" "$(REVIEWER_BY_CREDITS=yes detect_in "$r" true)" "REVIEWER_BY_CREDITS must be on or off \\(got 'yes'\\)"
-  assert_match "switches: REVIEWER_CREDITS_MIN is a % from 0 to 100" "$(REVIEWER_CREDITS_MIN=120 detect_in "$r" true)" "REVIEWER_CREDITS_MIN must be a whole number from 0 to 100 \\(got '120'\\)"
+  for v in 120 abc -5 99999999999999999999 ' 7'; do
+    assert_match "switches: REVIEWER_CREDITS_MIN='$v' is refused" "$(REVIEWER_CREDITS_MIN="$v" detect_in "$r" true 2>&1)" "^REVIEWER_CREDITS_MIN must be a whole number from 0 to 100 \\(got '$v'\\)\$"
+  done
+  assert_nomatch "switches: a huge REVIEWER_CREDITS_MIN is refused without a shell error" "$(REVIEWER_CREDITS_MIN=99999999999999999999 detect_in "$r" true 2>&1)" 'expression|out of range'
+  assert_match "switches: REVIEWER_CREDITS_MIN=08 is 8%" "$(REVIEWER_CREDITS_MIN=08 detect_in "$r" switches_line)" ' REVIEWER_CREDITS_MIN=08 '
   mkdir -p "$CG/xdg/tower"; printf '%s\n' REVIEWER_BY_CREDITS=on REVIEWER_CREDITS_MIN=60 > "$CG/xdg/tower/orchestrate"
   out=$(detect_in "$r" switches_line)
   assert_match "user contract: sets the guard and its threshold" "$out" ' REVIEWER_BY_CREDITS=on REVIEWER_CREDITS_MIN=60 '
@@ -1583,16 +1589,26 @@ SH
   # preflight slot alike; the run's switches come from the pane map.
   kit() { local d=$1; shift; (cd "$d" && env PATH="$CG/bin:$PATH" HOME="$TMP/cg-home" XDG_CONFIG_HOME="$TMP/cg-none" EXIT_WAIT_SECONDS=3 "$@" 2>&1); }
   left codex 12; left claude 90
-  r=$(fixture_repo bun-vitest); RUN="$TMP/run-cg"
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-cg"; : > "$CG/probes.log"; reset_stub
   out=$(kit "$r" REVIEWER_BY_CREDITS=on "$KIT/bootstrap.sh" "$RUN" "Credits" main "$KIT/example-tasks.tsv")
+  map=$(cat "$RUN/panes.txt")
+  assert_match "bootstrap: its reviewer line is a forecast, probing nothing" "$map" '^reviewer: +kind codex, model gpt-6-astra \(credit guard on: each review skips a kind below 20% credits left\)$'
+  assert_eq "bootstrap: ... no probe ran" "$(cat "$CG/probes.log"; grep '^codex app-server' "$HERDR_STUB_LOG")" ""
   reset_stub; out=$(kit "$r" "$KIT/add-reviewer.sh" "$RUN" R1 claude "Lane review A" "$RUN/findings/a.json" A)
   assert_match "add-reviewer: a claude lane with codex at 12% gets claude" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-r1-1 --kind claude '
   assert_match "add-reviewer: the record gets the skip note" "$(notes "$RUN")" '^reviewer: skipped codex, 12% credits left$'
-  assert_match "add-reviewer: ... and prints it once" "$out" '^reviewer: skipped codex, 12% credits left$'
+  assert_eq "add-reviewer: ... and prints it once" "$(printf '%s\n' "$out" | grep -c '^reviewer: skipped codex, 12% credits left$')" 1
   assert_match "add-reviewer: ... and the fallback" "$out" '^reviewer: fallback: codex is low on credits, so claude reviews claude$'
   left codex 50
   reset_stub; out=$(kit "$r" "$KIT/add-reviewer.sh" "$RUN" R2 claude "Preflight: security" "$RUN/findings/security.json")
   assert_match "preflight slot: the same guard, codex at 50% reviews" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-r2-1 --kind codex '
+  # A cursor lane with both candidates low: each skip in the record, the fallback printed.
+  rc=$(fixture_repo bun-vitest); RUNC="$TMP/run-cg-cursor"; left claude 5; left codex 9
+  out=$(kit "$rc" REVIEWER_BY_CREDITS=on EXECUTOR_KIND=cursor "$KIT/bootstrap.sh" "$RUNC" "Credits" main "$KIT/example-tasks.tsv")
+  out=$(kit "$rc" "$KIT/add-reviewer.sh" "$RUNC" R1 cursor "Lane review A" "$RUNC/findings/a.json" A)
+  assert_eq "add-reviewer: two skips, two notes in the record" "$(notes "$RUNC" | grep '^reviewer: skipped' | tr '\n' '|')" \
+    "reviewer: skipped claude, 5% credits left|reviewer: skipped codex, 9% credits left|"
+  assert_match "add-reviewer: ... and the fallback printed" "$out" '^reviewer: fallback: claude and codex are low on credits, so a fresh cursor agent reviews cursor$'
   left codex 3; echo gone > "$HERDR_STUB_STATES_DIR/bun-vitest-r1-1"   # R1's first Reviewer has exited
   reset_stub; out=$(kit "$r" "$KIT/add-reviewer.sh" "$RUN" R1 claude "Preflight: tests" "$RUN/findings/tests.json")
   assert_match "preflight slot: codex at 3% is skipped" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-r1-2 --kind claude '

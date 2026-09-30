@@ -331,8 +331,9 @@ is_are() { [ "$1" -eq 1 ] && echo is || echo are; }
 # credits.sh probes each installed candidate: one with less than
 # REVIEWER_CREDITS_MIN % left is skipped, with the note
 # "reviewer: skipped <kind>, <n>% credits left"; unreadable credits count as
-# enough. All skipped, the lane's own kind reviews; with that not installed,
-# the first candidate skipped reviews after all. Several notes are "; "-separated,
+# enough. Every candidate absent or skipped, the lane's own kind reviews; with
+# that not installed, the first candidate skipped reviews after all (the
+# first in order, deliberately not the one with the most credits left). Several notes are "; "-separated,
 # the skips first.
 reviewer_for() {
   local lane="$1" lane_model="${2:-}" c kind="" model note="" why="" skips="" left min=""
@@ -344,6 +345,7 @@ reviewer_for() {
         . "$KIT/credits.sh"
         min=${REVIEWER_CREDITS_MIN:-}
         [ -n "$min" ] || min=$(model_default REVIEWER_CREDITS_MIN) || exit 1
+        case "$min" in ""|*[!0-9]*) die "REVIEWER_CREDITS_MIN must be a whole number from 0 to 100 (got '$min')" ;; esac
       fi
       for c in $(reviewer_candidates "$lane"); do
         if ! kind_installed "$c"; then absent+=("$c"); continue; fi

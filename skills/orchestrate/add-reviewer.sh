@@ -305,7 +305,8 @@ slot_line "$LINE"
 if [ -n "$R_NOTE" ]; then
   while IFS= read -r _n; do
     case "$_n" in
-      "reviewer: "*) echo "$_n"; tower note "$_n" >/dev/null ;;
+      "reviewer: "*) echo "$_n"
+                     tower note "$_n" >/dev/null </dev/null || echo "note: could not record '$_n' in tower" >&2 ;;
       *) echo "reviewer: $_n" ;;
     esac
   done <<< "${R_NOTE//; /$'\n'}"

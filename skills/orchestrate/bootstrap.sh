@@ -117,12 +117,16 @@ need_tower
 STALE="${STALE:-30}"
 LANE_A="$(agent_name -lane-a)"
 # Who reviews lane A (and every lane of its kind); refused here, before the run
-# dir exists, when a forced REVIEWER_KIND is not installed.
+# dir exists, when a forced REVIEWER_KIND is not installed. A forecast without
+# the credit guard's probes: with the guard on, each review (add-reviewer.sh)
+# probes then, and notes its skips.
 if [ "$LANE_REVIEW" = off ] && [ "$PREFLIGHT" = off ]; then
   REVIEWER="none (LANE_REVIEW=off, PREFLIGHT=off)"
 else
-  _rev=$(reviewer_for "$EXECUTOR_KIND")
+  _rev=$(REVIEWER_BY_CREDITS=off reviewer_for "$EXECUTOR_KIND")
   IFS=$'\t' read -r R_KIND R_MODEL R_NOTE <<< "$_rev"
+  [ "$REVIEWER_BY_CREDITS" = off ] || [ "$REVIEWER_KIND" != other ] \
+    || R_NOTE="${R_NOTE:+$R_NOTE; }credit guard on: each review skips a kind below $REVIEWER_CREDITS_MIN% credits left"
   REVIEWER="kind $R_KIND, model $R_MODEL${R_NOTE:+ ($R_NOTE)}"
   unset _rev
 fi
