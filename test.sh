@@ -816,18 +816,51 @@ if section add-reviewer; then
   r=$(fixture_repo bun-vitest); (cd "$r" && "$KIT/bootstrap.sh" "$RUNF" "Failed" main >/dev/null 2>&1)
   out=$(cd "$r" && HERDR_STUB_BUSY_STARTS=99 START_TRIES=1 "$KIT/add-reviewer.sh" "$RUNF" R1 claude "Try" "$RUNF/findings/a.json" 2>&1; echo "exit=$?")
   assert_match "a Reviewer that does not start: add-reviewer fails" "$out" 'exit=1$'
+  assert_match "... its review is in the map, starting" "$(cat "$RUNF/panes.txt")" '^reviewer R1: .*agent "bun-vitest-r1-1".* starting$'
+  echo gone > "$S/bun-vitest-r1-1"   # it never started: herdr does not know it
   : > "$HERDR_STUB_LOG"
   out=$(cd "$r" && "$KIT/add-reviewer.sh" "$RUNF" R1 claude "Try again" "$RUNF/findings/a.json" 2>&1; echo "exit=$?")
   assert_match "after a failed start, the same slot works again" "$out" 'exit=0$'
   assert_match "the retry starts the Reviewer"        "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-r1-1 '
   assert_eq "the reused task takes the new title"     "$(reviews "$RUNF")" "R1-1@R1:Try again"
-  assert_match "the retry keeps the review's task id" "$(cat "$RUNF/panes.txt")" '^reviewer R1: .*agent "bun-vitest-r1-1".*review "Try again"'
+  assert_match "the retry keeps the review's task id" "$(cat "$RUNF/panes.txt")" '^reviewer R1: .*agent "bun-vitest-r1-1".*review "Try again".*\)$'
   assert_match "the retry says it reuses the task"    "$out" '^reusing task R1-1: '
   (cd "$r" && HERDR_STUB_BUSY_STARTS=99 START_TRIES=1 "$KIT/add-reviewer.sh" "$RUNF" R2 claude "Try" "$RUNF/findings/b.json" >/dev/null 2>&1)
+  echo gone > "$S/bun-vitest-r2-1"
   "$KIT/tests/stub/tower" task R2-1 done --model sonnet --run "$RUNF" >/dev/null
   out=$(cd "$r" && "$KIT/add-reviewer.sh" "$RUNF" R2 claude "Try again" "$RUNF/findings/b.json" 2>&1; echo "exit=$?")
   assert_match "a task already worked on is not taken over" "$out" 'task R2-1 is done on the board'
   assert_match "that refusal fails"                   "$out" 'exit=1$'
+  # The reviewer line is written before the start (#28): a start that fails
+  # after its agent exists leaves the agent in the map, and a rerun ends it and
+  # starts the review again under the same name and task.
+  RUNB="$TMP/run-review-blocked"; reset_stub
+  r=$(fixture_repo bun-vitest); (cd "$r" && "$KIT/bootstrap.sh" "$RUNB" "Blocked" main >/dev/null 2>&1); reset_stub
+  echo blocked > "$S/bun-vitest-r1-1"
+  out=$(cd "$r" && HERDR_STUB_TRUST_STARTS=1 "$KIT/add-reviewer.sh" "$RUNB" R1 claude "Blocked" "$RUNB/findings/a.json" 2>&1; echo "exit=$?")
+  assert_match "blocked after its start: add-reviewer fails" "$out" 'exit=1$'
+  assert_match "blocked after its start: its agent is in the pane map" "$(cat "$RUNB/panes.txt")" '^reviewer R1: +pane-1 +\(agent "bun-vitest-r1-1", .*review "Blocked"'
+  printf 'blocked\ngone\n' > "$S/bun-vitest-r1-1"; : > "$HERDR_STUB_LOG"
+  out=$(cd "$r" && EXIT_WAIT_SECONDS=3 "$KIT/add-reviewer.sh" "$RUNB" R1 claude "Blocked again" "$RUNB/findings/a.json" 2>&1; echo "exit=$?"); log=$(cat "$HERDR_STUB_LOG")
+  assert_match "rerun: finishes"                      "$out" 'exit=0$'
+  assert_match "rerun: the agent left in the slot is sent /exit" "$log" '^herdr pane send-text pane-1 /exit$'
+  assert_match "rerun: the review starts again under the same name" "$log" '^herdr agent start bun-vitest-r1-1 '
+  assert_nomatch "rerun: no second agent"              "$log" '^herdr agent start bun-vitest-r1-2 '
+  assert_eq "rerun: the same task, new title"         "$(reviews "$RUNB")" "R1-1@R1:Blocked again"
+  assert_eq "rerun: one reviewer R1 line"             "$(grep -c '^reviewer R1:' "$RUNB/panes.txt")" 1
+  assert_match "rerun: ready"                         "$out" 'reviewer R1 ready \(task R1-1\)'
+  # A start that timed out leaves its agent running; once it accepts input, a
+  # rerun takes it as it is.
+  echo unready > "$S/bun-vitest-r2-1.started"; reset_stub
+  out=$(cd "$r" && READY_WAIT_SECONDS=1 "$KIT/add-reviewer.sh" "$RUNB" R2 claude "Slow" "$RUNB/findings/b.json" 2>&1; echo "exit=$?")
+  assert_match "never ready: add-reviewer fails"      "$out" 'exit=1$'
+  echo idle > "$S/bun-vitest-r2-1"; rm -f "$S/bun-vitest-r2-1.started"; : > "$HERDR_STUB_LOG"
+  out=$(cd "$r" && "$KIT/add-reviewer.sh" "$RUNB" R2 claude "Slow" "$RUNB/findings/b.json" 2>&1; echo "exit=$?"); log=$(cat "$HERDR_STUB_LOG")
+  assert_match "rerun, agent now ready: finishes"     "$out" 'exit=0$'
+  assert_nomatch "rerun, agent now ready: not ended, not started" "$log" '^herdr (pane send-text|agent start)'
+  assert_match "rerun, agent now ready: says it resumes it" "$out" 'resuming bun-vitest-r2-1 in pane-2'
+  assert_match "rerun, agent now ready: ready"        "$out" 'reviewer R2 ready \(task R2-1\)'
+  rm -f "$S"/bun-vitest-r1-1* "$S"/bun-vitest-r2-1*
   # A codex-only machine: a codex lane's Reviewer is a fresh codex agent on the
   # reviewed lane's model, as the pane map records it.
   RUNM="$TMP/run-review-model"; reset_stub

@@ -45,7 +45,12 @@
 #   the pane map (<run-dir>/panes.txt):
 #     review tab:     <tab-id>   (R1 <pane-id>, R2 <pane-id>)   once, on the first call
 #     reviewer R1:    <pane-id>   (agent "<name>", kind <kind>, model <model>, review "<title>", findings <file>)
-#   one reviewer line per slot, replaced by each new review in that slot;
+#   one reviewer line per slot, replaced by each new review in that slot. It
+#   is written before the agent starts, ending in " starting" until the agent
+#   accepts input: a start that fails leaves it so, and a rerun for the slot
+#   resumes that review under the same agent and task. The agent left in the
+#   slot is kept when it now accepts input ("resuming ..."), else ended as a
+#   previous Reviewer is, then started again;
 #   the directory of <findings-file>;
 #   for a codex Reviewer, <run-dir>/tmp: the commands it runs get it as
 #   TMPDIR, BUN_TMPDIR, BUN_INSTALL_CACHE_DIR and npm_config_cache, since its
@@ -144,15 +149,22 @@ slot_pane() { echo "$TAB_LINE" | sed -nE "s/.*[(, ]$1 ([^,)]+).*/\\1/p"; }
 # second's pause before it, and Enter again about every 3 seconds while the
 # Reviewer is still there. An extra Enter at a shell prompt does nothing.
 # EXIT_WAIT_SECONDS counts checks about a second apart.
+# The reviewer line is written before its agent starts, ending in " starting"
+# until the agent accepts input. A line still ending so is a start that
+# failed: a rerun resumes that review, under the same agent name and task. Its
+# agent, still in the slot, is kept when it accepts input (executor.sh
+# ready_of) and otherwise ended as above, then started again.
 PREV=$(sed -nE "s/^reviewer $SLOT: +[^ ]+ +\\(agent \"([^\"]+)\".*/\\1/p" "$MAP")
-N=1
+N=1; RESUME=0; KEEP=0
 if [ -n "$PREV" ]; then
   N=$(( ${PREV##*-} + 1 ))
+  if grep -qE "^reviewer $SLOT: .* starting\$" "$MAP"; then RESUME=1; N=${PREV##*-}; fi
   case "$(state_of "$PREV")" in
     gone) ;;
     working) die "Reviewer $PREV is still working in $SLOT: wait until the slot is free, or use the other slot" ;;
     unreadable) die "herdr cannot say whether Reviewer $PREV is still there (herdr agent get $PREV fails); rerun once herdr answers" ;;
     *)
+      if [ "$RESUME" = 1 ] && [ "$(ready_of "$PREV")" = ready ]; then KEEP=1; else
       PANE=$(slot_pane "$SLOT")
       herdr pane send-text "$PANE" "/exit" >/dev/null
       [ "${DRY_RUN:-0}" = 1 ] || sleep 1
@@ -168,7 +180,8 @@ if [ -n "$PREV" ]; then
         fi
         [ "${DRY_RUN:-0}" = 1 ] || sleep 1
         waited=$((waited+1))
-      done ;;
+      done
+      fi ;;
   esac
 fi
 ID="$SLOT-$N"
@@ -214,12 +227,16 @@ mkdir -p "$(dirname "$FINDINGS")"
 # A codex Reviewer's sandbox writes only the checkout and the run dir: its
 # temp files and package caches (bunx, npm) go to the run dir's tmp.
 if [ "$R_KIND" = codex ]; then AGENT_TMP="$RUN_DIR/tmp"; mkdir -p "$AGENT_TMP"; fi
-( cd "$REPO" && start_agent_with_trust_retry "$NAME" "$PANE" )
-
 LINE=$(printf 'reviewer %s:    %s   (agent "%s", kind %s, model %s, review "%s", findings %s)' \
   "$SLOT" "$PANE" "$NAME" "$R_KIND" "$R_MODEL" "$TITLE" "$FINDINGS")
-{ grep -v "^reviewer $SLOT:" "$MAP" || [ $? -eq 1 ]; } > "$MAP.tmp"
-echo "$LINE" >> "$MAP.tmp"; mv "$MAP.tmp" "$MAP"
+slot_line() {
+  { grep -v "^reviewer $SLOT:" "$MAP" || [ $? -eq 1 ]; } > "$MAP.tmp"
+  echo "$1" >> "$MAP.tmp"; mv "$MAP.tmp" "$MAP"
+}
+slot_line "$LINE starting"
+if [ "$KEEP" = 1 ]; then echo "resuming $NAME in $PANE: its start failed earlier, and it now accepts input"
+else ( cd "$REPO" && start_agent_with_trust_retry "$NAME" "$PANE" ); fi
+slot_line "$LINE"
 
 [ -z "$R_NOTE" ] || echo "reviewer: $R_NOTE"
 echo "reviewer $SLOT ready (task $ID): agent $NAME ($R_KIND, $R_MODEL) in $PANE — next: write $RUN_DIR/brief-$ID.md from brief-template.md (a Reviewer brief; findings to $FINDINGS), then  herdr agent prompt $NAME \"\$(cat $RUN_DIR/brief-$ID.md)\"  and add $NAME to watch-lanes.sh"
