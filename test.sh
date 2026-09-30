@@ -1622,15 +1622,22 @@ SH
   r=$(fixture_repo bun-vitest); RUN="$TMP/run-cg-user"
   out=$(kit "$r" XDG_CONFIG_HOME="$UCG" EXECUTOR_KIND=cursor "$KIT/bootstrap.sh" "$RUN" "User guard" main "$KIT/example-tasks.tsv")
   assert_match "user contract guard: bootstrap records it" "$(cat "$RUN/panes.txt")" '^switches: .* REVIEWER_BY_CREDITS=on REVIEWER_CREDITS_MIN=60 '
-  reset_stub; out=$(kit "$r" XDG_CONFIG_HOME="$UCG" "$KIT/add-reviewer.sh" "$RUN" R1 cursor "Lane review A" "$RUN/findings/a.json" A)
+  # add-reviewer without the user contract: only the pane map carries on/60.
+  reset_stub; out=$(kit "$r" "$KIT/add-reviewer.sh" "$RUN" R1 cursor "Lane review A" "$RUN/findings/a.json" A)
   assert_match "user contract guard: claude at 50% is skipped" "$(notes "$RUN")" '^reviewer: skipped claude, 50% credits left$'
   assert_match "user contract guard: ... and codex, the next candidate, reviews" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-r1-1 --kind codex '
+  # The user contract changed mid-run to 40%: the pane map's 60% still holds.
+  printf '%s\n' REVIEWER_BY_CREDITS=on REVIEWER_CREDITS_MIN=40 > "$UCG/tower/orchestrate"
+  reset_stub; out=$(kit "$r" XDG_CONFIG_HOME="$UCG" "$KIT/add-reviewer.sh" "$RUN" R2 cursor "Preflight: security" "$RUN/findings/security.json")
+  assert_eq "user contract guard: a mid-run change to it does not reach a review" "$(notes "$RUN" | grep -c '^reviewer: skipped claude, 50% credits left$')" 2
+  assert_match "user contract guard: ... codex still reviews" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-r2-1 --kind codex '
   r=$(fixture_repo bun-vitest); RUN="$TMP/run-cg-default"
   out=$(kit "$r" REVIEWER_BY_CREDITS=on EXECUTOR_KIND=cursor "$KIT/bootstrap.sh" "$RUN" "Default guard" main "$KIT/example-tasks.tsv")
+  assert_match "without the user contract: the guard is on, at the default 20%" "$(cat "$RUN/panes.txt")" '^switches: .* REVIEWER_BY_CREDITS=on REVIEWER_CREDITS_MIN=20 '
   reset_stub; out=$(kit "$r" "$KIT/add-reviewer.sh" "$RUN" R1 cursor "Lane review A" "$RUN/findings/a.json" A)
   assert_match "without the user contract: claude at 50% reviews (the default 20%)" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-r1-1 --kind claude '
   assert_nomatch "without the user contract: ... with no skip note" "$(notes "$RUN")" '^reviewer: skipped'
-  rm -f "$HERDR_STUB_STATES_DIR"/bun-vitest-r1-*
+  rm -f "$HERDR_STUB_STATES_DIR"/bun-vitest-r1-* "$HERDR_STUB_STATES_DIR"/bun-vitest-r2-*
   unset CODEX_STUB_RATE_LIMITS
 fi
 
