@@ -1423,11 +1423,13 @@ if section cursor-lane; then
   # A mixed run: a cursor lane B beside claude lane A.
   rm_=$(fixture_repo bun-vitest); RUN="$TMP/run-mixed-cursor"
   (cd "$rm_" && env HOME="$TMP/cl-home" "$KIT/bootstrap.sh" "$RUN" "Mixed" main "$KIT/example-tasks.tsv" >/dev/null 2>&1)
+  git -C "$rm_" worktree add -q "$rm_/.worktrees/feat/b" -b feat/b   # the stub's worktree create makes none
+  C=$(git -C "$rm_" rev-parse --path-format=absolute --git-common-dir)
   reset_stub; out=$(cd "$rm_" && env HOME="$TMP/cl-home" EXECUTOR_KIND=cursor "$KIT/add-lane.sh" "$RUN" B feat/b main 2 2>&1)
   map=$(cat "$RUN/panes.txt")
   assert_match "mixed: lane A is claude" "$map" '^lane A: .*kind claude, '
   assert_match "mixed: add-lane opens a cursor lane B" "$map" '^lane B: .*kind cursor, .*, model grok-4\.7-high-fast\)$'
-  assert_match "mixed: ... started as cursor in its worktree's run" "$(cat "$HERDR_STUB_LOG")" "^herdr agent start bun-vitest-lane-b --kind cursor --pane pane-[0-9]+ -- --model grok-4\\.7-high-fast --trust --force --disable-auto-update --add-dir $RUN --add-dir "
+  assert_match "mixed: ... started as cursor in its worktree's run" "$(cat "$HERDR_STUB_LOG")" "^herdr agent start bun-vitest-lane-b --kind cursor --pane pane-[0-9]+ -- --model grok-4\\.7-high-fast --trust --force --disable-auto-update --add-dir $RUN --add-dir $C\$"
   out=$(cd "$rm_" && EXECUTOR_KIND=gemini bash -c ". \"\$KIT/common.sh\"; . \"\$KIT/executor.sh\"" 2>&1)
   assert_match "EXECUTOR_KIND=gemini: refused, listing the kinds" "$out" "EXECUTOR_KIND must be claude, codex or cursor \\(got 'gemini'\\)"
   installed() { env HOME="$TMP/cl-home" "$@" bash -c ". \"\$KIT/common.sh\"; . \"\$KIT/executor.sh\"; kind_installed cursor && echo yes || echo no" 2>&1; }

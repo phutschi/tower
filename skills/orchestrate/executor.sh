@@ -67,7 +67,7 @@ model_default() {
 # VAR's default for KIND: VAR_<KIND upper>, e.g. kind_default EXECUTOR_MODEL codex.
 kind_default() { model_default "$1_$(printf '%s' "$2" | tr '[:lower:]' '[:upper:]')"; }
 
-# The kinds, the one list every kind check uses.
+# The kinds a lane may run.
 KINDS="claude codex cursor"
 EXECUTOR_KIND="${EXECUTOR_KIND:-claude}"
 case " $KINDS " in
@@ -118,28 +118,34 @@ agent_name() {
   printf '%s%s' "${repo%-}" "$suffix"
 }
 
+# The agent's checkout (AGENT_CHECKOUT, default: here). Under DRY_RUN the
+# stub's worktree create makes no worktree, so a missing one is here.
+agent_checkout() {
+  local co="${AGENT_CHECKOUT:-.}"
+  [ -d "$co" ] || [ "${DRY_RUN:-0}" != 1 ] || co=.
+  printf '%s' "$co"
+}
+
 start_agent() {
   local name="$1" pane="$2"
   case "$EXECUTOR_KIND" in
     claude) herdr agent start "$name" --kind claude --pane "$pane" -- --model "$EXECUTOR_MODEL" ;;
     cursor)
-      # --trust, never an answered trust box: herdr reads cursor's trust box
-      # as idle and ready, so a brief would be typed into it. --force runs
-      # commands without approvals; no --sandbox, so the user's own sandbox
-      # setting applies. --disable-auto-update is undocumented: it keeps the
-      # harness version still under a running lane. The run dir (tower's
-      # record) and the common git dir (commits from a lane worktree) are
-      # added dirs.
-      local common co="${AGENT_CHECKOUT:-.}"
-      # Under DRY_RUN the stub's worktree create makes no worktree.
-      [ -d "$co" ] || [ "${DRY_RUN:-0}" != 1 ] || co=.
-      common=$(git -C "$co" rev-parse --path-format=absolute --git-common-dir) || return 1
+      # --trust is the only guard against cursor's trust box: herdr reports
+      # that box as idle and ready, so a brief would be typed into it, and
+      # it is never answered with keys. --force runs commands without
+      # approvals; no --sandbox, so the user's own sandbox setting applies.
+      # --disable-auto-update keeps the harness version still under a
+      # running lane; it is undocumented (not in --help as of 2026.09.28).
+      # The run dir (tower's record) and the common git dir (commits from a
+      # lane worktree) are added dirs.
+      local common
+      common=$(git -C "$(agent_checkout)" rev-parse --path-format=absolute --git-common-dir) || return 1
       herdr agent start "$name" --kind cursor --pane "$pane" -- --model "$EXECUTOR_MODEL" \
         --trust --force --disable-auto-update ${RUN_DIR:+--add-dir "$RUN_DIR"} --add-dir "$common" ;;
     codex)
-      local extra=() common gitdir roots="" p co="${AGENT_CHECKOUT:-.}"
-      # Under DRY_RUN the stub's worktree create makes no worktree.
-      [ -d "$co" ] || [ "${DRY_RUN:-0}" != 1 ] || co=.
+      local extra=() common gitdir roots="" p co
+      co=$(agent_checkout)
       common=$(git -C "$co" rev-parse --path-format=absolute --git-common-dir) || return 1
       gitdir=$(git -C "$co" rev-parse --path-format=absolute --git-dir) || return 1
       [ -n "${RUN_DIR:-}" ] && extra+=(--add-dir "$RUN_DIR")
@@ -247,8 +253,9 @@ start_answering_trust() {
       tries=$((tries+1))
       [ "${DRY_RUN:-0}" = 1 ] || sleep 1
     elif echo "$out" | grep -q "blocked during startup" && [ "$EXECUTOR_KIND" = cursor ]; then
-      # cursor starts with --trust: a box it still shows is not one to
-      # answer blind (herdr reads it as idle and ready).
+      # cursor starts with --trust, and its box is never answered with keys
+      # (start_agent). herdr usually reports that box as idle and ready;
+      # this covers a herdr that reports it as blocked.
       echo "agent start: $name is blocked during startup in pane $pane although it started with --trust; check the pane" >&2
       return 1
     elif echo "$out" | grep -q "blocked during startup"; then
