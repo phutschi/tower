@@ -69,6 +69,12 @@ unset CREDITS_TIMEOUT CODEX_STUB_RATE_LIMITS
 unset EXECUTOR_KIND EXECUTOR_MODEL SPEC_REVIEWER_MODEL QUALITY_REVIEWER_MODEL STALE PM TYPECHECK_TASK \
   CHECK_CMD INSTALL_CMD TEST_PKG TEST_FILTER LANES TASK_REVIEW LANE_REVIEW PREFLIGHT STATIC_BASELINE PR METHOD \
   REVIEWER_KIND REVIEWER_MODEL REVIEW_AREAS SUITE_SKIP PR_TEMPLATE
+# The model defaults (model-defaults): the kit's file, never the calling shell's keys.
+unset MODEL_DEFAULTS_FILE REVIEWER_CREDITS_MIN \
+  EXECUTOR_MODEL_CLAUDE EXECUTOR_MODEL_CODEX EXECUTOR_MODEL_CURSOR \
+  REVIEWER_MODEL_CLAUDE REVIEWER_MODEL_CODEX REVIEWER_MODEL_CURSOR REVIEWER_MODEL_CLAUDE_SELF \
+  SPEC_REVIEWER_MODEL_CLAUDE SPEC_REVIEWER_MODEL_CODEX SPEC_REVIEWER_MODEL_CURSOR \
+  QUALITY_REVIEWER_MODEL_CLAUDE QUALITY_REVIEWER_MODEL_CODEX QUALITY_REVIEWER_MODEL_CURSOR
 mkdir -p "$HERDR_STUB_STATES_DIR"
 
 # Guard: every section below runs herdr/tower/claude/codex calls through common.sh's
@@ -1198,6 +1204,72 @@ if section add-reviewer; then
   assert_match "not accepting input: add-reviewer fails" "$out" 'exit=1$'
   assert_match "not accepting input: says so"          "$out" 'bun-vitest-r1-1 does not accept input in pane pane-[0-9]+ after 2 checks'
   assert_nomatch "not accepting input: no ready line"  "$out" 'reviewer R1 ready'
+fi
+
+# --- model-defaults ----------------------------------------------------------
+# Every default model comes from the kit's model-defaults file; MODEL_DEFAULTS_FILE
+# points the kit at a test copy with changed values.
+if section model-defaults; then
+  MD="$TMP/model-defaults"
+  sed -e "s/^EXECUTOR_MODEL_CLAUDE=.*/EXECUTOR_MODEL_CLAUDE=claude-md-exec/" "$KIT/model-defaults" > "$MD"
+  boot() { (cd "$1" && shift && "$KIT/bootstrap.sh" "$@" 2>&1); }
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-md-claude"; reset_stub
+  out=$(MODEL_DEFAULTS_FILE="$MD" boot "$r" "$RUN" "Defaults" main)
+  assert_match "model-defaults: a claude lane starts on EXECUTOR_MODEL_CLAUDE" "$(cat "$HERDR_STUB_LOG")" \
+    '^herdr agent start bun-vitest-lane-a --kind claude --pane pane-2 -- --model claude-md-exec$'
+  sed -i.bak -e "s/^EXECUTOR_MODEL_CODEX=.*/EXECUTOR_MODEL_CODEX=codex-md-exec/" \
+    -e "s/^REVIEWER_MODEL_CODEX=.*/REVIEWER_MODEL_CODEX=codex-md-rev/" \
+    -e "s/^REVIEWER_MODEL_CLAUDE=.*/REVIEWER_MODEL_CLAUDE=claude-md-rev/" \
+    -e "s/^REVIEWER_MODEL_CLAUDE_SELF=.*/REVIEWER_MODEL_CLAUDE_SELF=claude-md-self/" "$MD"
+  mkdir -p "$TMP/md-home/.codex/skills/tdd"
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-md-codex"; reset_stub
+  out=$(HOME="$TMP/md-home" EXECUTOR_KIND=codex MODEL_DEFAULTS_FILE="$MD" boot "$r" "$RUN" "Defaults" main)
+  assert_match "model-defaults: a codex lane starts on EXECUTOR_MODEL_CODEX" "$(cat "$HERDR_STUB_LOG")" \
+    '^herdr agent start bun-vitest-lane-a --kind codex --pane pane-2 -- -m codex-md-exec '
+  rev() { HOME="$TMP/md-home" MODEL_DEFAULTS_FILE="$MD" in_kit ". \"\$KIT/executor.sh\"; reviewer_for $1"; }
+  T=$(printf '\t')
+  assert_eq "model-defaults: codex reviews claude on REVIEWER_MODEL_CODEX" "$(rev claude)" "codex${T}codex-md-rev${T}"
+  assert_eq "model-defaults: claude reviews codex on REVIEWER_MODEL_CLAUDE" "$(EXECUTOR_KIND=codex rev codex)" "claude${T}claude-md-rev${T}"
+  assert_eq "model-defaults: claude reviews claude on REVIEWER_MODEL_CLAUDE_SELF" "$(CODEX_STUB=absent rev claude)" \
+    "claude${T}claude-md-self${T}fallback: codex is not installed, so claude reviews claude"
+  assert_eq "model-defaults: a codex Reviewer of a codex lane with no model known is on EXECUTOR_MODEL_CODEX" \
+    "$(CLAUDE_STUB=absent rev codex)" "codex${T}codex-md-exec${T}fallback: claude is not installed, so a fresh codex agent reviews codex"
+  sed -i.bak -e "s/^SPEC_REVIEWER_MODEL_CLAUDE=.*/SPEC_REVIEWER_MODEL_CLAUDE=claude-md-spec/" \
+    -e "s/^QUALITY_REVIEWER_MODEL_CLAUDE=.*/QUALITY_REVIEWER_MODEL_CLAUDE=claude-md-quality/" \
+    -e "s/^SPEC_REVIEWER_MODEL_CODEX=.*/SPEC_REVIEWER_MODEL_CODEX=codex-md-spec/" \
+    -e "s/^QUALITY_REVIEWER_MODEL_CODEX=.*/QUALITY_REVIEWER_MODEL_CODEX=codex-md-quality/" "$MD"
+  roles='" ".join(k+"="+v for k,v in sorted(d["run"]["models"].items()))'
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-md-roles-claude"
+  out=$(MODEL_DEFAULTS_FILE="$MD" boot "$r" "$RUN" "Defaults" main)
+  assert_eq "model-defaults: a claude run records its kind's spec and quality reviewer models" "$(board "$RUN" "$roles")" \
+    "implementer=claude-md-exec quality-reviewer=claude-md-quality spec-reviewer=claude-md-spec"
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-md-roles-codex"
+  out=$(HOME="$TMP/md-home" EXECUTOR_KIND=codex MODEL_DEFAULTS_FILE="$MD" boot "$r" "$RUN" "Defaults" main)
+  assert_eq "model-defaults: a codex run records its kind's spec and quality reviewer models" "$(board "$RUN" "$roles")" \
+    "implementer=codex-md-exec quality-reviewer=codex-md-quality spec-reviewer=codex-md-spec"
+  # The unsuffixed names, from the environment or the repo contract, win over the file.
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-md-env"; reset_stub
+  out=$(EXECUTOR_MODEL=lane-m SPEC_REVIEWER_MODEL=spec-m QUALITY_REVIEWER_MODEL=quality-m REVIEWER_MODEL=rev-m \
+    MODEL_DEFAULTS_FILE="$MD" boot "$r" "$RUN" "Env" main)
+  assert_match "model-defaults: EXECUTOR_MODEL in the environment wins" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start .* -- --model lane-m$'
+  assert_eq "model-defaults: the environment's reviewer models win" "$(board "$RUN" "$roles")" \
+    "implementer=lane-m quality-reviewer=quality-m spec-reviewer=spec-m"
+  assert_match "model-defaults: REVIEWER_MODEL in the environment wins" "$(cat "$RUN/panes.txt")" '^reviewer: +kind codex, model rev-m$'
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-md-contract"; reset_stub
+  printf '%s\n' EXECUTOR_MODEL=lane-c SPEC_REVIEWER_MODEL=spec-c QUALITY_REVIEWER_MODEL=quality-c REVIEWER_MODEL=rev-c > "$r/.orchestrate"
+  out=$(MODEL_DEFAULTS_FILE="$MD" boot "$r" "$RUN" "Contract" main)
+  assert_match "model-defaults: EXECUTOR_MODEL in the repo contract wins" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start .* -- --model lane-c$'
+  assert_eq "model-defaults: the repo contract's reviewer models win" "$(board "$RUN" "$roles")" \
+    "implementer=lane-c quality-reviewer=quality-c spec-reviewer=spec-c"
+  assert_match "model-defaults: REVIEWER_MODEL in the repo contract wins" "$(cat "$RUN/panes.txt")" '^reviewer: +kind codex, model rev-c$'
+  # No model id is left in the kit's logic; cursor's defaults are Grok -fast only.
+  assert_nomatch "model-defaults: no model id in executor.sh or bootstrap.sh" \
+    "$(cat "$KIT/executor.sh" "$KIT/bootstrap.sh")" '(claude-(opus|sonnet|fable|haiku)|gpt-[0-9]|grok-|\b(sonnet|opus|haiku)\b)'
+  cursor_keys=$(grep -E '^[A-Z_]+_CURSOR=' "$KIT/model-defaults")
+  assert_match "model-defaults: the file has cursor's executor and reviewer keys" "$(printf '%s\n' "$cursor_keys" | sed 's/=.*//' | sort | tr '\n' ' ')" \
+    '^EXECUTOR_MODEL_CURSOR QUALITY_REVIEWER_MODEL_CURSOR REVIEWER_MODEL_CURSOR SPEC_REVIEWER_MODEL_CURSOR $'
+  assert_eq "model-defaults: every cursor model is a Grok -fast model" \
+    "$(printf '%s\n' "$cursor_keys" | grep -cvE "^[A-Z_]+=['\"]?grok-[a-z0-9.-]+-fast['\"]?\$")" 0
 fi
 
 # --- watch -------------------------------------------------------------------

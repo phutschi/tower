@@ -2,10 +2,13 @@
 # agent runs a lane. EXECUTOR_KIND=claude (default) | codex, chosen per lane:
 # the repo's .orchestrate sets the run's default, the environment of the
 # bootstrap or add-lane call overrides it (so source detect-stack.sh first).
-# EXECUTOR_MODEL overrides the kind's default model the same way.
+# EXECUTOR_MODEL overrides the kind's default model the same way. Every
+# default model is data: EXECUTOR_MODEL_<KIND> and the Reviewer's keys in
+# model-defaults (MODEL_DEFAULTS_FILE, default $KIT/model-defaults), which a
+# value in the call's environment or the repo contract replaces (ADR 0012).
 #
-#   claude: claude-opus-5-5[1m], started with --model.
-#   codex:  gpt-6-astra, started with -m, no approval prompts (-a never), writes
+#   claude: started with --model.
+#   codex:  started with -m, no approval prompts (-a never), writes
 #           limited to the worktree (-s workspace-write) with network allowed
 #           for installs and fetches. Outside the worktree, the run dir is
 #           writable (tower task|block|note append to it), and what a commit
@@ -44,10 +47,22 @@
 # it is read again; READY_WAIT_SECONDS (default 30) how many reads, about a
 # second apart, it then gets to accept input.
 
+MODEL_DEFAULTS_FILE="${MODEL_DEFAULTS_FILE:-$KIT/model-defaults}"
+
+# KEY's default: its value in this shell (the call's environment or the repo
+# contract) when set, else the model-defaults file's (ADR 0012).
+model_default() {
+  local key="$1"
+  if [ -n "${!key:-}" ]; then printf '%s\n' "${!key}"; return; fi
+  # shellcheck source=/dev/null  # the kit's data file, or a test's copy
+  ( unset "$key"; . "$MODEL_DEFAULTS_FILE" && printf '%s\n' "${!key:-}" )
+}
+# VAR's default for KIND: VAR_<KIND upper>, e.g. kind_default EXECUTOR_MODEL codex.
+kind_default() { model_default "$1_$(printf '%s' "$2" | tr '[:lower:]' '[:upper:]')"; }
+
 EXECUTOR_KIND="${EXECUTOR_KIND:-claude}"
 case "$EXECUTOR_KIND" in
-  claude) EXECUTOR_MODEL="${EXECUTOR_MODEL:-claude-opus-5-5[1m]}" ;;
-  codex)  EXECUTOR_MODEL="${EXECUTOR_MODEL:-gpt-6-astra}" ;;
+  claude|codex) EXECUTOR_MODEL="${EXECUTOR_MODEL:-$(kind_default EXECUTOR_MODEL "$EXECUTOR_KIND")}" ;;
   *) echo "EXECUTOR_KIND must be claude or codex (got '$EXECUTOR_KIND')" >&2; exit 2 ;;
 esac
 
@@ -226,11 +241,12 @@ kind_installed() { command -v "$1" >/dev/null && "$1" --version >/dev/null 2>&1;
 
 # Who reviews a lane of LANE_KIND [on LANE_MODEL] (ADR 0010). Prints one line:
 #   <kind>\t<model>\t<fallback note, or empty>
-# The other kind when it is installed: codex on gpt-6-astra, claude on
-# claude-opus-5-5. Otherwise the lane's own kind: claude on claude-fable-5-1,
-# codex on the lane's model (a fresh agent), with a fallback note. The lane's
-# model is LANE_MODEL when given (add-reviewer.sh reads it from the pane map),
-# else EXECUTOR_MODEL when EXECUTOR_KIND is LANE_KIND, else gpt-6-astra.
+# The other kind when it is installed, on REVIEWER_MODEL_<its kind>.
+# Otherwise the lane's own kind, with a fallback note: claude on
+# REVIEWER_MODEL_CLAUDE_SELF, codex on the lane's model (a fresh agent). The
+# lane's model is LANE_MODEL when given (add-reviewer.sh reads it from the pane
+# map), else EXECUTOR_MODEL when EXECUTOR_KIND is LANE_KIND, else
+# EXECUTOR_MODEL_CODEX. Every default is kind_default's (model-defaults).
 # REVIEWER_KIND=claude|codex forces the kind (refused when not installed);
 # REVIEWER_MODEL replaces the model the rules picked.
 reviewer_for() {
@@ -254,13 +270,12 @@ reviewer_for() {
     *) die "REVIEWER_KIND must be other, claude or codex (got '$REVIEWER_KIND')" ;;
   esac
   case "$kind:$lane" in
-    codex:claude)  model=gpt-6-astra ;;
-    claude:codex)  model=claude-opus-5-5 ;;
-    claude:claude) model=claude-fable-5-1 ;;
+    codex:claude|claude:codex) model=$(kind_default REVIEWER_MODEL "$kind") ;;
+    claude:claude) model=$(model_default REVIEWER_MODEL_CLAUDE_SELF) ;;
     codex:codex)
       if [ -n "$lane_model" ]; then model=$lane_model
       elif [ "$EXECUTOR_KIND" = codex ]; then model=$EXECUTOR_MODEL
-      else model=gpt-6-astra; fi ;;
+      else model=$(kind_default EXECUTOR_MODEL codex); fi ;;
   esac
   model="${REVIEWER_MODEL:-$model}"
   printf '%s\t%s\t%s\n' "$kind" "$model" "$note"
