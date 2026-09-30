@@ -829,8 +829,10 @@ if section add-reviewer; then
   echo gone > "$S/bun-vitest-r2-1"
   "$KIT/tests/stub/tower" task R2-1 done --model sonnet --run "$RUNF" >/dev/null
   out=$(cd "$r" && "$KIT/add-reviewer.sh" "$RUNF" R2 claude "Try again" "$RUNF/findings/b.json" 2>&1; echo "exit=$?")
-  assert_match "a task already worked on is not taken over" "$out" 'task R2-1 is done on the board'
-  assert_match "that refusal fails"                   "$out" 'exit=1$'
+  # Its line still says starting, but its task was worked on: that review
+  # happened, and the next one starts fresh.
+  assert_match "a starting line whose task was worked on: the next review" "$out" 'reviewer R2 ready \(task R2-2\)'
+  assert_match "... as a new agent"                   "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-r2-2 '
   # The reviewer line is written before the start (#28): a start that fails
   # after its agent exists leaves the agent in the map, and a rerun ends it and
   # starts the review again under the same name and task.
@@ -860,7 +862,20 @@ if section add-reviewer; then
   assert_nomatch "rerun, agent now ready: not ended, not started" "$log" '^herdr (pane send-text|agent start)'
   assert_match "rerun, agent now ready: says it resumes it" "$out" 'resuming bun-vitest-r2-1 in pane-2'
   assert_match "rerun, agent now ready: ready"        "$out" 'reviewer R2 ready \(task R2-1\)'
-  rm -f "$S"/bun-vitest-r1-1* "$S"/bun-vitest-r2-1*
+  assert_match "rerun, agent now ready: its line is no longer starting" "$(cat "$RUNB/panes.txt")" '^reviewer R2: .*review "Slow".*\)$'
+  assert_nomatch "rerun, agent now ready: not said to have not started" "$out" 'did not start'
+  # A kept agent must be of the kind and model this call picks: another one
+  # is ended and started again.
+  echo gone > "$S/bun-vitest-r1-1"; echo unready > "$S/bun-vitest-r1-2.started"; reset_stub
+  out=$(cd "$r" && READY_WAIT_SECONDS=1 "$KIT/add-reviewer.sh" "$RUNB" R1 claude "Kind" "$RUNB/findings/k.json" 2>&1; echo "exit=$?")
+  assert_match "never ready (codex): add-reviewer fails" "$out" 'exit=1$'
+  assert_match "never ready: it says to rerun add-reviewer" "$out" 'rerun  .*add-reviewer\.sh .* R1 claude Kind .*/findings/k\.json  to resume it'
+  printf 'idle\ngone\n' > "$S/bun-vitest-r1-2"; rm -f "$S/bun-vitest-r1-2.started"; : > "$HERDR_STUB_LOG"
+  out=$(cd "$r" && REVIEWER_KIND=claude "$KIT/add-reviewer.sh" "$RUNB" R1 claude "Kind" "$RUNB/findings/k.json" 2>&1; echo "exit=$?"); log=$(cat "$HERDR_STUB_LOG")
+  assert_match "rerun as another kind: the kept agent is ended" "$log" '^herdr pane send-text pane-1 /exit$'
+  assert_match "rerun as another kind: started again as that kind" "$log" '^herdr agent start bun-vitest-r1-2 --kind claude '
+  assert_match "rerun as another kind: ready"         "$out" 'reviewer R1 ready \(task R1-2\)'
+  rm -f "$S"/bun-vitest-r1-1* "$S"/bun-vitest-r1-2* "$S"/bun-vitest-r2-1*
   # A codex-only machine: a codex lane's Reviewer is a fresh codex agent on the
   # reviewed lane's model, as the pane map records it.
   RUNM="$TMP/run-review-model"; reset_stub

@@ -47,10 +47,11 @@
 #     reviewer R1:    <pane-id>   (agent "<name>", kind <kind>, model <model>, review "<title>", findings <file>)
 #   one reviewer line per slot, replaced by each new review in that slot. It
 #   is written before the agent starts, ending in " starting" until the agent
-#   accepts input: a start that fails leaves it so, and a rerun for the slot
-#   resumes that review under the same agent and task. The agent left in the
-#   slot is kept when it now accepts input ("resuming ..."), else ended as a
-#   previous Reviewer is, then started again;
+#   accepts input: a start that fails leaves it so, says to rerun, and a rerun
+#   for the slot resumes that review under the same agent and task while
+#   nobody has worked on the task. The agent left in the slot is kept when it
+#   now accepts input and is of this call's kind and model ("resuming ..."),
+#   else ended as a previous Reviewer is, then started again;
 #   the directory of <findings-file>;
 #   for a codex Reviewer, <run-dir>/tmp: the commands it runs get it as
 #   TMPDIR, BUN_TMPDIR, BUN_INSTALL_CACHE_DIR and npm_config_cache, since its
@@ -150,21 +151,31 @@ slot_pane() { echo "$TAB_LINE" | sed -nE "s/.*[(, ]$1 ([^,)]+).*/\\1/p"; }
 # Reviewer is still there. An extra Enter at a shell prompt does nothing.
 # EXIT_WAIT_SECONDS counts checks about a second apart.
 # The reviewer line is written before its agent starts, ending in " starting"
-# until the agent accepts input. A line still ending so is a start that
-# failed: a rerun resumes that review, under the same agent name and task. Its
-# agent, still in the slot, is kept when it accepts input (executor.sh
-# ready_of) and otherwise ended as above, then started again.
-PREV=$(sed -nE "s/^reviewer $SLOT: +[^ ]+ +\\(agent \"([^\"]+)\".*/\\1/p" "$MAP")
+# until the agent accepts input. A line still ending so, whose task nobody has
+# worked on (pending on the board, or not there), is a start that failed: a
+# rerun resumes that review, under the same agent name and task. Its agent,
+# still in the slot, is kept when it accepts input (executor.sh ready_of) and
+# is of this call's kind and model; otherwise it is ended as above, then
+# started again. A starting line whose task was worked on is a review that
+# happened: the next one starts fresh.
+PREV_LINE=$(grep -E "^reviewer $SLOT: " "$MAP" || true)
+PREV=$(echo "$PREV_LINE" | sed -nE "s/^reviewer $SLOT: +[^ ]+ +\\(agent \"([^\"]+)\".*/\\1/p")
 N=1; RESUME=0; KEEP=0
 if [ -n "$PREV" ]; then
   N=$(( ${PREV##*-} + 1 ))
-  if grep -qE "^reviewer $SLOT: .* starting\$" "$MAP"; then RESUME=1; N=${PREV##*-}; fi
+  case "$PREV_LINE" in
+    *" starting")
+      prev_status=$(tower state --json | jsonq "next((t.get('status', '?') for t in d['tasks'] if t['id'] == '$SLOT-${PREV##*-}'), 'missing')") \
+        || die "add-reviewer: tower state failed; rerun once tower answers"
+      case "$prev_status" in pending|missing) RESUME=1; N=${PREV##*-} ;; esac ;;
+  esac
   case "$(state_of "$PREV")" in
     gone) ;;
     working) die "Reviewer $PREV is still working in $SLOT: wait until the slot is free, or use the other slot" ;;
     unreadable) die "herdr cannot say whether Reviewer $PREV is still there (herdr agent get $PREV fails); rerun once herdr answers" ;;
     *)
-      if [ "$RESUME" = 1 ] && [ "$(ready_of "$PREV")" = ready ]; then KEEP=1; else
+      if [ "$RESUME" = 1 ] && [[ "$PREV_LINE" == *", kind $R_KIND, model $R_MODEL, review "* ]] \
+        && [ "$(ready_of "$PREV")" = ready ]; then KEEP=1; else
       PANE=$(slot_pane "$SLOT")
       herdr pane send-text "$PANE" "/exit" >/dev/null
       [ "${DRY_RUN:-0}" = 1 ] || sleep 1
@@ -207,7 +218,8 @@ if ! out=$(tower add "$TITLE" --id "$ID" --area review --lane "$SLOT" 2>&1); the
   tower change "$ID" --title "$TITLE" >/dev/null
   REUSED=1
 fi
-[ "$REUSED" = 0 ] || echo "reusing task $ID: an earlier call for $SLOT added it, but its Reviewer did not start"
+if [ "$REUSED" = 1 ] && [ "$KEEP" = 1 ]; then echo "reusing task $ID: the review resumed below"
+elif [ "$REUSED" = 1 ]; then echo "reusing task $ID: an earlier call for $SLOT added it, but its Reviewer did not start"; fi
 
 # --- the review tab, on the first call ----------------------------------------
 if [ -z "$TAB_LINE" ]; then
@@ -229,13 +241,20 @@ mkdir -p "$(dirname "$FINDINGS")"
 if [ "$R_KIND" = codex ]; then AGENT_TMP="$RUN_DIR/tmp"; mkdir -p "$AGENT_TMP"; fi
 LINE=$(printf 'reviewer %s:    %s   (agent "%s", kind %s, model %s, review "%s", findings %s)' \
   "$SLOT" "$PANE" "$NAME" "$R_KIND" "$R_MODEL" "$TITLE" "$FINDINGS")
+# The map is rewritten through a temp file of this call's own: the other
+# slot's add-reviewer may be rewriting it too.
 slot_line() {
-  { grep -v "^reviewer $SLOT:" "$MAP" || [ $? -eq 1 ]; } > "$MAP.tmp"
-  echo "$1" >> "$MAP.tmp"; mv "$MAP.tmp" "$MAP"
+  local tmp; tmp=$(mktemp "$MAP.XXXXXX")
+  { grep -v "^reviewer $SLOT:" "$MAP" || [ $? -eq 1 ]; } > "$tmp"
+  echo "$1" >> "$tmp"; mv "$tmp" "$MAP"
 }
 slot_line "$LINE starting"
 if [ "$KEEP" = 1 ]; then echo "resuming $NAME in $PANE: its start failed earlier, and it now accepts input"
-else ( cd "$REPO" && start_agent_with_trust_retry "$NAME" "$PANE" ); fi
+else
+  _args=$(printf ' %q' "$RUN_DIR" "$SLOT" "$LANE_KIND" "$TITLE" "$FINDINGS" ${LANE:+"$LANE"})
+  ( cd "$REPO" && start_agent_with_trust_retry "$NAME" "$PANE" ) \
+    || die "add-reviewer: Reviewer $NAME is not ready in $PANE; its review is in the pane map, starting: rerun  $KIT/add-reviewer.sh$_args  to resume it"
+fi
 slot_line "$LINE"
 
 [ -z "$R_NOTE" ] || echo "reviewer: $R_NOTE"
