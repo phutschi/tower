@@ -1046,6 +1046,7 @@ if section add-reviewer; then
   assert_match "starting, never ready on the rerun: fails" "$out" 'exit=1$'
   assert_match "starting, never ready on the rerun: says it is still starting" "$out" 'Reviewer bun-vitest-r2-4 is still starting in pane-2: .*rerun  .*add-reviewer\.sh .* R2 claude Stuck .*/findings/s\.json  to resume it once it accepts input'
   assert_nomatch "starting, never ready on the rerun: not refused as working" "$out" 'still working'
+  assert_nomatch "starting, never ready on the rerun: no start's next step" "$out" 'agent start:'
   assert_nomatch "starting, never ready on the rerun: not ended, not started" "$log" '^herdr (pane send-text|agent start)'
   assert_match "starting, never ready on the rerun: its line still starting" "$(cat "$RUNB/panes.txt")" '^reviewer R2: .*review "Stuck".* starting$'
   rm -f "$S"/bun-vitest-r2-3* "$S"/bun-vitest-r2-4*

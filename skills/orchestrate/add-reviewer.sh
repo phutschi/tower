@@ -159,8 +159,8 @@ slot_pane() { echo "$TAB_LINE" | sed -nE "s/.*[(, ]$1 ([^,)]+).*/\\1/p"; }
 # rerun resumes that review, under the same agent name and task. Its agent,
 # still in the slot and of this call's kind and model, is kept once it accepts
 # input (executor.sh ready_of), waited for while it does not yet; otherwise it
-# is ended as above, then started again. A starting line whose task was worked on is a review that
-# happened: the next one starts fresh.
+# is ended as above, then started again. A starting line whose task was
+# worked on is a review that happened: the next one starts fresh.
 RERUN_ARGS=$(printf ' %q' "$RUN_DIR" "$SLOT" "$LANE_KIND" "$TITLE" "$FINDINGS" ${LANE:+"$LANE"})
 PREV_LINE=$(grep -E "^reviewer $SLOT: " "$MAP" || true)
 PREV=$(echo "$PREV_LINE" | sed -nE "s/^reviewer $SLOT: +[^ ]+ +\\(agent \"([^\"]+)\".*/\\1/p")
@@ -175,18 +175,23 @@ if [ -n "$PREV" ]; then
   esac
   # A resumed review's agent of this call's kind and model is kept once it
   # accepts input, working or not; one that does not yet is still starting,
-  # and is waited for as its start waits (executor.sh until_ready).
+  # and is waited for as its start waits (executor.sh until_ready, whose own
+  # next step is for a fresh start, so not printed here). After a wait that
+  # ran out, one more read decides: still starting fails, saying a rerun
+  # resumes it; gone, unreadable or any other state goes on below.
   if [ "$RESUME" = 1 ] && [[ "$PREV_LINE" == *", kind $R_KIND, model $R_MODEL, review "* ]]; then
     case "$(ready_of "$PREV")" in
       ready) KEEP=1 ;;
       *", not ready for input")
-        rc=0; until_ready "$PREV" "$(slot_pane "$SLOT")" || rc=$?
-        case $rc in
-          0) KEEP=1 ;;
-          2) [ "$(state_of "$PREV")" != unreadable ] \
-               || die "herdr cannot say whether Reviewer $PREV is still there (herdr agent get $PREV fails); rerun once herdr answers"
-             die "Reviewer $PREV is still starting in $(slot_pane "$SLOT"): rerun  $KIT/add-reviewer.sh$RERUN_ARGS  to resume it once it accepts input" ;;
-        esac ;;   # 1: gone, so started again below
+        rc=0; until_ready "$PREV" "$(slot_pane "$SLOT")" 2>/dev/null || rc=$?
+        [ "$rc" != 0 ] || KEEP=1
+        if [ "$rc" = 2 ]; then
+          case "$(ready_of "$PREV")" in
+            ready) KEEP=1 ;;
+            *", not ready for input")
+              die "Reviewer $PREV is still starting in $(slot_pane "$SLOT"): rerun  $KIT/add-reviewer.sh$RERUN_ARGS  to resume it once it accepts input" ;;
+          esac
+        fi ;;
     esac
   fi
   [ "$KEEP" = 1 ] || case "$(state_of "$PREV")" in
