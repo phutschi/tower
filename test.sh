@@ -1614,6 +1614,23 @@ SH
   assert_match "preflight slot: codex at 3% is skipped" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-r1-2 --kind claude '
   assert_match "preflight slot: ... noted in the record" "$(notes "$RUN")" '^reviewer: skipped codex, 3% credits left$'
   rm -f "$HERDR_STUB_STATES_DIR"/bun-vitest-r1-* "$HERDR_STUB_STATES_DIR"/bun-vitest-r2-*
+  # The user's path: a user contract turns the guard on at 60%, bootstrap
+  # records both, and add-reviewer skips a candidate at 50%, which the
+  # default 20% would keep.
+  UCG="$CG/uc-guard"; mkdir -p "$UCG/tower"; printf '%s\n' REVIEWER_BY_CREDITS=on REVIEWER_CREDITS_MIN=60 > "$UCG/tower/orchestrate"
+  left claude 50; left codex 90
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-cg-user"
+  out=$(kit "$r" XDG_CONFIG_HOME="$UCG" EXECUTOR_KIND=cursor "$KIT/bootstrap.sh" "$RUN" "User guard" main "$KIT/example-tasks.tsv")
+  assert_match "user contract guard: bootstrap records it" "$(cat "$RUN/panes.txt")" '^switches: .* REVIEWER_BY_CREDITS=on REVIEWER_CREDITS_MIN=60 '
+  reset_stub; out=$(kit "$r" XDG_CONFIG_HOME="$UCG" "$KIT/add-reviewer.sh" "$RUN" R1 cursor "Lane review A" "$RUN/findings/a.json" A)
+  assert_match "user contract guard: claude at 50% is skipped" "$(notes "$RUN")" '^reviewer: skipped claude, 50% credits left$'
+  assert_match "user contract guard: ... and codex, the next candidate, reviews" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-r1-1 --kind codex '
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-cg-default"
+  out=$(kit "$r" REVIEWER_BY_CREDITS=on EXECUTOR_KIND=cursor "$KIT/bootstrap.sh" "$RUN" "Default guard" main "$KIT/example-tasks.tsv")
+  reset_stub; out=$(kit "$r" "$KIT/add-reviewer.sh" "$RUN" R1 cursor "Lane review A" "$RUN/findings/a.json" A)
+  assert_match "without the user contract: claude at 50% reviews (the default 20%)" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-r1-1 --kind claude '
+  assert_nomatch "without the user contract: ... with no skip note" "$(notes "$RUN")" '^reviewer: skipped'
+  rm -f "$HERDR_STUB_STATES_DIR"/bun-vitest-r1-*
   unset CODEX_STUB_RATE_LIMITS
 fi
 
