@@ -13,10 +13,17 @@
 # agent_pane_busy (a pane whose shell is not ready yet), counted through
 # HERDR_STUB_COUNTER.busy. HERDR_STUB_TRUST_STARTS=N answers the first N with an
 # agent blocked during startup (a trust prompt), counted through
-# HERDR_STUB_COUNTER.trust. HERDR_STUB_SEND_KEYS_FAIL=1: every `pane
-# send-keys` fails. HERDR_STUB_EXIT_ON_ENTER=N: every `agent get` answers gone
-# once N `pane send-keys ... Enter` calls were made (counted through
-# HERDR_STUB_COUNTER.enters), as an agent that needs N Enters to exit.
+# HERDR_STUB_COUNTER.trust. An `agent start <name>` that succeeds makes the
+# agent exist: its state file goes, so it answers working, unless
+# HERDR_STUB_STATES_DIR/<name>.started holds lines: each such start moves the
+# first one into the state file (the last one stays), as what the new agent
+# then answers ("gone": it exited right after its start).
+# HERDR_STUB_SEND_KEYS_FAIL=1: every `pane send-keys` fails.
+# HERDR_STUB_EXIT_ON_ENTER=N: every `agent get` answers gone once N `pane
+# send-keys ... Enter` calls were made (counted through
+# HERDR_STUB_COUNTER.enters), as an agent that needs N Enters to exit; an
+# agent started since the last Enter (listed in HERDR_STUB_COUNTER.started,
+# which each Enter empties) is not one.
 # Errors are JSON on stderr with exit 1, as herdr answers them.
 # HERDR_STUB=absent refuses to run, so herdr counts as not installed; it logs
 # each refused call as "herdr-absent <argv>".
@@ -52,13 +59,22 @@ case "${1:-} ${2:-}" in
       pane=$(printf '%s\n' "$@" | sed -n '/^--pane$/{n;p;q;}')
       echo "{\"error\":{\"code\":\"agent_pane_busy\",\"message\":\"agent target pane $pane is not an available shell\"}}" >&2; exit 1
     fi
+    name=$3
+    if [ -n "$states" ] && [ -s "$states/$name.started" ]; then
+      head -1 "$states/$name.started" > "$states/$name"
+      [ "$(wc -l < "$states/$name.started")" -le 1 ] || { tail -n +2 "$states/$name.started" > "$states/$name.next"; mv "$states/$name.next" "$states/$name.started"; }
+    elif [ -n "$states" ]; then
+      rm -f "$states/$name"
+    fi
+    echo "$name" >> "$counter.started"
     echo '{"result":{"agent":{"agent_status":"idle"}}}' ;;
   "pane send-keys")
     [ "${HERDR_STUB_SEND_KEYS_FAIL:-}" != 1 ] || { echo '{"error":{"code":"server_unavailable","message":"herdr server is not answering"}}' >&2; exit 1; }
-    case " $* " in *" Enter "*) echo $(( $(cat "$counter.enters" 2>/dev/null || echo 0) + 1 )) > "$counter.enters" ;; esac
+    case " $* " in *" Enter "*) echo $(( $(cat "$counter.enters" 2>/dev/null || echo 0) + 1 )) > "$counter.enters"; rm -f "$counter.started" ;; esac
     echo '{"result":{}}' ;;
   "agent get")
-    if [ -n "${HERDR_STUB_EXIT_ON_ENTER:-}" ] && [ "$(cat "$counter.enters" 2>/dev/null || echo 0)" -ge "$HERDR_STUB_EXIT_ON_ENTER" ]; then
+    if [ -n "${HERDR_STUB_EXIT_ON_ENTER:-}" ] && [ "$(cat "$counter.enters" 2>/dev/null || echo 0)" -ge "$HERDR_STUB_EXIT_ON_ENTER" ] \
+      && ! grep -qxF -- "$3" "$counter.started" 2>/dev/null; then
       echo '{"error":{"code":"agent_not_found"}}' >&2; exit 1
     fi
     status=working

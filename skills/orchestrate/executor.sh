@@ -9,10 +9,13 @@
 #           limited to the worktree (-s workspace-write) with network allowed
 #           for installs and fetches. Two dirs outside the worktree are added as
 #           writable: the run dir (tower task|block|note append to it) and the
-#           repo's common git dir (a lane worktree commits into it).
+#           repo's common git dir (a lane worktree commits into it). Its
+#           startup update check is off (-c check_for_update_on_startup=false):
+#           a codex that updates itself on start exits before its brief.
 #
 # Expects `set -u`; provides agent_name SUFFIX, start_agent NAME PANE,
-# start_agent_with_trust_retry NAME PANE, kind_installed KIND and
+# start_agent_with_trust_retry NAME PANE (an agent that exits right after its
+# start is started once more, then the start fails), kind_installed KIND and
 # reviewer_for LANE_KIND [LANE_MODEL] (the Reviewer's kind and model; see below).
 # START_TRIES (default 10) is how often an agent start is tried, a second apart,
 # while herdr answers agent_pane_busy (a new pane's shell is not ready yet).
@@ -61,7 +64,8 @@ start_agent() {
       [ -n "${RUN_DIR:-}" ] && extra+=(--add-dir "$RUN_DIR")
       extra+=(--add-dir "$(git rev-parse --path-format=absolute --git-common-dir)")
       herdr agent start "$name" --kind codex --pane "$pane" -- -m "$EXECUTOR_MODEL" \
-        -a never -s workspace-write -c sandbox_workspace_write.network_access=true "${extra[@]}" ;;
+        -a never -s workspace-write -c sandbox_workspace_write.network_access=true \
+        -c check_for_update_on_startup=false "${extra[@]}" ;;
   esac
 }
 
@@ -73,7 +77,21 @@ start_agent() {
 # first). Answer it, and try once more if herdr then says the agent is gone.
 # It returns 1, saying why, when the answer cannot be sent or the agent is
 # then neither working nor idle (blocked, herdr's unknown, anything else).
+# Once started, the agent must still be there: one that exited right after
+# its start (codex updating itself, say) is started once more, and a second
+# exit fails the start, saying so.
 start_agent_with_trust_retry() {
+  local name="$1" pane="$2"
+  start_answering_trust "$name" "$pane" || return 1
+  [ "$(state_of "$name")" = gone ] || return 0
+  echo "agent start: $name exited right after its start in pane $pane; starting it once more" >&2
+  start_answering_trust "$name" "$pane" || return 1
+  [ "$(state_of "$name")" = gone ] || return 0
+  echo "agent start: $name exited again right after its second start in pane $pane; read the pane for why, then start it again" >&2
+  return 1
+}
+
+start_answering_trust() {
   local name="$1" pane="$2" out tries=1
   until out=$(start_agent "$name" "$pane" 2>&1); do
     if echo "$out" | grep -q agent_pane_busy && [ "$tries" -lt "${START_TRIES:-10}" ]; then
