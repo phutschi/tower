@@ -620,6 +620,37 @@ if section add-lane; then
   assert_nomatch "trust, still blocked: no ready line" "$out" 'lane C ready'
   assert_match "trust, still blocked: the lane is in the pane map" "$(cat "$RUNT/panes.txt")" '^lane C: '
   rm -f "$HERDR_STUB_STATES_DIR/bun-vitest-lane-c"
+
+  # A pane move that fails after the worktree is created leaves the lane
+  # recorded as unplaced, and a rerun moves that pane and finishes the lane
+  # instead of creating the worktree again.
+  r=$(fixture_repo bun-vitest); RUNM="$TMP/run-failmove"; reset_stub
+  (cd "$r" && "$KIT/bootstrap.sh" "$RUNM" "Fail move" main "$KIT/example-tasks.tsv" >/dev/null 2>&1)
+  reset_stub; out=$(cd "$r" && HERDR_STUB_MOVE_FAIL=1 "$KIT/add-lane.sh" "$RUNM" B feat/b main 2,3 2>&1; echo "exit=$?")
+  wtpane=$(sed -nE 's/^herdr pane move ([^ ]+) .*/\1/p' "$HERDR_STUB_LOG")
+  assert_match "failed move: add-lane fails"           "$out" 'exit=1$'
+  assert_match "failed move: says how to resume"       "$out" "could not move lane B's pane $wtpane into the grid.*rerun  .*/add-lane\.sh .* B feat/b main 2,3  to place it"
+  assert_nomatch "failed move: no agent start"         "$(cat "$HERDR_STUB_LOG")" '^herdr agent start'
+  assert_nomatch "failed move: no placed lane B"       "$(cat "$RUNM/panes.txt")" '^lane B:'
+  assert_match "failed move: the lane is recorded as unplaced" "$(cat "$RUNM/panes.txt")" "^unplaced lane B: +$wtpane +\(agent \"bun-vitest-lane-b\", kind claude, branch feat/b, checkout $r/\.worktrees/feat/b, model "
+  mkdir -p "$r/.worktrees/feat/b"   # the stub's worktree create makes none
+  echo gone > "$HERDR_STUB_STATES_DIR/$wtpane"
+  reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNM" B feat/b main 2,3 2>&1; echo "exit=$?")
+  assert_match "failed move, pane closed: refused, saying what to remove" "$out" "lane B's pane $wtpane is gone \(herdr pane get\): remove its unplaced line from .* and the worktree"
+  assert_nomatch "failed move, pane closed: no move"   "$(cat "$HERDR_STUB_LOG")" '^herdr pane move'
+  rm -f "$HERDR_STUB_STATES_DIR/$wtpane"
+  reset_stub; out=$(cd "$r" && HERDR_STUB_MOVE_FAIL=1 "$KIT/add-lane.sh" "$RUNM" B feat/b main 2,3 2>&1; echo "exit=$?")
+  assert_match "failed move, rerun fails to move again: says to rerun" "$out" "could not move lane B's pane $wtpane into the grid.*to place it"
+  assert_eq "failed move, rerun fails to move again: one unplaced line" "$(grep -c '^unplaced lane B:' "$RUNM/panes.txt")" 1
+  reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNM" B feat/b main 2,3 2>&1; echo "exit=$?"); log=$(cat "$HERDR_STUB_LOG")
+  assert_match "failed move, rerun: add-lane finishes" "$out" 'exit=0$'
+  assert_nomatch "failed move, rerun: no second worktree" "$log" '^herdr worktree create'
+  assert_match "failed move, rerun: the recorded pane is moved" "$log" "^herdr pane move $wtpane --tab tab-0 --split right --target-pane pane-2 "
+  assert_match "failed move, rerun: the agent starts"  "$log" '^herdr agent start bun-vitest-lane-b --kind claude --pane '
+  assert_match "failed move, rerun: lane B is placed"  "$(cat "$RUNM/panes.txt")" '^lane B: +pane-[0-9]+ +\(agent "bun-vitest-lane-b"'
+  assert_nomatch "failed move, rerun: no unplaced line left" "$(cat "$RUNM/panes.txt")" '^unplaced lane B:'
+  assert_match "failed move, rerun: prints the next step" "$out" 'lane B ready'
+  assert_eq "failed move, rerun: lane B owns its tasks" "$(board "$RUNM" '",".join(d["lanes"].get("B", []))')" "2,3"
 fi
 
 # --- add-reviewer ------------------------------------------------------------
