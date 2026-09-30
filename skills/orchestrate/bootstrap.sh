@@ -31,7 +31,7 @@
 # their command is shell code: a checkout path with an apostrophe or a space
 # stays one directory. With no checks pane declared and no test runner
 # detected, one info: line on stderr says so. Lane A is EXECUTOR_KIND
-# (claude | codex) on EXECUTOR_MODEL: .orchestrate sets the run's default,
+# (claude | codex | cursor) on EXECUTOR_MODEL: .orchestrate sets the run's default,
 # the environment of this call overrides it (executor.sh).
 #
 # Writes <run-dir>/panes.txt, the pane map for the whole run, then prints it

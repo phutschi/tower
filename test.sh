@@ -69,7 +69,7 @@ unset EXECUTOR_KIND EXECUTOR_MODEL SPEC_REVIEWER_MODEL QUALITY_REVIEWER_MODEL ST
   REVIEWER_KIND REVIEWER_MODEL REVIEW_AREAS SUITE_SKIP PR_TEMPLATE
 # The model defaults (model-defaults): the kit's file, never the calling shell's keys.
 # shellcheck disable=SC2046  # the file's keys, one word each
-unset MODEL_DEFAULTS_FILE $(sed -n 's/^\([A-Z_]*\)=.*/\1/p' "$KIT/model-defaults")
+unset CURSOR_STUB MODEL_DEFAULTS_FILE $(sed -n 's/^\([A-Z_]*\)=.*/\1/p' "$KIT/model-defaults")
 mkdir -p "$HERDR_STUB_STATES_DIR"
 
 # Guard: every section below runs herdr/tower/claude/codex calls through common.sh's
@@ -78,7 +78,7 @@ mkdir -p "$HERDR_STUB_STATES_DIR"
 # test touching the real herdr or tower (this happened once: HERDR_ENV=1 is
 # inherited from the orchestrating pane, so `in_herdr` alone does not stop a
 # script run outside test.sh and outside DRY_RUN=1 from driving real panes).
-for _tool in herdr tower claude codex semgrep gitleaks; do
+for _tool in herdr tower claude codex semgrep gitleaks cursor-agent; do
   _which=$(bash -c ". \"$KIT/common.sh\"; command -v $_tool" 2>/dev/null || true)
   [ "$_which" = "$KIT/tests/stub/$_tool" ] || { echo "test.sh: $_tool resolves to '$_which', not the stub ($KIT/tests/stub/$_tool) — refusing to run" >&2; exit 1; }
 done
@@ -1377,6 +1377,71 @@ if section user-contract; then
   uc REVIEWER_MODEL_CODEX=rev-later
   out=$(cd "$r" && env HOME="$TMP/uc-home" XDG_CONFIG_HOME="$UC" EXIT_WAIT_SECONDS=3 "$KIT/add-reviewer.sh" "$RUN" R1 claude "Lane review A" "$RUN/findings/a.json" 2>&1)
   assert_match "user contract: add-reviewer's Reviewer takes its REVIEWER_MODEL_CODEX" "$(cat "$RUN/panes.txt")" '^reviewer R1: .*kind codex, model rev-later, '
+fi
+
+# --- cursor-lane -------------------------------------------------------------
+# EXECUTOR_KIND=cursor: a lane in the Cursor CLI (cursor-agent), through herdr.
+if section cursor-lane; then
+  mkdir -p "$TMP/cl-home/.agents/skills/tdd"
+  boot() { (cd "$1" && shift && env HOME="$TMP/cl-home" "$KIT/bootstrap.sh" "$@" 2>&1); }
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-cursor"; reset_stub
+  out=$(EXECUTOR_KIND=cursor boot "$r" "$RUN" "Cursor" main)
+  C=$(git -C "$r" rev-parse --path-format=absolute --git-common-dir)
+  log=$(cat "$HERDR_STUB_LOG")
+  assert_match "cursor lane: started trusted, without approvals or self-update, on grok-4.7-high-fast" "$log" \
+    "^herdr agent start bun-vitest-lane-a --kind cursor --pane pane-2 -- --model grok-4\\.7-high-fast --trust --force --disable-auto-update --add-dir $RUN --add-dir $C\$"
+  assert_nomatch "cursor lane: no --sandbox flag" "$log" '^herdr agent start .*--sandbox'
+  assert_match "cursor lane: the pane map says kind cursor and its model" "$(cat "$RUN/panes.txt")" \
+    '^lane A: +pane-2 +\(agent "bun-vitest-lane-a", kind cursor, .*, model grok-4\.7-high-fast\)$'
+  assert_eq "cursor run: grok-4.7-high-fast is the recorded spec and quality reviewer model" \
+    "$(board "$RUN" '" ".join(k+"="+v for k,v in sorted(d["run"]["models"].items()))')" \
+    "implementer=grok-4.7-high-fast quality-reviewer=grok-4.7-high-fast spec-reviewer=grok-4.7-high-fast"
+  assert_match "cursor run: its Reviewer has a model" "$(cat "$RUN/panes.txt")" '^reviewer: +kind claude, model claude-opus-5-5$'
+  # start NAME [ENV...]: start_agent_with_trust_retry for a cursor NAME in pane-9.
+  start() { local n=$1; shift; reset_stub; (cd "$r" && env HOME="$TMP/cl-home" EXECUTOR_KIND=cursor "$@" bash -c ". \"\$KIT/common.sh\"; . \"\$KIT/executor.sh\"; start_agent_with_trust_retry $n pane-9; echo \"exit=\$?\"" 2>&1); }
+  out=$(start acme-lane-a HERDR_STUB_TRUST_STARTS=1)
+  assert_match "cursor trust box: the start fails" "$out" 'exit=1$'
+  assert_match "cursor trust box: ... saying to check the pane" "$out" 'acme-lane-a is blocked during startup in pane pane-9.*check the pane'
+  assert_nomatch "cursor trust box: ... and sends no keys" "$(cat "$HERDR_STUB_LOG")" '^herdr pane send-keys'
+  model_of() { start acme-lane-a "$@" >/dev/null; sed -nE 's/^herdr agent start .* -- --model ([^ ]+) .*/\1/p' "$HERDR_STUB_LOG"; }
+  assert_eq "cursor model: EXECUTOR_MODEL in the environment" "$(model_of EXECUTOR_MODEL=lane-m)" lane-m
+  assert_eq "cursor model: EXECUTOR_MODEL_CURSOR in the environment" "$(model_of EXECUTOR_MODEL_CURSOR=lane-k)" lane-k
+  mkdir -p "$TMP/cl-xdg/tower"; echo EXECUTOR_MODEL_CURSOR=lane-u > "$TMP/cl-xdg/tower/orchestrate"
+  rc=$(fixture_repo bun-vitest); RUN="$TMP/run-cursor-uc"
+  out=$(cd "$rc" && env HOME="$TMP/cl-home" XDG_CONFIG_HOME="$TMP/cl-xdg" EXECUTOR_KIND=cursor "$KIT/bootstrap.sh" "$RUN" "Cursor" main 2>&1)
+  assert_match "cursor model: EXECUTOR_MODEL_CURSOR in the user contract" "$(cat "$RUN/panes.txt")" '^lane A: .*kind cursor, .*, model lane-u\)$'
+  rc=$(fixture_repo bun-vitest); RUN="$TMP/run-cursor-rc"; echo EXECUTOR_MODEL=lane-r > "$rc/.orchestrate"
+  out=$(cd "$rc" && env HOME="$TMP/cl-home" XDG_CONFIG_HOME="$TMP/cl-xdg" EXECUTOR_KIND=cursor "$KIT/bootstrap.sh" "$RUN" "Cursor" main 2>&1)
+  assert_match "cursor model: EXECUTOR_MODEL in the repo contract" "$(cat "$RUN/panes.txt")" '^lane A: .*kind cursor, .*, model lane-r\)$'
+  # One that exits right after its start is started once more; gone again, the start fails.
+  printf 'gone\ngone\n' > "$HERDR_STUB_STATES_DIR/acme-lane-x.started"
+  out=$(start acme-lane-x)
+  assert_eq "cursor exits after its start: started once more" "$(grep -c '^herdr agent start acme-lane-x --kind cursor ' "$HERDR_STUB_LOG")" 2
+  assert_match "cursor exits after its start: ... then the start fails, saying so" "$out" 'acme-lane-x exited again after it was started once more'
+  assert_match "cursor exits after its start: ... non-zero" "$out" 'exit=1$'
+  rm -f "$HERDR_STUB_STATES_DIR"/acme-lane-x*
+  # A mixed run: a cursor lane B beside claude lane A.
+  rm_=$(fixture_repo bun-vitest); RUN="$TMP/run-mixed-cursor"
+  (cd "$rm_" && env HOME="$TMP/cl-home" "$KIT/bootstrap.sh" "$RUN" "Mixed" main "$KIT/example-tasks.tsv" >/dev/null 2>&1)
+  reset_stub; out=$(cd "$rm_" && env HOME="$TMP/cl-home" EXECUTOR_KIND=cursor "$KIT/add-lane.sh" "$RUN" B feat/b main 2 2>&1)
+  map=$(cat "$RUN/panes.txt")
+  assert_match "mixed: lane A is claude" "$map" '^lane A: .*kind claude, '
+  assert_match "mixed: add-lane opens a cursor lane B" "$map" '^lane B: .*kind cursor, .*, model grok-4\.7-high-fast\)$'
+  assert_match "mixed: ... started as cursor in its worktree's run" "$(cat "$HERDR_STUB_LOG")" "^herdr agent start bun-vitest-lane-b --kind cursor --pane pane-[0-9]+ -- --model grok-4\\.7-high-fast --trust --force --disable-auto-update --add-dir $RUN --add-dir "
+  out=$(cd "$rm_" && EXECUTOR_KIND=gemini bash -c ". \"\$KIT/common.sh\"; . \"\$KIT/executor.sh\"" 2>&1)
+  assert_match "EXECUTOR_KIND=gemini: refused, listing the kinds" "$out" "EXECUTOR_KIND must be claude, codex or cursor \\(got 'gemini'\\)"
+  installed() { env HOME="$TMP/cl-home" "$@" bash -c ". \"\$KIT/common.sh\"; . \"\$KIT/executor.sh\"; kind_installed cursor && echo yes || echo no" 2>&1; }
+  assert_eq "cursor: installed when cursor-agent answers --version" "$(installed)" yes
+  assert_match "cursor: ... probed through cursor-agent" "$(reset_stub; installed >/dev/null; cat "$HERDR_STUB_LOG")" '^cursor-agent --version$'
+  assert_eq "cursor: not installed when cursor-agent refuses" "$(installed CURSOR_STUB=absent)" no
+  # The tdd skill: cursor reads ~/.agents/skills, ~/.claude/skills and ~/.codex/skills.
+  hint_in() { env HOME="$1" EXECUTOR_KIND=cursor bash -c ". \"\$KIT/common.sh\"; . \"\$KIT/executor.sh\"" 2>&1; }
+  mkdir -p "$TMP/cl-none"
+  assert_match "cursor tdd: no skill in any of its dirs, a hint" "$(hint_in "$TMP/cl-none")" '^info: no tdd skill in ~/\.agents/skills, ~/\.claude/skills or ~/\.codex/skills — the cursor$'
+  for d in .agents/skills .claude/skills .codex/skills; do
+    mkdir -p "$TMP/cl-$d/$d/tdd"
+    assert_eq "cursor tdd: in ~/$d, no hint" "$(hint_in "$TMP/cl-$d")" ""
+  done
 fi
 
 # --- watch -------------------------------------------------------------------
