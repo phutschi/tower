@@ -914,11 +914,14 @@ if section add-reviewer; then
   assert_match "that refusal exits non-zero"          "$out" 'exit=1$'
   sed -i.bak "s/^switches: .*/switches:       BASH_ENV=x/" "$RUNQ/panes.txt"
   assert_match "a switches: line naming something else is refused" "$(cd "$r" && "$KIT/add-reviewer.sh" "$RUNQ" R2 claude "Bad" "$RUNQ/findings/b.json" 2>&1)" "holds 'BASH_ENV=x', not a run switch"
-  CTL="$TMP/ctl"$'\t'"run"; cp -R "$RUNK" "$CTL"; echo gone > "$S/bun-vitest-r2-1"; reset_stub
+  # A copy is another run dir: it needs its own pinned contract (detect-stack.sh).
+  pin_of() { (cd "$r" && bash -c '. "$KIT/common.sh"; . "$KIT/detect-stack.sh" 2>/dev/null; contract_pin "$1"' _ "$1"); }
+  CTL="$TMP/ctl"$'\t'"run"; cp -R "$RUNK" "$CTL"; cp "$(pin_of "$RUNK")" "$(pin_of "$CTL")"; echo gone > "$S/bun-vitest-r2-1"; reset_stub
   out=$(cd "$r" && EXIT_WAIT_SECONDS=0 REVIEWER_KIND=codex "$KIT/add-reviewer.sh" "$CTL" R2 claude "Ctl" "$CTL/findings/c.json" 2>&1; echo "exit=$?")
   assert_match "codex Reviewer, a run dir with a control character: refused" "$out" 'the run dir .* holds a control character'
   assert_nomatch "... before any agent starts" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start'
-  RELD="$TMP/rel"; mkdir -p "$RELD"; cp -R "$RUNK" "$RELD/run"; reset_stub
+  RELD="$TMP/rel"; mkdir -p "$RELD"; cp -R "$RUNK" "$RELD/run"
+  cp "$(pin_of "$RUNK")" "$(pin_of "$RELD/run")"; reset_stub
   echo gone > "$S/bun-vitest-r2-1"   # R2's earlier Reviewer has exited (its start above made it run)
   out=$(cd "$RELD" && EXIT_WAIT_SECONDS=0 REVIEWER_KIND=codex "$KIT/add-reviewer.sh" run R2 claude "Rel" run/findings/rel.json 2>&1)
   assert_match "a relative run dir is made absolute" "$(cat "$RELD/run/panes.txt")" "^reviewer R2: .*findings $RELD/run/findings/rel.json\\)$"
@@ -1312,6 +1315,52 @@ if section watchline; then
   assert_nomatch "watch line: no timeout and no round limit" "$wl" ' --timeout|ROUND_SECONDS'
 fi
 
+# --- contract-pin ------------------------------------------------------------
+# The repo contract is bash. After bootstrap, add-lane and add-reviewer read it
+# as bootstrap did, from a pin no lane can write: not a checkout, not the run
+# dir, not the git dir (a codex lane may write all three).
+if section contract-pin; then
+  r=$(fixture_repo contract); git -C "$r" add -A; git -C "$r" commit -qm contract
+  RUNP="$TMP/run-pin"; reset_stub
+  (cd "$r" && "$KIT/bootstrap.sh" "$RUNP" "Pin" main "$KIT/example-tasks.tsv" >/dev/null 2>&1)
+  pin=$(sed -nE 's/^contract: +//p' "$RUNP/panes.txt")
+  assert_match "pin: the pane map names the pin, under the user's state dir" "$pin" "^$XDG_STATE_HOME/tower/contracts/[0-9a-f]+$"
+  assert_match "pin: the pin holds the contract bootstrap read" "$(cat "$pin" 2>&1)" '^EXECUTOR_MODEL=gpt-6-astra-mini$'
+  [ -f "$pin" ] && [ ! -w "$pin" ] && ok "pin: the pin is read-only" || bad "pin: the pin is read-only"
+  reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNP" B feat/b main 2 2>&1)
+  assert_match "pin: a clean contract reaches add-lane" "$(cat "$RUNP/panes.txt")" '^lane B: .*kind codex, .*model gpt-6-astra-mini\)'
+  # A lane rewrites the contract and it lands in the checkout (its commit, a merge).
+  printf 'EXECUTOR_MODEL=lane-written\ntouch "%s"\n' "$TMP/pin-ran-lane" >> "$r/.orchestrate"; git -C "$r" commit -qam lane
+  reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNP" C feat/c main 3 2>&1)
+  assert_match "pin: a lane-modified contract does not reach add-lane" "$(cat "$RUNP/panes.txt")" '^lane C: .*kind codex, .*model gpt-6-astra-mini\)'
+  # The run dir is a codex lane's to write: a contract: line there picks nothing.
+  [ -e "$TMP/pin-ran-lane" ] && bad "pin: the lane's contract never runs" || ok "pin: the lane's contract never runs"
+  printf 'touch "%s"\n' "$TMP/pin-ran-forged" > "$RUNP/forged"; git -C "$r" hash-object -w "$RUNP/forged" > /dev/null
+  printf 'contract:       %s\ncontract:       %s\n' "$RUNP/forged" "$(git -C "$r" hash-object "$RUNP/forged")" >> "$RUNP/panes.txt"
+  reset_stub; out=$(cd "$r" && EXIT_WAIT_SECONDS=3 "$KIT/add-reviewer.sh" "$RUNP" R1 codex "Lane review B" "$RUNP/findings/b.json" 2>&1)
+  assert_match "pin: add-reviewer still starts its Reviewer" "$(cat "$RUNP/panes.txt")" '^reviewer R1: '
+  [ -e "$TMP/pin-ran-forged" ] || [ -e "$TMP/pin-ran-lane" ] && bad "pin: neither a forged pane map line nor the lane's contract runs in add-reviewer" || ok "pin: neither a forged pane map line nor the lane's contract runs in add-reviewer"
+  # A relative run dir at bootstrap, CDPATH exported: add-lane, given the
+  # absolute path, finds the same pin.
+  r=$(fixture_repo contract); git -C "$r" add -A; git -C "$r" commit -qm contract; reset_stub
+  (cd "$r" && CDPATH=. "$KIT/bootstrap.sh" run-rel "Pin rel" main "$KIT/example-tasks.tsv" >/dev/null 2>&1)
+  reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$r/run-rel" B feat/b main 2 2>&1)
+  assert_match "pin: a relative run dir at bootstrap has the pin add-lane finds" "$(cat "$r/run-rel/panes.txt")" '^lane B: .*kind codex, .*model gpt-6-astra-mini\)'
+  # No contract at bootstrap: one a lane adds later is not read either.
+  r=$(fixture_repo bun-vitest); RUNP="$TMP/run-pin-none"; reset_stub
+  (cd "$r" && "$KIT/bootstrap.sh" "$RUNP" "Pin none" main "$KIT/example-tasks.tsv" >/dev/null 2>&1)
+  printf 'EXECUTOR_KIND=codex\ntouch "%s"\n' "$TMP/pin-ran-added" > "$r/.orchestrate"; git -C "$r" add .orchestrate; git -C "$r" commit -qm lane
+  reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNP" B feat/b main 2 2>&1)
+  assert_match "pin: a contract added by a lane does not reach add-lane" "$(cat "$RUNP/panes.txt")" '^lane B: .*kind claude, '
+  [ -e "$TMP/pin-ran-added" ] && bad "pin: ... and never runs" || ok "pin: ... and never runs"
+  # No pin (a run an older kit opened, or a pin removed): refused, not the checkout.
+  rm -f "$(sed -nE 's/^contract: +//p' "$RUNP/panes.txt" | head -1)"
+  out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNP" C feat/c main 3 2>&1; echo "exit=$?")
+  assert_match "pin: a run without its pin is refused" "$out" "no pinned contract for the run $RUNP"
+  assert_match "pin: ... as an error"                    "$out" 'exit=1$'
+  [ -e "$TMP/pin-ran-added" ] && bad "pin: ... and the checkout's contract does not run" || ok "pin: ... and the checkout's contract does not run"
+fi
+
 # --- look --------------------------------------------------------------------
 if section look; then
   # A harmless check gate for the fixtures without suite lines or scripts, so
@@ -1419,7 +1468,7 @@ for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'],
   mkdir -p "$r/sub"; reset_stub
   out=$(cd "$r/sub" && "$PREFLIGHT_DIR/look.sh" base rel-findings 2>&1; echo "exit=$?")
   assert_match "look: runs from a subdirectory"          "$(cat "$HERDR_STUB_LOG")" '^semgrep scan .* -- app\.js café app\.js new\.py$'
-  assert_eq "look: a relative findings dir is relative to where it was called" "$(verdict "$r/sub/rel-findings/look.json" | head -1)" "semgrep pass "
+  assert_eq "look: a relative findings dir is relative to where it was called" "$(verdict "$r/sub/rel-findings/look.json" | grep '^semgrep')" "semgrep pass "
   out=$(look "$r" nosuchref "$F")
   assert_match "look: an unknown base is refused"        "$out" "no merge base between 'nosuchref' and HEAD"
   assert_match "look: a setup error exits 2, not 1 (must-fix)" "$out" 'exit=2$'
@@ -1471,6 +1520,41 @@ for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'],
   assert_match "look: ... and not a failure"             "$out" 'exit=0$'
   r=$(look_repo suite-noscripts noscripts); out=$(unset CHECK_CMD; look "$r" base "$F"); v=$(verdict "$F/look.json")
   assert_match "look: a package.json without scripts and no CHECK_CMD is a skip row" "$v" '^check skip no suite lines, no package.json scripts, no CHECK_CMD$'
+  # A step that fails on a permission error is the sandbox, not the code: a
+  # setup verdict, not a must-fix suite finding.
+  r=$(look_repo none perm)
+  printf '%s\n' "suite lint 'echo \"error: bun is unable to write files to tempdir: PermissionDenied\"; exit 1'" "suite ok true" > "$r/.orchestrate"
+  out=$(look "$r" base "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: a step failing on a permission error is a setup row" "$v" '^lint warn setup: exit 1, a permission error \(error: bun is unable to write files to tempdir: PermissionDenied\): echo'
+  assert_nomatch "look: ... not a must-fix suite finding" "$(findings "$F/look.json")" 'must-fix'
+  assert_match "look: ... the steps after it still run"  "$v" '^ok pass true$'
+  assert_match "look: ... and the look is a setup error, with look.json kept" "$out" 'exit=2$'
+  assert_match "look: ... it says which step and why"    "$out" '^look: setup error: suite step\(s\) lint failed on a permission error'
+  printf '%s\n' "suite rm 'echo \"rm: /cache/x: Operation not permitted\" >&2; exit 1'" \
+    "suite npm 'echo \"npm ERR! code EACCES\"; exit 243'" "suite unit 'echo \"expected 1, got 2\"; exit 1'" > "$r/.orchestrate"
+  out=$(look "$r" base "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: Operation not permitted, on stderr, is a setup row" "$v" '^rm warn setup: exit 1, a permission error \(rm: /cache/x: Operation not permitted\)'
+  assert_match "look: EACCES is a setup row"             "$v" '^npm warn setup: exit 243, a permission error \(npm ERR! code EACCES\)'
+  assert_match "look: a step failing otherwise is still a must-fix suite finding" "$(findings "$F/look.json")" '^suite must-fix .* suite step unit failed \(exit 1\)'
+  assert_match "look: ... the setup error still wins the exit" "$out" 'exit=2$'
+  assert_match "look: ... and names every setup step"   "$out" 'suite step\(s\) rm npm failed'
+  assert_match "look: a setup step keeps its output tail, as a watchpoint for triage" "$(findings "$F/look.json")" '^suite watchpoint .* suite step npm failed on a permission error \(exit 243\) \| \$ echo .*npm ERR! code EACCES'
+  printf '%s\n' "suite bin 'printf \"x\\\\0y\\\\n\"; echo EACCES; exit 1'" "suite cr 'printf \"10%%\\\\rerror: PermissionDenied\\\\n\"; exit 1'" \
+    "suite noisy 'echo \"warn: EACCES on a probe, retried\"'" > "$r/.orchestrate"
+  out=$(look "$r" base "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: output with a NUL byte is still read for a permission error" "$v" '^bin warn setup: '
+  assert_match "look: a carriage return in the matched line becomes a space" "$v" '^cr warn setup: exit 1, a permission error \(10% error: PermissionDenied\)'
+  assert_match "look: a step that passes with EACCES in its output passes" "$v" '^noisy pass '
+  # The permission error before a long summary: the whole output is searched.
+  printf '%s\n' "suite late 'echo \"error: PermissionDenied\"; for i in \$(seq 1 30); do echo summary-\$i; done; exit 1'" > "$r/.orchestrate"
+  out=$(look "$r" base "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: a permission error more than 20 lines before the end is a setup row" "$v" '^late warn setup: exit 1, a permission error \(error: PermissionDenied\)'
+  assert_match "look: ... it is a watchpoint"           "$(findings "$F/look.json")" '^suite watchpoint .* suite step late failed on a permission error \(exit 1\) \|'
+  ev=$(python3 -c "import json,sys; print([x['evidence'] for x in json.load(open(sys.argv[1]))['findings'] if x['area'] == 'suite'][0])" "$F/look.json")
+  assert_match "look: ... carrying the bounded tail"      "$ev" '^summary-30$'
+  assert_nomatch "look: ... only the tail"                "$ev" '^summary-10$'
+  assert_nomatch "look: ... not a must-fix"               "$(findings "$F/look.json")" 'must-fix'
+  assert_match "look: ... and the look is a setup error"  "$out" 'exit=2$'
   r=$(look_repo semgrep-rules rules); reset_stub; out=$(look "$r" base "$F")
   assert_match "look: the repo's .semgrep/ rules are added" "$(cat "$HERDR_STUB_LOG")" '^semgrep scan --config p/default --config \.semgrep '
   # A tracked file with edits the branch has not committed: the suite could
@@ -1488,6 +1572,51 @@ for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'],
   assert_match "look: a staged edit is refused too"      "$out" 'exit=2$'
   git -C "$r" reset -q; git -C "$r" checkout -q -- app.js; reset_stub; out=$(look "$r" base "$F")
   assert_match "look: an untracked file alone is no refusal" "$out" 'exit=0$'
+  r=$(look_repo none local-base); reset_stub; out=$(look "$r" base "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: a base that is no remote branch is a skip row" "$v" '^base skip base is not a remote-tracking branch$'
+  git -C "$r" remote add origin "$TMP/repos/no-such-remote.git"
+  reset_stub; out=$(look "$r" base "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: ... even with a remote it cannot ask, which it does not ask" "$v" '^base skip base is not a remote-tracking branch$'
+  reset_stub; out=$(look "$r" "$(git -C "$r" rev-parse base)" "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: a base given as a commit is a skip row" "$v" '^base skip [0-9a-f]{40} is not a remote-tracking branch$'
+  # The base: look.sh never fetches (a sandboxed Reviewer cannot write .git);
+  # it asks the remote with ls-remote whether origin/<base> is current.
+  r=$(look_repo none remote); git init -q --bare "$TMP/repos/look-remote.git"
+  git -C "$r" remote add origin "$TMP/repos/look-remote.git"; git -C "$r" push -q origin base:refs/heads/main; git -C "$r" fetch -q origin
+  git -C "$r" push -q origin feat:refs/x/refs/heads/main   # ls-remote's pattern matches this too
+  reset_stub; out=$(look "$r" origin/main "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: a current remote base is a pass row" "$v" "^base pass origin/main matches origin \($(git -C "$r" rev-parse --short base)\)$"
+  git -C "$r" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
+  reset_stub; out=$(look "$r" origin/HEAD "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: origin/HEAD is checked as the branch it points at" "$v" "^base pass origin/HEAD matches origin \($(git -C "$r" rev-parse --short base)\)$"
+  git -C "$r" config core.abbrev 12
+  git -C "$r" push -q origin feat:refs/heads/main   # the remote moves on; origin/main is not fetched
+  git -C "$r" update-ref refs/remotes/origin/main base; rm -f "$r/.git/FETCH_HEAD"
+  reset_stub; out=$(look "$r" origin/main "$F"); v=$(verdict "$F/look.json")
+  assert_eq "look: never fetches (a sandbox keeps .git read-only)" "$(git -C "$r" rev-parse origin/main):$([ -e "$r/.git/FETCH_HEAD" ] && echo fetched || echo none)" "$(git -C "$r" rev-parse base):none"
+  assert_match "look: a base behind its remote is a warn row, named stale" "$v" "^base warn base is stale: origin/main is $(git -C "$r" rev-parse --short base), origin has $(git -C "$r" rev-parse --short feat); whoever runs look fetches, then looks again$"
+  assert_match "look: ... not a failure"                 "$out" 'exit=0$'
+  git -C "$r" update-ref refs/remotes/origin/gone base   # fetched once, since deleted on the remote
+  reset_stub; out=$(look "$r" origin/gone "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: a base branch gone from its remote is a warn row" "$v" "^base warn base could not be refreshed: origin has no branch gone; origin/gone is $(git -C "$r" rev-parse --short base), as last fetched$"
+  assert_match "look: ... not a failure"                 "$out" 'exit=0$'
+  # A sandbox without network, or a remote that is gone: the named, expected case.
+  git -C "$r" remote set-url origin "$TMP/repos/no-such-remote.git"
+  reset_stub; out=$(look "$r" origin/main "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: a remote it cannot ask is a warn row: base could not be refreshed" "$v" "^base warn base could not be refreshed: git ls-remote origin failed \(.+\); origin/main is $(git -C "$r" rev-parse --short base), as last fetched$"
+  assert_match "look: ... not a setup error"             "$out" 'exit=0$'
+  assert_match "look: ... and the rest of the look runs" "$v" '^semgrep pass $'
+  # An ssh remote must not wait on a passphrase or host-key prompt (ssh reads
+  # /dev/tty), nor on a network that drops packets.
+  printf '#!/bin/sh\necho "$*" >> "%s"; exit 255\n' "$TMP/ssh.log" > "$TMP/ssh-stub"; chmod +x "$TMP/ssh-stub"
+  git -C "$r" config core.sshCommand "$TMP/ssh-stub"; git -C "$r" remote set-url origin ssh://git.example.invalid/acme.git
+  reset_stub; out=$(look "$r" origin/main "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: ssh runs in batch mode, with a connect timeout" "$(cat "$TMP/ssh.log" 2>&1)" '-o BatchMode=yes -o ConnectTimeout=[0-9]+ .*git\.example\.invalid'
+  assert_match "look: ... and a failed ssh is base could not be refreshed" "$v" '^base warn base could not be refreshed: git ls-remote origin failed'
+  git -C "$r" config --unset core.sshCommand; : > "$TMP/ssh.log"
+  reset_stub; out=$(GIT_SSH="$TMP/ssh-stub" look "$r" origin/main "$F")
+  assert_match "look: a GIT_SSH wrapper is used as it is"  "$(cat "$TMP/ssh.log")" 'git\.example\.invalid'
+  assert_nomatch "look: ... without ssh's -o options"     "$(cat "$TMP/ssh.log")" 'BatchMode'
   unset CHECK_CMD SUITE_ORDER; unset -f look_repo findings verdict look
 fi
 
@@ -1826,7 +1955,7 @@ if section run; then
   out=$(in_repo "$PREFLIGHT_DIR/look.sh" base "$RUN/findings/preflight/1")
   assert_match "run: look.sh names the findings file it wrote" "$out" "$RUN/findings/preflight/1/look.json"
   steps=$(python3 -c "import json,sys; print(' '.join(v['step']+':'+v['status'] for v in json.load(open(sys.argv[1]))['verdict']))" "$RUN/findings/preflight/1/look.json" 2>&1)
-  assert_eq "run: look.json has a row for each scanner and every suite step" "$steps" "semgrep:pass gitleaks:pass lint:skip test:fail build:pass"
+  assert_eq "run: look.json has a row for the base, each scanner and every suite step" "$steps" "base:skip semgrep:pass gitleaks:pass lint:skip test:fail build:pass"
   unset SUITE_ORDER
 
   assert_eq "run: one switches line in the pane map" "$(grep -c '^switches:' "$RUN/panes.txt")" 1

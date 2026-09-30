@@ -24,6 +24,14 @@
 #   REVIEWER_KIND                                        other | claude | codex
 #   REVIEWER_MODEL REVIEW_AREAS SUITE_SKIP PR_TEMPLATE   free text, empty by default;
 #                                                        lists are comma-separated
+# Pinned: the file is bash, and this shell is the orchestrator's, so within a
+# run it is never read from a checkout. bootstrap.sh writes what it read,
+# read-only, to  contract_pin RUN_DIR : a file under $XDG_STATE_HOME
+# (~/.local/state)/tower/contracts/, named by the run dir's path, outside
+# everything a codex lane may write (its worktree, the run dir, the git dir,
+# /tmp and $TMPDIR: an XDG_STATE_HOME under those two gives that up).
+# With CONTRACT_RUN set to the run dir (add-lane.sh, add-reviewer.sh) that pin
+# is the contract; without a pin the call is refused.
 # A value set in the environment of the bootstrap or add-lane call wins over the
 # file, even an empty one (REVIEW_AREAS= clears the file's list); anything else
 # the file sets is ignored with a note. The switches keep their plain names (PR,
@@ -36,6 +44,7 @@
 #       NO_RUNNER   1 when no checks pane is declared and no test runner is detected
 #                   (the checks pane then only echoes a note), else 0
 #       SUITE_NAMES SUITE_CMDS SUITE_DIRS  (parallel arrays in contract order; empty without suite lines)
+#       contract_pin RUN_DIR  prints the path of that run's pinned contract
 #       every switch above, exported; switches_line prints them all on one line,
 #       NAME=value, a value with spaces or quotes single-quoted the shell's way
 
@@ -65,7 +74,18 @@ pane_index() {  # prints the index of pane NAME, nothing when absent
     i=$((i+1))
   done
 }
-if [ -f "$CONTRACT_FILE" ]; then
+contract_pin() {  # RUN_DIR: the file bootstrap pins that run's contract in
+  local d; d=$(cd -- "$1" > /dev/null && pwd -P) || return 1  # CDPATH would print it
+  echo "${XDG_STATE_HOME:-$HOME/.local/state}/tower/contracts/$(printf '%s' "$d" | git hash-object --stdin)"
+}
+_kit_contract=""
+if [ -n "${CONTRACT_RUN:-}" ]; then  # pinned: never a checkout's file (header)
+  _kit_contract=$(contract_pin "$CONTRACT_RUN") || die "no run dir at $CONTRACT_RUN"
+  [ -f "$_kit_contract" ] || die "no pinned contract for the run $CONTRACT_RUN ($_kit_contract): bootstrap.sh pins it, so a run an older kit opened needs a new run"
+elif [ -f "$CONTRACT_FILE" ]; then
+  _kit_contract="./$CONTRACT_FILE"
+fi
+if [ -n "$_kit_contract" ]; then
   # Environment first: remember what the call set, source the file, put the
   # call's values back. Unknown names in the file are left alone but named,
   # so a typo does not pass silently.
@@ -73,7 +93,7 @@ if [ -f "$CONTRACT_FILE" ]; then
   for _v in $CONTRACT_VARS; do [ -z "${!_v+set}" ] || _env+=("$_v=${!_v}"); done
   _before="$(compgen -v | sort)"
   # shellcheck source=/dev/null  # the repo's own file
-  . "./$CONTRACT_FILE"
+  . "$_kit_contract"
   for _kv in ${_env[@]+"${_env[@]}"}; do export "$_kv"; done
   # grep finds nothing when the file adds no names (only pane and suite lines);
   # that is not an error for a caller running under set -e and pipefail.
@@ -83,6 +103,7 @@ if [ -f "$CONTRACT_FILE" ]; then
   done
   unset _env _v _kv _before _new
 fi
+unset _kit_contract
 
 # --- package manager ---------------------------------------------------------
 if [ -z "${PM:-}" ]; then

@@ -62,7 +62,9 @@ run, the `switches:` line of `panes.txt` has the values the run uses.
    round 1 and keep earlier rounds after it. Inside a run the preflight dir
    is `<run-dir>/findings/preflight/`. A Reviewer: the directory of its
    findings file.
-2. **Base.** Run `git fetch origin`. The base branch `<base>` is the name
+2. **Base.** Alone: run `git fetch origin`. A Reviewer: do not fetch. The
+   orchestrator fetched before it briefed you, and a sandbox may keep `.git`
+   read-only. The base branch `<base>` is the name
    the PR goes into, without `origin/`: an open PR's
    (`gh pr view --json baseRefName -q .baseRefName`), else the remote's
    default (`git symbolic-ref --short refs/remotes/origin/HEAD`, minus
@@ -78,6 +80,13 @@ run, the `switches:` line of `panes.txt` has the values the run uses.
    ```
 
    Its header is its manual. It writes `look.json` and prints the verdict.
+   Its `base` row asks the remote, without fetching, whether `origin/<base>`
+   is current. A `warn` there is an expected case, never a setup error: go
+   on, and keep the row in your findings file so whoever triages sees it.
+   `base could not be refreshed`: the remote could not be asked (no network,
+   as in a sandbox) or no longer has the branch, and the look ran against
+   the base as last fetched.
+   `base is stale`: the remote has moved on; alone, fetch and look again.
    If `git status --short --untracked-files=no` now lists files, the suite
    changed them: add a `should-fix` finding (area `suite`) naming them, and
    put them back with `git checkout -- <files>`. The tree was clean, so this
@@ -90,7 +99,17 @@ run, the `switches:` line of `panes.txt` has the values the run uses.
      `skip` row per area, note `look is red`, and go to step 5.
    - Exit 2, or exit 1 with no `look.json`: setup error. Alone: report the
      printed error and stop. A Reviewer: write your findings file with one
-     `warn` row per area, the error as its note, and go to step 5.
+     `warn` row per area, the error as its note, and go to step 5. One
+     setup error keeps its `look.json`: a suite step that failed on a
+     permission error (`PermissionDenied`, `Operation not permitted`,
+     `EACCES`) most likely hit the sandbox, not the code. Its row is a
+     `warn` whose note starts `setup:`, and its output tail is a
+     `watchpoint` suite finding. Fix the environment and look again. The
+     other steps' must-fix findings in that `look.json` still count: the
+     look can be red as well. A Reviewer carries them into its findings
+     file beside the `warn` rows. A `setup:` row that comes back once the
+     environment is fixed is the step's own failure: triage its
+     watchpoint as a red suite step.
 
 4. **Agent review by area.** The areas are the files in `areas/` next to
    this file, plus the repo's `.preflight/areas/*.md`. A repo file with a

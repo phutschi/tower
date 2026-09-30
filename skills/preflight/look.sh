@@ -6,6 +6,16 @@
 #
 # Run from the checkout. The diff is the merge base of <base-ref> and HEAD
 # against HEAD. Steps, each one verdict row:
+#   base      whether <base-ref> is what its remote has now. look.sh never
+#             fetches (a sandboxed Reviewer cannot write .git; whoever runs
+#             look fetches first); it asks with  git ls-remote , which writes
+#             nothing, with ssh in batch mode and a 10-second connect
+#             timeout, so no prompt waits (a GIT_SSH wrapper is left as is). pass when they match; warn "base
+#             is stale" when the remote moved on; warn "base could not be
+#             refreshed" when the remote cannot be asked (no network, no such
+#             remote) or no longer has the branch; skip when <base-ref> is no
+#             remote-tracking branch.
+#             Never a failure: the look goes on against the base as fetched.
 #   semgrep   its default rules (p/default), plus the repo's .semgrep/ when it
 #             exists, over the files the branch changed that are still in the
 #             checkout, reporting only results new since the merge base
@@ -28,8 +38,12 @@
 # either. A red suite step is a fail row and a
 # must-fix finding (area suite, file = the step's DIR, line null) carrying the
 # last 20 lines of its output, unredacted: it is the repo's own test output.
-# Steps get no stdin and no timeout. A SUITE_SKIP name that matches no step is
-# a warn row.
+# Steps get no stdin and no timeout. A red step whose output has a
+# permission error (PermissionDenied, Operation not permitted, EACCES) most
+# likely hit the sandbox, not the code: a warn row whose note starts
+# "setup:", with that line, and a watchpoint finding (not must-fix) with the
+# tail; the look is then a setup error (exit 2). A SUITE_SKIP name that
+# matches no step is a warn row.
 #
 # Settings (environment > .orchestrate, read through detect-stack.sh):
 #   STATIC_BASELINE=off   skip both scanners; their rows say so
@@ -45,8 +59,9 @@
 # Prints each suite step as it starts (stderr), the verdict table and the
 # findings file. Exit 0 when no finding is must-fix, 1 when one is, 2 on a
 # setup error (usage, uncommitted changes to tracked files, unknown base, a
-# refused repo contract); look.json is removed first, so after exit 2 there
-# is none.
+# refused repo contract, a suite step's permission error); look.json is
+# removed first, so after exit 2 there is none, except after a permission
+# error: every step ran, and look.json holds their rows and findings.
 #
 # The checkout must have no uncommitted changes to tracked files (untracked
 # files are fine): whatever the suite then leaves changed is the suite's own,
@@ -69,15 +84,49 @@ DIRTY=$(git status --porcelain --untracked-files=no | cut -c4- | tr '\n' ' ') ||
 [ -z "$DIRTY" ] || die "look: uncommitted changes to tracked files: ${DIRTY% }. Commit or stash them, then run look again."
 # The repo contract: STATIC_BASELINE, SUITE_SKIP, the suite steps, CHECK_CMD.
 CHECK_CMD_FROM_ENV="${CHECK_CMD:+yes}"
+unset CONTRACT_RUN  # the branch's own contract: look runs inside the Reviewer
 . "$KIT/detect-stack.sh"
 MERGE_BASE=$(git merge-base "$BASE" HEAD) || die "look: no merge base between '$BASE' and HEAD"
 
 WORK=$(mktemp -d); trap 'rm -rf "$WORK"' EXIT
 VERDICT="$WORK/verdict.tsv"; FINDINGS="$WORK/findings.jsonl"; : > "$VERDICT"; : > "$FINDINGS"
-verdict() {  # STEP STATUS NOTE; tabs and newlines in NOTE become spaces
-  local note="${3//$'\t'/ }"
+verdict() {  # STEP STATUS NOTE; tabs, carriage returns and newlines in NOTE become spaces
+  local note="${3//$'\t'/ }"; note="${note//$'\r'/ }"
   printf '%s\t%s\t%s\n' "$1" "$2" "${note//$'\n'/ }" >> "$VERDICT"
 }
+
+# --- the base ----------------------------------------------------------------
+# Never a fetch: a sandboxed Reviewer cannot write .git. The remote is asked
+# with ls-remote, which writes nothing.
+BASE_REF=$(git rev-parse --symbolic-full-name "$BASE" 2>/dev/null || true)
+REMOTE=""
+for rem in $(git remote); do  # the longest remote name that prefixes the ref
+  case "$BASE_REF" in "refs/remotes/$rem/"*) [ "${#rem}" -le "${#REMOTE}" ] || REMOTE=$rem ;; esac
+done
+if [ -z "$REMOTE" ]; then
+  verdict base skip "$BASE is not a remote-tracking branch"
+else
+  BRANCH=${BASE_REF#"refs/remotes/$REMOTE/"}
+  LOCAL_SHA=$(git rev-parse --short "$BASE")
+  # No prompt may wait: git's own (https) nor ssh's, which reads /dev/tty.
+  # A GIT_SSH wrapper (plink, ...) is left as it is: it may not take ssh's -o.
+  if [ -n "${GIT_SSH:-}" ] && [ -z "${GIT_SSH_COMMAND:-}" ]; then SSH=""
+  else SSH="${GIT_SSH_COMMAND:-$(git config core.sshCommand || echo ssh)} -o BatchMode=yes -o ConnectTimeout=10"; fi
+  rc=0; env GIT_TERMINAL_PROMPT=0 ${SSH:+"GIT_SSH_COMMAND=$SSH"} git ls-remote "$REMOTE" "refs/heads/$BRANCH" < /dev/null \
+    > "$WORK/ls-remote.out" 2> "$WORK/ls-remote.err" || rc=$?
+  # The pattern also matches refs ending in it (refs/x/refs/heads/main): keep the exact one.
+  REMOTE_SHA=$(awk -v ref="refs/heads/$BRANCH" '$2 == ref { print $1 }' "$WORK/ls-remote.out")
+  if [ "$rc" != 0 ]; then
+    reason=$(grep -m1 . "$WORK/ls-remote.err" || true)  # git's first complaint
+    verdict base warn "base could not be refreshed: git ls-remote $REMOTE failed (${reason:-exit $rc}); $BASE is $LOCAL_SHA, as last fetched"
+  elif [ -z "$REMOTE_SHA" ]; then
+    verdict base warn "base could not be refreshed: $REMOTE has no branch $BRANCH; $BASE is $LOCAL_SHA, as last fetched"
+  elif [ "$(git rev-parse "$BASE")" = "$REMOTE_SHA" ]; then
+    verdict base pass "$BASE matches $REMOTE ($LOCAL_SHA)"
+  else
+    verdict base warn "base is stale: $BASE is $LOCAL_SHA, $REMOTE has ${REMOTE_SHA:0:${#LOCAL_SHA}}; whoever runs look fetches, then looks again"
+  fi
+fi
 
 # Turns a scanner's JSON (stdin) into findings (JSON lines on stdout), and the
 # collected verdict rows and findings into look.json.
@@ -126,10 +175,13 @@ elif mode == "gitleaks":
         finding("must-fix", r["File"], r["StartLine"], r["Description"],
                 "gitleaks %s in commit %s: %s" % (r["RuleID"], r["Commit"][:7], r.get("Match", "")))
 elif mode == "suite":
-    name, rc, cmd, where, tail_file = sys.argv[2:7]
+    # A permission error (setup) is a watchpoint: its tail still reaches triage.
+    name, rc, cmd, where, tail_file, kind = sys.argv[2:8]
     tail = open(tail_file, errors="replace").read().rstrip("\n")
-    print(json.dumps({"area": "suite", "severity": "must-fix", "file": where, "line": None,
-                      "title": "suite step %s failed (exit %s)" % (name, rc),
+    setup = kind == "setup"
+    print(json.dumps({"area": "suite", "severity": "watchpoint" if setup else "must-fix",
+                      "file": where, "line": None,
+                      "title": "suite step %s failed%s (exit %s)" % (name, " on a permission error" if setup else "", rc),
                       "evidence": "$ %s\n%s" % (cmd, tail)}))
 elif mode == "write":
     verdict_file, findings_file, out = sys.argv[2:5]
@@ -226,6 +278,7 @@ else
   fi
 fi
 SKIP=",${SUITE_SKIP// /},"
+PERMISSION_ERROR='PermissionDenied|Operation not permitted|EACCES'; SETUP_STEPS=""
 for name in ${SUITE_SKIP//,/ }; do
   case " ${STEP_NAMES[*]:-} " in *" $name "*) ;; *) verdict SUITE_SKIP warn "no suite step named $name" ;; esac
 done
@@ -234,13 +287,21 @@ for i in ${STEP_NAMES[@]+"${!STEP_NAMES[@]}"}; do
   case "$SKIP" in *",$name,"*) verdict "$name" skip SUITE_SKIP; continue ;; esac
   echo "look: suite step $name: $cmd" >&2
   rc=0; (cd "$dir" && bash -c "$cmd") < /dev/null > "$WORK/step.out" 2>&1 || rc=$?
-  if [ "$rc" = 0 ]; then
-    verdict "$name" pass "$cmd"
+  if [ "$rc" = 0 ]; then verdict "$name" pass "$cmd"; continue; fi
+  tail -n 20 "$WORK/step.out" > "$WORK/step.tail"
+  # A permission error anywhere in the output (a summary can follow it): most
+  # likely the sandbox, not the code. -a: a NUL byte does not make it binary.
+  perm=$(grep -a -m1 -E "$PERMISSION_ERROR" "$WORK/step.out" | cut -c1-200 || true)
+  if [ -n "$perm" ]; then
+    verdict "$name" warn "setup: exit $rc, a permission error ($perm): $cmd"
+    SETUP_STEPS="$SETUP_STEPS $name"
+    py suite "$name" "$rc" "$cmd" "$dir" "$WORK/step.tail" setup >> "$FINDINGS"
   else
     verdict "$name" fail "exit $rc: $cmd"
-    tail -n 20 "$WORK/step.out" > "$WORK/step.tail"
-    py suite "$name" "$rc" "$cmd" "$dir" "$WORK/step.tail" >> "$FINDINGS"
+    py suite "$name" "$rc" "$cmd" "$dir" "$WORK/step.tail" red >> "$FINDINGS"
   fi
 done
 
-py write "$VERDICT" "$FINDINGS" "$FINDINGS_DIR/look.json"
+rc=0; py write "$VERDICT" "$FINDINGS" "$FINDINGS_DIR/look.json" || rc=$?
+[ -z "$SETUP_STEPS" ] || die "look: setup error: suite step(s)${SETUP_STEPS} failed on a permission error, most likely the sandbox, not the code. Give them writable temp and cache dirs, then look again; their output is in look.json as watchpoints."
+exit "$rc"

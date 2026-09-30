@@ -82,7 +82,7 @@ REPO_ROOT="$(repo_root)"
 WT="$REPO_ROOT/.worktrees/$BRANCH"
 AGENT_CHECKOUT="$WT"   # executor.sh: a codex lane's sandbox grant follows its worktree
 _here="$PWD"; cd "$REPO_ROOT"
-. "$KIT/detect-stack.sh"   # INSTALL_CMD, .orchestrate's EXECUTOR_* (the environment wins); refuses a bad run switch
+CONTRACT_RUN="$RUN_DIR" . "$KIT/detect-stack.sh"   # the run's pinned contract: INSTALL_CMD, .orchestrate's EXECUTOR_* (the environment wins); refuses a bad run switch
 cd "$_here"; unset _here
 . "$KIT/executor.sh"       # EXECUTOR_KIND, EXECUTOR_MODEL, agent_name, start_agent*
 NAME="$(agent_name "-lane-$(echo "$LANE" | tr 'A-Z' 'a-z')")"
