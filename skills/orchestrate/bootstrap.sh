@@ -36,7 +36,10 @@
 #
 # Writes <run-dir>/panes.txt, the pane map for the whole run, then prints it
 # with the next step. The pane map's  switches:  line holds every run switch
-# and the value this run uses (detect-stack.sh); the same line goes to the
+# and the value this run uses (detect-stack.sh). Its  contract:  line names
+# the pin: the .orchestrate read here, written read-only outside the run dir
+# and the repo (detect-stack.sh), is what add-lane and add-reviewer read for
+# the whole run; for them this line is only a pointer, never read. The switches: line goes to the
 # record as a  tower note . So does the
 #  reviewer:  line: the kind and model that review lane A (executor.sh
 # reviewer_for; in a codex-only run add-reviewer.sh reviews a codex lane on
@@ -126,6 +129,11 @@ case "$SOURCE" in
   *)    tower init --tasks "$SOURCE" --title "$TITLE" --run "$RUN_DIR" "${MODELS[@]}" ${LANE_INIT[@]+"${LANE_INIT[@]}"} ;;
 esac
 export TOWER_RUN="$RUN_DIR"  # the calls below are about this run
+# The contract as read here, pinned read-only for add-lane and add-reviewer
+# (detect-stack.sh); empty but for its comment when the repo has none.
+PIN=$(contract_pin "$RUN_DIR"); mkdir -p "$(dirname "$PIN")"
+{ echo "# the repo contract bootstrap.sh read for the run $RUN_DIR"; [ ! -f "$CONTRACT_FILE" ] || cat "$CONTRACT_FILE"; } > "$PIN.$$"
+chmod 444 "$PIN.$$"; mv -f "$PIN.$$" "$PIN"
 # <lane>=all: every task on the board, known once the run exists.
 [ -z "$LANE_ALL" ] || tower assign "$LANE_ALL" "$(tower state --json | jsonq '",".join(t["id"] for t in d["tasks"])')"
 tower note "switches: $(switches_line)"
@@ -160,6 +168,7 @@ herdr pane run "$CONSOLE_PANE" "tower --stale $STALE" >/dev/null
   [ -z "$DEV_PANE" ] || echo "dev:            $DEV_PANE   (${PANE_CMDS[$DEV_I]} in ${PANE_DIRS[$DEV_I]})"
   echo "console:        $CONSOLE_PANE   (tower; the record — stays open, the human quits it with q)"
   echo "check gate:     $CHECK_CMD"
+  echo "contract:       $PIN"
   echo "switches:       $(switches_line)"
   echo "reviewer:       $REVIEWER"
   echo "toolchain:      $PM"

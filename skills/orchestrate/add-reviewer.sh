@@ -111,7 +111,7 @@ fi
 LANE_MODEL=$(echo "$_line" | sed -nE 's/.*, model (.*)\)$/\1/p'); unset _line _kind
 
 _here="$PWD"; cd "$REPO"
-. "$KIT/detect-stack.sh"   # REVIEWER_KIND, REVIEWER_MODEL (the environment wins)
+CONTRACT_RUN="$RUN_DIR" . "$KIT/detect-stack.sh"   # the run's pinned contract: REVIEWER_KIND, REVIEWER_MODEL (the environment wins)
 . "$KIT/executor.sh"       # reviewer_for, agent_name, start_agent*
 cd "$_here"; unset _here
 _rev=$(reviewer_for "$LANE_KIND" "$LANE_MODEL")

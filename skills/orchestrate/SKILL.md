@@ -210,8 +210,10 @@ and do it in a lane anyway or suggest doing it without the kit.
 ## Switches
 
 The pane map's `switches:` line has the values this run uses. Defaults come
-from the repo contract; the user's words override them ("no PR", "skip lane
-reviews", "plain, no tdd"): set them in bootstrap's environment.
+from the repo contract, which bootstrap pins for the run (the `contract:`
+line), so a lane's edit to `.orchestrate` applies from the next run. The
+user's words override them ("no PR", "skip lane reviews", "plain, no tdd"):
+set them in bootstrap's environment.
 `add-reviewer.sh` reads them back from the pane map; `look.sh` does not, so
 the preflight slot brief passes `STATIC_BASELINE` and `SUITE_SKIP` on its
 call.

@@ -719,7 +719,10 @@ if section add-reviewer; then
   assert_match "that refusal exits non-zero"          "$out" 'exit=1$'
   sed -i.bak "s/^switches: .*/switches:       BASH_ENV=x/" "$RUNQ/panes.txt"
   assert_match "a switches: line naming something else is refused" "$(cd "$r" && "$KIT/add-reviewer.sh" "$RUNQ" R2 claude "Bad" "$RUNQ/findings/b.json" 2>&1)" "holds 'BASH_ENV=x', not a run switch"
-  RELD="$TMP/rel"; mkdir -p "$RELD"; cp -R "$RUNK" "$RELD/run"; reset_stub
+  RELD="$TMP/rel"; mkdir -p "$RELD"; cp -R "$RUNK" "$RELD/run"
+  # The copy is another run dir: it needs its own pinned contract (detect-stack.sh).
+  pin_of() { (cd "$r" && bash -c '. "$KIT/common.sh"; . "$KIT/detect-stack.sh" 2>/dev/null; contract_pin "$1"' _ "$1"); }
+  cp "$(pin_of "$RUNK")" "$(pin_of "$RELD/run")"; reset_stub
   out=$(cd "$RELD" && EXIT_WAIT_SECONDS=0 REVIEWER_KIND=codex "$KIT/add-reviewer.sh" run R2 claude "Rel" run/findings/rel.json 2>&1)
   assert_match "a relative run dir is made absolute" "$(cat "$RELD/run/panes.txt")" "^reviewer R2: .*findings $RELD/run/findings/rel.json\\)$"
   assert_match "from outside the repo, the review lands on the given run" "$(reviews "$RELD/run")" 'R2-[0-9]+@R2:Rel$'
@@ -1053,6 +1056,45 @@ if section watchline; then
   wl=$(cd "$r" && "$KIT/bootstrap.sh" "$TMP/run-wl2" "WL" main 2>&1 | grep '^watch:')
   assert_match "watch line: always tower wait and watch-lanes.sh" "$wl" '^watch: +tower wait --stale 30 +and +.*/watch-lanes\.sh '
   assert_nomatch "watch line: no timeout and no round limit" "$wl" ' --timeout|ROUND_SECONDS'
+fi
+
+# --- contract-pin ------------------------------------------------------------
+# The repo contract is bash. After bootstrap, add-lane and add-reviewer read it
+# as bootstrap did, from a pin no lane can write: not a checkout, not the run
+# dir, not the git dir (a codex lane may write all three).
+if section contract-pin; then
+  r=$(fixture_repo contract); git -C "$r" add -A; git -C "$r" commit -qm contract
+  RUNP="$TMP/run-pin"; reset_stub
+  (cd "$r" && "$KIT/bootstrap.sh" "$RUNP" "Pin" main "$KIT/example-tasks.tsv" >/dev/null 2>&1)
+  pin=$(sed -nE 's/^contract: +//p' "$RUNP/panes.txt")
+  assert_match "pin: the pane map names the pin, under the user's state dir" "$pin" "^$XDG_STATE_HOME/tower/contracts/[0-9a-f]+$"
+  assert_match "pin: the pin holds the contract bootstrap read" "$(cat "$pin" 2>&1)" '^EXECUTOR_MODEL=gpt-6-astra-mini$'
+  [ -f "$pin" ] && [ ! -w "$pin" ] && ok "pin: the pin is read-only" || bad "pin: the pin is read-only"
+  reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNP" B feat/b main 2 2>&1)
+  assert_match "pin: a clean contract reaches add-lane" "$(cat "$RUNP/panes.txt")" '^lane B: .*kind codex, .*model gpt-6-astra-mini\)'
+  # A lane rewrites the contract and it lands in the checkout (its commit, a merge).
+  printf 'EXECUTOR_MODEL=lane-written\ntouch "%s"\n' "$TMP/pin-ran" >> "$r/.orchestrate"; git -C "$r" commit -qam lane
+  reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNP" C feat/c main 3 2>&1)
+  assert_match "pin: a lane-modified contract does not reach add-lane" "$(cat "$RUNP/panes.txt")" '^lane C: .*kind codex, .*model gpt-6-astra-mini\)'
+  # The run dir is a codex lane's to write: a contract: line there picks nothing.
+  printf 'touch "%s"\n' "$TMP/pin-ran" > "$RUNP/forged"; git -C "$r" hash-object -w "$RUNP/forged" > /dev/null
+  printf 'contract:       %s\ncontract:       %s\n' "$RUNP/forged" "$(git -C "$r" hash-object "$RUNP/forged")" >> "$RUNP/panes.txt"
+  reset_stub; out=$(cd "$r" && EXIT_WAIT_SECONDS=3 "$KIT/add-reviewer.sh" "$RUNP" R1 codex "Lane review B" "$RUNP/findings/b.json" 2>&1)
+  assert_match "pin: add-reviewer still starts its Reviewer" "$(cat "$RUNP/panes.txt")" '^reviewer R1: '
+  [ -e "$TMP/pin-ran" ] && bad "pin: neither the lane's contract nor a forged pane map line runs" || ok "pin: neither the lane's contract nor a forged pane map line runs"
+  # No contract at bootstrap: one a lane adds later is not read either.
+  r=$(fixture_repo bun-vitest); RUNP="$TMP/run-pin-none"; reset_stub
+  (cd "$r" && "$KIT/bootstrap.sh" "$RUNP" "Pin none" main "$KIT/example-tasks.tsv" >/dev/null 2>&1)
+  printf 'EXECUTOR_KIND=codex\ntouch "%s"\n' "$TMP/pin-ran" > "$r/.orchestrate"; git -C "$r" add .orchestrate; git -C "$r" commit -qm lane
+  reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNP" B feat/b main 2 2>&1)
+  assert_match "pin: a contract added by a lane does not reach add-lane" "$(cat "$RUNP/panes.txt")" '^lane B: .*kind claude, '
+  [ -e "$TMP/pin-ran" ] && bad "pin: ... and never runs" || ok "pin: ... and never runs"
+  # No pin (a run an older kit opened, or a pin removed): refused, not the checkout.
+  rm -f "$(sed -nE 's/^contract: +//p' "$RUNP/panes.txt" | head -1)"
+  out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNP" C feat/c main 3 2>&1; echo "exit=$?")
+  assert_match "pin: a run without its pin is refused" "$out" "no pinned contract for the run $RUNP"
+  assert_match "pin: ... as an error"                    "$out" 'exit=1$'
+  [ -e "$TMP/pin-ran" ] && bad "pin: ... and the checkout's contract does not run" || ok "pin: ... and the checkout's contract does not run"
 fi
 
 # --- look --------------------------------------------------------------------
