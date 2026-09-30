@@ -512,6 +512,15 @@ if section bootstrap; then
   assert_match "lane A gone twice: says there is no agent to brief" "$out" "lane A's agent bun-vitest-lane-a is not running in pane-2: .*rerun bootstrap\.sh with a new run dir"
   assert_nomatch "lane A gone twice: not told to brief it" "$out" 'brief it once it accepts input'
   rm -f "$S/bun-vitest-lane-a"
+  # herdr stops answering once lane A started: bootstrap cannot say whether it
+  # runs, and says so instead of telling to brief it.
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-unread-a"; reset_stub
+  echo unreachable > "$S/bun-vitest-lane-a.started"
+  out=$(READY_WAIT_SECONDS=2 boot "$r" "$RUN" "Unread" main; echo "exit=$?")
+  rm -f "$S"/bun-vitest-lane-a*
+  assert_match "lane A unreadable: bootstrap fails" "$out" 'exit=1$'
+  assert_match "lane A unreadable: says herdr cannot answer" "$out" "bootstrap: herdr cannot say whether lane A's agent bun-vitest-lane-a runs in pane-2: check that pane: .*brief it.*rerun bootstrap\.sh with a new run dir"
+  assert_nomatch "lane A unreadable: not told to brief it once it accepts input" "$out" 'brief it once it accepts input'
 fi
 
 # --- add-lane ----------------------------------------------------------------
