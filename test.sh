@@ -48,6 +48,9 @@ case "$(cd "$ROOT" && pwd -P)/" in
   "$(cd /tmp && pwd -P)"/*|"$(cd "${TMPDIR:-/tmp}" && pwd -P)"/*) _lsb="$HOME/.cache" ;;
 esac
 mkdir -p "$_lsb"; LOOK_STATE=$(cd "$(mktemp -d "$_lsb/tower-test-look.XXXXXX")" && pwd -P); unset _lsb
+# The user's state dir (contract pins, tower's state, look's worktree dir) is
+# there too: add-reviewer grants a codex Reviewer look's dir only outside /tmp
+# and TMPDIR.
 trap 'chmod -R u+w "$TMP" 2>/dev/null; rm -rf "$TMP" "$LOOK_STATE"' EXIT
 export DRY_RUN=1 HERDR_ENV=1 HERDR_STUB_LOG="$TMP/log" HERDR_STUB_COUNTER="$TMP/counter" HERDR_STUB_STATES_DIR="$TMP/states"
 # common.sh only defaults HERDR_PANE_ID/HERDR_TAB_ID when unset, so running
@@ -57,7 +60,7 @@ export DRY_RUN=1 HERDR_ENV=1 HERDR_STUB_LOG="$TMP/log" HERDR_STUB_COUNTER="$TMP/
 unset HERDR_PANE_ID HERDR_TAB_ID
 # tower is the real CLI from this checkout (tests/stub/tower): its state and
 # config stay in $TMP, never the user's.
-export XDG_STATE_HOME="$TMP/xdg-state" XDG_CONFIG_HOME="$TMP/xdg-config"
+export XDG_STATE_HOME="$LOOK_STATE/xdg-state" XDG_CONFIG_HOME="$TMP/xdg-config"
 unset TOWER_RUN
 # The repo contract's names and the run switches: the fixtures decide them,
 # not the shell test.sh is started from (a codex lane exports EXECUTOR_KIND).
@@ -898,9 +901,31 @@ if section add-reviewer; then
   echo gone > "$S/bun-vitest-r1-1"; reset_stub
   out=$(review R1 claude "Sym" "$RUN/findings/sym.json"; echo "exit=$?")
   rm "$L"; mv "$L.real" "$L"
-  assert_match "codex Reviewer, look dir a symlink: refused" "$out" "look's worktree dir $L is a symlink"
+  assert_match "codex Reviewer, look dir a symlink: refused" "$out" "its worktree dir $L is a symlink"
   assert_match "... and fails"                        "$out" 'exit=1$'
   assert_nomatch "... no agent start"                 "$(cat "$HERDR_STUB_LOG")" '^herdr agent start'
+  # add-reviewer refuses what look refuses (look.sh --dir, one check): a look
+  # dir under the git dir, a worktree, the run dir, the checkout, TMPDIR or /tmp.
+  pin=$(sed -nE 's/^contract: +//p' "$RUN/panes.txt")
+  grant_refused() {  # WHAT XDG [ENV...]: the pin copied along, so only the look dir differs
+    local what=$1 x=$2; shift 2
+    mkdir -p "$x/tower/contracts"; cp "$pin" "$x/tower/contracts/"
+    echo gone > "$S/bun-vitest-r1-1"; reset_stub
+    out=$(cd "$r" && env XDG_STATE_HOME="$x" EXIT_WAIT_SECONDS=3 "$@" "$KIT/add-reviewer.sh" "$RUN" R1 claude "Where" "$RUN/findings/where.json" 2>&1; echo "exit=$?")
+    assert_match "codex Reviewer, look dir under $what: refused" "$out" "its worktree dir .* is under $what"
+    assert_match "... fails"                          "$out" 'exit=1$'
+    assert_nomatch "... no agent start"               "$(cat "$HERDR_STUB_LOG")" '^herdr agent start'
+    rm -f "$S/bun-vitest-r1-1"
+  }
+  grant_refused "the git dir" "$r/.git/xdg"
+  git -C "$r" worktree add -q --detach "$LOOK_STATE/review-wt"
+  grant_refused "a worktree of this repo" "$LOOK_STATE/review-wt/xdg"
+  git -C "$r" worktree remove --force "$LOOK_STATE/review-wt"
+  grant_refused "the run dir" "$RUN/xdg"
+  grant_refused "the checkout" "$r/xdg"
+  mkdir -p "$LOOK_STATE/review-tmp"; grant_refused "TMPDIR" "$LOOK_STATE/review-tmp/xdg" TMPDIR="$LOOK_STATE/review-tmp"
+  grant_refused "/tmp" "/tmp/tower-test-xdg.$$"; rm -rf "/tmp/tower-test-xdg.$$"
+  unset -f grant_refused
   rm -f "$S/bun-vitest-r1-1"
   assert_eq "R2: board task owned by R2"              "$(reviews "$RUN")" "R1-1@R1:Lane review A R2-1@R2:Lane review B"
   assert_eq "pane map: one review tab line"           "$(grep -c '^review tab:' "$RUN/panes.txt")" 1
@@ -1622,11 +1647,20 @@ for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'],
   out=$(TMPDIR="$LT" look "$r" base "$TMP/findings-tree")
   assert_match "look: a post-checkout hook in the checkout: green" "$out" 'exit=0$'
   [ -e "$mark" ] && bad "look: ... and the hook does not run" || ok "look: ... and the hook does not run"
-  # No temp dir is a setup error.
   r=$(look_repo none tree-no-tmp)
   out=$(TMPDIR="$TMP/no-such-tmp" look "$r" base "$TMP/findings-tree")
-  assert_match "look: no temp dir: a setup error" "$out" 'exit=2$'
-  assert_match "look: ... saying so" "$out" "look: cannot make a temp dir under $TMP/no-such-tmp"
+  assert_match "look: a TMPDIR that does not exist: look does not need one" "$out" 'exit=0$'
+  # Every file look reads its verdict from is in its own dir, beside the
+  # worktree, where no lane may write: a lane-writable TMPDIR cannot touch it.
+  r=$(look_repo none tree-verdict-files)
+  printf '%s\n' "suite where 'test -f ../verdict.tsv && test -f ../findings.jsonl'" "suite red 'exit 1'" \
+    "suite sabotage 'ls -A \"\$TMPDIR\" > \"\$TMPDIR_SEEN\"; for f in \"\$TMPDIR\"/*/verdict.tsv \"\$TMPDIR\"/*/findings.jsonl; do [ ! -e \"\$f\" ] || ln -sf /dev/null \"\$f\"; done'" > "$r/.orchestrate"
+  commit_contract "$r"
+  out=$(TMPDIR="$LT" TMPDIR_SEEN="$TMP/tmpdir-seen" look "$r" base "$TMP/findings-tree"); v=$(verdict "$TMP/findings-tree/look.json")
+  assert_match "look: the verdict files are in look's own dir, beside the worktree" "$v" '^where pass '
+  assert_eq "look: ... nothing of look's in TMPDIR" "$(cat "$TMP/tmpdir-seen")" ""
+  assert_match "look: ... a red step still fails the look" "$out" 'exit=1$'
+  assert_match "look: ... and is in look.json" "$v" '^red fail exit 1'
   # Suite changes are read by content: a file the install already changed,
   # and a file in a directory the install left, still count.
   r=$(look_repo none tree-install-then-suite)

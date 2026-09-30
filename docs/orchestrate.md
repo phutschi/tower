@@ -270,9 +270,11 @@ yours or the kit's. Run lane A as claude, or read `.git/hooks` and
 
 No lane, lane A included, may write `$XDG_STATE_HOME/tower/` (default
 `~/.local/state`): the contract pins live there, and preflight's `look.sh`
-makes its temp worktree of HEAD under `tower/look/`, whose code it runs. A
-codex Reviewer alone is granted `tower/look/`, so it can run look, and gets
-`TOWER_RUN` so look knows the run dir; look and add-reviewer refuse a
+makes its temp worktree of HEAD under `tower/look/`, whose code it runs,
+and keeps the files it reads its verdict from beside it. A codex Reviewer
+alone is granted `tower/look/`, so it can run look, and gets `TOWER_RUN` so
+look knows the run dir; look and add-reviewer (through `look.sh --dir`, one
+check) refuse a
 `tower/look/` that is a symlink, is not yours, or resolves under a checkout
 or worktree of the repo, its git dir, the run dir, `/tmp` or `$TMPDIR`.
 

@@ -61,8 +61,10 @@
 #   TMPDIR, BUN_TMPDIR, BUN_INSTALL_CACHE_DIR and npm_config_cache, since its
 #   sandbox writes only the checkout and the run dir (executor.sh AGENT_TMP);
 #   for a codex Reviewer, $XDG_STATE_HOME/tower/look (mode 700), which its
-#   sandbox may write so preflight's look.sh can make its temp worktree there
-#   (executor.sh AGENT_LOOK); no lane is granted it.
+#   sandbox may write so preflight's look.sh can make its temp worktree and
+#   keep its verdict files there (executor.sh AGENT_LOOK); no lane is granted
+#   it, and it is granted only where look.sh --dir accepts it (a refusal
+#   fails the call before anything is written).
 #
 # The Reviewer ends its report with  [[FINDINGS WRITTEN]] <findings-file>;
 # watch-lanes.sh then reads it as idle-after-final-report. The review tab and
@@ -146,23 +148,15 @@ EXECUTOR_KIND=$R_KIND; EXECUTOR_MODEL=$R_MODEL
 case "$R_KIND:$RUN_DIR" in
   codex:*[[:cntrl:]]*) die "the run dir $RUN_DIR holds a control character; a codex Reviewer cannot be given its tmp: use a run dir without one" ;;
 esac
-# A codex Reviewer may also write where look.sh makes its temp worktree
-# (look.sh's LOOK_ROOT, the same path), which no lane may write: it alone is
-# granted it (executor.sh AGENT_LOOK), and never a symlink, a dir not the
-# user's, or one under the run dir or the checkout, which lanes write.
+# A codex Reviewer may also write where look.sh makes its temp worktree and
+# keeps its verdict files, which no lane may write: it alone is granted it
+# (executor.sh AGENT_LOOK), after look's own check of that dir (look.sh --dir:
+# never a symlink, a dir not the user's, or one under the git dir, the run
+# dir, a worktree of the repo, TMPDIR or /tmp), so the two refuse the same.
 AGENT_LOOK=""
 if [ "$R_KIND" = codex ]; then
-  AGENT_LOOK="${XDG_STATE_HOME:-$HOME/.local/state}/tower/look"
-  mkdir -p "$AGENT_LOOK" || die "add-reviewer: cannot make look's worktree dir $AGENT_LOOK"
-  [ ! -L "$AGENT_LOOK" ] && [ ! -L "$(dirname "$AGENT_LOOK")" ] \
-    || die "add-reviewer: look's worktree dir $AGENT_LOOK is a symlink (or its tower/ is): it could point where a lane writes; make it a plain dir, then rerun"
-  [ -O "$AGENT_LOOK" ] || die "add-reviewer: look's worktree dir $AGENT_LOOK is not yours; remove it, then rerun"
-  AGENT_LOOK=$(cd "$AGENT_LOOK" && pwd -P)
-  for _d in "$RUN_DIR" "$REPO"; do
-    _d=$(cd "$_d" && pwd -P)
-    case "$AGENT_LOOK/" in "$_d"/*) die "add-reviewer: look's worktree dir $AGENT_LOOK is under $_d, which lanes write; set XDG_STATE_HOME elsewhere, then rerun" ;; esac
-  done; unset _d
-  chmod 700 "$AGENT_LOOK"
+  AGENT_LOOK=$(cd "$REPO" && TOWER_RUN="$RUN_DIR" "$(dirname "$KIT")/preflight/look.sh" --dir) \
+    || die "add-reviewer: a codex Reviewer is not granted look's worktree dir (see above); fix it, then rerun"
 fi
 
 TAB_LINE=$(sed -nE 's/^review tab: +(.*)$/\1/p' "$MAP")

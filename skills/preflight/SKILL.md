@@ -73,7 +73,8 @@ run, the `switches:` line of `panes.txt` has the values the run uses.
 3. **Static baseline and full suite.** Alone, or when your brief says so.
    `look.sh` looks at HEAD, in a temp worktree of its own under
    `$XDG_STATE_HOME/tower/look` (default `~/.local/state`), where no lane
-   may write, and removes it afterwards: untracked files, index bits and git
+   may write and where it also keeps the files it reads its verdict from,
+   and removes it afterwards: untracked files, index bits and git
    hooks in the checkout do not reach it, and it checks out submodules and
    installs the suite's dependencies there (`INSTALL_CMD`). It exits 2 when
    that dir is a symlink, or is under a worktree of the repo, its git dir,
