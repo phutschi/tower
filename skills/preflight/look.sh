@@ -96,7 +96,7 @@
 # untracked files", and the worktree goes with them. Nothing is put back,
 # since the checkout was never touched.
 #
-# Settings (environment > .orchestrate, read through detect-stack.sh):
+# Settings (environment > .orchestrate > user contract, read through detect-stack.sh):
 #   STATIC_BASELINE=off   skip both scanners; their rows say so
 #   SUITE_SKIP=build,lint suite steps to skip; their rows are skip rows
 #   CHECK_CMD             the one step when there are no suite lines or scripts

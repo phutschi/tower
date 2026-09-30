@@ -1,6 +1,6 @@
 # Sourced first by every script in the kit. Expects `set -u`.
 #
-# DRY_RUN=1 puts tests/stub first on PATH: herdr, claude and codex are then
+# DRY_RUN=1 puts tests/stub first on PATH: herdr, claude, codex and cursor-agent are then
 # stand-ins that log their argv (HERDR_STUB_LOG, default stderr) and answer
 # with canned JSON, so a script can be run outside herdr to see what it would
 # do. tower is the real CLI from this checkout (tests/stub/tower), so the run
@@ -11,7 +11,14 @@ die()      { echo "$*" >&2; exit 1; }
 # says whether K is one; kinds_say prints them for a message.
 KINDS="claude codex cursor"
 kind_known() { case " $KINDS " in *" $1 "*) return 0 ;; esac; return 1; }
-kinds_say() { echo "claude, codex or cursor"; }
+kinds_say() {  # "a, b or c", from KINDS
+  local k out="" n=0 total; total=$(echo $KINDS | wc -w)
+  for k in $KINDS; do
+    n=$((n+1))
+    if [ "$n" -eq 1 ]; then out=$k; elif [ "$n" -eq "$total" ]; then out="$out or $k"; else out="$out, $k"; fi
+  done
+  echo "$out"
+}
 # The run switches' names (detect-stack.sh gives them their values).
 SWITCHES="TASK_REVIEW LANE_REVIEW PREFLIGHT STATIC_BASELINE PR METHOD REVIEWER_KIND REVIEWER_MODEL REVIEWER_BY_CREDITS REVIEWER_CREDITS_MIN REVIEW_AREAS SUITE_SKIP PR_TEMPLATE"
 if [ "${DRY_RUN:-0}" = 1 ]; then

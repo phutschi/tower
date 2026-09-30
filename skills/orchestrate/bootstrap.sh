@@ -59,7 +59,7 @@
 # fails the call and is left running in its pane (executor.sh).
 #
 # Never run this for real to see what it does; use DRY_RUN=1, which answers
-# every herdr, claude and codex call from tests/stub and opens nothing. tower
+# every herdr, claude, codex and cursor-agent call from tests/stub and opens nothing. tower
 # is the real CLI from this checkout (it needs bun): it records the run in the
 # run dir, and bootstrap points the repo at that run. Use a scratch repo and
 # run dir, never a live run's.
