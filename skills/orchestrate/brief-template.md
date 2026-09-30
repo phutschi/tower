@@ -22,20 +22,38 @@ for every kind.
 
 ## Executor kind
 
-panes.txt says which agent runs the lane (`kind claude` or `kind codex`). The
-brief is the same for both except the review tail of METHOD and of WHEN YOUR
-LAST TASK IS DONE. Both kinds load the same tdd skill (claude from the
-mattpocock plugin, codex from ~/.codex/skills/tdd); "load the tdd skill" is
-the sentence that works for both.
+panes.txt says which agent runs the lane (`kind claude`, `kind codex` or
+`kind cursor`). The brief is the same for all three except the review tail of
+METHOD and of WHEN YOUR LAST TASK IS DONE. All three load the same tdd skill
+(claude from the mattpocock plugin, codex from ~/.codex/skills/tdd, cursor
+from its own skill dirs: ~/.agents/skills, ~/.claude/skills or
+~/.codex/skills); "load the tdd skill" is the sentence that works for all.
 
-|                     | claude lane                                                     | codex lane                                                        |
-|---------------------|-----------------------------------------------------------------|-------------------------------------------------------------------|
-| per-task review     | spec-compliance review subagent (model sonnet) + code-quality review subagent (model opus); pass the model explicitly | review the task's diff itself, first against the task spec, then with the code-review skill; fix what it flags before the next task |
-| final review        | final whole-implementation review subagent (model opus)         | final self-review of the whole lane diff with the code-review skill |
-| reviewer roles      | as tower prints them                                             | both reviewer roles are the lane's own model; say so in the brief |
+`{{SPEC_REVIEWER_MODEL}}` and `{{QUALITY_REVIEWER_MODEL}}` are the cursor
+lane's reviewer models. In a run bootstrapped on cursor, they are the
+`spec-reviewer` and `quality-reviewer` roles `tower brief` prints. For a
+cursor lane added to a run of another kind, those roles are that kind's:
+ask the kit for cursor's, in the environment you gave add-lane.sh:
+
+    bash -c '. "$0/common.sh"; CONTRACT_RUN="$1" . "$0/detect-stack.sh"; EXECUTOR_KIND=claude . "$0/executor.sh"; kind_default SPEC_REVIEWER_MODEL cursor && kind_default QUALITY_REVIEWER_MODEL cursor' "<kit>" "<run-dir>"
+
+Its last two lines of stdout are the two, in that order, each resolved as
+every kit default is: the environment, then the run's repo contract, then
+the user contract, then the kit's `model-defaults`. A line before them is a
+note from a contract. A model the kit cannot resolve is named on stderr,
+and the command fails: fix that before the brief. (`EXECUTOR_KIND=claude` only keeps a lane kind's
+setup hint out of the answer.) Say in the brief that they replace the roles
+tower prints. Never write a model from memory.
+
+|                     | claude lane                                                     | codex lane                                                        | cursor lane                                                        |
+|---------------------|-----------------------------------------------------------------|-------------------------------------------------------------------|--------------------------------------------------------------------|
+| per-task review     | spec-compliance review subagent (model sonnet) + code-quality review subagent (model opus); pass the model explicitly | review the task's diff itself, first against the task spec, then with the code-review skill; fix what it flags before the next task | spec-compliance review subagent (model `{{SPEC_REVIEWER_MODEL}}`) + code-quality review subagent (model `{{QUALITY_REVIEWER_MODEL}}`); pass the model explicitly on every dispatch |
+| final review        | final whole-implementation review subagent (model opus)         | final self-review of the whole lane diff with the code-review skill | final whole-implementation review subagent (model `{{QUALITY_REVIEWER_MODEL}}`) |
+| reviewer roles      | as tower prints them                                             | both reviewer roles are the lane's own model; say so in the brief | `{{SPEC_REVIEWER_MODEL}}` and `{{QUALITY_REVIEWER_MODEL}}`          |
 
 A codex lane briefed with subagent instructions will improvise; match the
-tail to the kind.
+tail to the kind. A cursor lane has subagents: brief it like claude, with
+its own reviewer models, never the claude column's.
 
 ## Switches
 
@@ -43,7 +61,7 @@ Read `switches:` in panes.txt before writing the brief.
 
 - `METHOD=plain`: METHOD starts at "When green:"; drop the tdd sentence.
 - `TASK_REVIEW=off`: METHOD ends at "commit"; drop the per-task review tail
-  for either kind. The final review of WHEN YOUR LAST TASK IS DONE stays.
+  for any kind. The final review of WHEN YOUR LAST TASK IS DONE stays.
 
 ## Merge points
 
@@ -65,7 +83,7 @@ Read first: CONTEXT.md and docs/adr/ if the repo has them, then the spec and the
 
 YOUR TASKS are the ones below and nothing else. Do not add, change or remove tasks on the board — ignore the `tower add` paragraph below; if you discover work the list is missing, `tower block <id> "<what you found>"` (or `tower note --lane {{LANE}}`) and let the orchestrator decide.
 
-METHOD: {{e.g. "Before each task load the tdd skill and follow its loop; the seams are the modules in the task's Files list, tested through their exports. One failing test, then the minimal implementation, one slice at a time. When green: run the check gate  {{CHECK_CMD from panes.txt}}  from the repo root, commit, then" — claude: "a spec-compliance review subagent (model sonnet) and a code-quality review subagent (model opus); fix what they flag. Pass the model explicitly on every dispatch." — codex: "review the task's diff yourself: first against the task spec, then with the code-review skill; fix what it flags before the next task. Report the two reviewing phases as usual; both reviewer roles below are you."}}
+METHOD: {{e.g. "Before each task load the tdd skill and follow its loop; the seams are the modules in the task's Files list, tested through their exports. One failing test, then the minimal implementation, one slice at a time. When green: run the check gate  {{CHECK_CMD from panes.txt}}  from the repo root, commit, then" — claude: "a spec-compliance review subagent (model sonnet) and a code-quality review subagent (model opus); fix what they flag. Pass the model explicitly on every dispatch." — cursor: "a spec-compliance review subagent (model {{SPEC_REVIEWER_MODEL}}) and a code-quality review subagent (model {{QUALITY_REVIEWER_MODEL}}); fix what they flag. Pass the model explicitly on every dispatch." — codex: "review the task's diff yourself: first against the task spec, then with the code-review skill; fix what it flags before the next task. Report the two reviewing phases as usual; both reviewer roles below are you."}}
 
 OTHER LANES: {{e.g. "Lane B (agent <name>, branch <branch>) owns tasks 5, 7-9; skip them entirely — do not implement them, do not touch their files, do not report on their ids."}}
 
@@ -75,7 +93,7 @@ PANES you may read instead of re-running suites (herdr pane read <id> --source r
 
 Do not stop between tasks to ask whether to continue. If you cannot proceed: tower block <id> "<exactly what you need>", then stop and wait.
 
-WHEN YOUR LAST TASK IS DONE: {{lane A: "run the check gate from the repo root, then a final whole-implementation review (claude: subagent, model opus; codex: self-review of the whole lane diff with the code-review skill), fix what it flags, then  tower note --lane A 'ALL DONE - check green'  and report a summary; end your message with a last line of ALL DONE in double square brackets."  other lanes: "run the check gate for your files, then  tower note --lane {{LANE}} 'lane {{LANE}} complete - ready to merge' , end your message with a last line of READY TO MERGE in double square brackets, and wait; the orchestrator merges you."}} A Reviewer then reviews your lane. Stay in this session: fix tasks from that review come to you on the board and by prompt; do them like any task, and end your reply to each fix prompt with the last line that prompt names.
+WHEN YOUR LAST TASK IS DONE: {{lane A: "run the check gate from the repo root, then a final whole-implementation review (claude: subagent, model opus; cursor: subagent, model {{QUALITY_REVIEWER_MODEL}}, passed explicitly; codex: self-review of the whole lane diff with the code-review skill), fix what it flags, then  tower note --lane A 'ALL DONE - check green'  and report a summary; end your message with a last line of ALL DONE in double square brackets."  other lanes: "run the check gate for your files, then  tower note --lane {{LANE}} 'lane {{LANE}} complete - ready to merge' , end your message with a last line of READY TO MERGE in double square brackets, and wait; the orchestrator merges you."}} A Reviewer then reviews your lane. Stay in this session: fix tasks from that review come to you on the board and by prompt; do them like any task, and end your reply to each fix prompt with the last line that prompt names.
 
 Begin now with task {{FIRST_ID}}.
 
@@ -98,7 +116,7 @@ Stay in this session: another review may follow.
 A Reviewer gets its own brief, not a lane's: one message, sent with
 `herdr agent prompt <reviewer-agent> "$(cat <run-dir>/brief-<task-id>.md)"`
 (add-reviewer.sh prints the agent, the task id and the findings file). No
-`tower brief` part. Both kinds use the same text. In the empty opening
+`tower brief` part. Every kind uses the same text. In the empty opening
 there is no plan: name the tasks' titles from the board.
 `{{ROUND}}` is the preflight round `<n>` (SKILL.md step 11): the directory
 of `{{FINDINGS_FILE}}` is `<run-dir>/findings/preflight/{{ROUND}}/`.

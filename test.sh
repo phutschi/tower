@@ -62,6 +62,9 @@ unset HERDR_PANE_ID HERDR_TAB_ID
 # config stay in $TMP, never the user's.
 export XDG_STATE_HOME="$LOOK_STATE/xdg-state" XDG_CONFIG_HOME="$TMP/xdg-config"
 unset TOWER_RUN
+# The credit probes' knobs (credits.sh, the codex stub's app-server; the
+# claude probe reads nothing under a CLAUDE_CONFIG_DIR).
+unset CREDITS_TIMEOUT CODEX_STUB_RATE_LIMITS CLAUDE_CONFIG_DIR
 # The repo contract's names and the run switches: the fixtures decide them,
 # not the shell test.sh is started from (a codex lane exports EXECUTOR_KIND).
 unset EXECUTOR_KIND EXECUTOR_MODEL SPEC_REVIEWER_MODEL QUALITY_REVIEWER_MODEL STALE PM TYPECHECK_TASK \
@@ -1796,6 +1799,140 @@ if section contract-pin; then
   assert_match "pin: a run without its pin is refused" "$out" "no pinned contract for the run $RUNP"
   assert_match "pin: ... as an error"                    "$out" 'exit=1$'
   [ -e "$TMP/pin-ran-added" ] && bad "pin: ... and the checkout's contract does not run" || ok "pin: ... and the checkout's contract does not run"
+fi
+
+# --- credits -----------------------------------------------------------------
+# credits_left KIND: % left in the kind's tightest window, or nothing. The
+# keychain and the endpoints are fakes on PATH: `security` answers from
+# $CB/keychain/<service> (no file: the item is missing), `curl` answers from
+# $CB/reply only when the header lines it reads on stdin carry the fake token
+# (and, for claude's endpoint, the OAuth beta header), prints nothing and fails
+# as `curl -f` does otherwise, and logs its argv to $CB/curl.log.
+if section credits; then
+  CB="$TMP/credits"; mkdir -p "$CB/bin" "$CB/keychain"
+  TOK=tok-fake-rex-0001
+  cat > "$CB/bin/security" <<SH
+#!/bin/sh
+while [ \$# -gt 0 ]; do [ "\$1" = -s ] && svc=\$2; shift; done
+[ -f "$CB/keychain/\$svc" ] || { echo "security: The specified item could not be found in the keychain." >&2; exit 44; }
+cat "$CB/keychain/\$svc"
+SH
+  cat > "$CB/bin/curl" <<SH
+#!/bin/sh
+printf '%s\n' "\$*" >> "$CB/curl.log"
+[ -n "\${FAKE_CURL_SLEEP:-}" ] && sleep "\$FAKE_CURL_SLEEP"
+h=\$(cat)
+case "\$h" in *"Authorization: Bearer $TOK"*) ;; *) exit 22 ;; esac
+case "\$*" in *oauth/usage*) case "\$h" in *"anthropic-beta: oauth-2025-04-20"*) ;; *) exit 22 ;; esac ;; esac
+[ "\${FAKE_CURL_STATUS:-200}" = 200 ] || exit 22
+cat "$CB/reply"
+SH
+  chmod +x "$CB/bin/security" "$CB/bin/curl"
+  credits() { PATH="$CB/bin:$PATH" in_kit ". \"\$KIT/credits.sh\"; credits_left $1"; }  # KIND
+  claude_creds() { printf '{"claudeAiOauth":{"accessToken":"%s","refreshToken":"ref-fake-rex"}}' "$TOK" > "$CB/keychain/Claude Code-credentials"; }
+
+  claude_creds
+  echo '{"five_hour":{"utilization":31,"resets_at":null},"seven_day":{"utilization":85,"resets_at":null}}' > "$CB/reply"
+  assert_eq "claude: the tightest of the 5-hour and 7-day windows" "$(credits claude)" 15
+  assert_match "claude: ... asked with curl -f, so an error status fails" "$(tail -1 "$CB/curl.log")" '^-sf '
+  assert_eq "claude: a 401 prints nothing" "$(FAKE_CURL_STATUS=401 credits claude)" ""
+  assert_eq "claude: with CLAUDE_CONFIG_DIR, another account's item, nothing" "$(CLAUDE_CONFIG_DIR="$TMP/claude-other" credits claude)" ""
+  rm "$CB/keychain/Claude Code-credentials"
+  assert_eq "claude: a missing keychain item prints nothing" "$(credits claude)" ""
+
+  printf '%s' "$TOK" > "$CB/keychain/cursor-access-token"
+  echo '{"billingCycleStart":"1","planUsage":{"totalPercentUsed":93}}' > "$CB/reply"
+  assert_eq "cursor: 100 - planUsage.totalPercentUsed" "$(credits cursor)" 7
+  assert_match "cursor: ... from DashboardService/GetCurrentPeriodUsage" "$(tail -1 "$CB/curl.log")" 'DashboardService/GetCurrentPeriodUsage'
+  echo '{"planUsage":{"totalPercentUsed":' > "$CB/reply"
+  assert_eq "cursor: malformed JSON prints nothing" "$(credits cursor)" ""
+
+  # codex: the stub's app-server answers account/rateLimits/read with the
+  # result in $CODEX_STUB_RATE_LIMITS, errors without it, answers with a
+  # JSON-RPC error when it is `error`, and never answers when it is `silent`.
+  echo '{"rateLimits":{"primary":{"usedPercent":80,"windowDurationMins":300},"secondary":null}}' > "$CB/codex-limits"
+  assert_eq "codex: primary only" "$(CODEX_STUB_RATE_LIMITS="$CB/codex-limits" credits codex)" 20
+  echo '{"rateLimits":{"primary":{"usedPercent":10},"secondary":{"usedPercent":60}}}' > "$CB/codex-limits"
+  reset_stub
+  assert_eq "codex: the tightest of primary and secondary" "$(CODEX_STUB_RATE_LIMITS="$CB/codex-limits" credits codex)" 40
+  assert_match "codex: ... read from codex app-server" "$(cat "$HERDR_STUB_LOG")" '^codex app-server$'
+  assert_eq "codex: an app-server that errors prints nothing" "$(credits codex)" ""
+  assert_eq "codex: a JSON-RPC error reply prints nothing" "$(CODEX_STUB_RATE_LIMITS=error credits codex)" ""
+  SECONDS=0
+  assert_eq "codex: an app-server that never answers prints nothing" "$(CREDITS_TIMEOUT=1 CODEX_STUB_RATE_LIMITS=silent credits codex)" ""
+  [ "$SECONDS" -le 4 ] && ok "codex: ... within about the timeout" || bad "codex: ... within about the timeout" "took ${SECONDS}s"
+  pgrep -f 'sleep 31.7' >/dev/null && bad "codex: ... and leaves no app-server behind" || ok "codex: ... and leaves no app-server behind"
+
+  claude_creds
+  echo '{"five_hour":{"utilization":31},"seven_day":{"utilization":85}}' > "$CB/reply"
+  SECONDS=0
+  assert_eq "a probe slower than its timeout prints nothing" "$(CREDITS_TIMEOUT=1 FAKE_CURL_SLEEP=8.3 credits claude)" ""
+  [ "$SECONDS" -le 4 ] && ok "... and returns within about the timeout" || bad "... and returns within about the timeout" "took ${SECONDS}s"
+  pgrep -f 'sleep 8.3' >/dev/null && bad "... and leaves nothing it started behind" || ok "... and leaves nothing it started behind"
+  # A timeout set in the caller's shell, not exported, is the probe's too;
+  # and the module, sourced by a relative path, still probes after a cd.
+  assert_eq "a caller's CREDITS_TIMEOUT holds for the whole probe" \
+    "$(PATH="$CB/bin:$PATH" in_kit "CREDITS_TIMEOUT=6; . \"\$KIT/credits.sh\"; FAKE_CURL_SLEEP=3 credits_left claude")" 15
+  assert_eq "a module sourced by a relative path probes after a cd" \
+    "$(cd "$KIT" && PATH="$CB/bin:$PATH" in_kit ". ./credits.sh; cd /; credits_left claude")" 15
+  assert_eq "an unknown kind prints nothing" "$(credits gemini)" ""
+  assert_eq "no kind prints nothing" "$(credits '')" ""
+
+  # The token only ever reaches curl through a pipe.
+  : > "$CB/curl.log"; reset_stub
+  out=$(credits claude; FAKE_CURL_STATUS=401 credits claude; credits cursor; credits codex)
+  assert_match "token: the probes ran" "$(cat "$CB/curl.log")" 'oauth/usage'
+  assert_nomatch "token: never on stdout or stderr" "$out" "$TOK"
+  assert_nomatch "token: never in curl's argv" "$(cat "$CB/curl.log")" "$TOK"
+  assert_nomatch "token: never in HERDR_STUB_LOG" "$(cat "$HERDR_STUB_LOG")" "$TOK"
+fi
+
+# --- brief-cursor ------------------------------------------------------------
+# The markdown a cursor lane, its orchestrator and a lone preflight read.
+if section brief-cursor; then
+  bt=$(cat "$KIT/brief-template.md"); os=$(cat "$KIT/SKILL.md"); ps=$(cat "$PREFLIGHT_DIR/SKILL.md")
+  assert_match "brief: the per-kind table has a cursor column" "$bt" '^\| +\| claude lane +\| codex lane +\| cursor lane +\|'
+  method=$(grep '^METHOD:' "$KIT/brief-template.md")
+  assert_match "brief: METHOD has a cursor variant with subagent reviews on the run's models" "$method" 'cursor: "a spec-compliance review subagent \(model \{\{SPEC_REVIEWER_MODEL\}\}\) and a code-quality review subagent \(model \{\{QUALITY_REVIEWER_MODEL\}\}\).*Pass the model explicitly on every dispatch'
+  assert_match "brief: the final review has a cursor variant" "$(grep '^WHEN YOUR LAST TASK IS DONE:' "$KIT/brief-template.md")" 'cursor: subagent, model \{\{QUALITY_REVIEWER_MODEL\}\}'
+  assert_match "brief: a cursor lane loads tdd from its own skill dirs" "$bt" 'own skill dirs: ~/\.agents/skills'
+  assert_match "preflight: alone on cursor, one subagent per area in parallel" "$ps" 'Alone on cursor: one subagent per area, in parallel'
+  assert_match "orchestrate: EXECUTOR_KIND names cursor" "$os" 'EXECUTOR_KIND=codex` or `EXECUTOR_KIND=cursor`'
+  assert_match "orchestrate: REVIEWER_KIND takes cursor" "$os" '^\| `REVIEWER_KIND` +\| other +\| .*claude, codex or cursor: that kind reviews every lane'
+  assert_match "orchestrate: the switches table has REVIEWER_BY_CREDITS" "$os" '^\| `REVIEWER_BY_CREDITS` +\| off +\|'
+  assert_match "orchestrate: the Reviewer order covers cursor" "$os" 'cursor lane: claude, then codex'
+  assert_match "orchestrate: red flag, cursor has subagents" "$os" '^\| Briefing a cursor lane .*subagents'
+  assert_match "orchestrate: red flag, never answer cursor's trust box" "$os" "^\\| Answering a cursor lane's trust box .*--trust"
+  assert_nomatch "brief: the cursor variant names no claude model" "$(printf '%s\n' "$method" | sed -n 's/.*cursor: "\([^"]*\)".*/\1/p')" 'sonnet|opus'
+  assert_nomatch "orchestrate: a cursor lane is never sent to the run's roles alone" "$os" "cursor.*run's reviewer models|run's .spec-reviewer. and .quality-reviewer. models"
+  assert_nomatch "no two-kind wording is left in the three files" "$bt$os$ps" 'both kinds|either kind|claude or codex|one Reviewer of each kind'
+  # The command the template gives for a cursor lane's reviewer models in a
+  # run of another kind, run as written: every layer, the environment first.
+  cmd=$(sed -n 's/^    \(bash -c .*kind_default SPEC_REVIEWER_MODEL cursor.*\)$/\1/p' "$KIT/brief-template.md")
+  assert_match "brief: the template gives the command" "$cmd" 'kind_default QUALITY_REVIEWER_MODEL cursor'
+  cursor_models() { (cd "$1" && env XDG_CONFIG_HOME="$3" ${4:+"$4"} bash -c "$(printf '%s' "$cmd" | sed "s#<kit>#$KIT#g; s#<run-dir>#$2#g")" 2>&1 | paste -sd' ' -); }  # CHECKOUT RUN_DIR XDG [VAR=value]
+  kit_spec=$(sed -n 's/^SPEC_REVIEWER_MODEL_CURSOR=//p' "$KIT/model-defaults"); kit_quality=$(sed -n 's/^QUALITY_REVIEWER_MODEL_CURSOR=//p' "$KIT/model-defaults")
+  r=$(fixture_repo bun-vitest); RB="$TMP/run-brief-cursor"; reset_stub
+  (cd "$r" && XDG_CONFIG_HOME="$TMP/xdg-brief-none" "$KIT/bootstrap.sh" "$RB" "Brief cursor" main "$KIT/example-tasks.tsv" >/dev/null 2>&1)
+  assert_eq "brief: in a claude run, cursor's reviewer models are the kit's" "$(cursor_models "$r" "$RB" "$TMP/xdg-brief-none")" "$kit_spec $kit_quality"
+  grep -v '^SPEC_REVIEWER_MODEL_CURSOR=' "$KIT/model-defaults" > "$TMP/model-defaults-no-spec"
+  out=$(cursor_models "$r" "$RB" "$TMP/xdg-brief-none" MODEL_DEFAULTS_FILE="$TMP/model-defaults-no-spec")
+  assert_match "brief: ... a model the kit cannot resolve is named" "$out" 'no SPEC_REVIEWER_MODEL_CURSOR'
+  assert_nomatch "brief: ... and the other is not printed alone" "$out" "$kit_quality"
+  UCB="$TMP/xdg-brief"; mkdir -p "$UCB/tower"
+  printf 'SPEC_REVIEWER_MODEL_CURSOR=user-s\nQUALITY_REVIEWER_MODEL_CURSOR=user-q\n' > "$UCB/tower/orchestrate"
+  r=$(fixture_repo bun-vitest); RB="$TMP/run-brief-cursor-2"
+  echo 'QUALITY_REVIEWER_MODEL_CURSOR=repo-q' > "$r/.orchestrate"; git -C "$r" add .orchestrate; git -C "$r" commit -qm contract; reset_stub
+  (cd "$r" && XDG_CONFIG_HOME="$UCB" "$KIT/bootstrap.sh" "$RB" "Brief cursor 2" main "$KIT/example-tasks.tsv" >/dev/null 2>&1)
+  echo 'QUALITY_REVIEWER_MODEL_CURSOR=checkout-q' > "$r/.orchestrate"   # after bootstrap: the pin, never the checkout
+  assert_eq "brief: ... the user contract over the kit, the repo contract over both" "$(cursor_models "$r" "$RB" "$UCB")" "user-s repo-q"
+  assert_eq "brief: ... and the environment over all" "$(cursor_models "$r" "$RB" "$UCB" SPEC_REVIEWER_MODEL_CURSOR=env-s)" "env-s repo-q"
+  mkdir -p "$TMP/home-no-skills"
+  assert_eq "brief: ... printing only the two, whatever kind add-lane.sh was given" \
+    "$(HOME="$TMP/home-no-skills" cursor_models "$r" "$RB" "$UCB" EXECUTOR_KIND=cursor)" "user-s repo-q"
+  for m in $(sed -n 's/^[A-Z_]*_CURSOR=//p' "$KIT/model-defaults" | sort -u); do
+    case "$bt$os$ps" in *"$m"*) bad "no cursor default ($m) is written into the three files" ;; *) ok "no cursor default ($m) is written into the three files" ;; esac
+  done
 fi
 
 # --- look --------------------------------------------------------------------
