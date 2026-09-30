@@ -107,7 +107,9 @@ run, the `switches:` line of `panes.txt` has the values the run uses.
      `watchpoint` suite finding. Fix the environment and look again. The
      other steps' must-fix findings in that `look.json` still count: the
      look can be red as well. A Reviewer carries them into its findings
-     file beside the `warn` rows.
+     file beside the `warn` rows. A `setup:` row that comes back once the
+     environment is fixed is the step's own failure: triage its
+     watchpoint as a red suite step.
 
 4. **Agent review by area.** The areas are the files in `areas/` next to
    this file, plus the repo's `.preflight/areas/*.md`. A repo file with a

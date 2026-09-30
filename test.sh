@@ -1327,7 +1327,7 @@ for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'],
   git -C "$r" update-ref refs/remotes/origin/main base; rm -f "$r/.git/FETCH_HEAD"
   reset_stub; out=$(look "$r" origin/main "$F"); v=$(verdict "$F/look.json")
   assert_eq "look: never fetches (a sandbox keeps .git read-only)" "$(git -C "$r" rev-parse origin/main):$([ -e "$r/.git/FETCH_HEAD" ] && echo fetched || echo none)" "$(git -C "$r" rev-parse base):none"
-  assert_match "look: a base behind its remote is a warn row, named stale" "$v" "^base warn base is stale: origin/main is $(git -C "$r" rev-parse --short base), origin has $(git -C "$r" rev-parse --short feat); fetch, then look again$"
+  assert_match "look: a base behind its remote is a warn row, named stale" "$v" "^base warn base is stale: origin/main is $(git -C "$r" rev-parse --short base), origin has $(git -C "$r" rev-parse --short feat); whoever runs look fetches, then looks again$"
   assert_match "look: ... not a failure"                 "$out" 'exit=0$'
   git -C "$r" update-ref refs/remotes/origin/gone base   # fetched once, since deleted on the remote
   reset_stub; out=$(look "$r" origin/gone "$F"); v=$(verdict "$F/look.json")
@@ -1346,6 +1346,10 @@ for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'],
   reset_stub; out=$(look "$r" origin/main "$F"); v=$(verdict "$F/look.json")
   assert_match "look: ssh runs in batch mode, with a connect timeout" "$(cat "$TMP/ssh.log" 2>&1)" '-o BatchMode=yes -o ConnectTimeout=[0-9]+ .*git\.example\.invalid'
   assert_match "look: ... and a failed ssh is base could not be refreshed" "$v" '^base warn base could not be refreshed: git ls-remote origin failed'
+  git -C "$r" config --unset core.sshCommand; : > "$TMP/ssh.log"
+  reset_stub; out=$(GIT_SSH="$TMP/ssh-stub" look "$r" origin/main "$F")
+  assert_match "look: a GIT_SSH wrapper is used as it is"  "$(cat "$TMP/ssh.log")" 'git\.example\.invalid'
+  assert_nomatch "look: ... without ssh's -o options"     "$(cat "$TMP/ssh.log")" 'BatchMode'
   unset CHECK_CMD SUITE_ORDER; unset -f look_repo findings verdict look
 fi
 

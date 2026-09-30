@@ -10,7 +10,7 @@
 #             fetches (a sandboxed Reviewer cannot write .git; whoever runs
 #             look fetches first); it asks with  git ls-remote , which writes
 #             nothing, with ssh in batch mode and a 10-second connect
-#             timeout, so no prompt waits. pass when they match; warn "base
+#             timeout, so no prompt waits (a GIT_SSH wrapper is left as is). pass when they match; warn "base
 #             is stale" when the remote moved on; warn "base could not be
 #             refreshed" when the remote cannot be asked (no network, no such
 #             remote) or no longer has the branch; skip when <base-ref> is no
@@ -109,8 +109,10 @@ else
   BRANCH=${BASE_REF#"refs/remotes/$REMOTE/"}
   LOCAL_SHA=$(git rev-parse --short "$BASE")
   # No prompt may wait: git's own (https) nor ssh's, which reads /dev/tty.
-  SSH="${GIT_SSH_COMMAND:-$(git config core.sshCommand || echo ssh)} -o BatchMode=yes -o ConnectTimeout=10"
-  rc=0; GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="$SSH" git ls-remote "$REMOTE" "refs/heads/$BRANCH" < /dev/null \
+  # A GIT_SSH wrapper (plink, ...) is left as it is: it may not take ssh's -o.
+  if [ -n "${GIT_SSH:-}" ] && [ -z "${GIT_SSH_COMMAND:-}" ]; then SSH=""
+  else SSH="${GIT_SSH_COMMAND:-$(git config core.sshCommand || echo ssh)} -o BatchMode=yes -o ConnectTimeout=10"; fi
+  rc=0; env GIT_TERMINAL_PROMPT=0 ${SSH:+"GIT_SSH_COMMAND=$SSH"} git ls-remote "$REMOTE" "refs/heads/$BRANCH" < /dev/null \
     > "$WORK/ls-remote.out" 2> "$WORK/ls-remote.err" || rc=$?
   # The pattern also matches refs ending in it (refs/x/refs/heads/main): keep the exact one.
   REMOTE_SHA=$(awk -v ref="refs/heads/$BRANCH" '$2 == ref { print $1 }' "$WORK/ls-remote.out")
@@ -122,7 +124,7 @@ else
   elif [ "$(git rev-parse "$BASE")" = "$REMOTE_SHA" ]; then
     verdict base pass "$BASE matches $REMOTE ($LOCAL_SHA)"
   else
-    verdict base warn "base is stale: $BASE is $LOCAL_SHA, $REMOTE has ${REMOTE_SHA:0:${#LOCAL_SHA}}; fetch, then look again"
+    verdict base warn "base is stale: $BASE is $LOCAL_SHA, $REMOTE has ${REMOTE_SHA:0:${#LOCAL_SHA}}; whoever runs look fetches, then looks again"
   fi
 fi
 
