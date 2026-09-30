@@ -84,6 +84,7 @@ DIRTY=$(git status --porcelain --untracked-files=no | cut -c4- | tr '\n' ' ') ||
 [ -z "$DIRTY" ] || die "look: uncommitted changes to tracked files: ${DIRTY% }. Commit or stash them, then run look again."
 # The repo contract: STATIC_BASELINE, SUITE_SKIP, the suite steps, CHECK_CMD.
 CHECK_CMD_FROM_ENV="${CHECK_CMD:+yes}"
+unset CONTRACT_RUN  # the branch's own contract: look runs inside the Reviewer
 . "$KIT/detect-stack.sh"
 MERGE_BASE=$(git merge-base "$BASE" HEAD) || die "look: no merge base between '$BASE' and HEAD"
 

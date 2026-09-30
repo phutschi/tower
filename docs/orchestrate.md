@@ -211,7 +211,8 @@ bootstrap pins the contract it read: a read-only copy under
 run dir, which the pane map's `contract:` line points to. add-lane and
 add-reviewer read that pin, never a checkout, the run dir or the git dir,
 all of which a codex lane may write. A lane's edit to `.orchestrate` takes
-effect in the next run, after review. `look.sh` still reads the branch's
+effect in the next run, after review. Pins stay after the run; they are
+small, and removing `contracts/` once no run is open is safe. `look.sh` still reads the branch's
 own file: it runs inside the Reviewer.
 
 The same names in the environment of a bootstrap or add-lane call win over

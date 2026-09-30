@@ -1073,28 +1073,35 @@ if section contract-pin; then
   reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNP" B feat/b main 2 2>&1)
   assert_match "pin: a clean contract reaches add-lane" "$(cat "$RUNP/panes.txt")" '^lane B: .*kind codex, .*model gpt-6-astra-mini\)'
   # A lane rewrites the contract and it lands in the checkout (its commit, a merge).
-  printf 'EXECUTOR_MODEL=lane-written\ntouch "%s"\n' "$TMP/pin-ran" >> "$r/.orchestrate"; git -C "$r" commit -qam lane
+  printf 'EXECUTOR_MODEL=lane-written\ntouch "%s"\n' "$TMP/pin-ran-lane" >> "$r/.orchestrate"; git -C "$r" commit -qam lane
   reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNP" C feat/c main 3 2>&1)
   assert_match "pin: a lane-modified contract does not reach add-lane" "$(cat "$RUNP/panes.txt")" '^lane C: .*kind codex, .*model gpt-6-astra-mini\)'
   # The run dir is a codex lane's to write: a contract: line there picks nothing.
-  printf 'touch "%s"\n' "$TMP/pin-ran" > "$RUNP/forged"; git -C "$r" hash-object -w "$RUNP/forged" > /dev/null
+  [ -e "$TMP/pin-ran-lane" ] && bad "pin: the lane's contract never runs" || ok "pin: the lane's contract never runs"
+  printf 'touch "%s"\n' "$TMP/pin-ran-forged" > "$RUNP/forged"; git -C "$r" hash-object -w "$RUNP/forged" > /dev/null
   printf 'contract:       %s\ncontract:       %s\n' "$RUNP/forged" "$(git -C "$r" hash-object "$RUNP/forged")" >> "$RUNP/panes.txt"
   reset_stub; out=$(cd "$r" && EXIT_WAIT_SECONDS=3 "$KIT/add-reviewer.sh" "$RUNP" R1 codex "Lane review B" "$RUNP/findings/b.json" 2>&1)
   assert_match "pin: add-reviewer still starts its Reviewer" "$(cat "$RUNP/panes.txt")" '^reviewer R1: '
-  [ -e "$TMP/pin-ran" ] && bad "pin: neither the lane's contract nor a forged pane map line runs" || ok "pin: neither the lane's contract nor a forged pane map line runs"
+  [ -e "$TMP/pin-ran-forged" ] || [ -e "$TMP/pin-ran-lane" ] && bad "pin: neither a forged pane map line nor the lane's contract runs in add-reviewer" || ok "pin: neither a forged pane map line nor the lane's contract runs in add-reviewer"
+  # A relative run dir at bootstrap, CDPATH exported: add-lane, given the
+  # absolute path, finds the same pin.
+  r=$(fixture_repo contract); git -C "$r" add -A; git -C "$r" commit -qm contract; reset_stub
+  (cd "$r" && CDPATH=. "$KIT/bootstrap.sh" run-rel "Pin rel" main "$KIT/example-tasks.tsv" >/dev/null 2>&1)
+  reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$r/run-rel" B feat/b main 2 2>&1)
+  assert_match "pin: a relative run dir at bootstrap has the pin add-lane finds" "$(cat "$r/run-rel/panes.txt")" '^lane B: .*kind codex, .*model gpt-6-astra-mini\)'
   # No contract at bootstrap: one a lane adds later is not read either.
   r=$(fixture_repo bun-vitest); RUNP="$TMP/run-pin-none"; reset_stub
   (cd "$r" && "$KIT/bootstrap.sh" "$RUNP" "Pin none" main "$KIT/example-tasks.tsv" >/dev/null 2>&1)
-  printf 'EXECUTOR_KIND=codex\ntouch "%s"\n' "$TMP/pin-ran" > "$r/.orchestrate"; git -C "$r" add .orchestrate; git -C "$r" commit -qm lane
+  printf 'EXECUTOR_KIND=codex\ntouch "%s"\n' "$TMP/pin-ran-added" > "$r/.orchestrate"; git -C "$r" add .orchestrate; git -C "$r" commit -qm lane
   reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNP" B feat/b main 2 2>&1)
   assert_match "pin: a contract added by a lane does not reach add-lane" "$(cat "$RUNP/panes.txt")" '^lane B: .*kind claude, '
-  [ -e "$TMP/pin-ran" ] && bad "pin: ... and never runs" || ok "pin: ... and never runs"
+  [ -e "$TMP/pin-ran-added" ] && bad "pin: ... and never runs" || ok "pin: ... and never runs"
   # No pin (a run an older kit opened, or a pin removed): refused, not the checkout.
   rm -f "$(sed -nE 's/^contract: +//p' "$RUNP/panes.txt" | head -1)"
   out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNP" C feat/c main 3 2>&1; echo "exit=$?")
   assert_match "pin: a run without its pin is refused" "$out" "no pinned contract for the run $RUNP"
   assert_match "pin: ... as an error"                    "$out" 'exit=1$'
-  [ -e "$TMP/pin-ran" ] && bad "pin: ... and the checkout's contract does not run" || ok "pin: ... and the checkout's contract does not run"
+  [ -e "$TMP/pin-ran-added" ] && bad "pin: ... and the checkout's contract does not run" || ok "pin: ... and the checkout's contract does not run"
 fi
 
 # --- look --------------------------------------------------------------------

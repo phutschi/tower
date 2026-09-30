@@ -39,8 +39,8 @@
 # and the value this run uses (detect-stack.sh). Its  contract:  line names
 # the pin: the .orchestrate read here, written read-only outside the run dir
 # and the repo (detect-stack.sh), is what add-lane and add-reviewer read for
-# the whole run; for them this line is only a pointer, never read. The switches: line goes to the
-# record as a  tower note . So does the
+# the whole run; for them this line is only a pointer, never read. The
+# switches: line goes to the record as a  tower note . So does the
 #  reviewer:  line: the kind and model that review lane A (executor.sh
 # reviewer_for; in a codex-only run add-reviewer.sh reviews a codex lane on
 # that lane's model when the call names the lane), with the fallback note when
@@ -99,6 +99,7 @@ unset _seen _spec
 # the main checkout — the same resolution agent_name inlines for naming, and
 # what add-lane.sh uses for the worktree location of lanes B-D).
 REPO="$PWD"
+unset CONTRACT_RUN  # bootstrap reads the checkout's contract, and pins it
 
 need_tower
 

@@ -28,7 +28,8 @@
 # run it is never read from a checkout. bootstrap.sh writes what it read,
 # read-only, to  contract_pin RUN_DIR : a file under $XDG_STATE_HOME
 # (~/.local/state)/tower/contracts/, named by the run dir's path, outside
-# everything a codex lane may write (its worktree, the run dir, the git dir).
+# everything a codex lane may write (its worktree, the run dir, the git dir,
+# /tmp and $TMPDIR: an XDG_STATE_HOME under those two gives that up).
 # With CONTRACT_RUN set to the run dir (add-lane.sh, add-reviewer.sh) that pin
 # is the contract; without a pin the call is refused.
 # A value set in the environment of the bootstrap or add-lane call wins over the
@@ -74,7 +75,7 @@ pane_index() {  # prints the index of pane NAME, nothing when absent
   done
 }
 contract_pin() {  # RUN_DIR: the file bootstrap pins that run's contract in
-  local d; d=$(cd "$1" && pwd -P) || return 1
+  local d; d=$(cd -- "$1" > /dev/null && pwd -P) || return 1  # CDPATH would print it
   echo "${XDG_STATE_HOME:-$HOME/.local/state}/tower/contracts/$(printf '%s' "$d" | git hash-object --stdin)"
 }
 _kit_contract=""
