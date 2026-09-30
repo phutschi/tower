@@ -58,14 +58,19 @@
 #                     "file", "line", "title", "evidence" } ] }
 # Prints each suite step as it starts (stderr), the verdict table and the
 # findings file. Exit 0 when no finding is must-fix, 1 when one is, 2 on a
-# setup error (usage, uncommitted changes to tracked files, unknown base, a
-# refused repo contract, a suite step's permission error); look.json is
+# setup error (usage, uncommitted changes to tracked files, a repo contract
+# not committed as it is in HEAD, unknown base, a refused repo contract, a
+# suite step's permission error); look.json is
 # removed first, so after exit 2 there is none, except after a permission
 # error: every step ran, and look.json holds their rows and findings.
 #
 # The checkout must have no uncommitted changes to tracked files (untracked
 # files are fine): whatever the suite then leaves changed is the suite's own,
 # and  git checkout -- <files>  puts it back without touching anyone's edits.
+# The repo contract (.orchestrate, or .herdr-orchestrate) is the exception: it
+# is bash look runs, so an untracked one, or one whose bytes differ from
+# HEAD's, is refused before it is read, naming the file. A Reviewer sees only
+# what is committed.
 set -euo pipefail
 LOOK_DIR="$(cd "$(dirname "$0")" && pwd -P)"
 KIT="$(dirname "$LOOK_DIR")/orchestrate"  # the orchestrate skill beside this one
@@ -84,6 +89,15 @@ DIRTY=$(git status --porcelain --untracked-files=no | cut -c4- | tr '\n' ' ') ||
 [ -z "$DIRTY" ] || die "look: uncommitted changes to tracked files: ${DIRTY% }. Commit or stash them, then run look again."
 # The repo contract: STATIC_BASELINE, SUITE_SKIP, the suite steps, CHECK_CMD.
 CHECK_CMD_FROM_ENV="${CHECK_CMD:+yes}"
+# It is bash that look runs (detect-stack.sh sources it), so only as committed,
+# where a Reviewer sees it in the diff: its bytes compared with HEAD's, which
+# also catches a change git status does not show (assume-unchanged).
+CONTRACT=.orchestrate
+[ -f "$CONTRACT" ] || [ ! -f .herdr-orchestrate ] || CONTRACT=.herdr-orchestrate
+if [ -f "$CONTRACT" ]; then
+  git cat-file -e "HEAD:$CONTRACT" 2>/dev/null && git show "HEAD:$CONTRACT" | cmp -s - "$CONTRACT" \
+    || die "look: $CONTRACT is not committed as it is in HEAD (untracked, or changed since): look runs it as bash, and no Reviewer sees it in a diff. Commit it, or move it out of the checkout, then run look again."
+fi
 unset CONTRACT_RUN  # the branch's own contract: look runs inside the Reviewer
 . "$KIT/detect-stack.sh"
 MERGE_BASE=$(git merge-base "$BASE" HEAD) || die "look: no merge base between '$BASE' and HEAD"

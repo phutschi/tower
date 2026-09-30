@@ -72,7 +72,8 @@ run, the `switches:` line of `panes.txt` has the values the run uses.
 3. **Static baseline and full suite.** Alone, or when your brief says so.
    `look.sh` needs a clean tracked tree:
    `git status --short --untracked-files=no` prints nothing (untracked files
-   are fine); it exits 2 otherwise. Alone, when that prints files: ask the
+   are fine, but for the repo contract: an `.orchestrate` not committed as it
+   is in HEAD is refused, since look runs it); it exits 2 otherwise. Alone, when that prints files: ask the
    human whether to commit or stash them first. Then run
 
    ```bash

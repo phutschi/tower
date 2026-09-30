@@ -1432,6 +1432,7 @@ if section look; then
     git -C "$r" add -A && git -C "$r" commit -qm change
     echo "$r"
   }
+  commit_contract() { git -C "$1" add .orchestrate && git -C "$1" commit -qm contract; }  # look reads only a committed one
   # One line per finding in a look.json: "area severity file:line title | evidence".
   findings() { python3 -c "import json,sys
 for f in json.load(open(sys.argv[1]))['findings']: print('%s %s %s:%s %s | %s' % (f['area'], f['severity'], f['file'], f['line'], f['title'], f['evidence']))" "$1"; }
@@ -1451,10 +1452,42 @@ for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'],
   # No node on the machine (a node that cannot run answers 127, like a missing
   # one), a contract of suite lines only: detect-stack.sh must not end look.sh.
   NB="$TMP/no-node"; mkdir -p "$NB"; printf '#!/bin/sh\nexit 127\n' > "$NB/node"; chmod +x "$NB/node"
-  r=$(look_repo none no-node); printf 'suite ok "true"\n' > "$r/.orchestrate"; reset_stub
+  r=$(look_repo none no-node); printf 'suite ok "true"\n' > "$r/.orchestrate"; commit_contract "$r"; reset_stub
   out=$(PATH="$NB:$PATH" look "$r" base "$TMP/findings-no-node")
   assert_match "look: no node and only suite lines, exit 0" "$out" 'exit=0$'
   assert_match "look: no node and only suite lines, the suite step runs" "$(verdict "$TMP/findings-no-node/look.json" 2>&1)" '^ok pass'
+  # The contract is bash that look runs: only as committed, which a Reviewer
+  # sees in the diff. Untracked, or changed since HEAD, it is refused unrun.
+  mark="$TMP/look-contract-ran"
+  r=$(look_repo none contract-untracked); printf 'touch "%s"\n' "$mark" > "$r/.orchestrate"; rm -f "$mark"
+  out=$(look "$r" base "$TMP/findings-contract")
+  assert_match "look: an untracked contract is a setup error" "$out" 'exit=2$'
+  assert_match "look: ... naming the file" "$out" 'look: \.orchestrate is not committed as it is in HEAD'
+  [ -e "$mark" ] && bad "look: ... and it is not run" || ok "look: ... and it is not run"
+  assert_eq "look: ... and no look.json" "$([ -e "$TMP/findings-contract/look.json" ] && echo yes || echo no)" no
+  rm -f "$mark"; r=$(look_repo none contract-old-name); printf 'touch "%s"\n' "$mark" > "$r/.herdr-orchestrate"
+  out=$(look "$r" base "$TMP/findings-contract")
+  assert_match "look: an untracked contract under the old name: refused" "$out" 'exit=2$'
+  assert_match "look: ... naming it" "$out" 'look: \.herdr-orchestrate is not committed as it is in HEAD'
+  [ -e "$mark" ] && bad "look: ... and not run" || ok "look: ... and not run"
+  rm -f "$mark"; r=$(look_repo none contract-modified); printf 'true\n' > "$r/.orchestrate"
+  git -C "$r" add .orchestrate; git -C "$r" commit -qm contract
+  printf 'touch "%s"\n' "$mark" >> "$r/.orchestrate"
+  out=$(look "$r" base "$TMP/findings-contract")
+  assert_match "look: a modified contract is a setup error" "$out" 'exit=2$'
+  assert_match "look: ... naming it" "$out" 'look: .*\.orchestrate'
+  [ -e "$mark" ] && bad "look: ... and it is not run" || ok "look: ... and it is not run"
+  rm -f "$mark"; git -C "$r" update-index --assume-unchanged .orchestrate   # hidden from git status and diff
+  out=$(look "$r" base "$TMP/findings-contract")
+  assert_match "look: a modified contract git is told to ignore: refused" "$out" 'exit=2$'
+  assert_match "look: ... naming it" "$out" 'look: \.orchestrate is not committed as it is in HEAD'
+  [ -e "$mark" ] && bad "look: ... and not run" || ok "look: ... and not run"
+  rm -f "$mark"; r=$(look_repo none contract-committed); printf 'touch "%s"\n' "$mark" > "$r/.orchestrate"
+  git -C "$r" add .orchestrate; git -C "$r" commit -qm contract
+  out=$(look "$r" base "$TMP/findings-contract")
+  assert_match "look: a committed contract: the look runs" "$out" 'exit=0$'
+  [ -e "$mark" ] && ok "look: ... and the contract is read" || bad "look: ... and the contract is read"
+  rm -f "$mark"
   r=$(look_repo none findings); reset_stub
   out=$(SEMGREP_STUB=finding GITLEAKS_STUB=finding look "$r" base "$F")
   f=$(findings "$F/look.json")
@@ -1574,7 +1607,7 @@ for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'],
   # A step that fails on a permission error is the sandbox, not the code: a
   # setup verdict, not a must-fix suite finding.
   r=$(look_repo none perm)
-  printf '%s\n' "suite lint 'echo \"error: bun is unable to write files to tempdir: PermissionDenied\"; exit 1'" "suite ok true" > "$r/.orchestrate"
+  printf '%s\n' "suite lint 'echo \"error: bun is unable to write files to tempdir: PermissionDenied\"; exit 1'" "suite ok true" > "$r/.orchestrate"; commit_contract "$r"
   out=$(look "$r" base "$F"); v=$(verdict "$F/look.json")
   assert_match "look: a step failing on a permission error is a setup row" "$v" '^lint warn setup: exit 1, a permission error \(error: bun is unable to write files to tempdir: PermissionDenied\): echo'
   assert_nomatch "look: ... not a must-fix suite finding" "$(findings "$F/look.json")" 'must-fix'
@@ -1582,7 +1615,7 @@ for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'],
   assert_match "look: ... and the look is a setup error, with look.json kept" "$out" 'exit=2$'
   assert_match "look: ... it says which step and why"    "$out" '^look: setup error: suite step\(s\) lint failed on a permission error'
   printf '%s\n' "suite rm 'echo \"rm: /cache/x: Operation not permitted\" >&2; exit 1'" \
-    "suite npm 'echo \"npm ERR! code EACCES\"; exit 243'" "suite unit 'echo \"expected 1, got 2\"; exit 1'" > "$r/.orchestrate"
+    "suite npm 'echo \"npm ERR! code EACCES\"; exit 243'" "suite unit 'echo \"expected 1, got 2\"; exit 1'" > "$r/.orchestrate"; commit_contract "$r"
   out=$(look "$r" base "$F"); v=$(verdict "$F/look.json")
   assert_match "look: Operation not permitted, on stderr, is a setup row" "$v" '^rm warn setup: exit 1, a permission error \(rm: /cache/x: Operation not permitted\)'
   assert_match "look: EACCES is a setup row"             "$v" '^npm warn setup: exit 243, a permission error \(npm ERR! code EACCES\)'
@@ -1591,13 +1624,13 @@ for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'],
   assert_match "look: ... and names every setup step"   "$out" 'suite step\(s\) rm npm failed'
   assert_match "look: a setup step keeps its output tail, as a watchpoint for triage" "$(findings "$F/look.json")" '^suite watchpoint .* suite step npm failed on a permission error \(exit 243\) \| \$ echo .*npm ERR! code EACCES'
   printf '%s\n' "suite bin 'printf \"x\\\\0y\\\\n\"; echo EACCES; exit 1'" "suite cr 'printf \"10%%\\\\rerror: PermissionDenied\\\\n\"; exit 1'" \
-    "suite noisy 'echo \"warn: EACCES on a probe, retried\"'" > "$r/.orchestrate"
+    "suite noisy 'echo \"warn: EACCES on a probe, retried\"'" > "$r/.orchestrate"; commit_contract "$r"
   out=$(look "$r" base "$F"); v=$(verdict "$F/look.json")
   assert_match "look: output with a NUL byte is still read for a permission error" "$v" '^bin warn setup: '
   assert_match "look: a carriage return in the matched line becomes a space" "$v" '^cr warn setup: exit 1, a permission error \(10% error: PermissionDenied\)'
   assert_match "look: a step that passes with EACCES in its output passes" "$v" '^noisy pass '
   # The permission error before a long summary: the whole output is searched.
-  printf '%s\n' "suite late 'echo \"error: PermissionDenied\"; for i in \$(seq 1 30); do echo summary-\$i; done; exit 1'" > "$r/.orchestrate"
+  printf '%s\n' "suite late 'echo \"error: PermissionDenied\"; for i in \$(seq 1 30); do echo summary-\$i; done; exit 1'" > "$r/.orchestrate"; commit_contract "$r"
   out=$(look "$r" base "$F"); v=$(verdict "$F/look.json")
   assert_match "look: a permission error more than 20 lines before the end is a setup row" "$v" '^late warn setup: exit 1, a permission error \(error: PermissionDenied\)'
   assert_match "look: ... it is a watchpoint"           "$(findings "$F/look.json")" '^suite watchpoint .* suite step late failed on a permission error \(exit 1\) \|'

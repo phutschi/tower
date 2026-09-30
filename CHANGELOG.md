@@ -14,6 +14,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- preflight's `look.sh` refuses a repo contract (`.orchestrate`) that is
+  untracked or differs from HEAD, as a setup error naming the file: it is bash
+  look runs, and a Reviewer sees only what is committed.
 - `add-lane.sh`'s rerun check reads task ids with `tower ids` instead of its
   own parser, so an id tower refuses is refused in tower's words.
 - `add-lane.sh` resumes a lane whose pane move failed after the worktree was
