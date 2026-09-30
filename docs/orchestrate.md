@@ -245,7 +245,8 @@ A codex agent runs in codex's workspace-write sandbox, with its startup update
 check off. Outside its checkout it may write the run dir and what a commit
 needs in the repo's common git dir. A lane in a worktree (lanes B-D) gets only
 `objects`, `refs`, `logs`, `packed-refs` and its own `worktrees/<lane>`, so the
-repo's hooks and config stay out of its reach. Lane A and the Reviewers work
+repo's hooks and config stay out of its reach; these writable roots replace any
+set in your codex config. Lane A and the Reviewers work
 in the main checkout, whose index, HEAD and rebase and stash state live in the
 common git dir itself, so a codex agent there gets the whole common git dir.
 Its sandbox then does not contain `.git/hooks` or `.git/config`: a hook or a

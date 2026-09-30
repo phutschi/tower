@@ -163,7 +163,7 @@ if section executor; then
   start_in() { local d=$1; shift; reset_stub; (cd "$d" && env HOME="$TMP/rev-home" EXECUTOR_KIND=codex RUN_DIR=/run/x "$@" bash -c ". \"\$KIT/common.sh\"; . \"\$KIT/executor.sh\"; start_agent_with_trust_retry acme-lane-b pane-9" >/dev/null 2>&1); cat "$HERDR_STUB_LOG"; }
   log=$(start_in "$wt")
   assert_match "codex worktree lane: writes only objects, refs, logs, packed-refs and its own git dir" "$log" \
-    "^herdr agent start acme-lane-b .* -c sandbox_workspace_write\\.writable_roots=\\[\"/run/x\",\"$C/objects\",\"$C/refs\",\"$C/logs\",\"$C/packed-refs\",\"$C/packed-refs\\.lock\",\"$C/worktrees/some-branch\"\\]( |\$)"
+    "^herdr agent start acme-lane-b .* -c sandbox_workspace_write\\.writable_roots=\\[\"/run/x\",\"$C/objects\",\"$C/refs\",\"$C/logs\",\"$C/packed-refs\",\"$C/packed-refs\\.lock\",\"$C/packed-refs\\.new\",\"$C/worktrees/some-branch\"\\]( |\$)"
   assert_nomatch "codex worktree lane: not the whole common git dir" "$log" "--add-dir $C( |\$)"
   assert_match "codex worktree lane: the run dir still added" "$log" "--add-dir /run/x( |\$)"
   log=$(start_in "$r")
@@ -685,6 +685,17 @@ if section add-lane; then
   assert_nomatch "trust, still blocked: no ready line" "$out" 'lane C ready'
   assert_match "trust, still blocked: the lane is in the pane map" "$(cat "$RUNT/panes.txt")" '^lane C: '
   rm -f "$HERDR_STUB_STATES_DIR/bun-vitest-lane-c"
+  # A codex lane's sandbox grant is worked out from its own worktree, not
+  # from where add-lane is called (the main checkout) (#10).
+  r=$(fixture_repo bun-vitest); RUNX="$TMP/run-codex-wt"; reset_stub
+  (cd "$r" && "$KIT/bootstrap.sh" "$RUNX" "Codex" main "$KIT/example-tasks.tsv" >/dev/null 2>&1)
+  git -C "$r" worktree add -q "$r/.worktrees/feat/x" -b feat/x   # the stub's worktree create makes none
+  C=$(git -C "$r" rev-parse --path-format=absolute --git-common-dir); reset_stub
+  (cd "$r" && EXECUTOR_KIND=codex "$KIT/add-lane.sh" "$RUNX" B feat/x main 2 >/dev/null 2>&1)
+  assert_match "codex lane B: started" "$(cat "$HERDR_STUB_LOG")" "^herdr agent start bun-vitest-lane-b "
+  log=$(grep '^herdr agent start bun-vitest-lane-b ' "$HERDR_STUB_LOG")
+  assert_match "codex lane B: its own worktree's git dir is writable" "$log" "writable_roots=\\[.*\"$C/worktrees/x\"\\]"
+  assert_nomatch "codex lane B: not the whole common git dir" "$log" "--add-dir $C( |\$)"
 fi
 
 # --- add-reviewer ------------------------------------------------------------

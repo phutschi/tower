@@ -101,6 +101,7 @@ unset _seen _spec
 # the main checkout — the same resolution agent_name inlines for naming, and
 # what add-lane.sh uses for the worktree location of lanes B-D).
 REPO="$PWD"
+AGENT_CHECKOUT="$REPO"   # executor.sh: lane A's sandbox grant follows its checkout
 
 need_tower
 

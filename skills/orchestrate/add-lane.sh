@@ -70,6 +70,7 @@ TARGET=$(lane_pane "$ANCHOR")
 
 REPO_ROOT="$(repo_root)"
 WT="$REPO_ROOT/.worktrees/$BRANCH"
+AGENT_CHECKOUT="$WT"   # executor.sh: a codex lane's sandbox grant follows its worktree
 _here="$PWD"; cd "$REPO_ROOT"
 . "$KIT/detect-stack.sh"   # INSTALL_CMD, .orchestrate's EXECUTOR_* (the environment wins); refuses a bad run switch
 cd "$_here"; unset _here

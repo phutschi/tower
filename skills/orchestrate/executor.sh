@@ -10,9 +10,12 @@
 #           for installs and fetches. Outside the worktree, the run dir is
 #           writable (tower task|block|note append to it), and what a commit
 #           needs in the repo's common git dir. A lane in a worktree (lanes
-#           B-D) gets only objects, refs, logs, packed-refs(.lock) and its own
-#           worktrees/<lane> (sandbox_workspace_write.writable_roots): hooks
-#           and config stay read-only. A lane in the main checkout (lane A, and
+#           B-D) gets only objects, refs, logs, packed-refs(.lock, .new) and
+#           its own worktrees/<lane> (sandbox_workspace_write.writable_roots,
+#           which replaces any the user's codex config sets): hooks and config
+#           stay read-only. AGENT_CHECKOUT (default: the current directory) is
+#           the agent's checkout, which decides this; add-lane.sh and
+#           bootstrap.sh set it. A lane in the main checkout (lane A, and
 #           a Reviewer, which works there) keeps its index, HEAD and rebase
 #           and stash state in the common dir itself, so it gets the whole
 #           common dir: its sandbox does not contain .git/hooks or .git/config,
@@ -76,16 +79,19 @@ start_agent() {
   case "$EXECUTOR_KIND" in
     claude) herdr agent start "$name" --kind claude --pane "$pane" -- --model "$EXECUTOR_MODEL" ;;
     codex)
-      local extra=() common gitdir roots="" p
-      common=$(git rev-parse --path-format=absolute --git-common-dir)
-      gitdir=$(git rev-parse --path-format=absolute --git-dir)
+      local extra=() common gitdir roots="" p co="${AGENT_CHECKOUT:-.}"
+      # Under DRY_RUN the stub's worktree create makes no worktree.
+      [ -d "$co" ] || [ "${DRY_RUN:-0}" != 1 ] || co=.
+      common=$(git -C "$co" rev-parse --path-format=absolute --git-common-dir) || return 1
+      gitdir=$(git -C "$co" rev-parse --path-format=absolute --git-dir) || return 1
       [ -n "${RUN_DIR:-}" ] && extra+=(--add-dir "$RUN_DIR")
       if [ "$gitdir" = "$common" ]; then
         extra+=(--add-dir "$common")
       else
-        # The run dir is listed here too: these roots may replace --add-dir's.
+        # These roots replace any in the user's codex config, and the run dir
+        # is listed here too in case they replace --add-dir's.
         for p in ${RUN_DIR:+"$RUN_DIR"} "$common/objects" "$common/refs" "$common/logs" \
-          "$common/packed-refs" "$common/packed-refs.lock" "$gitdir"; do
+          "$common/packed-refs" "$common/packed-refs.lock" "$common/packed-refs.new" "$gitdir"; do
           roots+="${roots:+,}$(toml_string "$p")"
         done
         extra+=(-c "sandbox_workspace_write.writable_roots=[$roots]")
