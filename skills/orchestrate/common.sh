@@ -30,21 +30,25 @@ in_herdr() {
 need()     { local c; for c in "$@"; do command -v "$c" >/dev/null || die "missing dependency: $c"; done; }
 jsonq()    { python3 -c "import json,sys; d=json.load(sys.stdin); print($1)"; }
 pane_id()  { jsonq 'd["result"]["pane"]["pane_id"]'; }
-# An agent's state: herdr's agent_status (its own unknown included: an agent
-# herdr cannot classify); gone only when herdr answers agent_not_found;
-# unreadable when herdr fails for any other reason (a server restarting, a
-# timeout) or answers without a status, which says nothing about the agent.
-# herdr's errors are on stderr, read only when the call fails.
-state_of() {
-  local out err state
+# An agent as herdr reads it, one line: "<agent_status> <interactive_ready>"
+# (True or False; True when herdr leaves the field out, as an older herdr
+# does); gone only when herdr answers agent_not_found; unreadable when herdr
+# fails for any other reason (a server restarting, a timeout) or answers
+# without a status, which says nothing about the agent. herdr's errors are on
+# stderr, read only when the call fails.
+agent_of() {
+  local out err r
   err=$(mktemp)
   if out=$(herdr agent get "$1" 2>"$err"); then
-    state=$(echo "$out" | jsonq '((d.get("result") or {}).get("agent") or {}).get("agent_status") or "unreadable"' 2>/dev/null) || state=unreadable
-  elif grep -q '"agent_not_found"' "$err"; then state=gone
-  else state=unreadable
+    r=$(echo "$out" | jsonq '(lambda a: "%s %s" % (a["agent_status"], a.get("interactive_ready", True)) if a.get("agent_status") else "unreadable")((d.get("result") or {}).get("agent") or {})' 2>/dev/null) || r=unreadable
+  elif grep -q '"agent_not_found"' "$err"; then r=gone
+  else r=unreadable
   fi
-  rm -f "$err"; echo "$state"
+  rm -f "$err"; echo "$r"
 }
+# An agent's state: herdr's agent_status (its own unknown included: an agent
+# herdr cannot classify), gone or unreadable (agent_of).
+state_of() { local a; a=$(agent_of "$1"); echo "${a%% *}"; }
 # The main checkout's root, from any worktree of it.
 repo_root() { git rev-parse --path-format=absolute --git-common-dir | sed 's#/\.git$##'; }
 

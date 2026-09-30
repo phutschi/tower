@@ -36,8 +36,11 @@
 #
 # Writes <run-dir>/panes.txt, the pane map for the whole run, then prints it
 # with the next step. The pane map's  switches:  line holds every run switch
-# and the value this run uses (detect-stack.sh); the same line goes to the
-# record as a  tower note . So does the
+# and the value this run uses (detect-stack.sh). Its  contract:  line names
+# the pin: the .orchestrate read here, written read-only outside the run dir
+# and the repo (detect-stack.sh), is what add-lane and add-reviewer read for
+# the whole run; for them this line is only a pointer, never read. The
+# switches: line goes to the record as a  tower note . So does the
 #  reviewer:  line: the kind and model that review lane A (executor.sh
 # reviewer_for; in a codex-only run add-reviewer.sh reviews a codex lane on
 # that lane's model when the call names the lane), with the fallback note when
@@ -49,6 +52,11 @@
 #
 # START_TRIES (environment, default 10): how often an agent start is tried,
 # a second apart, while its new pane's shell is not ready yet (executor.sh).
+# The agent is reported ready only once it accepts input (herdr's
+# interactive_ready), read about a second apart READY_WAIT_SECONDS times
+# (default 30) after START_SETTLE_SECONDS (default 3); one that exits right
+# after its start is started once more, and one that never accepts input
+# fails the call and is left running in its pane (executor.sh).
 #
 # Never run this for real to see what it does; use DRY_RUN=1, which answers
 # every herdr, claude and codex call from tests/stub and opens nothing. tower
@@ -96,6 +104,9 @@ unset _seen _spec
 # the main checkout — the same resolution agent_name inlines for naming, and
 # what add-lane.sh uses for the worktree location of lanes B-D).
 REPO="$PWD"
+AGENT_CHECKOUT="$REPO"   # executor.sh: lane A's sandbox grant follows its checkout
+unset AGENT_LOOK         # executor.sh: look's worktree dir is a codex Reviewer's alone
+unset CONTRACT_RUN  # bootstrap reads the checkout's contract, and pins it
 
 need_tower
 
@@ -126,6 +137,11 @@ case "$SOURCE" in
   *)    tower init --tasks "$SOURCE" --title "$TITLE" --run "$RUN_DIR" "${MODELS[@]}" ${LANE_INIT[@]+"${LANE_INIT[@]}"} ;;
 esac
 export TOWER_RUN="$RUN_DIR"  # the calls below are about this run
+# The contract as read here, pinned read-only for add-lane and add-reviewer
+# (detect-stack.sh); empty but for its comment when the repo has none.
+PIN=$(contract_pin "$RUN_DIR"); mkdir -p "$(dirname "$PIN")"
+{ echo "# the repo contract bootstrap.sh read for the run $RUN_DIR"; [ ! -f "$CONTRACT_FILE" ] || cat "$CONTRACT_FILE"; } > "$PIN.$$"
+chmod 444 "$PIN.$$"; mv -f "$PIN.$$" "$PIN"
 # <lane>=all: every task on the board, known once the run exists.
 [ -z "$LANE_ALL" ] || tower assign "$LANE_ALL" "$(tower state --json | jsonq '",".join(t["id"] for t in d["tasks"])')"
 tower note "switches: $(switches_line)"
@@ -160,13 +176,23 @@ herdr pane run "$CONSOLE_PANE" "tower --stale $STALE" >/dev/null
   [ -z "$DEV_PANE" ] || echo "dev:            $DEV_PANE   (${PANE_CMDS[$DEV_I]} in ${PANE_DIRS[$DEV_I]})"
   echo "console:        $CONSOLE_PANE   (tower; the record — stays open, the human quits it with q)"
   echo "check gate:     $CHECK_CMD"
+  echo "contract:       $PIN"
   echo "switches:       $(switches_line)"
   echo "reviewer:       $REVIEWER"
   echo "toolchain:      $PM"
   echo "read a pane:    herdr pane read <id> --source recent-unwrapped --lines 60"
 } > "$RUN_DIR/panes.txt"
 
-start_agent_with_trust_retry "$LANE_A" "$LANE_A_PANE"
+# bootstrap has no rerun: an agent left running is briefed once it accepts
+# input; with none there, the run starts over; when herdr cannot answer, a
+# look at the pane tells which it is.
+if ! start_agent_with_trust_retry "$LANE_A" "$LANE_A_PANE"; then
+  case "$(state_of "$LANE_A")" in
+    gone) die "bootstrap: lane A's agent $LANE_A is not running in $LANE_A_PANE: see above for why, then rerun bootstrap.sh with a new run dir" ;;
+    unreadable) die "bootstrap: herdr cannot say whether lane A's agent $LANE_A runs in $LANE_A_PANE; the run and its pane map ($RUN_DIR/panes.txt) are set up: check that pane, and with the agent there brief it once  herdr agent get $LANE_A  shows interactive_ready true; with none, rerun bootstrap.sh with a new run dir" ;;
+  esac
+  die "bootstrap: lane A's agent $LANE_A is not ready in $LANE_A_PANE; the run and its pane map ($RUN_DIR/panes.txt) are set up: see above for the agent, and brief it once it accepts input"
+fi
 
 cat "$RUN_DIR/panes.txt"
 echo

@@ -38,7 +38,20 @@ section() {
   [ "$LIST" = 0 ] || { echo "$1"; return 1; }
 }
 
-TMP=$(cd "$(mktemp -d)" && pwd -P); trap 'chmod -R u+w "$TMP" 2>/dev/null; rm -rf "$TMP"' EXIT
+TMP=$(cd "$(mktemp -d)" && pwd -P)
+# preflight's look.sh refuses a worktree dir under /tmp, TMPDIR or a checkout
+# it looks at, and $TMP is under one of the first two: look's state dirs go
+# under this checkout's gitignored .worktrees/, or under ~/.cache when this
+# checkout is itself under /tmp or TMPDIR. Both go on exit.
+_lsb="$ROOT/.worktrees"
+case "$(cd "$ROOT" && pwd -P)/" in
+  "$(cd /tmp && pwd -P)"/*|"$(cd "${TMPDIR:-/tmp}" && pwd -P)"/*) _lsb="$HOME/.cache" ;;
+esac
+mkdir -p "$_lsb"; LOOK_STATE=$(cd "$(mktemp -d "$_lsb/tower-test-look.XXXXXX")" && pwd -P); unset _lsb
+# The user's state dir (contract pins, tower's state, look's worktree dir) is
+# there too: add-reviewer grants a codex Reviewer look's dir only outside /tmp
+# and TMPDIR.
+trap 'chmod -R u+w "$TMP" 2>/dev/null; rm -rf "$TMP" "$LOOK_STATE"' EXIT
 export DRY_RUN=1 HERDR_ENV=1 HERDR_STUB_LOG="$TMP/log" HERDR_STUB_COUNTER="$TMP/counter" HERDR_STUB_STATES_DIR="$TMP/states"
 # common.sh only defaults HERDR_PANE_ID/HERDR_TAB_ID when unset, so running
 # test.sh from inside a real herdr pane (as its own agent does) would
@@ -47,7 +60,7 @@ export DRY_RUN=1 HERDR_ENV=1 HERDR_STUB_LOG="$TMP/log" HERDR_STUB_COUNTER="$TMP/
 unset HERDR_PANE_ID HERDR_TAB_ID
 # tower is the real CLI from this checkout (tests/stub/tower): its state and
 # config stay in $TMP, never the user's.
-export XDG_STATE_HOME="$TMP/xdg-state" XDG_CONFIG_HOME="$TMP/xdg-config"
+export XDG_STATE_HOME="$LOOK_STATE/xdg-state" XDG_CONFIG_HOME="$TMP/xdg-config"
 unset TOWER_RUN
 # The repo contract's names and the run switches: the fixtures decide them,
 # not the shell test.sh is started from (a codex lane exports EXECUTOR_KIND).
@@ -69,7 +82,7 @@ done
 unset _tool _which
 command -v bun >/dev/null || { echo "test.sh: tower runs from this checkout with bun, and bun is not on PATH — refusing to run" >&2; exit 1; }
 command -v npm >/dev/null || { echo "test.sh: the look section runs npm scripts in its fixtures, and npm is not on PATH — refusing to run" >&2; exit 1; }
-reset_stub() { : > "$HERDR_STUB_LOG"; rm -f "$HERDR_STUB_COUNTER" "$HERDR_STUB_COUNTER.busy" "$HERDR_STUB_COUNTER.enters" "$HERDR_STUB_COUNTER.trust"; }
+reset_stub() { : > "$HERDR_STUB_LOG"; rm -f "$HERDR_STUB_COUNTER" "$HERDR_STUB_COUNTER.busy" "$HERDR_STUB_COUNTER.enters" "$HERDR_STUB_COUNTER.trust" "$HERDR_STUB_COUNTER.started"; }
 # A new git repo built from tests/fixtures/<name> (or empty), named <name>, in
 # a directory of its own: every call is a fresh repo, so tower's run pointer
 # (in the repo's git dir) is never shared between two runs. Prints its path.
@@ -149,6 +162,87 @@ if section executor; then
   assert_match "reviewer: the refusal exits non-zero" "$(CODEX_STUB=absent REVIEWER_KIND=codex rev claude; echo "exit=$?")" "exit=1$"
   assert_match "reviewer: an unknown REVIEWER_KIND is refused" "$(REVIEWER_KIND=Claude rev claude)" "REVIEWER_KIND must be other, claude or codex \(got 'Claude'\)"
   assert_match "reviewer: neither kind installed is refused" "$(CODEX_STUB=absent CLAUDE_STUB=absent rev claude)" "neither claude nor codex is installed"
+  # An agent start: `start NAME [ENV...]` runs start_agent_with_trust_retry
+  # for NAME in pane-9 of a codex executor, in repo $r.
+  start() { local n=$1; shift; reset_stub; (cd "$r" && env HOME="$TMP/rev-home" EXECUTOR_KIND=codex "$@" bash -c ". \"\$KIT/common.sh\"; . \"\$KIT/executor.sh\"; start_agent_with_trust_retry $n pane-9; echo \"exit=\$?\"" 2>&1); }
+  out=$(start acme-lane-a)
+  assert_match "codex start: its startup update check is off" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start acme-lane-a --kind codex --pane pane-9 -- .* -c check_for_update_on_startup=false( |$)'
+  out=$(start acme-lane-a 'AGENT_TMP=/run/it"s \tmp')
+  assert_match "AGENT_TMP: a TOML string, quote and backslash escaped" "$(cat "$HERDR_STUB_LOG")" '-c shell_environment_policy\.set\.TMPDIR="/run/it\\"s \\\\tmp"'
+  # A codex lane in a worktree may write only what its commits need in the
+  # common git dir, never its hooks or config (#10); lane A in the main
+  # checkout keeps the whole common dir, as its index and HEAD live there.
+  C=$(git -C "$r" rev-parse --path-format=absolute --git-common-dir)
+  start_in() { local d=$1; shift; reset_stub; (cd "$d" && env HOME="$TMP/rev-home" EXECUTOR_KIND=codex RUN_DIR=/run/x "$@" bash -c ". \"\$KIT/common.sh\"; . \"\$KIT/executor.sh\"; start_agent_with_trust_retry acme-lane-b pane-9" >/dev/null 2>&1); cat "$HERDR_STUB_LOG"; }
+  log=$(start_in "$wt")
+  assert_match "codex worktree lane: writes only objects, refs, logs, packed-refs and its own git dir" "$log" \
+    "^herdr agent start acme-lane-b .* -c sandbox_workspace_write\\.writable_roots=\\[\"/run/x\",\"$C/objects\",\"$C/refs\",\"$C/logs\",\"$C/packed-refs\",\"$C/packed-refs\\.lock\",\"$C/packed-refs\\.new\",\"$C/worktrees/some-branch\"\\]( |\$)"
+  assert_nomatch "codex worktree lane: not the whole common git dir" "$log" "--add-dir $C( |\$)"
+  assert_match "codex worktree lane: the run dir still added" "$log" "--add-dir /run/x( |\$)"
+  log=$(start_in "$r")
+  assert_match "codex lane in the main checkout: the whole common git dir" "$log" "--add-dir $C( |\$)"
+  assert_nomatch "codex lane in the main checkout: no narrowed roots" "$log" 'writable_roots'
+  # AGENT_LOOK (add-reviewer.sh sets it for a codex Reviewer, and only then)
+  # is one more writable dir, beside the grants above.
+  log=$(start_in "$r" AGENT_LOOK=/state/look)
+  assert_match "AGENT_LOOK in the main checkout: added as a dir" "$log" "--add-dir /state/look( |\$)"
+  log=$(start_in "$wt" AGENT_LOOK=/state/look)
+  assert_match "AGENT_LOOK in a worktree: one of the writable roots" "$log" 'writable_roots=\[.*"/state/look".*\]'
+  log=$(start_in "$r" AGENT_LOOK=/state/look)
+  assert_match "AGENT_LOOK: the run dir reaches look as TOWER_RUN" "$log" '-c shell_environment_policy\.set\.TOWER_RUN="/run/x"( |$)'
+  log=$(start_in "$r")
+  assert_nomatch "no AGENT_LOOK: no look dir" "$log" 'state/look'
+  assert_nomatch "no AGENT_LOOK: no TOWER_RUN" "$log" 'TOWER_RUN'
+  # An agent that exits right after its start (codex updating itself, say)
+  # is started once more; gone again, the start fails, saying so.
+  printf 'gone\nidle\n' > "$HERDR_STUB_STATES_DIR/acme-lane-a.started"
+  out=$(start acme-lane-a)
+  assert_eq "gone after its start: started once more" "$(grep -c '^herdr agent start acme-lane-a ' "$HERDR_STUB_LOG")" 2
+  assert_match "gone after its start: ... then it runs" "$out" 'exit=0$'
+  assert_match "gone after its start: ... saying so" "$out" 'acme-lane-a exited right after its start in pane pane-9; starting it once more'
+  echo gone > "$HERDR_STUB_STATES_DIR/acme-lane-a.started"
+  out=$(start acme-lane-a)
+  assert_eq "gone twice: no third start" "$(grep -c '^herdr agent start acme-lane-a ' "$HERDR_STUB_LOG")" 2
+  assert_match "gone twice: the start fails" "$out" 'exit=1$'
+  assert_match "gone twice: ... saying so" "$out" 'acme-lane-a exited again after it was started once more in pane pane-9'
+  # The trust prompt answered, the agent reads working, then it exits: it is
+  # started once more.
+  rm -f "$HERDR_STUB_STATES_DIR/acme-lane-a.started"; printf 'working\ngone\n' > "$HERDR_STUB_STATES_DIR/acme-lane-a"
+  out=$(start acme-lane-a HERDR_STUB_TRUST_STARTS=1)
+  assert_eq "trust answered, then gone: started once more" "$(grep -c '^herdr agent start acme-lane-a ' "$HERDR_STUB_LOG")" 2
+  assert_match "trust answered, then gone: ... then it runs" "$out" 'exit=0$'
+  # Ready means accepting input: herdr's interactive_ready. Until then the
+  # start waits (READY_WAIT_SECONDS checks), and fails when it never comes.
+  rm -f "$HERDR_STUB_STATES_DIR"/acme-lane-a*; echo "unready unready idle" > "$HERDR_STUB_STATES_DIR/acme-lane-a.started"
+  out=$(start acme-lane-a)
+  assert_match "not yet accepting input: waited for" "$out" 'exit=0$'
+  assert_eq "not yet accepting input: read until it does" "$(grep -c '^herdr agent get acme-lane-a$' "$HERDR_STUB_LOG")" 3
+  assert_eq "not yet accepting input: not started again" "$(grep -c '^herdr agent start acme-lane-a ' "$HERDR_STUB_LOG")" 1
+  echo unready > "$HERDR_STUB_STATES_DIR/acme-lane-a.started"
+  out=$(start acme-lane-a READY_WAIT_SECONDS=3)
+  assert_match "never accepting input: the start fails" "$out" 'exit=1$'
+  assert_match "never accepting input: ... saying so" "$out" 'acme-lane-a does not accept input in pane pane-9 after 3 checks \(idle, not ready for input\)'
+  assert_eq "never accepting input: READY_WAIT_SECONDS checks" "$(grep -c '^herdr agent get acme-lane-a$' "$HERDR_STUB_LOG")" 3
+  echo blocked > "$HERDR_STUB_STATES_DIR/acme-lane-a.started"
+  out=$(start acme-lane-a READY_WAIT_SECONDS=2)
+  assert_match "blocked after its start: fails, naming the state" "$out" 'acme-lane-a does not accept input in pane pane-9 after 2 checks \(blocked\)'
+  echo unreachable > "$HERDR_STUB_STATES_DIR/acme-lane-a.started"
+  out=$(start acme-lane-a READY_WAIT_SECONDS=2)
+  assert_match "herdr failing after the start: fails, saying herdr cannot tell" "$out" 'herdr cannot say whether acme-lane-a runs in pane-9 after 2 checks$'
+  assert_nomatch "herdr failing after the start: not said to be running" "$out" 'left running'
+  # An older herdr answers without interactive_ready: idle is then ready.
+  echo legacy > "$HERDR_STUB_STATES_DIR/acme-lane-a.started"
+  out=$(start acme-lane-a READY_WAIT_SECONDS=2)
+  assert_match "no interactive_ready (an older herdr): idle is ready" "$out" 'exit=0$'
+  assert_eq "no interactive_ready: one read" "$(grep -c '^herdr agent get acme-lane-a$' "$HERDR_STUB_LOG")" 1
+  # Started once more after an exit, and then never accepting input: that fails.
+  printf 'gone\nunready\n' > "$HERDR_STUB_STATES_DIR/acme-lane-a.started"
+  out=$(start acme-lane-a READY_WAIT_SECONDS=2)
+  assert_eq "gone, then never ready: two starts" "$(grep -c '^herdr agent start acme-lane-a ' "$HERDR_STUB_LOG")" 2
+  assert_match "gone, then never ready: fails" "$out" 'exit=1$'
+  assert_match "gone, then never ready: says it does not accept input" "$out" 'acme-lane-a does not accept input in pane pane-9 after 2 checks'
+  assert_match "never ready: says the agent is left running" "$out" 'left running in pane-9: brief it once  herdr agent get acme-lane-a  shows interactive_ready true, or end it'
+  rm -f "$HERDR_STUB_STATES_DIR"/acme-lane-a*
 fi
 
 # --- detect ------------------------------------------------------------------
@@ -433,7 +527,25 @@ if section bootstrap; then
   out=$(HERDR_STUB_TRUST_STARTS=1 HERDR_STUB_SEND_KEYS_FAIL=1 boot "$r" "$RUN" "Trust" main; echo "exit=$?")
   assert_match "trust prompt, send-keys failing: bootstrap fails, saying so" "$out" "could not answer bun-vitest-lane-a's trust prompt in pane pane-2"
   assert_match "trust prompt, send-keys failing: exit 1" "$out" 'exit=1$'
+  # Lane A's agent exits twice: nothing to brief, and bootstrap says so.
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-gone-a"; reset_stub
+  printf 'gone\ngone\n' > "$S/bun-vitest-lane-a.started"
+  out=$(boot "$r" "$RUN" "Gone" main; echo "exit=$?")
+  rm -f "$S"/bun-vitest-lane-a*
+  assert_match "lane A gone twice: bootstrap fails" "$out" 'exit=1$'
+  assert_match "lane A gone twice: says there is no agent to brief" "$out" "lane A's agent bun-vitest-lane-a is not running in pane-2: .*rerun bootstrap\.sh with a new run dir"
+  assert_nomatch "lane A gone twice: not told to brief it" "$out" 'brief it once it accepts input'
   rm -f "$S/bun-vitest-lane-a"
+  # herdr stops answering once lane A started: bootstrap cannot say whether it
+  # runs, and says so instead of telling to brief it.
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-unread-a"; reset_stub
+  echo unreachable > "$S/bun-vitest-lane-a.started"
+  out=$(READY_WAIT_SECONDS=2 boot "$r" "$RUN" "Unread" main; echo "exit=$?")
+  rm -f "$S"/bun-vitest-lane-a*
+  assert_match "lane A unreadable: bootstrap fails" "$out" 'exit=1$'
+  assert_match "lane A unreadable: says herdr cannot answer" "$out" "bootstrap: herdr cannot say whether lane A's agent bun-vitest-lane-a runs in pane-2; .*check that pane, and with the agent there brief it once  herdr agent get bun-vitest-lane-a  shows interactive_ready true; with none, rerun bootstrap\.sh with a new run dir"
+  assert_nomatch "lane A unreadable: not told to brief it once it accepts input" "$out" 'brief it once it accepts input'
+  assert_nomatch "lane A unreadable: not told to rerun once herdr answers" "$out" 'rerun once herdr answers'
 fi
 
 # --- add-lane ----------------------------------------------------------------
@@ -494,7 +606,7 @@ if section add-lane; then
   reset_stub; out=$(cd "$r" && HERDR_STUB_BUSY_STARTS=99 START_TRIES=1 "$KIT/add-lane.sh" "$RUNF" B feat/b main 2,3 2>&1; echo "exit=$?")
   assert_match "failed start: add-lane fails"          "$out" 'exit=1$'
   assert_match "failed start: the lane is in the pane map" "$(cat "$RUNF/panes.txt")" '^lane B: +pane-[0-9]+ +\(agent "bun-vitest-lane-b", kind claude, branch feat/b, checkout '"$r"'/.worktrees/feat/b, model '
-  assert_match "failed start: says how to resume"      "$out" 'rerun  .*/add-lane\.sh .* B feat/b main 2,3  to start it again'
+  assert_match "failed start: says how to resume"      "$out" 'lane B is in the pane map, starting: rerun  .*/add-lane\.sh .* B feat/b main 2,3  to resume it'
   bpane=$(sed -nE 's/^lane B: +([^ ]+).*/\1/p' "$RUNF/panes.txt")
   echo gone > "$HERDR_STUB_STATES_DIR/bun-vitest-lane-b"
   mkdir -p "$r/.worktrees/feat/b"   # the stub's worktree create makes none
@@ -535,6 +647,12 @@ if section add-lane; then
   assert_match "rerun, an invalid id: refused as tower refuses it" "$out" '^add-lane: "a b" is not a valid task id \(letters, digits, \. _ -; no spaces\)$'
   assert_match "rerun, an invalid id: fails"           "$out" 'exit=1$'
   assert_nomatch "rerun, an invalid id: no start"      "$(cat "$HERDR_STUB_LOG")" '^herdr agent start'
+  reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNF" B feat/b main -2,3 2>&1; echo "exit=$?")
+  assert_match "rerun, a spec led by a dash: read as ids, refused as tower refuses it" "$out" '^add-lane: "-2" is not a valid task id'
+  reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNF" B feat/b main 2,3,99 2>&1; echo "exit=$?")
+  assert_match "rerun, an id the run lacks: refused as tower refuses it" "$out" '^add-lane: unknown task "99"'
+  assert_match "rerun, an id the run lacks: fails"     "$out" 'exit=1$'
+  assert_nomatch "rerun, an id the run lacks: no start" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start'
   # tower failing to read the record is said as such, not blamed on the ids.
   chmod 000 "$RUNF/run.json"
   reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNF" B feat/b main 2,3 2>&1; echo "exit=$?")
@@ -565,7 +683,7 @@ if section add-lane; then
   assert_eq "rerun, pane get failing: the worktree is kept" "$([ -d "$r/.worktrees/feat/b" ] && echo kept || echo gone)" kept
   rm -f "$HERDR_STUB_STATES_DIR/$bpane"
   reset_stub; out=$(cd "$r" && HERDR_STUB_BUSY_STARTS=99 START_TRIES=1 "$KIT/add-lane.sh" "$RUNF" B feat/b main 2,3 2>&1; echo "exit=$?")
-  assert_match "rerun, start fails again: says to rerun" "$out" 'did not start in pane-[0-9]+ again; rerun  .*/add-lane\.sh .* B feat/b main 2,3  once it can'
+  assert_match "rerun, start fails again: says to rerun" "$out" 'is not ready in pane-[0-9]+; lane B is in the pane map, starting: rerun  .*/add-lane\.sh .* B feat/b main 2,3  to resume it'
   assert_match "rerun, start fails again: fails"       "$out" 'exit=1$'
   rm -f "$HERDR_STUB_STATES_DIR/bun-vitest-lane-b"
 
@@ -587,7 +705,7 @@ if section add-lane; then
   done
   echo gone > "$HERDR_STUB_STATES_DIR/bun-vitest-lane-b"
   reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNP" B feat/b main 7-9 2>&1; echo "exit=$?")
-  assert_match "rerun with '7-9' for 07,08,09: other ids, refused" "$out" 'lane B owns 07,08,09 on the board, not 7-9; rerun with those ids'
+  assert_match "rerun with '7-9' for 07,08,09: ids the run lacks, refused as tower refuses them" "$out" '^add-lane: unknown task "7" — did you mean 07\?'
   rm -f "$HERDR_STUB_STATES_DIR/bun-vitest-lane-b"
   assert_eq "padded: the board has the lanes' ids as written" "$(board "$RUNP" '" ".join(k+"="+",".join(v) for k,v in sorted(d["lanes"].items()))')" "B=07,08,09 C=10,11"
   # A trust prompt that cannot be answered, or an agent still blocked after
@@ -616,6 +734,129 @@ if section add-lane; then
   assert_nomatch "trust, still blocked: no ready line" "$out" 'lane C ready'
   assert_match "trust, still blocked: the lane is in the pane map" "$(cat "$RUNT/panes.txt")" '^lane C: '
   rm -f "$HERDR_STUB_STATES_DIR/bun-vitest-lane-c"
+  # A codex lane's sandbox grant is worked out from its own worktree, not
+  # from where add-lane is called (the main checkout) (#10).
+  r=$(fixture_repo bun-vitest); RUNX="$TMP/run-codex-wt"; reset_stub
+  (cd "$r" && "$KIT/bootstrap.sh" "$RUNX" "Codex" main "$KIT/example-tasks.tsv" >/dev/null 2>&1)
+  git -C "$r" worktree add -q "$r/.worktrees/feat/x" -b feat/x   # the stub's worktree create makes none
+  C=$(git -C "$r" rev-parse --path-format=absolute --git-common-dir); reset_stub
+  (cd "$r" && EXECUTOR_KIND=codex "$KIT/add-lane.sh" "$RUNX" B feat/x main 2 >/dev/null 2>&1)
+  assert_match "codex lane B: started" "$(cat "$HERDR_STUB_LOG")" "^herdr agent start bun-vitest-lane-b "
+  log=$(grep '^herdr agent start bun-vitest-lane-b ' "$HERDR_STUB_LOG")
+  assert_match "codex lane B: its own worktree's git dir is writable" "$log" "writable_roots=\\[.*\"$C/worktrees/x\"\\]"
+  assert_nomatch "codex lane B: not the whole common git dir" "$log" "--add-dir $C( |\$)"
+  # look's worktree dir is a codex Reviewer's alone: never a lane's, even
+  # with AGENT_LOOK in the caller's environment.
+  r=$(fixture_repo bun-vitest); RUNL="$TMP/run-codex-look"; reset_stub
+  (cd "$r" && EXECUTOR_KIND=codex AGENT_LOOK="$XDG_STATE_HOME/tower/look" "$KIT/bootstrap.sh" "$RUNL" "Look" main "$KIT/example-tasks.tsv" >/dev/null 2>&1)
+  assert_match "codex lane A: started" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-lane-a --kind codex '
+  assert_nomatch "codex lane A: no grant of look's worktree dir" "$(cat "$HERDR_STUB_LOG")" 'tower/look'
+  git -C "$r" worktree add -q "$r/.worktrees/feat/l" -b feat/l; reset_stub
+  (cd "$r" && EXECUTOR_KIND=codex AGENT_LOOK="$XDG_STATE_HOME/tower/look" "$KIT/add-lane.sh" "$RUNL" B feat/l main 2 >/dev/null 2>&1)
+  assert_match "codex lane B (look): started" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-lane-b --kind codex '
+  assert_nomatch "codex lane B: no grant of look's worktree dir" "$(cat "$HERDR_STUB_LOG")" 'tower/look'
+  # A start that never accepts input leaves the lane's line ending in
+  # "starting" and its agent running; a rerun takes the agent once it accepts
+  # input, starts it again when it is gone, and otherwise says to end it.
+  r=$(fixture_repo bun-vitest); RUNR="$TMP/run-slow-lane"; reset_stub
+  (cd "$r" && "$KIT/bootstrap.sh" "$RUNR" "Slow" main "$KIT/example-tasks.tsv" >/dev/null 2>&1); reset_stub
+  echo unready > "$HERDR_STUB_STATES_DIR/bun-vitest-lane-b.started"
+  out=$(cd "$r" && READY_WAIT_SECONDS=1 "$KIT/add-lane.sh" "$RUNR" B feat/b main 2 2>&1; echo "exit=$?")
+  rm -f "$HERDR_STUB_STATES_DIR/bun-vitest-lane-b.started"; mkdir -p "$r/.worktrees/feat/b"
+  assert_match "never ready: add-lane fails"           "$out" 'exit=1$'
+  assert_nomatch "never ready: no ready line"          "$out" 'lane B ready'
+  assert_match "never ready: the lane's line says starting" "$(cat "$RUNR/panes.txt")" '^lane B: .* starting$'
+  assert_match "never ready: says a rerun resumes it"  "$out" "lane B is in the pane map, starting: rerun  .*/add-lane\.sh .* B feat/b main 2  to resume it"
+  echo blocked > "$HERDR_STUB_STATES_DIR/bun-vitest-lane-b"
+  reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNR" B feat/b main 2 2>&1; echo "exit=$?")
+  assert_match "rerun, agent blocked: refused"         "$out" 'exit=1$'
+  assert_match "rerun, agent blocked: says to end it"  "$out" "agent bun-vitest-lane-b is in pane-[0-9]+ but does not accept input \(blocked\): answer or end it there, then rerun"
+  assert_nomatch "rerun, agent blocked: no start"      "$(cat "$HERDR_STUB_LOG")" '^herdr agent start'
+  echo idle > "$HERDR_STUB_STATES_DIR/bun-vitest-lane-b"
+  reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNR" B feat/b main 2 2>&1; echo "exit=$?")
+  assert_match "rerun, agent now ready: finishes"      "$out" 'exit=0$'
+  assert_nomatch "rerun, agent now ready: not started again" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start'
+  assert_match "rerun, agent now ready: resumed"       "$out" 'lane B ready: agent bun-vitest-lane-b in pane-[0-9]+ \(resumed\)'
+  assert_match "rerun, agent now ready: its line is no longer starting" "$(cat "$RUNR/panes.txt")" '^lane B: .*model [^ ]+\)$'
+  reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNR" B feat/b main 2 2>&1; echo "exit=$?")
+  assert_match "rerun of a started lane: refused as existing" "$out" 'lane B already exists'
+  # A started lane whose agent has gone is started again as starting: a
+  # restart that times out leaves a lane the next rerun resumes.
+  echo gone > "$HERDR_STUB_STATES_DIR/bun-vitest-lane-b"; echo unready > "$HERDR_STUB_STATES_DIR/bun-vitest-lane-b.started"
+  reset_stub; out=$(cd "$r" && READY_WAIT_SECONDS=1 "$KIT/add-lane.sh" "$RUNR" B feat/b main 2 2>&1; echo "exit=$?")
+  rm -f "$HERDR_STUB_STATES_DIR/bun-vitest-lane-b.started"
+  assert_match "restart never ready: fails"            "$out" 'exit=1$'
+  assert_match "restart never ready: the line says starting again" "$(cat "$RUNR/panes.txt")" '^lane B: .* starting$'
+  echo idle > "$HERDR_STUB_STATES_DIR/bun-vitest-lane-b"
+  reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNR" B feat/b main 2 2>&1; echo "exit=$?")
+  assert_match "restart never ready, then ready: resumed" "$out" 'lane B ready: .*\(resumed\)'
+  rm -f "$HERDR_STUB_STATES_DIR/bun-vitest-lane-b"
+
+  # A pane move that fails after the worktree is created leaves the lane
+  # recorded as unplaced, and a rerun moves that pane and finishes the lane
+  # instead of creating the worktree again.
+  r=$(fixture_repo bun-vitest); RUNM="$TMP/run-failmove"; reset_stub
+  (cd "$r" && "$KIT/bootstrap.sh" "$RUNM" "Fail move" main "$KIT/example-tasks.tsv" >/dev/null 2>&1)
+  reset_stub; out=$(cd "$r" && HERDR_STUB_MOVE_FAIL=1 "$KIT/add-lane.sh" "$RUNM" B feat/b main 2,3 2>&1; echo "exit=$?")
+  wtpane=$(sed -nE 's/^herdr pane move ([^ ]+) .*/\1/p' "$HERDR_STUB_LOG")
+  assert_match "failed move: add-lane fails"           "$out" 'exit=1$'
+  assert_match "failed move: says how to resume"       "$out" "could not move lane B's pane $wtpane into the grid.*rerun  .*/add-lane\.sh .* B feat/b main 2,3  to place it"
+  assert_nomatch "failed move: no agent start"         "$(cat "$HERDR_STUB_LOG")" '^herdr agent start'
+  assert_match "failed move: the worktree is installed before the move" "$out" '\[dry-run\] \(cd .*/.worktrees/feat/b && bun install\)'
+  assert_nomatch "failed move: no placed lane B"       "$(cat "$RUNM/panes.txt")" '^lane B:'
+  assert_match "failed move: the lane is recorded as unplaced" "$(cat "$RUNM/panes.txt")" "^unplaced lane B: +$wtpane +\(agent \"bun-vitest-lane-b\", kind claude, branch feat/b, checkout $r/\.worktrees/feat/b, model "
+  mkdir -p "$r/.worktrees/feat/b"   # the stub's worktree create makes none
+  echo gone > "$HERDR_STUB_STATES_DIR/$wtpane"
+  reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNM" B feat/b main 2,3 2>&1; echo "exit=$?")
+  assert_match "failed move, pane closed: says the move may have gone through" "$out" "lane B's pane $wtpane is gone \(herdr pane get\).*look for .*/\.worktrees/feat/b in the grid"
+  assert_nomatch "failed move, pane closed: no move"   "$(cat "$HERDR_STUB_LOG")" '^herdr pane move'
+  rm -f "$HERDR_STUB_STATES_DIR/$wtpane"
+  reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNM" B feat/other main 2,3 2>&1; echo "exit=$?")
+  assert_match "failed move, rerun with another branch: refused" "$out" 'lane B is in the pane map with another branch, kind or model'
+  assert_nomatch "failed move, rerun with another branch: no move" "$(cat "$HERDR_STUB_LOG")" '^herdr pane move'
+  reset_stub; out=$(cd "$r" && HERDR_STUB_MOVE_FAIL=garbled "$KIT/add-lane.sh" "$RUNM" B feat/b main 2,3 2>&1; echo "exit=$?")
+  assert_match "move answered without a pane: fails"   "$out" 'exit=1$'
+  assert_match "move answered without a pane: says what to do" "$out" "herdr moved lane B's pane $wtpane but its answer names no pane: find the lane's pane in the grid .* into  lane B: <that pane's id> "
+  assert_nomatch "move answered without a pane: no agent start" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start'
+  reset_stub; out=$(cd "$r" && HERDR_STUB_MOVE_FAIL=1 "$KIT/add-lane.sh" "$RUNM" B feat/b main 2,3 2>&1; echo "exit=$?")
+  assert_match "failed move, rerun fails to move again: says to rerun" "$out" "could not move lane B's pane $wtpane into the grid.*to place it"
+  assert_eq "failed move, rerun fails to move again: one unplaced line" "$(grep -c '^unplaced lane B:' "$RUNM/panes.txt")" 1
+  reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNM" B feat/b main 2,3 2>&1; echo "exit=$?"); log=$(cat "$HERDR_STUB_LOG")
+  assert_match "failed move, rerun: add-lane finishes" "$out" 'exit=0$'
+  assert_nomatch "failed move, rerun: no second worktree" "$log" '^herdr worktree create'
+  assert_match "failed move, rerun: the recorded pane is moved" "$log" "^herdr pane move $wtpane --tab tab-0 --split right --target-pane pane-2 "
+  assert_match "failed move, rerun: the agent starts"  "$log" '^herdr agent start bun-vitest-lane-b --kind claude --pane '
+  assert_match "failed move, rerun: lane B is placed"  "$(cat "$RUNM/panes.txt")" '^lane B: +pane-[0-9]+ +\(agent "bun-vitest-lane-b"'
+  assert_nomatch "failed move, rerun: no unplaced line left" "$(cat "$RUNM/panes.txt")" '^unplaced lane B:'
+  assert_match "failed move, rerun: prints the next step" "$out" 'lane B ready'
+  assert_eq "failed move, rerun: lane B owns its tasks" "$(board "$RUNM" '",".join(d["lanes"].get("B", []))')" "2,3"
+  assert_match "failed move, rerun: the rest of the pane map is kept" "$(cat "$RUNM/panes.txt")" '^lane A: '
+  assert_match "failed move, rerun: ... the switches line too" "$(cat "$RUNM/panes.txt")" '^switches:'
+  assert_eq "failed move, rerun: no scratch map left" "$(compgen -G "$RUNM/panes.txt.*" || true)" ""
+  # A pane map that cannot be read when the lane's line replaces its unplaced
+  # one stops there: the map is kept whole and no agent starts. A grep on PATH
+  # fails only that read (exit 2, as grep does on a read error).
+  r=$(fixture_repo bun-vitest); RUNG="$TMP/run-failread"; reset_stub
+  (cd "$r" && "$KIT/bootstrap.sh" "$RUNG" "Fail read" main "$KIT/example-tasks.tsv" >/dev/null 2>&1)
+  reset_stub; (cd "$r" && HERDR_STUB_MOVE_FAIL=1 "$KIT/add-lane.sh" "$RUNG" B feat/b main 2,3 >/dev/null 2>&1)
+  gbin="$TMP/grep-fails-map"; mkdir -p "$gbin"; realgrep=$(command -v grep)
+  printf '#!/usr/bin/env bash\ncase "$1 $2" in "-v ^unplaced lane "*) echo "grep: "%q": read error" >&2; exit 2 ;; esac\nexec %q "$@"\n' "$RUNG/panes.txt" "$realgrep" > "$gbin/grep"; chmod +x "$gbin/grep"
+  mkdir -p "$r/.worktrees/feat/b"; before=$(cat "$RUNG/panes.txt")
+  reset_stub; out=$(cd "$r" && PATH="$gbin:$PATH" "$KIT/add-lane.sh" "$RUNG" B feat/b main 2,3 2>&1; echo "exit=$?")
+  assert_match "map read fails: add-lane fails"        "$out" 'exit=1$'
+  assert_match "map read fails: says how to recover"   "$out" "could not rewrite .*/panes\.txt; lane B's pane is pane-[0-9]+: turn its unplaced line into  lane B: pane-[0-9]+  \(the rest as it is\) and rerun"
+  assert_eq "map read fails: the pane map is unchanged" "$(cat "$RUNG/panes.txt")" "$before"
+  assert_nomatch "map read fails: no agent start"      "$(cat "$HERDR_STUB_LOG")" '^herdr agent start'
+  assert_eq "map read fails: no scratch map left"      "$(compgen -G "$RUNG/panes.txt.*" || true)" ""
+  # A worktree create that fails says what may be left behind.
+  r=$(fixture_repo bun-vitest); RUNW="$TMP/run-failwt"; reset_stub
+  (cd "$r" && "$KIT/bootstrap.sh" "$RUNW" "Fail worktree" main "$KIT/example-tasks.tsv" >/dev/null 2>&1)
+  reset_stub; out=$(cd "$r" && HERDR_STUB_WORKTREE_FAIL=1 "$KIT/add-lane.sh" "$RUNW" B feat/b main 2,3 2>&1; echo "exit=$?")
+  assert_match "failed worktree create: fails"         "$out" 'exit=1$'
+  assert_match "failed worktree create: says what to remove" "$out" "herdr worktree create failed: remove .*/\.worktrees/feat/b and branch feat/b if they exist, then rerun  .*/add-lane\.sh "
+  assert_nomatch "failed worktree create: no move"     "$(cat "$HERDR_STUB_LOG")" '^herdr pane move'
+  reset_stub; out=$(cd "$r" && HERDR_STUB_WORKTREE_FAIL=garbled "$KIT/add-lane.sh" "$RUNW" B feat/b main 2,3 2>&1; echo "exit=$?")
+  assert_match "worktree create answered without a pane: says to close it too" "$out" "herdr created .*/\.worktrees/feat/b but its answer names no pane: close the pane labelled bun-vitest-lane-b, remove .*/\.worktrees/feat/b and branch feat/b, then rerun "
 fi
 
 # --- add-reviewer ------------------------------------------------------------
@@ -638,11 +879,54 @@ if section add-reviewer; then
   assert_eq "R1: the review is a board task owned by the slot" "$(reviews "$RUN")" "R1-1@R1:Lane review A"
   assert_match "R1: prints the task id and the next step" "$out" 'reviewer R1 ready \(task R1-1\): agent bun-vitest-r1-1'
   [ -d "$RUN/findings" ] && ok "R1: the findings dir exists" || bad "R1: the findings dir exists"
+  # A codex Reviewer's temp files and package caches go to the run dir, which
+  # its sandbox can write: the commands it runs get them in their environment.
+  for v in TMPDIR BUN_TMPDIR BUN_INSTALL_CACHE_DIR npm_config_cache; do
+    assert_match "codex Reviewer: $v is the run dir's tmp" "$log" "^herdr agent start bun-vitest-r1-1 .* -c shell_environment_policy\\.set\\.$v=\"$RUN/tmp\"( |\$)"
+  done
+  [ -d "$RUN/tmp" ] && ok "codex Reviewer: the run dir's tmp exists" || bad "codex Reviewer: the run dir's tmp exists"
+  # ... and it may write look's worktree dir, outside what any lane may write.
+  assert_match "codex Reviewer: look's worktree dir is writable" "$log" "^herdr agent start bun-vitest-r1-1 .* --add-dir $XDG_STATE_HOME/tower/look( |\$)"
+  assert_eq "codex Reviewer: ... it exists, mode 700" "$(ls -ld "$XDG_STATE_HOME/tower/look" 2>/dev/null | cut -c1-10)" drwx------
 
   reset_stub; out=$(review R2 codex "Lane review B" "$RUN/findings/lane-b.json"); log=$(cat "$HERDR_STUB_LOG")
   assert_nomatch "second call: no new tab"            "$log" '^herdr tab create'
   assert_nomatch "second call: no new pane"           "$log" '^herdr pane split'
   assert_match "R2: a codex lane gets a claude Reviewer in the R2 pane" "$log" '^herdr agent start bun-vitest-r2-1 --kind claude --pane pane-2 -- --model claude-opus-5-5$'
+  assert_nomatch "claude Reviewer: no codex environment" "$log" 'shell_environment_policy'
+  assert_nomatch "claude Reviewer: no look dir grant" "$log" 'tower/look'
+  assert_match "brief: the Reviewer's look command names the run dir" "$(grep 'look.sh origin/main' "$KIT/brief-template.md")" 'TOWER_RUN=\{\{RUN_DIR\}\} '
+  # A tower/look that is a symlink could point anywhere: never granted.
+  L="$XDG_STATE_HOME/tower/look"; mv "$L" "$L.real"; mkdir -p "$TMP/sym-target"; ln -s "$TMP/sym-target" "$L"
+  echo gone > "$S/bun-vitest-r1-1"; reset_stub
+  out=$(review R1 claude "Sym" "$RUN/findings/sym.json"; echo "exit=$?")
+  rm "$L"; mv "$L.real" "$L"
+  assert_match "codex Reviewer, look dir a symlink: refused" "$out" "its worktree dir $L is a symlink"
+  assert_match "... and fails"                        "$out" 'exit=1$'
+  assert_nomatch "... no agent start"                 "$(cat "$HERDR_STUB_LOG")" '^herdr agent start'
+  # add-reviewer refuses what look refuses (look.sh --dir, one check): a look
+  # dir under the git dir, a worktree, the run dir, the checkout, TMPDIR or /tmp.
+  pin=$(sed -nE 's/^contract: +//p' "$RUN/panes.txt")
+  grant_refused() {  # WHAT XDG [ENV...]: the pin copied along, so only the look dir differs
+    local what=$1 x=$2; shift 2
+    mkdir -p "$x/tower/contracts"; cp "$pin" "$x/tower/contracts/"
+    echo gone > "$S/bun-vitest-r1-1"; reset_stub
+    out=$(cd "$r" && env XDG_STATE_HOME="$x" EXIT_WAIT_SECONDS=3 "$@" "$KIT/add-reviewer.sh" "$RUN" R1 claude "Where" "$RUN/findings/where.json" 2>&1; echo "exit=$?")
+    assert_match "codex Reviewer, look dir under $what: refused" "$out" "its worktree dir .* is under $what"
+    assert_match "... fails"                          "$out" 'exit=1$'
+    assert_nomatch "... no agent start"               "$(cat "$HERDR_STUB_LOG")" '^herdr agent start'
+    rm -f "$S/bun-vitest-r1-1"; rm -rf "$x"
+  }
+  grant_refused "the git dir" "$r/.git/xdg"
+  git -C "$r" worktree add -q --detach "$LOOK_STATE/review-wt"
+  grant_refused "a worktree of this repo" "$LOOK_STATE/review-wt/xdg"
+  git -C "$r" worktree remove --force "$LOOK_STATE/review-wt"
+  grant_refused "the run dir" "$RUN/xdg"
+  grant_refused "the checkout" "$r/xdg"
+  mkdir -p "$LOOK_STATE/review-tmp"; grant_refused "TMPDIR" "$LOOK_STATE/review-tmp/xdg" TMPDIR="$LOOK_STATE/review-tmp"
+  grant_refused "/tmp" "/tmp/tower-test-xdg.$$" TMPDIR="$LOOK_STATE/review-tmp"   # TMPDIR may be /tmp itself
+  unset -f grant_refused
+  rm -f "$S/bun-vitest-r1-1"
   assert_eq "R2: board task owned by R2"              "$(reviews "$RUN")" "R1-1@R1:Lane review A R2-1@R2:Lane review B"
   assert_eq "pane map: one review tab line"           "$(grep -c '^review tab:' "$RUN/panes.txt")" 1
 
@@ -695,6 +979,19 @@ if section add-reviewer; then
   assert_match "a fallback is printed"                "$out" '^reviewer: fallback: codex is not installed'
   assert_match "a slot other than R1 or R2 is refused" "$(review R3 claude "X" "$RUN/findings/x.json")" "slot must be R1 or R2 \(got 'R3'\)"
   assert_match "a bad lane kind is refused"            "$(review R1 cursor "X" "$RUN/findings/x.json")" "lane kind must be claude or codex"
+  # A title is one field of one pane map line: a control character in it is
+  # refused before the board, the map or an agent sees it.
+  for c in "newline:$(printf 'two\nlines')" "tab:$(printf 'a\ttab')" "carriage return:$(printf 'a\rcr')"; do
+    kind=${c%%:*}; t=${c#*:}
+    cp "$RUN/panes.txt" "$TMP/panes-before"; : > "$HERDR_STUB_LOG"
+    out=$(review R2 claude "$t" "$RUN/findings/t.json"; echo "exit=$?")
+    assert_match "a title with a $kind: refused"       "$out" 'the review title must not hold a tab, a newline or another control character'
+    assert_match "a title with a $kind: fails"         "$out" 'exit=1$'
+    assert_eq "a title with a $kind: the pane map untouched" "$(cmp -s "$TMP/panes-before" "$RUN/panes.txt" && echo same || echo changed)" same
+    assert_nomatch "a title with a $kind: no task on the board" "$(reviews "$RUN")" 'two|tab|cr'
+    assert_nomatch "a title with a $kind: no herdr call" "$(cat "$HERDR_STUB_LOG")" '^herdr (tab|pane|agent) '
+  done
+  rm -f "$TMP/panes-before"
   assert_match "no pane map: refused"                 "$(cd "$r" && "$KIT/add-reviewer.sh" "$TMP/nowhere" R1 claude "X" x.json 2>&1)" 'run bootstrap.sh first'
   cr=$(fixture_repo contract-switches); mkdir -p "$cr/sub"; RUNS="$TMP/run-review-sub"
   (cd "$cr" && "$KIT/bootstrap.sh" "$RUNS" "Sub" main >/dev/null 2>&1); reset_stub
@@ -719,7 +1016,15 @@ if section add-reviewer; then
   assert_match "that refusal exits non-zero"          "$out" 'exit=1$'
   sed -i.bak "s/^switches: .*/switches:       BASH_ENV=x/" "$RUNQ/panes.txt"
   assert_match "a switches: line naming something else is refused" "$(cd "$r" && "$KIT/add-reviewer.sh" "$RUNQ" R2 claude "Bad" "$RUNQ/findings/b.json" 2>&1)" "holds 'BASH_ENV=x', not a run switch"
-  RELD="$TMP/rel"; mkdir -p "$RELD"; cp -R "$RUNK" "$RELD/run"; reset_stub
+  # A copy is another run dir: it needs its own pinned contract (detect-stack.sh).
+  pin_of() { (cd "$r" && bash -c '. "$KIT/common.sh"; . "$KIT/detect-stack.sh" 2>/dev/null; contract_pin "$1"' _ "$1"); }
+  CTL="$TMP/ctl"$'\t'"run"; cp -R "$RUNK" "$CTL"; cp "$(pin_of "$RUNK")" "$(pin_of "$CTL")"; echo gone > "$S/bun-vitest-r2-1"; reset_stub
+  out=$(cd "$r" && EXIT_WAIT_SECONDS=0 REVIEWER_KIND=codex "$KIT/add-reviewer.sh" "$CTL" R2 claude "Ctl" "$CTL/findings/c.json" 2>&1; echo "exit=$?")
+  assert_match "codex Reviewer, a run dir with a control character: refused" "$out" 'the run dir .* holds a control character'
+  assert_nomatch "... before any agent starts" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start'
+  RELD="$TMP/rel"; mkdir -p "$RELD"; cp -R "$RUNK" "$RELD/run"
+  cp "$(pin_of "$RUNK")" "$(pin_of "$RELD/run")"; reset_stub
+  echo gone > "$S/bun-vitest-r2-1"   # R2's earlier Reviewer has exited (its start above made it run)
   out=$(cd "$RELD" && EXIT_WAIT_SECONDS=0 REVIEWER_KIND=codex "$KIT/add-reviewer.sh" run R2 claude "Rel" run/findings/rel.json 2>&1)
   assert_match "a relative run dir is made absolute" "$(cat "$RELD/run/panes.txt")" "^reviewer R2: .*findings $RELD/run/findings/rel.json\\)$"
   assert_match "from outside the repo, the review lands on the given run" "$(reviews "$RELD/run")" 'R2-[0-9]+@R2:Rel$'
@@ -748,18 +1053,98 @@ if section add-reviewer; then
   r=$(fixture_repo bun-vitest); (cd "$r" && "$KIT/bootstrap.sh" "$RUNF" "Failed" main >/dev/null 2>&1)
   out=$(cd "$r" && HERDR_STUB_BUSY_STARTS=99 START_TRIES=1 "$KIT/add-reviewer.sh" "$RUNF" R1 claude "Try" "$RUNF/findings/a.json" 2>&1; echo "exit=$?")
   assert_match "a Reviewer that does not start: add-reviewer fails" "$out" 'exit=1$'
+  assert_match "... its review is in the map, starting" "$(cat "$RUNF/panes.txt")" '^reviewer R1: .*agent "bun-vitest-r1-1".* starting$'
+  echo gone > "$S/bun-vitest-r1-1"   # it never started: herdr does not know it
   : > "$HERDR_STUB_LOG"
   out=$(cd "$r" && "$KIT/add-reviewer.sh" "$RUNF" R1 claude "Try again" "$RUNF/findings/a.json" 2>&1; echo "exit=$?")
   assert_match "after a failed start, the same slot works again" "$out" 'exit=0$'
   assert_match "the retry starts the Reviewer"        "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-r1-1 '
   assert_eq "the reused task takes the new title"     "$(reviews "$RUNF")" "R1-1@R1:Try again"
-  assert_match "the retry keeps the review's task id" "$(cat "$RUNF/panes.txt")" '^reviewer R1: .*agent "bun-vitest-r1-1".*review "Try again"'
+  assert_match "the retry keeps the review's task id" "$(cat "$RUNF/panes.txt")" '^reviewer R1: .*agent "bun-vitest-r1-1".*review "Try again".*\)$'
   assert_match "the retry says it reuses the task"    "$out" '^reusing task R1-1: '
   (cd "$r" && HERDR_STUB_BUSY_STARTS=99 START_TRIES=1 "$KIT/add-reviewer.sh" "$RUNF" R2 claude "Try" "$RUNF/findings/b.json" >/dev/null 2>&1)
+  echo gone > "$S/bun-vitest-r2-1"
   "$KIT/tests/stub/tower" task R2-1 done --model sonnet --run "$RUNF" >/dev/null
   out=$(cd "$r" && "$KIT/add-reviewer.sh" "$RUNF" R2 claude "Try again" "$RUNF/findings/b.json" 2>&1; echo "exit=$?")
-  assert_match "a task already worked on is not taken over" "$out" 'task R2-1 is done on the board'
-  assert_match "that refusal fails"                   "$out" 'exit=1$'
+  # Its line still says starting, but its task was worked on: that review
+  # happened, and the next one starts fresh.
+  assert_match "a starting line whose task was worked on: the next review" "$out" 'reviewer R2 ready \(task R2-2\)'
+  assert_match "... as a new agent"                   "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-r2-2 '
+  # The reviewer line is written before the start (#28): a start that fails
+  # after its agent exists leaves the agent in the map, and a rerun ends it and
+  # starts the review again under the same name and task.
+  RUNB="$TMP/run-review-blocked"; reset_stub
+  r=$(fixture_repo bun-vitest); (cd "$r" && "$KIT/bootstrap.sh" "$RUNB" "Blocked" main >/dev/null 2>&1); reset_stub
+  echo blocked > "$S/bun-vitest-r1-1"
+  out=$(cd "$r" && HERDR_STUB_TRUST_STARTS=1 "$KIT/add-reviewer.sh" "$RUNB" R1 claude "Blocked" "$RUNB/findings/a.json" 2>&1; echo "exit=$?")
+  assert_match "blocked after its start: add-reviewer fails" "$out" 'exit=1$'
+  assert_match "blocked after its start: its agent is in the pane map" "$(cat "$RUNB/panes.txt")" '^reviewer R1: +pane-1 +\(agent "bun-vitest-r1-1", .*review "Blocked"'
+  printf 'blocked\nblocked\ngone\n' > "$S/bun-vitest-r1-1"; : > "$HERDR_STUB_LOG"   # read for resuming, for ending, then gone
+  out=$(cd "$r" && EXIT_WAIT_SECONDS=3 "$KIT/add-reviewer.sh" "$RUNB" R1 claude "Blocked again" "$RUNB/findings/a.json" 2>&1; echo "exit=$?"); log=$(cat "$HERDR_STUB_LOG")
+  assert_match "rerun: finishes"                      "$out" 'exit=0$'
+  assert_match "rerun: the agent left in the slot is sent /exit" "$log" '^herdr pane send-text pane-1 /exit$'
+  assert_match "rerun: the review starts again under the same name" "$log" '^herdr agent start bun-vitest-r1-1 '
+  assert_nomatch "rerun: no second agent"              "$log" '^herdr agent start bun-vitest-r1-2 '
+  assert_eq "rerun: the same task, new title"         "$(reviews "$RUNB")" "R1-1@R1:Blocked again"
+  assert_eq "rerun: one reviewer R1 line"             "$(grep -c '^reviewer R1:' "$RUNB/panes.txt")" 1
+  assert_match "rerun: ready"                         "$out" 'reviewer R1 ready \(task R1-1\)'
+  # A start that timed out leaves its agent running; once it accepts input, a
+  # rerun takes it as it is.
+  echo unready > "$S/bun-vitest-r2-1.started"; reset_stub
+  out=$(cd "$r" && READY_WAIT_SECONDS=1 "$KIT/add-reviewer.sh" "$RUNB" R2 claude "Slow" "$RUNB/findings/b.json" 2>&1; echo "exit=$?")
+  assert_match "never ready: add-reviewer fails"      "$out" 'exit=1$'
+  echo idle > "$S/bun-vitest-r2-1"; rm -f "$S/bun-vitest-r2-1.started"; : > "$HERDR_STUB_LOG"
+  out=$(cd "$r" && "$KIT/add-reviewer.sh" "$RUNB" R2 claude "Slow" "$RUNB/findings/b.json" 2>&1; echo "exit=$?"); log=$(cat "$HERDR_STUB_LOG")
+  assert_match "rerun, agent now ready: finishes"     "$out" 'exit=0$'
+  assert_nomatch "rerun, agent now ready: not ended, not started" "$log" '^herdr (pane send-text|agent start)'
+  assert_match "rerun, agent now ready: says it resumes it" "$out" 'resuming bun-vitest-r2-1 in pane-2'
+  assert_match "rerun, agent now ready: ready"        "$out" 'reviewer R2 ready \(task R2-1\)'
+  assert_match "rerun, agent now ready: its line is no longer starting" "$(cat "$RUNB/panes.txt")" '^reviewer R2: .*review "Slow".*\)$'
+  # A starting Reviewer that is working and accepts input is kept, as
+  # add-lane keeps such a lane.
+  echo unready > "$S/bun-vitest-r2-2.started"; echo gone > "$S/bun-vitest-r2-1"; reset_stub
+  out=$(cd "$r" && READY_WAIT_SECONDS=1 "$KIT/add-reviewer.sh" "$RUNB" R2 claude "Busy" "$RUNB/findings/w.json" 2>&1; echo "exit=$?")
+  rm -f "$S/bun-vitest-r2-2.started"; echo working > "$S/bun-vitest-r2-2"; : > "$HERDR_STUB_LOG"
+  out=$(cd "$r" && "$KIT/add-reviewer.sh" "$RUNB" R2 claude "Busy" "$RUNB/findings/w.json" 2>&1; echo "exit=$?")
+  assert_match "starting, working and ready: resumed" "$out" 'resuming bun-vitest-r2-2 in pane-2'
+  assert_nomatch "starting, working and ready: not refused as working" "$out" 'still working'
+  rm -f "$S"/bun-vitest-r2-2*
+  assert_nomatch "rerun, agent now ready: not said to have not started" "$out" 'did not start'
+  # A starting Reviewer that is working but not ready for input yet is waited
+  # for, as its start waits, and then kept.
+  echo gone > "$S/bun-vitest-r2-2"; echo unready > "$S/bun-vitest-r2-3.started"; reset_stub
+  out=$(cd "$r" && READY_WAIT_SECONDS=1 "$KIT/add-reviewer.sh" "$RUNB" R2 claude "Loading" "$RUNB/findings/l.json" 2>&1; echo "exit=$?")
+  rm -f "$S/bun-vitest-r2-3.started"; printf 'busy-unready\nbusy-unready\nworking\n' > "$S/bun-vitest-r2-3"; : > "$HERDR_STUB_LOG"
+  out=$(cd "$r" && READY_WAIT_SECONDS=5 "$KIT/add-reviewer.sh" "$RUNB" R2 claude "Loading" "$RUNB/findings/l.json" 2>&1; echo "exit=$?"); log=$(cat "$HERDR_STUB_LOG")
+  assert_match "starting, working, not ready: finishes" "$out" 'exit=0$'
+  assert_match "starting, working, not ready: resumed once ready" "$out" 'resuming bun-vitest-r2-3 in pane-2'
+  assert_nomatch "starting, working, not ready: not refused as working" "$out" 'still working'
+  assert_nomatch "starting, working, not ready: not ended, not started" "$log" '^herdr (pane send-text|agent start)'
+  # One that stays so: the rerun says it is still starting, and a rerun
+  # resumes it once it accepts input.
+  echo gone > "$S/bun-vitest-r2-3"; echo unready > "$S/bun-vitest-r2-4.started"; reset_stub
+  out=$(cd "$r" && READY_WAIT_SECONDS=1 "$KIT/add-reviewer.sh" "$RUNB" R2 claude "Stuck" "$RUNB/findings/s.json" 2>&1; echo "exit=$?")
+  rm -f "$S/bun-vitest-r2-4.started"; echo busy-unready > "$S/bun-vitest-r2-4"; : > "$HERDR_STUB_LOG"
+  out=$(cd "$r" && READY_WAIT_SECONDS=2 "$KIT/add-reviewer.sh" "$RUNB" R2 claude "Stuck" "$RUNB/findings/s.json" 2>&1; echo "exit=$?"); log=$(cat "$HERDR_STUB_LOG")
+  assert_match "starting, never ready on the rerun: fails" "$out" 'exit=1$'
+  assert_match "starting, never ready on the rerun: says it is still starting" "$out" 'Reviewer bun-vitest-r2-4 is still starting in pane-2: .*rerun  .*add-reviewer\.sh .* R2 claude Stuck .*/findings/s\.json  to resume it once it accepts input'
+  assert_nomatch "starting, never ready on the rerun: not refused as working" "$out" 'still working'
+  assert_nomatch "starting, never ready on the rerun: no start's next step" "$out" 'agent start:'
+  assert_nomatch "starting, never ready on the rerun: not ended, not started" "$log" '^herdr (pane send-text|agent start)'
+  assert_match "starting, never ready on the rerun: its line still starting" "$(cat "$RUNB/panes.txt")" '^reviewer R2: .*review "Stuck".* starting$'
+  rm -f "$S"/bun-vitest-r2-3* "$S"/bun-vitest-r2-4*
+  # A kept agent must be of the kind and model this call picks: another one
+  # is ended and started again.
+  echo gone > "$S/bun-vitest-r1-1"; echo unready > "$S/bun-vitest-r1-2.started"; reset_stub
+  out=$(cd "$r" && READY_WAIT_SECONDS=1 "$KIT/add-reviewer.sh" "$RUNB" R1 claude "Kind" "$RUNB/findings/k.json" 2>&1; echo "exit=$?")
+  assert_match "never ready (codex): add-reviewer fails" "$out" 'exit=1$'
+  assert_match "never ready: it says to rerun add-reviewer" "$out" 'rerun  .*add-reviewer\.sh .* R1 claude Kind .*/findings/k\.json  to resume it'
+  printf 'idle\ngone\n' > "$S/bun-vitest-r1-2"; rm -f "$S/bun-vitest-r1-2.started"; : > "$HERDR_STUB_LOG"
+  out=$(cd "$r" && REVIEWER_KIND=claude "$KIT/add-reviewer.sh" "$RUNB" R1 claude "Kind" "$RUNB/findings/k.json" 2>&1; echo "exit=$?"); log=$(cat "$HERDR_STUB_LOG")
+  assert_match "rerun as another kind: the kept agent is ended" "$log" '^herdr pane send-text pane-1 /exit$'
+  assert_match "rerun as another kind: started again as that kind" "$log" '^herdr agent start bun-vitest-r1-2 --kind claude '
+  assert_match "rerun as another kind: ready"         "$out" 'reviewer R1 ready \(task R1-2\)'
+  rm -f "$S"/bun-vitest-r1-1* "$S"/bun-vitest-r1-2* "$S"/bun-vitest-r2-1*
   # A codex-only machine: a codex lane's Reviewer is a fresh codex agent on the
   # reviewed lane's model, as the pane map records it.
   RUNM="$TMP/run-review-model"; reset_stub
@@ -802,6 +1187,15 @@ if section add-reviewer; then
   assert_match "trust, send-keys failing: add-reviewer fails" "$out" 'exit=1$'
   assert_match "trust, send-keys failing: says so"     "$out" "could not answer bun-vitest-r1-1's trust prompt"
   assert_nomatch "trust, send-keys failing: no ready line" "$out" 'reviewer R1 ready'
+  # A Reviewer that never accepts input is not reported ready.
+  RUN6="$TMP/run-review-unready"
+  r=$(fixture_repo bun-vitest); (cd "$r" && "$KIT/bootstrap.sh" "$RUN6" "Unready" main >/dev/null 2>&1); reset_stub
+  echo unready > "$S/bun-vitest-r1-1.started"
+  out=$(cd "$r" && READY_WAIT_SECONDS=2 "$KIT/add-reviewer.sh" "$RUN6" R1 claude "Unready" "$RUN6/findings/a.json" 2>&1; echo "exit=$?")
+  rm -f "$S"/bun-vitest-r1-1*
+  assert_match "not accepting input: add-reviewer fails" "$out" 'exit=1$'
+  assert_match "not accepting input: says so"          "$out" 'bun-vitest-r1-1 does not accept input in pane pane-[0-9]+ after 2 checks'
+  assert_nomatch "not accepting input: no ready line"  "$out" 'reviewer R1 ready'
 fi
 
 # --- watch -------------------------------------------------------------------
@@ -1055,11 +1449,66 @@ if section watchline; then
   assert_nomatch "watch line: no timeout and no round limit" "$wl" ' --timeout|ROUND_SECONDS'
 fi
 
+# --- contract-pin ------------------------------------------------------------
+# The repo contract is bash. After bootstrap, add-lane and add-reviewer read it
+# as bootstrap did, from a pin no lane can write: not a checkout, not the run
+# dir, not the git dir (a codex lane may write all three).
+if section contract-pin; then
+  r=$(fixture_repo contract); git -C "$r" add -A; git -C "$r" commit -qm contract
+  RUNP="$TMP/run-pin"; reset_stub
+  (cd "$r" && "$KIT/bootstrap.sh" "$RUNP" "Pin" main "$KIT/example-tasks.tsv" >/dev/null 2>&1)
+  pin=$(sed -nE 's/^contract: +//p' "$RUNP/panes.txt")
+  assert_match "pin: the pane map names the pin, under the user's state dir" "$pin" "^$XDG_STATE_HOME/tower/contracts/[0-9a-f]+$"
+  assert_match "pin: the pin holds the contract bootstrap read" "$(cat "$pin" 2>&1)" '^EXECUTOR_MODEL=gpt-6-astra-mini$'
+  [ -f "$pin" ] && [ ! -w "$pin" ] && ok "pin: the pin is read-only" || bad "pin: the pin is read-only"
+  reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNP" B feat/b main 2 2>&1)
+  assert_match "pin: a clean contract reaches add-lane" "$(cat "$RUNP/panes.txt")" '^lane B: .*kind codex, .*model gpt-6-astra-mini\)'
+  # A lane rewrites the contract and it lands in the checkout (its commit, a merge).
+  printf 'EXECUTOR_MODEL=lane-written\ntouch "%s"\n' "$TMP/pin-ran-lane" >> "$r/.orchestrate"; git -C "$r" commit -qam lane
+  reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNP" C feat/c main 3 2>&1)
+  assert_match "pin: a lane-modified contract does not reach add-lane" "$(cat "$RUNP/panes.txt")" '^lane C: .*kind codex, .*model gpt-6-astra-mini\)'
+  # The run dir is a codex lane's to write: a contract: line there picks nothing.
+  [ -e "$TMP/pin-ran-lane" ] && bad "pin: the lane's contract never runs" || ok "pin: the lane's contract never runs"
+  printf 'touch "%s"\n' "$TMP/pin-ran-forged" > "$RUNP/forged"; git -C "$r" hash-object -w "$RUNP/forged" > /dev/null
+  printf 'contract:       %s\ncontract:       %s\n' "$RUNP/forged" "$(git -C "$r" hash-object "$RUNP/forged")" >> "$RUNP/panes.txt"
+  reset_stub; out=$(cd "$r" && EXIT_WAIT_SECONDS=3 "$KIT/add-reviewer.sh" "$RUNP" R1 codex "Lane review B" "$RUNP/findings/b.json" 2>&1)
+  assert_match "pin: add-reviewer still starts its Reviewer" "$(cat "$RUNP/panes.txt")" '^reviewer R1: '
+  [ -e "$TMP/pin-ran-forged" ] || [ -e "$TMP/pin-ran-lane" ] && bad "pin: neither a forged pane map line nor the lane's contract runs in add-reviewer" || ok "pin: neither a forged pane map line nor the lane's contract runs in add-reviewer"
+  # A relative run dir at bootstrap, CDPATH exported: add-lane, given the
+  # absolute path, finds the same pin.
+  r=$(fixture_repo contract); git -C "$r" add -A; git -C "$r" commit -qm contract; reset_stub
+  (cd "$r" && CDPATH=. "$KIT/bootstrap.sh" run-rel "Pin rel" main "$KIT/example-tasks.tsv" >/dev/null 2>&1)
+  reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$r/run-rel" B feat/b main 2 2>&1)
+  assert_match "pin: a relative run dir at bootstrap has the pin add-lane finds" "$(cat "$r/run-rel/panes.txt")" '^lane B: .*kind codex, .*model gpt-6-astra-mini\)'
+  # No contract at bootstrap: one a lane adds later is not read either.
+  r=$(fixture_repo bun-vitest); RUNP="$TMP/run-pin-none"; reset_stub
+  (cd "$r" && "$KIT/bootstrap.sh" "$RUNP" "Pin none" main "$KIT/example-tasks.tsv" >/dev/null 2>&1)
+  printf 'EXECUTOR_KIND=codex\ntouch "%s"\n' "$TMP/pin-ran-added" > "$r/.orchestrate"; git -C "$r" add .orchestrate; git -C "$r" commit -qm lane
+  reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNP" B feat/b main 2 2>&1)
+  assert_match "pin: a contract added by a lane does not reach add-lane" "$(cat "$RUNP/panes.txt")" '^lane B: .*kind claude, '
+  [ -e "$TMP/pin-ran-added" ] && bad "pin: ... and never runs" || ok "pin: ... and never runs"
+  # No pin (a run an older kit opened, or a pin removed): refused, not the checkout.
+  rm -f "$(sed -nE 's/^contract: +//p' "$RUNP/panes.txt" | head -1)"
+  out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNP" C feat/c main 3 2>&1; echo "exit=$?")
+  assert_match "pin: a run without its pin is refused" "$out" "no pinned contract for the run $RUNP"
+  assert_match "pin: ... as an error"                    "$out" 'exit=1$'
+  [ -e "$TMP/pin-ran-added" ] && bad "pin: ... and the checkout's contract does not run" || ok "pin: ... and the checkout's contract does not run"
+fi
+
 # --- look --------------------------------------------------------------------
 if section look; then
   # A harmless check gate for the fixtures without suite lines or scripts, so
   # the suite part of the look is green unless a test says otherwise.
   export CHECK_CMD=true
+  # No install in look's temp worktree unless a test asks for one (set, even
+  # empty, INSTALL_CMD wins over the package manager's).
+  export INSTALL_CMD=
+  # look makes its temp worktree under $XDG_STATE_HOME/tower/look and refuses
+  # one under /tmp, TMPDIR or the checkout: this run's state dir is under $TMP,
+  # so look gets one of its own here ($LOOK_STATE, above).
+  SAVED_XDG_STATE_HOME=$XDG_STATE_HOME
+  export XDG_STATE_HOME="$LOOK_STATE/xdg"; mkdir -p "$XDG_STATE_HOME"
+  LOOK_ROOT="$(cd "$XDG_STATE_HOME" && pwd -P)/tower/look"
   # Settings the caller's shell may carry; the fixtures decide them here.
   unset STATIC_BASELINE SUITE_SKIP PR METHOD REVIEWER_KIND TYPECHECK_TASK PM
   # A fixture repo on a branch: tag base, then one commit that changes app.js,
@@ -1075,6 +1524,7 @@ if section look; then
     git -C "$r" add -A && git -C "$r" commit -qm change
     echo "$r"
   }
+  commit_contract() { git -C "$1" add .orchestrate && git -C "$1" commit -qm contract; }  # look reads only a committed one
   # One line per finding in a look.json: "area severity file:line title | evidence".
   findings() { python3 -c "import json,sys
 for f in json.load(open(sys.argv[1]))['findings']: print('%s %s %s:%s %s | %s' % (f['area'], f['severity'], f['file'], f['line'], f['title'], f['evidence']))" "$1"; }
@@ -1094,10 +1544,188 @@ for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'],
   # No node on the machine (a node that cannot run answers 127, like a missing
   # one), a contract of suite lines only: detect-stack.sh must not end look.sh.
   NB="$TMP/no-node"; mkdir -p "$NB"; printf '#!/bin/sh\nexit 127\n' > "$NB/node"; chmod +x "$NB/node"
-  r=$(look_repo none no-node); printf 'suite ok "true"\n' > "$r/.orchestrate"; reset_stub
+  r=$(look_repo none no-node); printf 'suite ok "true"\n' > "$r/.orchestrate"; commit_contract "$r"; reset_stub
   out=$(PATH="$NB:$PATH" look "$r" base "$TMP/findings-no-node")
   assert_match "look: no node and only suite lines, exit 0" "$out" 'exit=0$'
   assert_match "look: no node and only suite lines, the suite step runs" "$(verdict "$TMP/findings-no-node/look.json" 2>&1)" '^ok pass'
+  # The contract is bash that look runs: only as committed, which a Reviewer
+  # sees in the diff. Untracked, or changed since HEAD, it is refused unrun.
+  mark="$TMP/look-contract-ran"
+  r=$(look_repo none contract-untracked); printf 'touch "%s"\n' "$mark" > "$r/.orchestrate"; rm -f "$mark"
+  out=$(look "$r" base "$TMP/findings-contract")
+  assert_match "look: an untracked contract is a setup error" "$out" 'exit=2$'
+  assert_match "look: ... naming the file" "$out" 'look: \.orchestrate is not committed as it is in HEAD'
+  [ -e "$mark" ] && bad "look: ... and it is not run" || ok "look: ... and it is not run"
+  assert_eq "look: ... and no look.json" "$([ -e "$TMP/findings-contract/look.json" ] && echo yes || echo no)" no
+  rm -f "$mark"; r=$(look_repo none contract-old-name); printf 'touch "%s"\n' "$mark" > "$r/.herdr-orchestrate"
+  out=$(look "$r" base "$TMP/findings-contract")
+  assert_match "look: an untracked contract under the old name: refused" "$out" 'exit=2$'
+  assert_match "look: ... naming it" "$out" 'look: \.herdr-orchestrate is not committed as it is in HEAD'
+  [ -e "$mark" ] && bad "look: ... and not run" || ok "look: ... and not run"
+  rm -f "$mark"; r=$(look_repo none contract-modified); printf 'true\n' > "$r/.orchestrate"
+  git -C "$r" add .orchestrate; git -C "$r" commit -qm contract
+  printf 'touch "%s"\n' "$mark" >> "$r/.orchestrate"
+  out=$(look "$r" base "$TMP/findings-contract")
+  assert_match "look: a modified contract is a setup error" "$out" 'exit=2$'
+  assert_match "look: ... naming it" "$out" 'look: .*\.orchestrate'
+  [ -e "$mark" ] && bad "look: ... and it is not run" || ok "look: ... and it is not run"
+  rm -f "$mark"; git -C "$r" update-index --assume-unchanged .orchestrate   # hidden from git status and diff
+  out=$(look "$r" base "$TMP/findings-contract")
+  assert_match "look: a modified contract git is told to ignore: refused" "$out" 'exit=2$'
+  assert_match "look: ... naming it" "$out" 'look: \.orchestrate is not committed as it is in HEAD'
+  [ -e "$mark" ] && bad "look: ... and not run" || ok "look: ... and not run"
+  rm -f "$mark"; r=$(look_repo none contract-symlink); printf 'touch "%s"\n' "$mark" > "$r/contract.sh"
+  ln -s contract.sh "$r/.orchestrate"; git -C "$r" add contract.sh .orchestrate; git -C "$r" commit -qm contract
+  out=$(look "$r" base "$TMP/findings-contract")
+  assert_match "look: a committed symlink contract: refused" "$out" 'exit=2$'
+  assert_match "look: ... saying it is a symlink" "$out" 'look: \.orchestrate is a symlink'
+  [ -e "$mark" ] && bad "look: ... and what it points at is not run" || ok "look: ... and what it points at is not run"
+  # look runs HEAD, not the live checkout: a fresh detached worktree of HEAD
+  # in a temp dir, removed afterwards, on success and on failure. What the
+  # checkout holds beyond HEAD (untracked files, index bits, dirty kit files)
+  # does not reach the look.
+  LT="$TMP/look-tmp"; mkdir -p "$LT"; LTP=$(cd "$LT" && pwd -P)
+  tree_gone() {  # REPO: look's temp worktree, its dir and its temp files are gone
+    [ -z "$(ls -A "$LT")" ] && [ -z "$(ls -A "$LOOK_ROOT" 2>/dev/null)" ] \
+      && [ "$(git -C "$1" worktree list | wc -l | tr -d ' ')" = 1 ] && echo gone || echo left
+  }
+  rm -f "$mark"; r=$(look_repo none tree-untracked-test)
+  printf '%s\n' "suite t 'for f in *.test.sh; do bash \"\$f\" || exit 1; done'" > "$r/.orchestrate"
+  printf 'true\n' > "$r/ok.test.sh"; git -C "$r" add -A; git -C "$r" commit -qm tests
+  printf 'touch "%s"; exit 1\n' "$mark" > "$r/evil.test.sh"
+  out=$(TMPDIR="$LT" look "$r" base "$TMP/findings-tree")
+  assert_match "look: an untracked test file in the checkout: not in the suite, green" "$out" 'exit=0$'
+  [ -e "$mark" ] && bad "look: ... and it is not run" || ok "look: ... and it is not run"
+  assert_eq "look: ... the temp worktree is gone after a green look" "$(tree_gone "$r")" gone
+  # The kit inside the checkout under review (tower reviewing itself): HEAD's.
+  kit_repo() {  # NAME
+    local r; r=$(look_repo none "$1"); mkdir -p "$r/skills"
+    cp -R "$PREFLIGHT_DIR" "$KIT" "$r/skills/"; rm -rf "$r/skills/orchestrate/tests/fixtures"
+    git -C "$r" add -A && git -C "$r" commit -qm kit; echo "$r"
+  }
+  kit_look() { (cd "$1" && TMPDIR="$LT" "$1/skills/preflight/look.sh" base "$TMP/findings-tree" 2>&1; echo "exit=$?"); }
+  rm -f "$mark"; r=$(kit_repo tree-dirty-common); printf 'touch "%s"\n' "$mark" >> "$r/skills/orchestrate/common.sh"
+  out=$(kit_look "$r")
+  assert_match "look: a dirty common.sh: refused as a dirty tree" "$out" 'uncommitted changes to tracked files: skills/orchestrate/common\.sh'
+  assert_match "look: ... a setup error" "$out" 'exit=2$'
+  [ -e "$mark" ] && bad "look: ... and the dirty common.sh is not run" || ok "look: ... and the dirty common.sh is not run"
+  rm -f "$mark"; r=$(kit_repo tree-skip-worktree); git -C "$r" update-index --skip-worktree skills/orchestrate/detect-stack.sh
+  printf 'touch "%s"\n' "$mark" >> "$r/skills/orchestrate/detect-stack.sh"
+  out=$(kit_look "$r")
+  assert_match "look: a skip-worktree detect-stack.sh with an edit: the look runs HEAD's, green" "$out" 'exit=0$'
+  [ -e "$mark" ] && bad "look: ... and the edit is not run" || ok "look: ... and the edit is not run"
+  assert_eq "look: ... the temp worktree is gone" "$(tree_gone "$r")" gone
+  # The install runs in the temp worktree (INSTALL_CMD, else the package
+  # manager's); one that fails is a setup error, and the worktree still goes.
+  r=$(look_repo none tree-install); rm -f "$TMP/install-where"
+  out=$(TMPDIR="$LT" INSTALL_CMD='pwd -P > "$INSTALL_WHERE"' INSTALL_WHERE="$TMP/install-where" look "$r" base "$TMP/findings-tree")
+  assert_match "look: the install runs in the temp worktree, under look's own dir" "$(cat "$TMP/install-where" 2>/dev/null)" "^$LOOK_ROOT/look\.[^/]*/tree$"
+  assert_match "look: ... and the look goes on" "$out" 'exit=0$'
+  out=$(TMPDIR="$LT" INSTALL_CMD='echo "no lockfile" >&2; exit 4' look "$r" base "$TMP/findings-tree")
+  assert_match "look: a failed install is a setup error" "$out" 'exit=2$'
+  assert_match "look: ... saying so, with its output" "$out" 'look: the install failed \(exit 4\): .*no lockfile'
+  assert_eq "look: ... no look.json" "$([ -e "$TMP/findings-tree/look.json" ] && echo yes || echo no)" no
+  assert_eq "look: ... the temp worktree is gone after a setup error" "$(tree_gone "$r")" gone
+  r=$(look_repo none tree-red); printf '%s\n' "suite red 'exit 1'" > "$r/.orchestrate"; commit_contract "$r"
+  out=$(TMPDIR="$LT" look "$r" base "$TMP/findings-tree")
+  assert_match "look: a red suite" "$out" 'exit=1$'
+  assert_eq "look: ... the temp worktree is gone after a red look" "$(tree_gone "$r")" gone
+  # What the suite changes, it changes in the temp worktree: a should-fix
+  # finding names it, and the checkout is untouched.
+  r=$(look_repo none tree-suite-writes); printf '%s\n' "suite writes 'echo z >> app.js; echo n > left.txt'" > "$r/.orchestrate"; commit_contract "$r"
+  out=$(TMPDIR="$LT" look "$r" base "$TMP/findings-tree"); f=$(findings "$TMP/findings-tree/look.json")
+  assert_match "look: tracked files the suite changed: a should-fix suite finding" "$f" '^suite should-fix \.:None the suite changed tracked files \| changed: app\.js; new, untracked: left\.txt$'
+  assert_match "look: ... not a failure" "$out" 'exit=0$'
+  assert_eq "look: ... the checkout untouched" "$(git -C "$r" status --porcelain)" ""
+  r=$(look_repo none tree-suite-leaves); printf '%s\n' "suite leaves 'echo n > left.txt'" > "$r/.orchestrate"; commit_contract "$r"
+  out=$(TMPDIR="$LT" look "$r" base "$TMP/findings-tree"); f=$(findings "$TMP/findings-tree/look.json")
+  assert_match "look: only new untracked files: named in the same finding" "$f" '^suite should-fix \.:None the suite left untracked files \| new, untracked: left\.txt$'
+  assert_eq "look: ... none in the checkout" "$([ -e "$r/left.txt" ] && echo yes || echo no)" no
+  # The checkout's git hooks do not run when look adds its worktree.
+  rm -f "$mark"; r=$(look_repo none tree-hook)
+  printf '#!/bin/sh\ntouch "%s"\n' "$mark" > "$r/.git/hooks/post-checkout"; chmod +x "$r/.git/hooks/post-checkout"
+  out=$(TMPDIR="$LT" look "$r" base "$TMP/findings-tree")
+  assert_match "look: a post-checkout hook in the checkout: green" "$out" 'exit=0$'
+  [ -e "$mark" ] && bad "look: ... and the hook does not run" || ok "look: ... and the hook does not run"
+  r=$(look_repo none tree-no-tmp)
+  out=$(TMPDIR="$TMP/no-such-tmp" look "$r" base "$TMP/findings-tree")
+  assert_match "look: a TMPDIR that does not exist: look does not need one" "$out" 'exit=0$'
+  # Every file look reads its verdict from is in its own dir, beside the
+  # worktree, where no lane may write: a lane-writable TMPDIR cannot touch it.
+  r=$(look_repo none tree-verdict-files)
+  printf '%s\n' "suite where 'test -f ../verdict.tsv && test -f ../findings.jsonl'" "suite red 'exit 1'" \
+    "suite sabotage 'ls -A \"\$TMPDIR\" > \"\$TMPDIR_SEEN\"; for f in \"\$TMPDIR\"/*/verdict.tsv \"\$TMPDIR\"/*/findings.jsonl; do [ ! -e \"\$f\" ] || ln -sf /dev/null \"\$f\"; done'" > "$r/.orchestrate"
+  commit_contract "$r"
+  out=$(TMPDIR="$LT" TMPDIR_SEEN="$TMP/tmpdir-seen" look "$r" base "$TMP/findings-tree"); v=$(verdict "$TMP/findings-tree/look.json")
+  assert_match "look: the verdict files are in look's own dir, beside the worktree" "$v" '^where pass '
+  assert_eq "look: ... nothing of look's in TMPDIR" "$(cat "$TMP/tmpdir-seen")" ""
+  assert_match "look: ... a red step still fails the look" "$out" 'exit=1$'
+  assert_match "look: ... and is in look.json" "$v" '^red fail exit 1'
+  # bash 3.2 (macOS) writes a here-doc or here-string to a temp file in TMPDIR
+  # and reads it back: look.sh has none, its verdict code is look.py beside it.
+  assert_eq "look: look.sh has no here-doc or here-string" "$(grep -c '<<' "$PREFLIGHT_DIR/look.sh")" 0
+  [ -f "$PREFLIGHT_DIR/look.py" ] && ok "look: ... its verdict code is look.py, beside it" || bad "look: ... its verdict code is look.py, beside it"
+  # Suite changes are read by content: a file the install already changed,
+  # and a file in a directory the install left, still count.
+  r=$(look_repo none tree-install-then-suite)
+  printf '%s\n' "suite writes 'echo z >> app.js; echo n > cache/new.txt'" > "$r/.orchestrate"; commit_contract "$r"
+  out=$(TMPDIR="$LT" INSTALL_CMD='echo i >> app.js; mkdir cache; echo o > cache/old.txt' look "$r" base "$TMP/findings-tree"); f=$(findings "$TMP/findings-tree/look.json")
+  assert_match "look: a file the install changed, changed again by the suite, and one added in the install's dir: named" "$f" '^suite should-fix \.:None the suite changed tracked files \| changed: app\.js; new, untracked: cache/new\.txt$'
+  # Submodules are initialised in look's worktree, as they are in a checkout.
+  sub="$TMP/repos/look-submodule-src"; mkdir -p "$sub"; git -C "$sub" init -q
+  printf 'in the submodule\n' > "$sub/lib.txt"; git -C "$sub" add -A; git -C "$sub" commit -qm lib
+  r=$(look_repo none tree-submodule)
+  git -C "$r" -c protocol.file.allow=always submodule --quiet add "$sub" lib
+  printf '%s\n' "suite sub 'grep -q \"in the submodule\" lib/lib.txt'" > "$r/.orchestrate"; git -C "$r" add -A; git -C "$r" commit -qm sub
+  out=$(TMPDIR="$LT" GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=protocol.file.allow GIT_CONFIG_VALUE_0=always look "$r" base "$TMP/findings-tree")
+  assert_match "look: a submodule is there for the suite" "$(verdict "$TMP/findings-tree/look.json" 2>&1)" '^sub pass '
+  assert_eq "look: ... the temp worktree is gone" "$(tree_gone "$r")" gone
+  rm -f "$mark"
+  # A state dir reached through a symlink (macOS: /var -> /private/var): the
+  # suite sees one real path, the resolved one.
+  ln -sfn "$XDG_STATE_HOME" "$XDG_STATE_HOME.link"; r=$(look_repo none tree-symlinked-state)
+  printf '%s\n' "suite phys '[ \"\$PWD\" = \"\$(pwd -P)\" ] || { echo \"logical \$PWD, physical \$(pwd -P)\"; exit 1; }'" > "$r/.orchestrate"; commit_contract "$r"
+  out=$(TMPDIR="$LT" XDG_STATE_HOME="$XDG_STATE_HOME.link" look "$r" base "$TMP/findings-tree")
+  assert_match "look: a symlinked state dir: the suite runs in the resolved path" "$(verdict "$TMP/findings-tree/look.json" 2>&1)" '^phys pass '
+  assert_eq "look: ... the temp worktree is gone" "$(tree_gone "$r")" gone
+  rm -f "$XDG_STATE_HOME.link"
+  assert_eq "look: its worktree dir is the user's alone (mode 700)" "$(ls -ld "$LOOK_ROOT" | cut -c1-10)" drwx------
+  # Its worktree dir must be outside everything a lane may write: under the
+  # checkout, its git dir, the run dir, /tmp or TMPDIR it is refused.
+  r=$(look_repo none tree-where)
+  refused() {  # WHAT XDG_STATE_HOME [ENV...]
+    local what=$1 x=$2 n; shift 2; n=$(git -C "$r" worktree list | wc -l | tr -d ' ')
+    out=$(env TMPDIR="$LT" XDG_STATE_HOME="$x" "$@" bash -c 'cd "${LOOK_FROM:-$1}" && "$2" base "$3" 2>&1; echo "exit=$?"' _ "$r" "$PREFLIGHT_DIR/look.sh" "$TMP/findings-tree")
+    case "$what" in
+      "a symlink") assert_match "look: a worktree dir that is a symlink: refused" "$out" "look: its worktree dir .* is a symlink" ;;
+      *) assert_match "look: a worktree dir under $what: refused" "$out" "look: its worktree dir .* is under $what" ;;
+    esac
+    assert_match "look: ... a setup error" "$out" 'exit=2$'
+    assert_eq "look: ... no worktree made" "$(git -C "$r" worktree list | wc -l | tr -d ' ')" "$n"
+  }
+  refused "the checkout" "$r/state"
+  refused "the git dir" "$r/.git/state"
+  mkdir -p "$LOOK_STATE/run"
+  refused "the run dir" "$LOOK_STATE/run/state" TOWER_RUN="$LOOK_STATE/run"
+  wt2="$r/.worktrees/w"; git -C "$r" worktree add -q --detach "$wt2"; mkdir -p "$LOOK_STATE/elsewhere"
+  refused "a worktree of this repo" "$r/.worktrees/state" LOOK_FROM="$wt2"
+  git -C "$r" worktree remove --force "$wt2"
+  # A tower/look that is a symlink, or not the user's, is refused before
+  # look touches it: it could point anywhere.
+  mkdir -p "$LOOK_STATE/sym/tower" "$LOOK_STATE/target"; chmod 755 "$LOOK_STATE/target"
+  ln -s "$LOOK_STATE/target" "$LOOK_STATE/sym/tower/look"
+  refused "a symlink" "$LOOK_STATE/sym"
+  assert_eq "look: ... its target's mode untouched" "$(ls -ld "$LOOK_STATE/target" | cut -c1-10)" drwxr-xr-x
+  refused "/tmp" "/tmp/test-look-state.$$"; rm -rf "/tmp/test-look-state.$$"
+  refused "TMPDIR" "$LT/state"; rm -rf "$LT/state"
+  unset -f refused
+  unset -f tree_gone kit_repo kit_look
+  rm -f "$mark"; r=$(look_repo none contract-committed); printf 'touch "%s"\n' "$mark" > "$r/.orchestrate"
+  git -C "$r" add .orchestrate; git -C "$r" commit -qm contract
+  out=$(look "$r" base "$TMP/findings-contract")
+  assert_match "look: a committed contract: the look runs" "$out" 'exit=0$'
+  [ -e "$mark" ] && ok "look: ... and the contract is read" || bad "look: ... and the contract is read"
+  rm -f "$mark"
   r=$(look_repo none findings); reset_stub
   out=$(SEMGREP_STUB=finding GITLEAKS_STUB=finding look "$r" base "$F")
   f=$(findings "$F/look.json")
@@ -1154,15 +1782,15 @@ for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'],
   printf 'z\n' > "$r/café app.js"; git -C "$r" add -A; git -C "$r" commit -qm odd
   reset_stub; out=$(look "$r" base "$F"); log=$(cat "$HERDR_STUB_LOG")
   assert_match "look: a file name with spaces and accents is passed as is" "$log" '^semgrep scan .* -- app\.js café app\.js new\.py$'
-  # A sparse checkout can lack a changed file without the tree being dirty.
+  # A sparse checkout can lack a changed file without the tree being dirty:
+  # look's worktree of HEAD has it, and scans it.
   git -C "$r" update-index --skip-worktree new.py; rm "$r/new.py"; reset_stub; out=$(look "$r" base "$F")
-  assert_nomatch "look: a changed file missing from a sparse checkout is not scanned" "$(cat "$HERDR_STUB_LOG")" '^semgrep .*new\.py'
-  assert_match "look: ... the rest is still scanned"    "$(cat "$HERDR_STUB_LOG")" '^semgrep scan .* -- app\.js café app\.js$'
+  assert_match "look: a changed file the checkout lacks (sparse) is scanned from HEAD" "$(cat "$HERDR_STUB_LOG")" '^semgrep scan .* -- app\.js café app\.js new\.py$'
   git -C "$r" update-index --no-skip-worktree new.py; git -C "$r" checkout -q -- new.py
   mkdir -p "$r/sub"; reset_stub
   out=$(cd "$r/sub" && "$PREFLIGHT_DIR/look.sh" base rel-findings 2>&1; echo "exit=$?")
   assert_match "look: runs from a subdirectory"          "$(cat "$HERDR_STUB_LOG")" '^semgrep scan .* -- app\.js café app\.js new\.py$'
-  assert_eq "look: a relative findings dir is relative to where it was called" "$(verdict "$r/sub/rel-findings/look.json" | head -1)" "semgrep pass "
+  assert_eq "look: a relative findings dir is relative to where it was called" "$(verdict "$r/sub/rel-findings/look.json" | grep '^semgrep')" "semgrep pass "
   out=$(look "$r" nosuchref "$F")
   assert_match "look: an unknown base is refused"        "$out" "no merge base between 'nosuchref' and HEAD"
   assert_match "look: a setup error exits 2, not 1 (must-fix)" "$out" 'exit=2$'
@@ -1179,7 +1807,10 @@ for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'],
   assert_match "look: the table names the findings file" "$out" "findings: $F/look.json"
   r=$(look_repo suite suite); export SUITE_ORDER="$TMP/suite-order"; : > "$SUITE_ORDER"
   out=$(SUITE_SKIP='' look "$r" base "$F")
-  assert_eq "look: every suite step runs in its DIR, in contract order" "$(cat "$SUITE_ORDER")" "$(printf 'lint %s\ntest %s\nbuild %s/web' "$r" "$r" "$r")"
+  o=$(cat "$SUITE_ORDER"); d=$(sed -n 's/^lint //p' <<< "$o")
+  assert_eq "look: every suite step runs in its DIR, in contract order" "$o" "$(printf 'lint %s\ntest %s\nbuild %s/web' "$d" "$d" "$d")"
+  [ -n "$d" ] && [ "$d" != "$r" ] && [ "$d" != "$(cd "$r" && pwd -P)" ] \
+    && ok "look: ... in look's own worktree of HEAD, not the checkout" || bad "look: ... in look's own worktree of HEAD, not the checkout" "$d"
   v=$(verdict "$F/look.json")
   assert_match "look: a passing step is a pass row"      "$v" '^lint pass '
   assert_match "look: a failing step is a fail row"      "$v" '^test fail exit 3'
@@ -1214,6 +1845,41 @@ for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'],
   assert_match "look: ... and not a failure"             "$out" 'exit=0$'
   r=$(look_repo suite-noscripts noscripts); out=$(unset CHECK_CMD; look "$r" base "$F"); v=$(verdict "$F/look.json")
   assert_match "look: a package.json without scripts and no CHECK_CMD is a skip row" "$v" '^check skip no suite lines, no package.json scripts, no CHECK_CMD$'
+  # A step that fails on a permission error is the sandbox, not the code: a
+  # setup verdict, not a must-fix suite finding.
+  r=$(look_repo none perm)
+  printf '%s\n' "suite lint 'echo \"error: bun is unable to write files to tempdir: PermissionDenied\"; exit 1'" "suite ok true" > "$r/.orchestrate"; commit_contract "$r"
+  out=$(look "$r" base "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: a step failing on a permission error is a setup row" "$v" '^lint warn setup: exit 1, a permission error \(error: bun is unable to write files to tempdir: PermissionDenied\): echo'
+  assert_nomatch "look: ... not a must-fix suite finding" "$(findings "$F/look.json")" 'must-fix'
+  assert_match "look: ... the steps after it still run"  "$v" '^ok pass true$'
+  assert_match "look: ... and the look is a setup error, with look.json kept" "$out" 'exit=2$'
+  assert_match "look: ... it says which step and why"    "$out" '^look: setup error: suite step\(s\) lint failed on a permission error'
+  printf '%s\n' "suite rm 'echo \"rm: /cache/x: Operation not permitted\" >&2; exit 1'" \
+    "suite npm 'echo \"npm ERR! code EACCES\"; exit 243'" "suite unit 'echo \"expected 1, got 2\"; exit 1'" > "$r/.orchestrate"; commit_contract "$r"
+  out=$(look "$r" base "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: Operation not permitted, on stderr, is a setup row" "$v" '^rm warn setup: exit 1, a permission error \(rm: /cache/x: Operation not permitted\)'
+  assert_match "look: EACCES is a setup row"             "$v" '^npm warn setup: exit 243, a permission error \(npm ERR! code EACCES\)'
+  assert_match "look: a step failing otherwise is still a must-fix suite finding" "$(findings "$F/look.json")" '^suite must-fix .* suite step unit failed \(exit 1\)'
+  assert_match "look: ... the setup error still wins the exit" "$out" 'exit=2$'
+  assert_match "look: ... and names every setup step"   "$out" 'suite step\(s\) rm npm failed'
+  assert_match "look: a setup step keeps its output tail, as a watchpoint for triage" "$(findings "$F/look.json")" '^suite watchpoint .* suite step npm failed on a permission error \(exit 243\) \| \$ echo .*npm ERR! code EACCES'
+  printf '%s\n' "suite bin 'printf \"x\\\\0y\\\\n\"; echo EACCES; exit 1'" "suite cr 'printf \"10%%\\\\rerror: PermissionDenied\\\\n\"; exit 1'" \
+    "suite noisy 'echo \"warn: EACCES on a probe, retried\"'" > "$r/.orchestrate"; commit_contract "$r"
+  out=$(look "$r" base "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: output with a NUL byte is still read for a permission error" "$v" '^bin warn setup: '
+  assert_match "look: a carriage return in the matched line becomes a space" "$v" '^cr warn setup: exit 1, a permission error \(10% error: PermissionDenied\)'
+  assert_match "look: a step that passes with EACCES in its output passes" "$v" '^noisy pass '
+  # The permission error before a long summary: the whole output is searched.
+  printf '%s\n' "suite late 'echo \"error: PermissionDenied\"; for i in \$(seq 1 30); do echo summary-\$i; done; exit 1'" > "$r/.orchestrate"; commit_contract "$r"
+  out=$(look "$r" base "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: a permission error more than 20 lines before the end is a setup row" "$v" '^late warn setup: exit 1, a permission error \(error: PermissionDenied\)'
+  assert_match "look: ... it is a watchpoint"           "$(findings "$F/look.json")" '^suite watchpoint .* suite step late failed on a permission error \(exit 1\) \|'
+  ev=$(python3 -c "import json,sys; print([x['evidence'] for x in json.load(open(sys.argv[1]))['findings'] if x['area'] == 'suite'][0])" "$F/look.json")
+  assert_match "look: ... carrying the bounded tail"      "$ev" '^summary-30$'
+  assert_nomatch "look: ... only the tail"                "$ev" '^summary-10$'
+  assert_nomatch "look: ... not a must-fix"               "$(findings "$F/look.json")" 'must-fix'
+  assert_match "look: ... and the look is a setup error"  "$out" 'exit=2$'
   r=$(look_repo semgrep-rules rules); reset_stub; out=$(look "$r" base "$F")
   assert_match "look: the repo's .semgrep/ rules are added" "$(cat "$HERDR_STUB_LOG")" '^semgrep scan --config p/default --config \.semgrep '
   # A tracked file with edits the branch has not committed: the suite could
@@ -1231,7 +1897,53 @@ for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'],
   assert_match "look: a staged edit is refused too"      "$out" 'exit=2$'
   git -C "$r" reset -q; git -C "$r" checkout -q -- app.js; reset_stub; out=$(look "$r" base "$F")
   assert_match "look: an untracked file alone is no refusal" "$out" 'exit=0$'
-  unset CHECK_CMD SUITE_ORDER; unset -f look_repo findings verdict look
+  r=$(look_repo none local-base); reset_stub; out=$(look "$r" base "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: a base that is no remote branch is a skip row" "$v" '^base skip base is not a remote-tracking branch$'
+  git -C "$r" remote add origin "$TMP/repos/no-such-remote.git"
+  reset_stub; out=$(look "$r" base "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: ... even with a remote it cannot ask, which it does not ask" "$v" '^base skip base is not a remote-tracking branch$'
+  reset_stub; out=$(look "$r" "$(git -C "$r" rev-parse base)" "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: a base given as a commit is a skip row" "$v" '^base skip [0-9a-f]{40} is not a remote-tracking branch$'
+  # The base: look.sh never fetches (a sandboxed Reviewer cannot write .git);
+  # it asks the remote with ls-remote whether origin/<base> is current.
+  r=$(look_repo none remote); git init -q --bare "$TMP/repos/look-remote.git"
+  git -C "$r" remote add origin "$TMP/repos/look-remote.git"; git -C "$r" push -q origin base:refs/heads/main; git -C "$r" fetch -q origin
+  git -C "$r" push -q origin feat:refs/x/refs/heads/main   # ls-remote's pattern matches this too
+  reset_stub; out=$(look "$r" origin/main "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: a current remote base is a pass row" "$v" "^base pass origin/main matches origin \($(git -C "$r" rev-parse --short base)\)$"
+  git -C "$r" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
+  reset_stub; out=$(look "$r" origin/HEAD "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: origin/HEAD is checked as the branch it points at" "$v" "^base pass origin/HEAD matches origin \($(git -C "$r" rev-parse --short base)\)$"
+  git -C "$r" config core.abbrev 12
+  git -C "$r" push -q origin feat:refs/heads/main   # the remote moves on; origin/main is not fetched
+  git -C "$r" update-ref refs/remotes/origin/main base; rm -f "$r/.git/FETCH_HEAD"
+  reset_stub; out=$(look "$r" origin/main "$F"); v=$(verdict "$F/look.json")
+  assert_eq "look: never fetches (a sandbox keeps .git read-only)" "$(git -C "$r" rev-parse origin/main):$([ -e "$r/.git/FETCH_HEAD" ] && echo fetched || echo none)" "$(git -C "$r" rev-parse base):none"
+  assert_match "look: a base behind its remote is a warn row, named stale" "$v" "^base warn base is stale: origin/main is $(git -C "$r" rev-parse --short base), origin has $(git -C "$r" rev-parse --short feat); whoever runs look fetches, then looks again$"
+  assert_match "look: ... not a failure"                 "$out" 'exit=0$'
+  git -C "$r" update-ref refs/remotes/origin/gone base   # fetched once, since deleted on the remote
+  reset_stub; out=$(look "$r" origin/gone "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: a base branch gone from its remote is a warn row" "$v" "^base warn base could not be refreshed: origin has no branch gone; origin/gone is $(git -C "$r" rev-parse --short base), as last fetched$"
+  assert_match "look: ... not a failure"                 "$out" 'exit=0$'
+  # A sandbox without network, or a remote that is gone: the named, expected case.
+  git -C "$r" remote set-url origin "$TMP/repos/no-such-remote.git"
+  reset_stub; out=$(look "$r" origin/main "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: a remote it cannot ask is a warn row: base could not be refreshed" "$v" "^base warn base could not be refreshed: git ls-remote origin failed \(.+\); origin/main is $(git -C "$r" rev-parse --short base), as last fetched$"
+  assert_match "look: ... not a setup error"             "$out" 'exit=0$'
+  assert_match "look: ... and the rest of the look runs" "$v" '^semgrep pass $'
+  # An ssh remote must not wait on a passphrase or host-key prompt (ssh reads
+  # /dev/tty), nor on a network that drops packets.
+  printf '#!/bin/sh\necho "$*" >> "%s"; exit 255\n' "$TMP/ssh.log" > "$TMP/ssh-stub"; chmod +x "$TMP/ssh-stub"
+  git -C "$r" config core.sshCommand "$TMP/ssh-stub"; git -C "$r" remote set-url origin ssh://git.example.invalid/acme.git
+  reset_stub; out=$(look "$r" origin/main "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: ssh runs in batch mode, with a connect timeout" "$(cat "$TMP/ssh.log" 2>&1)" '-o BatchMode=yes -o ConnectTimeout=[0-9]+ .*git\.example\.invalid'
+  assert_match "look: ... and a failed ssh is base could not be refreshed" "$v" '^base warn base could not be refreshed: git ls-remote origin failed'
+  git -C "$r" config --unset core.sshCommand; : > "$TMP/ssh.log"
+  reset_stub; out=$(GIT_SSH="$TMP/ssh-stub" look "$r" origin/main "$F")
+  assert_match "look: a GIT_SSH wrapper is used as it is"  "$(cat "$TMP/ssh.log")" 'git\.example\.invalid'
+  assert_nomatch "look: ... without ssh's -o options"     "$(cat "$TMP/ssh.log")" 'BatchMode'
+  export XDG_STATE_HOME=$SAVED_XDG_STATE_HOME; unset SAVED_XDG_STATE_HOME LOOK_ROOT
+  unset CHECK_CMD INSTALL_CMD SUITE_ORDER; unset -f look_repo findings verdict look
 fi
 
 # --- install -----------------------------------------------------------------
@@ -1566,10 +2278,12 @@ if section run; then
     "R1-1@R1:Lane review A, round 1|R2-1@R2:Lane review B, round 1|R1-2@R1:Lane review A, round 2|R1-3@R1:Preflight R1, round 1|R2-2@R2:Preflight R2, round 1"
 
   export SUITE_ORDER="$TMP/run-suite-order"; : > "$SUITE_ORDER"
-  out=$(in_repo "$PREFLIGHT_DIR/look.sh" base "$RUN/findings/preflight/1")
+  # look's worktree dir must be outside /tmp and TMPDIR, where this run's
+  # state dir is: one of its own (gitignored), as in the look section.
+  out=$(in_repo env XDG_STATE_HOME="$LOOK_STATE/run-xdg" "$PREFLIGHT_DIR/look.sh" base "$RUN/findings/preflight/1")
   assert_match "run: look.sh names the findings file it wrote" "$out" "$RUN/findings/preflight/1/look.json"
   steps=$(python3 -c "import json,sys; print(' '.join(v['step']+':'+v['status'] for v in json.load(open(sys.argv[1]))['verdict']))" "$RUN/findings/preflight/1/look.json" 2>&1)
-  assert_eq "run: look.json has a row for each scanner and every suite step" "$steps" "semgrep:pass gitleaks:pass lint:skip test:fail build:pass"
+  assert_eq "run: look.json has a row for the base, each scanner and every suite step" "$steps" "base:skip semgrep:pass gitleaks:pass lint:skip test:fail build:pass"
   unset SUITE_ORDER
 
   assert_eq "run: one switches line in the pane map" "$(grep -c '^switches:' "$RUN/panes.txt")" 1

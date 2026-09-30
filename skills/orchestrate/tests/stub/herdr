@@ -13,10 +13,26 @@
 # agent_pane_busy (a pane whose shell is not ready yet), counted through
 # HERDR_STUB_COUNTER.busy. HERDR_STUB_TRUST_STARTS=N answers the first N with an
 # agent blocked during startup (a trust prompt), counted through
-# HERDR_STUB_COUNTER.trust. HERDR_STUB_SEND_KEYS_FAIL=1: every `pane
-# send-keys` fails. HERDR_STUB_EXIT_ON_ENTER=N: every `agent get` answers gone
-# once N `pane send-keys ... Enter` calls were made (counted through
-# HERDR_STUB_COUNTER.enters), as an agent that needs N Enters to exit.
+# HERDR_STUB_COUNTER.trust. An `agent start <name>` that succeeds makes the
+# agent exist: its state file goes, so it answers working, unless
+# HERDR_STUB_STATES_DIR/<name>.started holds lines: each such start takes the
+# first one (the last one stays) and writes its words, one per line, as the
+# state file, as what the new agent then answers ("gone": it exited right
+# after its start; "unready idle": not yet accepting input, then idle).
+# `agent get` answers interactive_ready true, false for the word "unready"
+# (an idle agent not accepting input yet) and for "busy-unready" (a working
+# one, as an agent still loading); the word "legacy" answers idle
+# without the field, as an older herdr does.
+# HERDR_STUB_SEND_KEYS_FAIL=1: every `pane send-keys` fails.
+# HERDR_STUB_EXIT_ON_ENTER=N: every `agent get` answers gone once N `pane
+# send-keys ... Enter` calls were made (counted through
+# HERDR_STUB_COUNTER.enters), as an agent that needs N Enters to exit; an
+# agent started since the last Enter (listed in HERDR_STUB_COUNTER.started,
+# which each Enter empties) is not one.
+# HERDR_STUB_MOVE_FAIL=1: every `pane move` fails, the pane staying where it is;
+# =garbled: it succeeds with an answer that has no pane in it.
+# HERDR_STUB_WORKTREE_FAIL=1: every `worktree create` fails; =garbled: it
+# succeeds with an answer that has no pane in it.
 # Errors are JSON on stderr with exit 1, as herdr answers them.
 # HERDR_STUB=absent refuses to run, so herdr counts as not installed; it logs
 # each refused call as "herdr-absent <argv>".
@@ -30,9 +46,15 @@ next_id() { local n; n=$(cat "$counter" 2>/dev/null || echo 0); n=$((n+1)); echo
 states="${HERDR_STUB_STATES_DIR:-}"
 case "${1:-} ${2:-}" in
   "pane split")      echo "{\"result\":{\"pane\":{\"pane_id\":\"$(next_id)\"}}}" ;;
-  "worktree create") echo "{\"result\":{\"root_pane\":{\"pane_id\":\"$(next_id)\"}}}" ;;
+  "worktree create")
+    [ "${HERDR_STUB_WORKTREE_FAIL:-}" != garbled ] || { echo '{"result":{}}'; exit 0; }
+    [ "${HERDR_STUB_WORKTREE_FAIL:-}" != 1 ] || { echo '{"error":{"code":"server_unavailable","message":"herdr server is not answering"}}' >&2; exit 1; }
+    echo "{\"result\":{\"root_pane\":{\"pane_id\":\"$(next_id)\"}}}" ;;
   "tab create")      p=$(next_id); echo "{\"result\":{\"tab\":{\"tab_id\":\"tab-${p#pane-}\"},\"root_pane\":{\"pane_id\":\"$p\"}}}" ;;
-  "pane move")       echo "{\"result\":{\"move_result\":{\"pane\":{\"pane_id\":\"$(next_id)\"}}}}" ;;
+  "pane move")
+    [ "${HERDR_STUB_MOVE_FAIL:-}" != garbled ] || { echo '{"result":{}}'; exit 0; }
+    [ "${HERDR_STUB_MOVE_FAIL:-}" != 1 ] || { echo '{"error":{"code":"server_unavailable","message":"herdr server is not answering"}}' >&2; exit 1; }
+    echo "{\"result\":{\"move_result\":{\"pane\":{\"pane_id\":\"$(next_id)\"}}}}" ;;
   "pane list")       echo '{"result":{"panes":[]}}' ;;
   "pane get")
     case "$([ -n "$states" ] && head -1 "$states/$3" 2>/dev/null)" in
@@ -52,13 +74,22 @@ case "${1:-} ${2:-}" in
       pane=$(printf '%s\n' "$@" | sed -n '/^--pane$/{n;p;q;}')
       echo "{\"error\":{\"code\":\"agent_pane_busy\",\"message\":\"agent target pane $pane is not an available shell\"}}" >&2; exit 1
     fi
+    name=$3
+    if [ -n "$states" ] && [ -s "$states/$name.started" ]; then
+      head -1 "$states/$name.started" | tr ' ' '\n' > "$states/$name"
+      [ "$(wc -l < "$states/$name.started")" -le 1 ] || { tail -n +2 "$states/$name.started" > "$states/$name.next"; mv "$states/$name.next" "$states/$name.started"; }
+    elif [ -n "$states" ]; then
+      rm -f "$states/$name"
+    fi
+    echo "$name" >> "$counter.started"
     echo '{"result":{"agent":{"agent_status":"idle"}}}' ;;
   "pane send-keys")
     [ "${HERDR_STUB_SEND_KEYS_FAIL:-}" != 1 ] || { echo '{"error":{"code":"server_unavailable","message":"herdr server is not answering"}}' >&2; exit 1; }
-    case " $* " in *" Enter "*) echo $(( $(cat "$counter.enters" 2>/dev/null || echo 0) + 1 )) > "$counter.enters" ;; esac
+    case " $* " in *" Enter "*) echo $(( $(cat "$counter.enters" 2>/dev/null || echo 0) + 1 )) > "$counter.enters"; rm -f "$counter.started" ;; esac
     echo '{"result":{}}' ;;
   "agent get")
-    if [ -n "${HERDR_STUB_EXIT_ON_ENTER:-}" ] && [ "$(cat "$counter.enters" 2>/dev/null || echo 0)" -ge "$HERDR_STUB_EXIT_ON_ENTER" ]; then
+    if [ -n "${HERDR_STUB_EXIT_ON_ENTER:-}" ] && [ "$(cat "$counter.enters" 2>/dev/null || echo 0)" -ge "$HERDR_STUB_EXIT_ON_ENTER" ] \
+      && ! grep -qxF -- "$3" "$counter.started" 2>/dev/null; then
       echo '{"error":{"code":"agent_not_found"}}' >&2; exit 1
     fi
     status=working
@@ -68,8 +99,11 @@ case "${1:-} ${2:-}" in
     fi
     [ "$status" = gone ] && { echo '{"error":{"code":"agent_not_found"}}' >&2; exit 1; }
     [ "$status" = shapeless ] && { echo '{"result":{"agent":{"agent_status":null}}}'; exit 0; }
+    [ "$status" = legacy ] && { echo '{"result":{"agent":{"agent_status":"idle"}}}'; exit 0; }
+    [ "$status" = unready ] && { echo '{"result":{"agent":{"agent_status":"idle","interactive_ready":false}}}'; exit 0; }
+    [ "$status" = busy-unready ] && { echo '{"result":{"agent":{"agent_status":"working","interactive_ready":false}}}'; exit 0; }
     [ "$status" = unreachable ] && { echo '{"error":{"code":"server_unavailable","message":"herdr server is not answering"}}' >&2; exit 1; }
-    echo "{\"result\":{\"agent\":{\"agent_status\":\"$status\"}}}" ;;
+    echo "{\"result\":{\"agent\":{\"agent_status\":\"$status\",\"interactive_ready\":true}}}" ;;
   "agent read")      [ -n "$states" ] && [ -f "$states/$3.tail" ] && cat "$states/$3.tail"; exit 0 ;;
   *)                 echo '{"result":{}}' ;;
 esac

@@ -205,10 +205,24 @@ suite build "make build" web
 A repo that still has the old name, `.herdr-orchestrate`, keeps working,
 with a note to rename it.
 
+The file is bash, run in the orchestrator's shell, so a run reads it once.
+bootstrap pins the contract it read: a read-only copy under
+`$XDG_STATE_HOME/tower/contracts/` (default `~/.local/state`), named by the
+run dir, which the pane map's `contract:` line points to. add-lane and
+add-reviewer read that pin, never a checkout, the run dir or the git dir,
+all of which a codex lane may write. A lane's edit to `.orchestrate` takes
+effect in the next run, after review. Pins stay after the run; they are
+small, and removing `contracts/` once no run is open is safe. `look.sh`
+still reads the branch's own file: it runs inside the Reviewer.
+
 The same names in the environment of a bootstrap or add-lane call win over
 the file for that call. A name the kit does not read is pointed out on stderr.
 `START_TRIES` (environment only, default 10) is how often an agent start is
 tried, a second apart, while a new pane's shell is not ready yet.
+`START_SETTLE_SECONDS` (default 3) and `READY_WAIT_SECONDS` (default 30),
+environment only too, are how long a started agent is given, and how many
+reads about a second apart it then gets, to accept input. An agent that never
+does fails the call and is left running in its pane.
 
 ## Run switches
 
@@ -240,6 +254,29 @@ its runs to codex in `.orchestrate` (`EXECUTOR_KIND=codex`, model
 `gpt-6-astra`; `EXECUTOR_MODEL` overrides either), and a single lane can
 differ: `EXECUTOR_KIND=codex` in that bootstrap or add-lane call. Mixed runs
 are fine.
+
+A codex agent runs in codex's workspace-write sandbox, with its startup update
+check off. Outside its checkout it may write the run dir and what a commit
+needs in the repo's common git dir. A lane in a worktree (lanes B-D) gets only
+`objects`, `refs`, `logs`, `packed-refs` and its own `worktrees/<lane>`, so the
+repo's hooks and config stay out of its reach; these writable roots replace any
+set in your codex config. Lane A and the Reviewers work
+in the main checkout, whose index, HEAD and rebase and stash state live in the
+common git dir itself, so a codex agent there gets the whole common git dir.
+Its sandbox then does not contain `.git/hooks` or `.git/config`: a hook or a
+`core.fsmonitor` it writes runs outside the sandbox on the next git command,
+yours or the kit's. Run lane A as claude, or read `.git/hooks` and
+`git config --local --list` before you merge, when that matters.
+
+No lane, lane A included, may write `$XDG_STATE_HOME/tower/` (default
+`~/.local/state`): the contract pins live there, and preflight's `look.sh`
+makes its temp worktree of HEAD under `tower/look/`, whose code it runs,
+and keeps the files it reads its verdict from beside it. A codex Reviewer
+alone is granted `tower/look/`, so it can run look, and gets `TOWER_RUN` so
+look knows the run dir; look and add-reviewer (through `look.sh --dir`, one
+check) refuse a
+`tower/look/` that is a symlink, is not yours, or resolves under a checkout
+or worktree of the repo, its git dir, the run dir, `/tmp` or `$TMPDIR`.
 
 ## Testing the kit
 

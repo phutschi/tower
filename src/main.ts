@@ -10,6 +10,7 @@ import { assignCommand, closeCommand, initCommand } from "./commands/init.ts";
 import { stateCommand, waitCommand } from "./commands/state.ts";
 import { themeCommand } from "./commands/theme.ts";
 import { briefCommand } from "./commands/brief.ts";
+import { idsCommand } from "./commands/ids.ts";
 import { blockCommand, noteCommand, taskCommand } from "./commands/task.ts";
 import { addCommand, changeCommand, removeCommand } from "./commands/edit.ts";
 
@@ -33,6 +34,7 @@ export const USAGE = `tower — a control tower for long-running agent implement
 
   scripts
     tower state --json
+    tower ids <ids>                           the ids as tower reads them, one per line; records nothing
     tower wait [--timeout <seconds>]          exit 0 when something needs a human, 3 when a timeout passes
 
   themes
@@ -56,6 +58,7 @@ const COMMANDS: Record<string, () => Promise<Command>> = {
   assign: async () => assignCommand,
   close: async () => closeCommand,
   state: async () => stateCommand,
+  ids: async () => idsCommand,
   wait: async () => waitCommand,
   theme: async () => themeCommand,
   brief: async () => briefCommand,

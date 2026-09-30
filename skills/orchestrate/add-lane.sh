@@ -23,16 +23,30 @@
 #
 # START_TRIES (environment, default 10): how often an agent start is tried,
 # a second apart, while its new pane's shell is not ready yet (executor.sh).
+# The agent is reported ready only once it accepts input (herdr's
+# interactive_ready), read about a second apart READY_WAIT_SECONDS times
+# (default 30) after START_SETTLE_SECONDS (default 3); one that exits right
+# after its start is started once more, and one that never accepts input
+# fails the call and is left running in its pane (executor.sh).
 #
-# The lane's line goes into the pane map before its agent starts. When the
-# start fails, rerun the same call: when herdr does not find the lane's agent,
-# it is started again in the lane's pane and worktree, and nothing else is
-# redone (the task ids are already assigned). Refused: a lane whose agent
-# runs, any answer from herdr other than agent_not_found, a rerun with another
-# branch, kind, model or task ids than the first call's (ids read as tower
-# reads them), and a lane whose pane (herdr's pane_not_found) or worktree is
-# gone: the message says what to remove. A pane herdr cannot be asked about
-# is refused with nothing to remove; rerun once herdr answers.
+# The new pane goes into the pane map as  unplaced lane <X>:  before it is
+# moved into the grid, and becomes the lane's line before its agent starts,
+# ending in " starting" until the agent accepts input. When the move or the
+# start fails, rerun the same call: an unplaced lane's pane is moved again; a
+# lane whose agent herdr does not find is started again in the lane's pane and
+# worktree; and a starting lane's agent left running is taken ("resumed") once
+# it accepts input, or refused, saying to answer or end it, while it does not.
+# Nothing else is redone (the worktree exists and the task ids are assigned).
+# Refused: a started lane whose agent runs, any answer from herdr other than
+# agent_not_found, a rerun with another branch, kind, model or task ids than
+# the first call's (ids expanded by `tower ids`, so an id tower refuses is
+# refused in its words), and a lane whose pane (herdr's pane_not_found) or
+# worktree is gone: the message says what to remove. A pane herdr cannot be
+# asked about is refused with nothing to remove; rerun once herdr answers.
+# Not resumed, but said: a worktree create that fails or answers with no pane
+# (remove what it made, then rerun), and a move whose answer names no pane
+# (the moved pane's id goes into the map by hand; the install ran before the
+# move).
 #
 # Never run this for real to see what it does; use DRY_RUN=1, which answers
 # every herdr, claude and codex call from tests/stub and opens nothing. tower
@@ -60,89 +74,119 @@ case "$LANE" in
   *) die "lane must be B, C or D (four lanes at most)" ;;
 esac
 PANE=$(lane_pane "$LANE")   # set: a rerun, the lane is already in the map
+UNPLACED=$(sed -nE "s/^unplaced lane $LANE: +([^ ]+).*/\1/p" "$MAP")   # set: a rerun after a failed move
 TARGET=$(lane_pane "$ANCHOR")
 [ -n "$TARGET" ] || die "lane $LANE goes under lane $ANCHOR, which does not exist yet"
 
 REPO_ROOT="$(repo_root)"
 WT="$REPO_ROOT/.worktrees/$BRANCH"
+AGENT_CHECKOUT="$WT"   # executor.sh: a codex lane's sandbox grant follows its worktree
+unset AGENT_LOOK       # executor.sh: look's worktree dir is a codex Reviewer's alone
 _here="$PWD"; cd "$REPO_ROOT"
-. "$KIT/detect-stack.sh"   # INSTALL_CMD, .orchestrate's EXECUTOR_* (the environment wins); refuses a bad run switch
+CONTRACT_RUN="$RUN_DIR" . "$KIT/detect-stack.sh"   # the run's pinned contract: INSTALL_CMD, .orchestrate's EXECUTOR_* (the environment wins); refuses a bad run switch
 cd "$_here"; unset _here
 . "$KIT/executor.sh"       # EXECUTOR_KIND, EXECUTOR_MODEL, agent_name, start_agent*
 NAME="$(agent_name "-lane-$(echo "$LANE" | tr 'A-Z' 'a-z')")"
 lane_line() { printf 'lane %s:         %s   (agent "%s", kind %s, branch %s, checkout %s, model %s)\n' \
   "$LANE" "$1" "$NAME" "$EXECUTOR_KIND" "$BRANCH" "$WT" "$EXECUTOR_MODEL"; }
 
-if [ -n "$PANE" ]; then
-  # A rerun. The lane's agent running means the lane exists. herdr not finding
-  # it means its start failed: start it again, in the lane's pane and worktree.
-  # Any other answer from herdr decides nothing.
-  case "$(state_of "$NAME")" in
-    gone) ;;
-    unreadable) die "lane $LANE: herdr cannot say whether agent $NAME runs; rerun once herdr answers" ;;
-    *) die "lane $LANE already exists (see $MAP)" ;;
-  esac
-  [ "$(grep "^lane $LANE:" "$MAP")" = "$(lane_line "$PANE")" ] \
+# A rerun's checks. $1 is the lane's line in the pane map as the first call
+# wrote it, $2 its pane, $3 what that line is called in a message.
+check_rerun() {
+  [ "$(grep -E "^(unplaced )?lane $LANE:" "$MAP")" = "$1" ] \
     || die "lane $LANE is in the pane map with another branch, kind or model; rerun with the ones it has (see $MAP)"
-  # The ids against what the lane owns on the board, read as tower reads them
-  # (src/ids.ts expandIds; tower has no command that expands without
-  # recording): tokens trimmed, empty ones dropped, an integer range expanded,
-  # zero-padded when both ends are written at the same width (07-09).
-  # An id tower refuses is refused with tower's words (the check exits 2;
-  # add-lane dies with its message).
+  # The ids against what the lane owns on the board, expanded by tower itself
+  # (tower ids, which records nothing). An id tower refuses is refused with
+  # tower's words.
+  local board want owned err
   board=$(tower state --json) || die "add-lane: tower state failed; rerun once tower answers"
-  rc=0; owned=$(printf '%s' "$board" | python3 -c 'import json,re,sys
-d=json.load(sys.stdin); want=set()
-def refuse(why): print(why); sys.exit(2)
-for t in map(str.strip, sys.argv[2].split(",")):
-    m = re.fullmatch(r"([0-9]+)-([0-9]+)", t)
-    if m:
-        lo, hi = m.groups()
-        if int(hi) < int(lo): refuse(f"range \"{t}\" runs backwards")
-        w = len(lo) if len(lo) == len(hi) else 0
-        want |= {str(n).zfill(w) for n in range(int(lo), int(hi) + 1)}
-    elif re.fullmatch(r"[A-Za-z]+-[A-Za-z]+", t):
-        refuse(f"range \"{t}\" must be integer to integer, like 7-9")
-    elif t and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", t):
-        refuse(f"\"{t}\" is not a valid task id (letters, digits, . _ -; no spaces)")
-    elif t:
-        want.add(t)
-have=d["lanes"].get(sys.argv[1], [])
-print(",".join(have)); sys.exit(0 if want == set(have) else 1)' "$LANE" "$TASKS") || rc=$?
-  case $rc in
-    0) ;;
-    2) die "add-lane: $owned" ;;
-    *) die "lane $LANE owns ${owned:-nothing} on the board, not $TASKS; rerun with those ids" ;;
-  esac
+  # stdout alone is the ids; tower's refusal is asked for again, on failure only.
+  want=$(tower ids -- "$TASKS" 2>/dev/null) \
+    || die "add-lane: $(tower ids -- "$TASKS" 2>&1 >/dev/null | sed -e '1s/^tower: //' -e '2,$s/^/   /')"
+  owned=$(printf '%s' "$board" | jsonq "','.join(d['lanes'].get('$LANE', []))")
+  [ "$(printf '%s\n' "$want" | sort)" = "$(printf '%s\n' "$owned" | tr , '\n' | sort)" ] \
+    || die "lane $LANE owns ${owned:-nothing} on the board, not $TASKS; rerun with those ids"
   # Only herdr's pane_not_found is a closed pane; any other failure says
   # nothing about it, and the map and the worktree stay.
-  if ! err=$(herdr pane get "$PANE" 2>&1 >/dev/null); then
+  if ! err=$(herdr pane get "$2" 2>&1 >/dev/null); then
     case "$err" in
-      *'"pane_not_found"'*) die "lane $LANE's pane $PANE is gone (herdr pane get): remove its line from $MAP and the worktree $WT, then add the lane again" ;;
-      *) die "herdr cannot say whether lane $LANE's pane $PANE is open; rerun once herdr answers (herdr: ${err:-no output})" ;;
+      *'"pane_not_found"'*)
+        # herdr gives a moved pane a new id: an unplaced pane that is gone may
+        # be in the grid already, its move done but not recorded.
+        [ "$3" != "unplaced line" ] \
+          || die "lane $LANE's pane $2 is gone (herdr pane get), or was moved without its new id recorded: look for $WT in the grid; if a pane has it, turn  unplaced lane $LANE: $2  in $MAP into  lane $LANE: <that pane's id>  (the rest as it is) and rerun, else remove the unplaced line from $MAP and the worktree $WT, then add the lane again"
+        die "lane $LANE's pane $2 is gone (herdr pane get): remove its $3 from $MAP and the worktree $WT, then add the lane again" ;;
+      *) die "herdr cannot say whether lane $LANE's pane $2 is open; rerun once herdr answers (herdr: ${err:-no output})" ;;
     esac
   fi
-  [ -d "$WT" ] || die "lane $LANE's checkout $WT is gone: close its pane $PANE and remove its line from $MAP, then add the lane again"
-  start_agent_with_trust_retry "$NAME" "$PANE" \
-    || die "add-lane: agent $NAME did not start in $PANE again; rerun  $KIT/add-lane.sh $RUN_DIR $LANE $BRANCH $BASE $TASKS  once it can"
+  [ -d "$WT" ] || die "lane $LANE's checkout $WT is gone: close its pane $2 and remove its $3 from $MAP, then add the lane again"
+}
+
+# Replaces the pane map's line matching $1 (a grep pattern) with $2, through a
+# scratch file of this call's own; on failure the map is kept whole and the
+# call dies with $3.
+replace_map_line() {
+  local tmp rc=0
+  tmp=$(mktemp "$MAP.XXXXXX") || die "$3"
+  grep -v "$1" "$MAP" > "$tmp" || rc=$?
+  { [ "$rc" -le 1 ] && echo "$2" >> "$tmp"; } || { rm -f "$tmp"; die "$3"; }
+  mv "$tmp" "$MAP"
+}
+set_lane_line() { replace_map_line "^lane $LANE:" "$1" "add-lane: could not rewrite $MAP; set lane $LANE's line to  $1  and rerun"; }
+RERUN="$KIT/add-lane.sh $RUN_DIR $LANE $BRANCH $BASE $TASKS"
+STARTED_AGAIN="started again"
+
+if [ -n "$PANE" ]; then
+  # A rerun. A line still ending in " starting" is a start that failed: its
+  # agent is taken when it accepts input, started again when herdr does not
+  # find it, and otherwise left to the human. On a started lane, its agent
+  # running means the lane exists, and herdr not finding it means it is
+  # started again. Any other answer from herdr decides nothing.
+  STARTING=""; case "$(grep -E "^lane $LANE:" "$MAP")" in *" starting") STARTING=" starting" ;; esac
+  state=$(state_of "$NAME")
+  case "$state" in
+    gone) ;;
+    unreadable) die "lane $LANE: herdr cannot say whether agent $NAME runs; rerun once herdr answers" ;;
+    *) [ -n "$STARTING" ] || die "lane $LANE already exists (see $MAP)" ;;
+  esac
+  check_rerun "$(lane_line "$PANE")$STARTING" "$PANE" line
+  if [ "$state" = gone ]; then
+    set_lane_line "$(lane_line "$PANE") starting"
+    start_agent_with_trust_retry "$NAME" "$PANE" \
+      || die "add-lane: agent $NAME is not ready in $PANE; lane $LANE is in the pane map, starting: rerun  $RERUN  to resume it"
+  else
+    ready=$(ready_of "$NAME")
+    [ "$ready" = ready ] || die "add-lane: agent $NAME is in $PANE but does not accept input ($ready): answer or end it there, then rerun  $RERUN"
+    STARTED_AGAIN="resumed"
+  fi
+  set_lane_line "$(lane_line "$PANE")"
   [ -f "$WT/.env" ] || cp "$REPO_ROOT/.env" "$WT/.env" 2>/dev/null || true
-  echo "lane $LANE ready: agent $NAME in $PANE (started again) — next:  tower brief $LANE > $RUN_DIR/brief-$LANE.md, add the judgement (brief-template.md, with merge points in both briefs), then  herdr agent prompt $NAME \"\$(cat $RUN_DIR/brief-$LANE.md)\""
+  echo "lane $LANE ready: agent $NAME in $PANE ($STARTED_AGAIN) — next:  tower brief $LANE > $RUN_DIR/brief-$LANE.md, add the judgement (brief-template.md, with merge points in both briefs), then  herdr agent prompt $NAME \"\$(cat $RUN_DIR/brief-$LANE.md)\""
   exit 0
 fi
 
-# Ownership first: tower refuses an unknown id, so a typo stops here, before a
-# worktree exists.
-tower assign "$LANE" "$TASKS"
-
-out=$(herdr worktree create --cwd "$REPO_ROOT" --branch "$BRANCH" --base "$BASE" --path "$WT" --label "$NAME" --no-focus)
-WT_PANE=$(echo "$out" | jsonq 'd["result"]["root_pane"]["pane_id"]')
-PANE=$(herdr pane move "$WT_PANE" --tab "$HERDR_TAB_ID" --split "$SPLIT" --target-pane "$TARGET" --ratio 0.5 --no-focus \
-  | jsonq 'd["result"].get("move_result", d["result"])["pane"]["pane_id"]')
-
+if [ -n "$UNPLACED" ]; then
+  # A rerun after a failed move: the worktree and its pane exist and the ids
+  # are assigned. Only the move and what follows it are left.
+  check_rerun "unplaced $(lane_line "$UNPLACED")" "$UNPLACED" "unplaced line"
+  WT_PANE="$UNPLACED"
+else
+  # Ownership first: tower refuses an unknown id, so a typo stops here, before
+  # a worktree exists.
+  tower assign -- "$LANE" "$TASKS"
+  out=$(herdr worktree create --cwd "$REPO_ROOT" --branch "$BRANCH" --base "$BASE" --path "$WT" --label "$NAME" --no-focus) \
+    || die "add-lane: herdr worktree create failed: remove $WT and branch $BRANCH if they exist, then rerun  $KIT/add-lane.sh $RUN_DIR $LANE $BRANCH $BASE $TASKS"
+  WT_PANE=$(echo "$out" | jsonq 'd["result"]["root_pane"]["pane_id"]' 2>/dev/null) \
+    || die "add-lane: herdr created $WT but its answer names no pane: close the pane labelled $NAME, remove $WT and branch $BRANCH, then rerun  $KIT/add-lane.sh $RUN_DIR $LANE $BRANCH $BASE $TASKS"
+  # The new pane goes into the map before it is moved: a move that fails
+  # leaves a lane a rerun can place.
+  echo "unplaced $(lane_line "$WT_PANE")" >> "$MAP"
+fi
 # The install runs here, not typed into the pane: text sent to a shell that is
 # still starting up can be swallowed by a startup hook reading the tty (the
 # oh-my-zsh dotenv plugin does exactly that when it finds a .env). Same wait
-# as before, from a subshell, with the output kept in the run dir.
+# as before, from a subshell, with the output kept in the run dir. It runs
+# before the move, so a lane placed by hand after a failed move is installed.
 INSTALL_LOG="$RUN_DIR/install-$LANE.log"
 if [ -z "$INSTALL_CMD" ]; then echo "add-lane: no install: $INSTALL_WHY"
 elif [ "${DRY_RUN:-0}" = 1 ]; then echo "[dry-run] (cd $WT && $INSTALL_CMD) > $INSTALL_LOG"
@@ -151,11 +195,21 @@ elif ! ( cd "$WT" && eval "$INSTALL_CMD" ) >"$INSTALL_LOG" 2>&1; then
   tail -n 5 "$INSTALL_LOG" >&2
 fi
 
-# The lane goes into the map before its agent starts, as bootstrap's does: a
-# start that fails leaves a lane a rerun can resume.
-lane_line "$PANE" >> "$MAP"
+moved=$(herdr pane move "$WT_PANE" --tab "$HERDR_TAB_ID" --split "$SPLIT" --target-pane "$TARGET" --ratio 0.5 --no-focus) \
+  || die "add-lane: herdr could not move lane $LANE's pane $WT_PANE into the grid; it is in the pane map as unplaced: rerun  $KIT/add-lane.sh $RUN_DIR $LANE $BRANCH $BASE $TASKS  to place it"
+PANE=$(echo "$moved" | jsonq 'd["result"].get("move_result", d["result"])["pane"]["pane_id"]' 2>/dev/null) \
+  || die "add-lane: herdr moved lane $LANE's pane $WT_PANE but its answer names no pane: find the lane's pane in the grid (checkout $WT), turn  unplaced lane $LANE: $WT_PANE  in $MAP into  lane $LANE: <that pane's id>  (the rest as it is), and rerun  $KIT/add-lane.sh $RUN_DIR $LANE $BRANCH $BASE $TASKS"
+
+# The lane goes into the map, in place of its unplaced line, before its agent
+# starts, as bootstrap's does: a start that fails leaves a lane a rerun can
+# resume.
+# The read is checked on its own: grep's 1 is no line left, anything else a
+# failed read, which stops here with the map as it was.
+rewrite_failed="add-lane: could not rewrite $MAP; lane $LANE's pane is $PANE: turn its unplaced line into  lane $LANE: $PANE  (the rest as it is) and rerun"
+replace_map_line "^unplaced lane $LANE:" "$(lane_line "$PANE") starting" "$rewrite_failed"
 start_agent_with_trust_retry "$NAME" "$PANE" \
-  || die "add-lane: agent $NAME did not start in $PANE; lane $LANE is in the pane map: rerun  $KIT/add-lane.sh $RUN_DIR $LANE $BRANCH $BASE $TASKS  to start it again"
+  || die "add-lane: agent $NAME is not ready in $PANE; lane $LANE is in the pane map, starting: rerun  $RERUN  to resume it"
+set_lane_line "$(lane_line "$PANE")"
 
 # .env (gitignored) only after the agent owns the pane: the pane's shell must
 # never see a .env at startup or on a cd, or a dotenv-style plugin prompts and

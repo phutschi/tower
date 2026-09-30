@@ -16,7 +16,8 @@
 # pane map's switches: line, the run's values from bootstrap; this call's
 # environment wins over them). It works in lane A's checkout, read from the
 # pane map. <run-dir> and <findings-file> may be relative to where it is
-# called. The title must not hold a tab or a newline.
+# called. The title must not hold a tab, a newline or another control
+# character: one that does is refused before anything is written.
 #
 # The first call opens the review tab with two panes, slots R1 and R2, in the
 # run's workspace (the orchestrator pane's, from the pane map; an orchestrator
@@ -45,8 +46,25 @@
 #   the pane map (<run-dir>/panes.txt):
 #     review tab:     <tab-id>   (R1 <pane-id>, R2 <pane-id>)   once, on the first call
 #     reviewer R1:    <pane-id>   (agent "<name>", kind <kind>, model <model>, review "<title>", findings <file>)
-#   one reviewer line per slot, replaced by each new review in that slot;
-#   the directory of <findings-file>.
+#   one reviewer line per slot, replaced by each new review in that slot. It
+#   is written before the agent starts, ending in " starting" until the agent
+#   accepts input: a start that fails leaves it so, says to rerun, and a rerun
+#   for the slot resumes that review under the same agent and task while
+#   nobody has worked on the task. The agent left in the slot, when it is of
+#   this call's kind and model, is kept once it accepts input ("resuming
+#   ..."): one herdr says does not accept input yet is waited for as a start
+#   is (READY_WAIT_SECONDS), and when it still does not, the call fails,
+#   saying it is still starting and that a rerun resumes it. Any other agent
+#   left there is ended as a previous Reviewer is, then started again;
+#   the directory of <findings-file>;
+#   for a codex Reviewer, <run-dir>/tmp: the commands it runs get it as
+#   TMPDIR, BUN_TMPDIR, BUN_INSTALL_CACHE_DIR and npm_config_cache, since its
+#   sandbox writes only the checkout and the run dir (executor.sh AGENT_TMP);
+#   for a codex Reviewer, $XDG_STATE_HOME/tower/look (mode 700), which its
+#   sandbox may write so preflight's look.sh can make its temp worktree and
+#   keep its verdict files there (executor.sh AGENT_LOOK); no lane is granted
+#   it, and it is granted only where look.sh --dir accepts it (a refusal
+#   fails the call before anything is written).
 #
 # The Reviewer ends its report with  [[FINDINGS WRITTEN]] <findings-file>;
 # watch-lanes.sh then reads it as idle-after-final-report. The review tab and
@@ -58,6 +76,11 @@
 #
 # START_TRIES (environment, default 10): how often an agent start is tried,
 # a second apart, while its new pane's shell is not ready yet (executor.sh).
+# The agent is reported ready only once it accepts input (herdr's
+# interactive_ready), read about a second apart READY_WAIT_SECONDS times
+# (default 30) after START_SETTLE_SECONDS (default 3); one that exits right
+# after its start is started once more, and one that never accepts input
+# fails the call and is left running in its pane (executor.sh).
 #
 # Never run this for real to see what it does; use DRY_RUN=1, which answers
 # every herdr, claude and codex call from tests/stub and opens nothing. tower
@@ -74,6 +97,8 @@ RUN_DIR="$1"; SLOT="$2"; LANE_KIND="$3"; TITLE="$4"; FINDINGS="$5"; LANE="${6:-}
 MAP="$RUN_DIR/panes.txt"
 [ -f "$MAP" ] || die "no pane map at $MAP: run bootstrap.sh first"
 case "$SLOT" in R1|R2) ;; *) die "slot must be R1 or R2 (got '$SLOT')" ;; esac
+# The title is one field of the slot's pane map line (and of the board).
+case "$TITLE" in *[[:cntrl:]]*) die "the review title must not hold a tab, a newline or another control character" ;; esac
 # Absolute, since the rest runs from lane A's checkout.
 RUN_DIR="$(cd "$RUN_DIR" && pwd)"; MAP="$RUN_DIR/panes.txt"
 # Every tower call is about this run, wherever it is called from.
@@ -108,16 +133,31 @@ if [ -n "$LANE" ]; then
 else
   _line=$(grep -E "^lane [A-D]: +[^ ]+ +\(agent \"[^\"]*\", kind $LANE_KIND, " "$MAP" | head -1 || true)
 fi
-LANE_MODEL=$(echo "$_line" | sed -nE 's/.*, model (.*)\)$/\1/p'); unset _line _kind
+LANE_MODEL=$(echo "$_line" | sed -nE 's/.*, model (.*)\)( starting)?$/\1/p')   # a lane still starting too; unset _line _kind
 
 _here="$PWD"; cd "$REPO"
-. "$KIT/detect-stack.sh"   # REVIEWER_KIND, REVIEWER_MODEL (the environment wins)
+CONTRACT_RUN="$RUN_DIR" . "$KIT/detect-stack.sh"   # the run's pinned contract: REVIEWER_KIND, REVIEWER_MODEL (the environment wins)
 . "$KIT/executor.sh"       # reviewer_for, agent_name, start_agent*
 cd "$_here"; unset _here
 _rev=$(reviewer_for "$LANE_KIND" "$LANE_MODEL")
 IFS=$'\t' read -r R_KIND R_MODEL R_NOTE <<< "$_rev"; unset _rev
 # start_agent starts EXECUTOR_KIND on EXECUTOR_MODEL: here, the Reviewer.
 EXECUTOR_KIND=$R_KIND; EXECUTOR_MODEL=$R_MODEL
+# A codex Reviewer is handed <run-dir>/tmp as a TOML string, which cannot
+# hold a control character: refused before anything is written.
+case "$R_KIND:$RUN_DIR" in
+  codex:*[[:cntrl:]]*) die "the run dir $RUN_DIR holds a control character; a codex Reviewer cannot be given its tmp: use a run dir without one" ;;
+esac
+# A codex Reviewer may also write where look.sh makes its temp worktree and
+# keeps its verdict files, which no lane may write: it alone is granted it
+# (executor.sh AGENT_LOOK), after look's own check of that dir (look.sh --dir:
+# never a symlink, a dir not the user's, or one under the git dir, the run
+# dir, a worktree of the repo, TMPDIR or /tmp), so the two refuse the same.
+AGENT_LOOK=""
+if [ "$R_KIND" = codex ]; then
+  AGENT_LOOK=$(cd "$REPO" && TOWER_RUN="$RUN_DIR" "$(dirname "$KIT")/preflight/look.sh" --dir) \
+    || die "add-reviewer: a codex Reviewer is not granted look's worktree dir (see above); fix it, then rerun"
+fi
 
 TAB_LINE=$(sed -nE 's/^review tab: +(.*)$/\1/p' "$MAP")
 slot_pane() { echo "$TAB_LINE" | sed -nE "s/.*[(, ]$1 ([^,)]+).*/\\1/p"; }
@@ -131,11 +171,48 @@ slot_pane() { echo "$TAB_LINE" | sed -nE "s/.*[(, ]$1 ([^,)]+).*/\\1/p"; }
 # second's pause before it, and Enter again about every 3 seconds while the
 # Reviewer is still there. An extra Enter at a shell prompt does nothing.
 # EXIT_WAIT_SECONDS counts checks about a second apart.
-PREV=$(sed -nE "s/^reviewer $SLOT: +[^ ]+ +\\(agent \"([^\"]+)\".*/\\1/p" "$MAP")
-N=1
+# The reviewer line is written before its agent starts, ending in " starting"
+# until the agent accepts input. A line still ending so, whose task nobody has
+# worked on (pending on the board, or not there), is a start that failed: a
+# rerun resumes that review, under the same agent name and task. Its agent,
+# still in the slot and of this call's kind and model, is kept once it accepts
+# input (executor.sh ready_of), waited for while it does not yet; otherwise it
+# is ended as above, then started again. A starting line whose task was
+# worked on is a review that happened: the next one starts fresh.
+RERUN_ARGS=$(printf ' %q' "$RUN_DIR" "$SLOT" "$LANE_KIND" "$TITLE" "$FINDINGS" ${LANE:+"$LANE"})
+PREV_LINE=$(grep -E "^reviewer $SLOT: " "$MAP" || true)
+PREV=$(echo "$PREV_LINE" | sed -nE "s/^reviewer $SLOT: +[^ ]+ +\\(agent \"([^\"]+)\".*/\\1/p")
+N=1; RESUME=0; KEEP=0
 if [ -n "$PREV" ]; then
   N=$(( ${PREV##*-} + 1 ))
-  case "$(state_of "$PREV")" in
+  case "$PREV_LINE" in
+    *" starting")
+      prev_status=$(tower state --json | jsonq "next((t.get('status', '?') for t in d['tasks'] if t['id'] == '$SLOT-${PREV##*-}'), 'missing')") \
+        || die "add-reviewer: tower state failed; rerun once tower answers"
+      case "$prev_status" in pending|missing) RESUME=1; N=${PREV##*-} ;; esac ;;
+  esac
+  # A resumed review's agent of this call's kind and model is kept once it
+  # accepts input, working or not; one that does not yet is still starting,
+  # and is waited for as its start waits (executor.sh until_ready, whose own
+  # next step is for a fresh start, so not printed here). After a wait that
+  # ran out, one more read decides: still starting fails, saying a rerun
+  # resumes it; gone, unreadable or any other state goes on below.
+  if [ "$RESUME" = 1 ] && [[ "$PREV_LINE" == *", kind $R_KIND, model $R_MODEL, review "* ]]; then
+    case "$(ready_of "$PREV")" in
+      ready) KEEP=1 ;;
+      *", not ready for input")
+        rc=0; until_ready "$PREV" "$(slot_pane "$SLOT")" 2>/dev/null || rc=$?
+        [ "$rc" != 0 ] || KEEP=1
+        if [ "$rc" = 2 ]; then
+          case "$(ready_of "$PREV")" in
+            ready) KEEP=1 ;;
+            *", not ready for input")
+              die "Reviewer $PREV is still starting in $(slot_pane "$SLOT"): rerun  $KIT/add-reviewer.sh$RERUN_ARGS  to resume it once it accepts input" ;;
+          esac
+        fi ;;
+    esac
+  fi
+  [ "$KEEP" = 1 ] || case "$(state_of "$PREV")" in
     gone) ;;
     working) die "Reviewer $PREV is still working in $SLOT: wait until the slot is free, or use the other slot" ;;
     unreadable) die "herdr cannot say whether Reviewer $PREV is still there (herdr agent get $PREV fails); rerun once herdr answers" ;;
@@ -181,7 +258,8 @@ if ! out=$(tower add "$TITLE" --id "$ID" --area review --lane "$SLOT" 2>&1); the
   tower change "$ID" --title "$TITLE" >/dev/null
   REUSED=1
 fi
-[ "$REUSED" = 0 ] || echo "reusing task $ID: an earlier call for $SLOT added it, but its Reviewer did not start"
+if [ "$REUSED" = 1 ] && [ "$KEEP" = 1 ]; then echo "reusing task $ID: the review resumed below"
+elif [ "$REUSED" = 1 ]; then echo "reusing task $ID: an earlier call for $SLOT added it, but its Reviewer did not start"; fi
 
 # --- the review tab, on the first call ----------------------------------------
 if [ -z "$TAB_LINE" ]; then
@@ -198,12 +276,25 @@ PANE=$(slot_pane "$SLOT")
 # --- a fresh Reviewer in the slot ---------------------------------------------
 NAME="$(cd "$REPO" && agent_name "-$(echo "$SLOT" | tr 'A-Z' 'a-z')-$N")"
 mkdir -p "$(dirname "$FINDINGS")"
-( cd "$REPO" && start_agent_with_trust_retry "$NAME" "$PANE" )
-
+# A codex Reviewer's sandbox writes only the checkout and the run dir: its
+# temp files and package caches (bunx, npm) go to the run dir's tmp.
+if [ "$R_KIND" = codex ]; then AGENT_TMP="$RUN_DIR/tmp"; mkdir -p "$AGENT_TMP"; fi
 LINE=$(printf 'reviewer %s:    %s   (agent "%s", kind %s, model %s, review "%s", findings %s)' \
   "$SLOT" "$PANE" "$NAME" "$R_KIND" "$R_MODEL" "$TITLE" "$FINDINGS")
-{ grep -v "^reviewer $SLOT:" "$MAP" || [ $? -eq 1 ]; } > "$MAP.tmp"
-echo "$LINE" >> "$MAP.tmp"; mv "$MAP.tmp" "$MAP"
+# The map is rewritten through a temp file of this call's own: the other
+# slot's add-reviewer may be rewriting it too.
+slot_line() {
+  local tmp; tmp=$(mktemp "$MAP.XXXXXX")
+  { grep -v "^reviewer $SLOT:" "$MAP" || [ $? -eq 1 ]; } > "$tmp"
+  echo "$1" >> "$tmp"; mv "$tmp" "$MAP"
+}
+slot_line "$LINE starting"
+if [ "$KEEP" = 1 ]; then echo "resuming $NAME in $PANE: its start failed earlier, and it now accepts input"
+else
+  ( cd "$REPO" && start_agent_with_trust_retry "$NAME" "$PANE" ) \
+    || die "add-reviewer: Reviewer $NAME is not ready in $PANE; its review is in the pane map, starting: rerun  $KIT/add-reviewer.sh$RERUN_ARGS  to resume it"
+fi
+slot_line "$LINE"
 
 [ -z "$R_NOTE" ] || echo "reviewer: $R_NOTE"
 echo "reviewer $SLOT ready (task $ID): agent $NAME ($R_KIND, $R_MODEL) in $PANE — next: write $RUN_DIR/brief-$ID.md from brief-template.md (a Reviewer brief; findings to $FINDINGS), then  herdr agent prompt $NAME \"\$(cat $RUN_DIR/brief-$ID.md)\"  and add $NAME to watch-lanes.sh"
