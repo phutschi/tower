@@ -10,7 +10,7 @@
 #   pane checks "bun test --watch"      pane NAME "CMD" [DIR]; DIR relative to the checkout
 #   pane dev    "bun run dev" apps/web  only checks and dev are placed
 #   EXECUTOR_KIND=codex                 the lanes' harness: claude (default) | codex
-#   EXECUTOR_MODEL=gpt-6-astra          the lanes' model (executor.sh has the kind's default)
+#   EXECUTOR_MODEL=gpt-6-astra          the lanes' model (model-defaults has each kind's default)
 #   SPEC_REVIEWER_MODEL=sonnet          the two reviewer models tower records for the run
 #   QUALITY_REVIEWER_MODEL=opus
 #   STALE=30                            minutes before the console and tower wait flag a lane as stale

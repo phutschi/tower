@@ -68,11 +68,8 @@ unset EXECUTOR_KIND EXECUTOR_MODEL SPEC_REVIEWER_MODEL QUALITY_REVIEWER_MODEL ST
   CHECK_CMD INSTALL_CMD TEST_PKG TEST_FILTER LANES TASK_REVIEW LANE_REVIEW PREFLIGHT STATIC_BASELINE PR METHOD \
   REVIEWER_KIND REVIEWER_MODEL REVIEW_AREAS SUITE_SKIP PR_TEMPLATE
 # The model defaults (model-defaults): the kit's file, never the calling shell's keys.
-unset MODEL_DEFAULTS_FILE REVIEWER_CREDITS_MIN \
-  EXECUTOR_MODEL_CLAUDE EXECUTOR_MODEL_CODEX EXECUTOR_MODEL_CURSOR \
-  REVIEWER_MODEL_CLAUDE REVIEWER_MODEL_CODEX REVIEWER_MODEL_CURSOR REVIEWER_MODEL_CLAUDE_SELF \
-  SPEC_REVIEWER_MODEL_CLAUDE SPEC_REVIEWER_MODEL_CODEX SPEC_REVIEWER_MODEL_CURSOR \
-  QUALITY_REVIEWER_MODEL_CLAUDE QUALITY_REVIEWER_MODEL_CODEX QUALITY_REVIEWER_MODEL_CURSOR
+# shellcheck disable=SC2046  # the file's keys, one word each
+unset MODEL_DEFAULTS_FILE $(sed -n 's/^\([A-Z_]*\)=.*/\1/p' "$KIT/model-defaults")
 mkdir -p "$HERDR_STUB_STATES_DIR"
 
 # Guard: every section below runs herdr/tower/claude/codex calls through common.sh's
@@ -1260,6 +1257,21 @@ if section model-defaults; then
   assert_eq "model-defaults: the repo contract's reviewer models win" "$(board "$RUN" "$roles")" \
     "implementer=lane-c quality-reviewer=quality-c spec-reviewer=spec-c"
   assert_match "model-defaults: REVIEWER_MODEL in the repo contract wins" "$(cat "$RUN/panes.txt")" '^reviewer: +kind codex, model rev-c$'
+  assert_eq "model-defaults: a per-kind key in the environment wins over the file" \
+    "$(REVIEWER_MODEL_CODEX=rev-env rev claude)" "codex${T}rev-env${T}"
+  # A key the file lacks is refused, never an agent on an empty model.
+  grep -v '^EXECUTOR_MODEL_CLAUDE=' "$KIT/model-defaults" > "$TMP/md-nokey"
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-md-nokey"; reset_stub
+  out=$(MODEL_DEFAULTS_FILE="$TMP/md-nokey" boot "$r" "$RUN" "No key" main; echo "exit=$?")
+  assert_match "model-defaults: a missing key fails bootstrap" "$out" 'exit=[1-9][0-9]*$'
+  assert_match "model-defaults: ... naming the key and the file" "$out" "no EXECUTOR_MODEL_CLAUDE in $TMP/md-nokey"
+  assert_nomatch "model-defaults: ... and starts no agent" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start '
+  grep -v '^REVIEWER_MODEL_CODEX=' "$KIT/model-defaults" > "$TMP/md-norev"
+  out=$(HOME="$TMP/md-home" MODEL_DEFAULTS_FILE="$TMP/md-norev" in_kit ". \"\$KIT/executor.sh\"; reviewer_for claude; echo \"exit=\$?\"")
+  assert_match "model-defaults: a missing Reviewer key is refused" "$out" "no REVIEWER_MODEL_CODEX in $TMP/md-norev"
+  assert_nomatch "model-defaults: ... with no Reviewer line" "$out" "^codex$T"
+  out=$(HOME="$TMP/md-home" MODEL_DEFAULTS_FILE="$TMP/nope" in_kit ". \"\$KIT/executor.sh\"; echo \"exit=\$?\"")
+  assert_match "model-defaults: a missing file is refused" "$out" "no EXECUTOR_MODEL_CLAUDE in $TMP/nope"
   # No model id is left in the kit's logic; cursor's defaults are Grok -fast only.
   assert_nomatch "model-defaults: no model id in executor.sh or bootstrap.sh" \
     "$(cat "$KIT/executor.sh" "$KIT/bootstrap.sh")" '(claude-(opus|sonnet|fable|haiku)|gpt-[0-9]|grok-|\b(sonnet|opus|haiku)\b)'

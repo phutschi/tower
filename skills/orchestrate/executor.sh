@@ -4,8 +4,8 @@
 # bootstrap or add-lane call overrides it (so source detect-stack.sh first).
 # EXECUTOR_MODEL overrides the kind's default model the same way. Every
 # default model is data: EXECUTOR_MODEL_<KIND> and the Reviewer's keys in
-# model-defaults (MODEL_DEFAULTS_FILE, default $KIT/model-defaults), which a
-# value in the call's environment or the repo contract replaces (ADR 0012).
+# model-defaults (MODEL_DEFAULTS_FILE, default $KIT/model-defaults), which the
+# same key in the call's environment replaces (ADR 0012).
 #
 #   claude: started with --model.
 #   codex:  started with -m, no approval prompts (-a never), writes
@@ -49,20 +49,22 @@
 
 MODEL_DEFAULTS_FILE="${MODEL_DEFAULTS_FILE:-$KIT/model-defaults}"
 
-# KEY's default: its value in this shell (the call's environment or the repo
-# contract) when set, else the model-defaults file's (ADR 0012).
+# KEY's default: its value in this shell (the call's environment) when set,
+# else the model-defaults file's (ADR 0012). A key neither sets fails,
+# saying so: a caller runs it as  v=$(model_default KEY) || exit 1 .
 model_default() {
   local key="$1"
   if [ -n "${!key:-}" ]; then printf '%s\n' "${!key}"; return; fi
   # shellcheck source=/dev/null  # the kit's data file, or a test's copy
-  ( unset "$key"; . "$MODEL_DEFAULTS_FILE" && printf '%s\n' "${!key:-}" )
+  ( unset "$key"; . "$MODEL_DEFAULTS_FILE" 2>/dev/null && [ -n "${!key:-}" ] && printf '%s\n' "${!key}" ) \
+    || { echo "model-defaults: no $key in $MODEL_DEFAULTS_FILE" >&2; return 1; }
 }
 # VAR's default for KIND: VAR_<KIND upper>, e.g. kind_default EXECUTOR_MODEL codex.
 kind_default() { model_default "$1_$(printf '%s' "$2" | tr '[:lower:]' '[:upper:]')"; }
 
 EXECUTOR_KIND="${EXECUTOR_KIND:-claude}"
 case "$EXECUTOR_KIND" in
-  claude|codex) EXECUTOR_MODEL="${EXECUTOR_MODEL:-$(kind_default EXECUTOR_MODEL "$EXECUTOR_KIND")}" ;;
+  claude|codex) [ -n "${EXECUTOR_MODEL:-}" ] || EXECUTOR_MODEL=$(kind_default EXECUTOR_MODEL "$EXECUTOR_KIND") || exit 1 ;;
   *) echo "EXECUTOR_KIND must be claude or codex (got '$EXECUTOR_KIND')" >&2; exit 2 ;;
 esac
 
@@ -270,12 +272,12 @@ reviewer_for() {
     *) die "REVIEWER_KIND must be other, claude or codex (got '$REVIEWER_KIND')" ;;
   esac
   case "$kind:$lane" in
-    codex:claude|claude:codex) model=$(kind_default REVIEWER_MODEL "$kind") ;;
-    claude:claude) model=$(model_default REVIEWER_MODEL_CLAUDE_SELF) ;;
+    codex:claude|claude:codex) model=$(kind_default REVIEWER_MODEL "$kind") || exit 1 ;;
+    claude:claude) model=$(model_default REVIEWER_MODEL_CLAUDE_SELF) || exit 1 ;;
     codex:codex)
       if [ -n "$lane_model" ]; then model=$lane_model
       elif [ "$EXECUTOR_KIND" = codex ]; then model=$EXECUTOR_MODEL
-      else model=$(kind_default EXECUTOR_MODEL codex); fi ;;
+      else model=$(kind_default EXECUTOR_MODEL "$lane") || exit 1; fi ;;
   esac
   model="${REVIEWER_MODEL:-$model}"
   printf '%s\t%s\t%s\n' "$kind" "$model" "$note"
