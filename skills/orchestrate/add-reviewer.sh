@@ -126,6 +126,11 @@ _rev=$(reviewer_for "$LANE_KIND" "$LANE_MODEL")
 IFS=$'\t' read -r R_KIND R_MODEL R_NOTE <<< "$_rev"; unset _rev
 # start_agent starts EXECUTOR_KIND on EXECUTOR_MODEL: here, the Reviewer.
 EXECUTOR_KIND=$R_KIND; EXECUTOR_MODEL=$R_MODEL
+# A codex Reviewer is handed <run-dir>/tmp as a TOML string, which cannot
+# hold a control character: refused before anything is written.
+case "$R_KIND:$RUN_DIR" in
+  codex:*[[:cntrl:]]*) die "the run dir $RUN_DIR holds a control character; a codex Reviewer cannot be given its tmp: use a run dir without one" ;;
+esac
 
 TAB_LINE=$(sed -nE 's/^review tab: +(.*)$/\1/p' "$MAP")
 slot_pane() { echo "$TAB_LINE" | sed -nE "s/.*[(, ]$1 ([^,)]+).*/\\1/p"; }
