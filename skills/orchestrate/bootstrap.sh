@@ -183,12 +183,12 @@ herdr pane run "$CONSOLE_PANE" "tower --stale $STALE" >/dev/null
 } > "$RUN_DIR/panes.txt"
 
 # bootstrap has no rerun: an agent left running is briefed once it accepts
-# input; with none there, the run starts over; when herdr cannot answer, the
-# pane tells which.
+# input; with none there, the run starts over; when herdr cannot answer, a
+# look at the pane tells which it is.
 if ! start_agent_with_trust_retry "$LANE_A" "$LANE_A_PANE"; then
   case "$(state_of "$LANE_A")" in
     gone) die "bootstrap: lane A's agent $LANE_A is not running in $LANE_A_PANE: see above for why, then rerun bootstrap.sh with a new run dir" ;;
-    unreadable) die "bootstrap: herdr cannot say whether lane A's agent $LANE_A runs in $LANE_A_PANE: check that pane: with the agent there, brief it once  herdr agent get $LANE_A  answers with interactive_ready true (the run and its pane map, $RUN_DIR/panes.txt, are set up); with none, rerun bootstrap.sh with a new run dir" ;;
+    unreadable) die "bootstrap: herdr cannot say whether lane A's agent $LANE_A runs in $LANE_A_PANE; the run and its pane map ($RUN_DIR/panes.txt) are set up: check that pane, and with the agent there brief it once  herdr agent get $LANE_A  shows interactive_ready true; with none, rerun bootstrap.sh with a new run dir" ;;
   esac
   die "bootstrap: lane A's agent $LANE_A is not ready in $LANE_A_PANE; the run and its pane map ($RUN_DIR/panes.txt) are set up: see above for the agent, and brief it once it accepts input"
 fi
