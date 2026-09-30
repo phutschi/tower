@@ -49,6 +49,10 @@
 #
 # START_TRIES (environment, default 10): how often an agent start is tried,
 # a second apart, while its new pane's shell is not ready yet (executor.sh).
+# The agent is reported ready only once it accepts input (herdr's
+# interactive_ready), read about a second apart READY_WAIT_SECONDS times
+# (default 30) after START_SETTLE_SECONDS (default 3); one that exits right
+# after its start is started once more (executor.sh).
 #
 # Never run this for real to see what it does; use DRY_RUN=1, which answers
 # every herdr, claude and codex call from tests/stub and opens nothing. tower

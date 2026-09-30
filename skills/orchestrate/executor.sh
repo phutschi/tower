@@ -14,13 +14,15 @@
 #           a codex that updates itself on start exits before its brief.
 #
 # Expects `set -u`; provides agent_name SUFFIX, start_agent NAME PANE,
-# start_agent_with_trust_retry NAME PANE (an agent that exits right after its
-# start is started once more, then the start fails), kind_installed KIND and
+# start_agent_with_trust_retry NAME PANE (it returns once the agent accepts
+# input; one that exits right after its start is started once more, then the
+# start fails), kind_installed KIND and
 # reviewer_for LANE_KIND [LANE_MODEL] (the Reviewer's kind and model; see below).
 # START_TRIES (default 10) is how often an agent start is tried, a second apart,
 # while herdr answers agent_pane_busy (a new pane's shell is not ready yet).
 # START_SETTLE_SECONDS (default 3) is how long a started agent is given before
-# it is read again to see it is still there.
+# it is read again; READY_WAIT_SECONDS (default 30) how many reads, about a
+# second apart, it then gets to accept input.
 
 EXECUTOR_KIND="${EXECUTOR_KIND:-claude}"
 case "$EXECUTOR_KIND" in
@@ -79,25 +81,55 @@ start_agent() {
 # first). Answer it, and try once more if herdr then says the agent is gone.
 # It returns 1, saying why, when the answer cannot be sent or the agent is
 # then neither working nor idle (blocked, herdr's unknown, anything else).
-# Once started, the agent must still be there START_SETTLE_SECONDS later: one
-# that exited right after its start (codex updating itself, say) is started
-# once more, and an exit after that fails the start, saying so.
+# Once started, the agent is given START_SETTLE_SECONDS, then read about once
+# a second (READY_WAIT_SECONDS checks, default 30) until it accepts input:
+# idle or working, and herdr's interactive_ready (an answer without that field
+# counts as ready: an older herdr). Only then is it ready. One that exited
+# (codex updating itself, say) is started once more, and an exit after that
+# fails the start, saying so; so does one that never accepts input.
 start_agent_with_trust_retry() {
-  local name="$1" pane="$2"
+  local name="$1" pane="$2" rc
   start_answering_trust "$name" "$pane" || return 1
-  stayed "$name" && return 0
+  rc=0; until_ready "$name" "$pane" || rc=$?
+  case $rc in 0) return 0 ;; 2) return 1 ;; esac
   echo "agent start: $name exited right after its start in pane $pane; starting it once more" >&2
   start_answering_trust "$name" "$pane" || return 1
-  stayed "$name" && return 0
+  rc=0; until_ready "$name" "$pane" || rc=$?
+  case $rc in 0) return 0 ;; 2) return 1 ;; esac
   echo "agent start: $name exited again after it was started once more in pane $pane; read the pane for why, then start it again" >&2
   return 1
 }
 
-# Is NAME still there once it had START_SETTLE_SECONDS to settle? Only herdr
-# saying agent_not_found is an exit (common.sh state_of).
-stayed() {
+# 0 once NAME accepts input; 1 when herdr says it is gone (agent_not_found);
+# 2, saying so, when READY_WAIT_SECONDS checks passed without either.
+until_ready() {
+  local name="$1" pane="$2" state checks=0
   [ "${DRY_RUN:-0}" = 1 ] || sleep "${START_SETTLE_SECONDS:-3}"
-  [ "$(state_of "$1")" != gone ]
+  while :; do
+    state=$(ready_of "$name"); checks=$((checks+1))
+    case "$state" in
+      ready) return 0 ;;
+      gone)  return 1 ;;
+    esac
+    [ "$checks" -lt "${READY_WAIT_SECONDS:-30}" ] || break
+    [ "${DRY_RUN:-0}" = 1 ] || sleep 1
+  done
+  echo "agent start: $name does not accept input in pane $pane after $checks checks ($state); read the pane, and start it again once it can" >&2
+  return 2
+}
+
+# NAME's readiness: ready, gone, unreadable (as common.sh state_of), or its
+# status when it does not accept input yet ("idle, not ready for input" when
+# herdr says idle but not interactive_ready).
+ready_of() {
+  local out err r
+  err=$(mktemp)
+  if out=$(herdr agent get "$1" 2>"$err"); then
+    r=$(echo "$out" | jsonq '(lambda a: "unreadable" if not a.get("agent_status") else "ready" if a["agent_status"] in ("idle", "working") and a.get("interactive_ready", True) else a["agent_status"] + ("" if a["agent_status"] not in ("idle", "working") else ", not ready for input"))((d.get("result") or {}).get("agent") or {})' 2>/dev/null) || r=unreadable
+  elif grep -q '"agent_not_found"' "$err"; then r=gone
+  else r=unreadable
+  fi
+  rm -f "$err"; echo "$r"
 }
 
 start_answering_trust() {

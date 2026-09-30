@@ -15,9 +15,12 @@
 # agent blocked during startup (a trust prompt), counted through
 # HERDR_STUB_COUNTER.trust. An `agent start <name>` that succeeds makes the
 # agent exist: its state file goes, so it answers working, unless
-# HERDR_STUB_STATES_DIR/<name>.started holds lines: each such start moves the
-# first one into the state file (the last one stays), as what the new agent
-# then answers ("gone": it exited right after its start).
+# HERDR_STUB_STATES_DIR/<name>.started holds lines: each such start takes the
+# first one (the last one stays) and writes its words, one per line, as the
+# state file, as what the new agent then answers ("gone": it exited right
+# after its start; "unready idle": not yet accepting input, then idle).
+# `agent get` answers interactive_ready true, false for the word "unready"
+# (an idle agent not accepting input yet).
 # HERDR_STUB_SEND_KEYS_FAIL=1: every `pane send-keys` fails.
 # HERDR_STUB_EXIT_ON_ENTER=N: every `agent get` answers gone once N `pane
 # send-keys ... Enter` calls were made (counted through
@@ -61,7 +64,7 @@ case "${1:-} ${2:-}" in
     fi
     name=$3
     if [ -n "$states" ] && [ -s "$states/$name.started" ]; then
-      head -1 "$states/$name.started" > "$states/$name"
+      head -1 "$states/$name.started" | tr ' ' '\n' > "$states/$name"
       [ "$(wc -l < "$states/$name.started")" -le 1 ] || { tail -n +2 "$states/$name.started" > "$states/$name.next"; mv "$states/$name.next" "$states/$name.started"; }
     elif [ -n "$states" ]; then
       rm -f "$states/$name"
@@ -84,8 +87,9 @@ case "${1:-} ${2:-}" in
     fi
     [ "$status" = gone ] && { echo '{"error":{"code":"agent_not_found"}}' >&2; exit 1; }
     [ "$status" = shapeless ] && { echo '{"result":{"agent":{"agent_status":null}}}'; exit 0; }
+    [ "$status" = unready ] && { echo '{"result":{"agent":{"agent_status":"idle","interactive_ready":false}}}'; exit 0; }
     [ "$status" = unreachable ] && { echo '{"error":{"code":"server_unavailable","message":"herdr server is not answering"}}' >&2; exit 1; }
-    echo "{\"result\":{\"agent\":{\"agent_status\":\"$status\"}}}" ;;
+    echo "{\"result\":{\"agent\":{\"agent_status\":\"$status\",\"interactive_ready\":true}}}" ;;
   "agent read")      [ -n "$states" ] && [ -f "$states/$3.tail" ] && cat "$states/$3.tail"; exit 0 ;;
   *)                 echo '{"result":{}}' ;;
 esac

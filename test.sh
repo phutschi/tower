@@ -172,6 +172,25 @@ if section executor; then
   out=$(start acme-lane-a HERDR_STUB_TRUST_STARTS=1)
   assert_eq "trust answered, then gone: started once more" "$(grep -c '^herdr agent start acme-lane-a ' "$HERDR_STUB_LOG")" 2
   assert_match "trust answered, then gone: ... then it runs" "$out" 'exit=0$'
+  # Ready means accepting input: herdr's interactive_ready. Until then the
+  # start waits (READY_WAIT_SECONDS checks), and fails when it never comes.
+  rm -f "$HERDR_STUB_STATES_DIR"/acme-lane-a*; echo "unready unready idle" > "$HERDR_STUB_STATES_DIR/acme-lane-a.started"
+  out=$(start acme-lane-a)
+  assert_match "not yet accepting input: waited for" "$out" 'exit=0$'
+  assert_eq "not yet accepting input: read until it does" "$(grep -c '^herdr agent get acme-lane-a$' "$HERDR_STUB_LOG")" 3
+  assert_eq "not yet accepting input: not started again" "$(grep -c '^herdr agent start acme-lane-a ' "$HERDR_STUB_LOG")" 1
+  echo unready > "$HERDR_STUB_STATES_DIR/acme-lane-a.started"
+  out=$(start acme-lane-a READY_WAIT_SECONDS=3)
+  assert_match "never accepting input: the start fails" "$out" 'exit=1$'
+  assert_match "never accepting input: ... saying so" "$out" 'acme-lane-a does not accept input in pane pane-9 after 3 checks \(idle, not ready for input\)'
+  assert_eq "never accepting input: READY_WAIT_SECONDS checks" "$(grep -c '^herdr agent get acme-lane-a$' "$HERDR_STUB_LOG")" 3
+  echo blocked > "$HERDR_STUB_STATES_DIR/acme-lane-a.started"
+  out=$(start acme-lane-a READY_WAIT_SECONDS=2)
+  assert_match "blocked after its start: fails, naming the state" "$out" 'acme-lane-a does not accept input in pane pane-9 after 2 checks \(blocked\)'
+  echo unreachable > "$HERDR_STUB_STATES_DIR/acme-lane-a.started"
+  out=$(start acme-lane-a READY_WAIT_SECONDS=2)
+  assert_match "herdr failing after the start: fails, saying herdr cannot tell" "$out" 'acme-lane-a does not accept input in pane pane-9 after 2 checks \(unreadable\)'
+  rm -f "$HERDR_STUB_STATES_DIR"/acme-lane-a*
   rm -f "$HERDR_STUB_STATES_DIR"/acme-lane-a*
 fi
 
@@ -827,6 +846,15 @@ if section add-reviewer; then
   assert_match "trust, send-keys failing: add-reviewer fails" "$out" 'exit=1$'
   assert_match "trust, send-keys failing: says so"     "$out" "could not answer bun-vitest-r1-1's trust prompt"
   assert_nomatch "trust, send-keys failing: no ready line" "$out" 'reviewer R1 ready'
+  # A Reviewer that never accepts input is not reported ready.
+  RUN6="$TMP/run-review-unready"
+  r=$(fixture_repo bun-vitest); (cd "$r" && "$KIT/bootstrap.sh" "$RUN6" "Unready" main >/dev/null 2>&1); reset_stub
+  echo unready > "$S/bun-vitest-r1-1.started"
+  out=$(cd "$r" && READY_WAIT_SECONDS=2 "$KIT/add-reviewer.sh" "$RUN6" R1 claude "Unready" "$RUN6/findings/a.json" 2>&1; echo "exit=$?")
+  rm -f "$S"/bun-vitest-r1-1*
+  assert_match "not accepting input: add-reviewer fails" "$out" 'exit=1$'
+  assert_match "not accepting input: says so"          "$out" 'bun-vitest-r1-1 does not accept input in pane pane-[0-9]+ after 2 checks'
+  assert_nomatch "not accepting input: no ready line"  "$out" 'reviewer R1 ready'
 fi
 
 # --- watch -------------------------------------------------------------------

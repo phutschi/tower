@@ -23,6 +23,10 @@
 #
 # START_TRIES (environment, default 10): how often an agent start is tried,
 # a second apart, while its new pane's shell is not ready yet (executor.sh).
+# The agent is reported ready only once it accepts input (herdr's
+# interactive_ready), read about a second apart READY_WAIT_SECONDS times
+# (default 30) after START_SETTLE_SECONDS (default 3); one that exits right
+# after its start is started once more (executor.sh).
 #
 # The lane's line goes into the pane map before its agent starts. When the
 # start fails, rerun the same call: when herdr does not find the lane's agent,
