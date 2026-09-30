@@ -17,6 +17,13 @@ All notable changes to this project are documented here. The format follows
 - preflight's `look.sh` refuses a repo contract (`.orchestrate`) that is
   untracked, differs from HEAD or is a symlink, as a setup error naming the
   file: it is bash look runs, and a Reviewer sees only what is committed.
+- preflight's `look.sh` looks at HEAD in a temp worktree of its own (`git
+  worktree add --detach`, removed on every exit): it reads the kit, the repo
+  contract and package.json there, installs with `INSTALL_CMD` there, and runs
+  the scanners and the suite there. Untracked files, index bits and dirty kit
+  files in the checkout no longer reach the look. What the suite changes is
+  now a `should-fix` suite finding in `look.json`, and the checkout is never
+  touched.
 - `add-lane.sh`'s rerun check reads task ids with `tower ids` instead of its
   own parser, so an id tower refuses is refused in tower's words.
 - `add-lane.sh` resumes a lane whose pane move failed after the worktree was

@@ -40,8 +40,9 @@ Find your role first; it decides which half you run.
   plus the findings you deferred during lane reviews.
 
 Look only reports. Whoever runs it (a Reviewer, or an area subagent) writes
-its findings file and nothing else: no edit, commit, push or PR. The one
-change it makes is putting back what the suite changed (look step 3).
+its findings file and nothing else: no edit, commit, push or PR. The suite
+runs in look's own temp worktree, so it changes nothing in the checkout
+(look step 3).
 
 ## Settings
 
@@ -70,7 +71,10 @@ run, the `switches:` line of `panes.txt` has the values the run uses.
    default (`git symbolic-ref --short refs/remotes/origin/HEAD`, minus
    `origin/`). Git commands take `origin/<base>`; `gh` takes `<base>`.
 3. **Static baseline and full suite.** Alone, or when your brief says so.
-   `look.sh` needs a clean tracked tree:
+   `look.sh` looks at HEAD, in a temp worktree of its own that it removes
+   afterwards: untracked files and index bits in the checkout do not reach
+   it, and it installs the suite's dependencies there (`INSTALL_CMD`). It
+   needs a clean tracked tree:
    `git status --short --untracked-files=no` prints nothing (untracked files
    are fine); it exits 2 otherwise. It also exits 2 when the repo contract
    (`.orchestrate`, or `.herdr-orchestrate`) is untracked, differs from HEAD
@@ -89,11 +93,10 @@ run, the `switches:` line of `panes.txt` has the values the run uses.
    as in a sandbox) or no longer has the branch, and the look ran against
    the base as last fetched.
    `base is stale`: the remote has moved on; alone, fetch and look again.
-   If `git status --short --untracked-files=no` now lists files, the suite
-   changed them: add a `should-fix` finding (area `suite`) naming them, and
-   put them back with `git checkout -- <files>`. The tree was clean, so this
-   returns the checkout to how look found it. Name new untracked files the
-   suite left in the same finding, and leave them in place.
+   Files the suite changed or left are in `look.json` as one `should-fix`
+   suite finding ("the suite changed tracked files" or "the suite left
+   untracked files"). They were changed in look's temp worktree, which is
+   gone: the checkout is as look found it, and there is nothing to put back.
    - Exit 0: green, go on.
    - Exit 1: a must-fix finding. None of them open: go on as for exit 0.
      Otherwise the look is red. **Stop before agent review.** Alone: see

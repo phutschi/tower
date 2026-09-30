@@ -5,9 +5,33 @@
 #   preflight/look.sh <base-ref> <findings-dir>
 #
 # Run from the checkout. The diff is the merge base of <base-ref> and HEAD
-# against HEAD. Steps, each one verdict row:
+# against HEAD. look looks at HEAD, never at the checkout's files: it adds a
+# fresh detached worktree of HEAD in a temp dir under TMPDIR (git worktree add
+# --detach), and reads the kit (common.sh, detect-stack.sh), the repo contract
+# and package.json from it, runs the install, both scanners and every suite
+# step in it, and removes it on every exit, a failure and a signal too. So
+# untracked files (a *.test.ts the suite would pick up), index bits
+# (assume-unchanged, skip-worktree) and dirty kit files in the checkout do not
+# reach the look. look writes the git dir only for that worktree
+# (.git/worktrees); a sandbox that keeps it read-only is a setup error.
+#
+# What look still trusts: itself, as invoked; git, coreutils, python3 and the
+# scanners on PATH; and the kit beside look.sh when look.sh is not committed
+# in the checkout (an installed plugin, outside what a lane edits). When it is
+# (the repo under review is the kit's own), the kit is HEAD's copy. Before the
+# worktree exists look runs git and coreutils only: the clean-tree check, the
+# contract check and the merge base.
+#
+# The install: INSTALL_CMD (detect-stack.sh: the repo contract's, else the
+# package manager's when there is a package.json; set, even empty, it wins),
+# run in the temp worktree before the scanners, so the suite runs on the
+# dependencies HEAD's lockfile names, not on the checkout's untracked
+# node_modules. It needs the network, or the package manager's cache, as a
+# lane's install does. One that fails is a setup error.
+#
+# Steps, each one verdict row:
 #   base      whether <base-ref> is what its remote has now. look.sh never
-#             fetches (a sandboxed Reviewer cannot write .git; whoever runs
+#             fetches (a sandbox may keep .git read-only; whoever runs
 #             look fetches first); it asks with  git ls-remote , which writes
 #             nothing, with ssh in batch mode and a 10-second connect
 #             timeout, so no prompt waits (a GIT_SSH wrapper is left as is). pass when they match; warn "base
@@ -43,7 +67,12 @@
 # likely hit the sandbox, not the code: a warn row whose note starts
 # "setup:", with that line, and a watchpoint finding (not must-fix) with the
 # tail; the look is then a setup error (exit 2). A SUITE_SKIP name that
-# matches no step is a warn row.
+# matches no step is a warn row. What the suite changes (tracked files it
+# edits, untracked files it leaves, beside what the install left) it changes
+# in the temp worktree: one should-fix finding (area suite, file ".", line
+# null) names them, "the suite changed tracked files" or "the suite left
+# untracked files", and the worktree goes with them. Nothing is put back,
+# since the checkout was never touched.
 #
 # Settings (environment > .orchestrate, read through detect-stack.sh):
 #   STATIC_BASELINE=off   skip both scanners; their rows say so
@@ -59,39 +88,40 @@
 # Prints each suite step as it starts (stderr), the verdict table and the
 # findings file. Exit 0 when no finding is must-fix, 1 when one is, 2 on a
 # setup error (usage, uncommitted changes to tracked files, a repo contract
-# not committed as it is in HEAD or a symlink, unknown base, a refused repo contract, a
-# suite step's permission error); look.json is
+# not committed as it is in HEAD or a symlink, unknown base, no temp
+# worktree, a failed install, a refused repo contract, a suite step's
+# permission error); look.json is
 # removed first, so after exit 2 there is none, except after a permission
 # error: every step ran, and look.json holds their rows and findings.
 #
 # The checkout must have no uncommitted changes to tracked files (untracked
-# files are fine): whatever the suite then leaves changed is the suite's own,
-# and  git checkout -- <files>  puts it back without touching anyone's edits.
-# The repo contract (.orchestrate, or .herdr-orchestrate) is the exception: it
-# is bash look runs, so an untracked one, one whose bytes differ from HEAD's,
-# or a symlink is refused before it is read, naming the file. A Reviewer sees
-# only what is committed.
+# files are fine, and never seen): look runs HEAD, so a tracked change it would
+# not see is refused rather than looked past. The repo contract (.orchestrate,
+# or .herdr-orchestrate) is read from HEAD too, and one in the checkout that is
+# untracked, differs from HEAD's bytes or is a symlink is refused, naming the
+# file, rather than passed over: whoever runs look sees which contract ran.
 set -euo pipefail
-LOOK_DIR="$(cd "$(dirname "$0")" && pwd -P)"
-KIT="$(dirname "$LOOK_DIR")/orchestrate"  # the orchestrate skill beside this one
-. "$KIT/common.sh"
+# Until the temp worktree of HEAD exists: git and coreutils only, nothing the
+# checkout holds runs (header).
 die() { echo "$*" >&2; exit 2; }  # a setup error, apart from exit 1 (must-fix found)
+LOOK_DIR="$(cd "$(dirname "$0")" && pwd -P)"
 
 [ $# -eq 2 ] || die "usage: preflight/look.sh <base-ref> <findings-dir>"
 BASE="$1"; FINDINGS_DIR="$2"
-need git python3
+command -v git >/dev/null || die "look: needs git"
 mkdir -p "$FINDINGS_DIR"; FINDINGS_DIR="$(cd "$FINDINGS_DIR" && pwd -P)"
 rm -f "$FINDINGS_DIR/look.json"
-cd "$(git rev-parse --show-toplevel)"
-# A clean tree, so what the suite changes is all the suite's: putting it back
-# (git checkout) then touches nothing else. Untracked files may stay.
+TOP=$(git rev-parse --show-toplevel) || die "look: not in a git checkout"
+cd "$TOP"; TOP=$(pwd -P)
+# A clean tree: look runs HEAD, so a tracked change it would not see is
+# refused rather than looked past. Untracked files may stay: look never
+# sees them.
 DIRTY=$(git status --porcelain --untracked-files=no | cut -c4- | tr '\n' ' ') || die "look: git status failed"
 [ -z "$DIRTY" ] || die "look: uncommitted changes to tracked files: ${DIRTY% }. Commit or stash them, then run look again."
-# The repo contract: STATIC_BASELINE, SUITE_SKIP, the suite steps, CHECK_CMD.
-CHECK_CMD_FROM_ENV="${CHECK_CMD:+yes}"
-# It is bash that look runs (detect-stack.sh sources it), so only as committed,
-# where a Reviewer sees it in the diff: its bytes compared with HEAD's, which
-# also catches a change git status does not show (assume-unchanged).
+# The repo contract is read from HEAD too, but one in the checkout that is not
+# what HEAD holds is refused, not silently passed over: its bytes compared
+# with HEAD's, which also catches a change git status does not show
+# (assume-unchanged, skip-worktree).
 CONTRACT=.orchestrate
 [ -f "$CONTRACT" ] || [ ! -f .herdr-orchestrate ] || CONTRACT=.herdr-orchestrate
 if [ -f "$CONTRACT" ]; then
@@ -100,11 +130,43 @@ if [ -f "$CONTRACT" ]; then
   git cat-file -e "HEAD:$CONTRACT" 2>/dev/null && git show "HEAD:$CONTRACT" | cmp -s - "$CONTRACT" \
     || die "look: $CONTRACT is not committed as it is in HEAD (untracked, or changed since): look runs it as bash, and no Reviewer sees it in a diff. Commit it, or move it out of the checkout, then run look again."
 fi
-unset CONTRACT_RUN  # the branch's own contract: look runs inside the Reviewer
-. "$KIT/detect-stack.sh"
 MERGE_BASE=$(git merge-base "$BASE" HEAD) || die "look: no merge base between '$BASE' and HEAD"
 
-WORK=$(mktemp -d); trap 'rm -rf "$WORK"' EXIT
+# --- the temp worktree of HEAD -------------------------------------------------
+# Everything below runs in it, and it goes on every exit.
+# Under TMPDIR by name: macOS mktemp ignores it without a template, and a
+# sandboxed Reviewer can write only its own (executor.sh AGENT_TMP).
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/look.XXXXXX"); TREE="$WORK/tree"
+cleanup() {
+  git -C "$TOP" worktree remove --force "$TREE" >/dev/null 2>&1 || true
+  rm -rf "$WORK"; git -C "$TOP" worktree prune >/dev/null 2>&1 || true
+}
+trap cleanup EXIT; trap 'exit 129' HUP; trap 'exit 130' INT; trap 'exit 143' TERM
+git worktree add --detach --quiet "$TREE" HEAD > "$WORK/worktree.err" 2>&1 \
+  || die "look: could not make a temp worktree of HEAD (git worktree add: $(grep -m1 . "$WORK/worktree.err" || echo "no output")); look needs to write the repo's git dir and TMPDIR"
+# The kit: HEAD's copy when look.sh is committed in this checkout (the repo
+# under review is the kit's own), else the one beside look.sh as invoked.
+KIT="$(dirname "$LOOK_DIR")/orchestrate"
+case "$LOOK_DIR" in
+  "$TOP"/*) REL=${LOOK_DIR#"$TOP"/}
+            [ ! -f "$TREE/$REL/look.sh" ] || KIT="$TREE/$(dirname "$REL")/orchestrate" ;;
+esac
+cd "$TREE"
+. "$KIT/common.sh"
+die() { echo "$*" >&2; exit 2; }  # again: common.sh's exits 1
+need git python3
+# The repo contract: STATIC_BASELINE, SUITE_SKIP, the suite steps, CHECK_CMD.
+CHECK_CMD_FROM_ENV="${CHECK_CMD:+yes}"
+unset CONTRACT_RUN  # the branch's own contract: look runs inside the Reviewer
+. "$KIT/detect-stack.sh"
+# The suite's dependencies, installed fresh: the checkout's node_modules is
+# untracked, so look does not read it either.
+if [ -n "$INSTALL_CMD" ]; then
+  echo "look: install: $INSTALL_CMD" >&2
+  rc=0; bash -c "$INSTALL_CMD" < /dev/null > "$WORK/install.out" 2>&1 || rc=$?
+  [ "$rc" = 0 ] || die "look: the install failed (exit $rc): $INSTALL_CMD, in look's temp worktree of HEAD; its output ends: $(tail -n 5 "$WORK/install.out" | tr '\n' ' ')"
+fi
+
 VERDICT="$WORK/verdict.tsv"; FINDINGS="$WORK/findings.jsonl"; : > "$VERDICT"; : > "$FINDINGS"
 verdict() {  # STEP STATUS NOTE; tabs, carriage returns and newlines in NOTE become spaces
   local note="${3//$'\t'/ }"; note="${note//$'\r'/ }"
@@ -112,7 +174,7 @@ verdict() {  # STEP STATUS NOTE; tabs, carriage returns and newlines in NOTE bec
 }
 
 # --- the base ----------------------------------------------------------------
-# Never a fetch: a sandboxed Reviewer cannot write .git. The remote is asked
+# Never a fetch: a sandbox may keep .git read-only. The remote is asked
 # with ls-remote, which writes nothing.
 BASE_REF=$(git rev-parse --symbolic-full-name "$BASE" 2>/dev/null || true)
 REMOTE=""
@@ -199,6 +261,16 @@ elif mode == "suite":
                       "file": where, "line": None,
                       "title": "suite step %s failed%s (exit %s)" % (name, " on a permission error" if setup else "", rc),
                       "evidence": "$ %s\n%s" % (cmd, tail)}))
+elif mode == "changed":
+    # git status --porcelain lines new since before the suite: what it changed.
+    lines = [l.rstrip("\n") for l in open(sys.argv[2]) if l.strip()]
+    new = [l[3:] for l in lines if l.startswith("??")]
+    changed = [l[3:] for l in lines if not l.startswith("??")]
+    parts = (["changed: " + ", ".join(changed)] if changed else []) + \
+            (["new, untracked: " + ", ".join(new)] if new else [])
+    print(json.dumps({"area": "suite", "severity": "should-fix", "file": ".", "line": None,
+                      "title": "the suite changed tracked files" if changed else "the suite left untracked files",
+                      "evidence": "; ".join(parts)}))
 elif mode == "write":
     verdict_file, findings_file, out = sys.argv[2:5]
     verdict = [dict(zip(("step", "status", "note"), l.rstrip("\n").split("\t")))
@@ -298,6 +370,7 @@ PERMISSION_ERROR='PermissionDenied|Operation not permitted|EACCES'; SETUP_STEPS=
 for name in ${SUITE_SKIP//,/ }; do
   case " ${STEP_NAMES[*]:-} " in *" $name "*) ;; *) verdict SUITE_SKIP warn "no suite step named $name" ;; esac
 done
+STATUS_BEFORE=$(git status --porcelain)
 for i in ${STEP_NAMES[@]+"${!STEP_NAMES[@]}"}; do
   name="${STEP_NAMES[$i]}"; cmd="${STEP_CMDS[$i]}"; dir="${STEP_DIRS[$i]}"
   case "$SKIP" in *",$name,"*) verdict "$name" skip SUITE_SKIP; continue ;; esac
@@ -317,6 +390,11 @@ for i in ${STEP_NAMES[@]+"${!STEP_NAMES[@]}"}; do
     py suite "$name" "$rc" "$cmd" "$dir" "$WORK/step.tail" red >> "$FINDINGS"
   fi
 done
+
+# What the suite changed, it changed in the temp worktree, which goes with it:
+# a should-fix finding names it, and nothing is put back (header).
+comm -13 <(printf '%s\n' "$STATUS_BEFORE" | sort) <(git status --porcelain | sort) > "$WORK/changed"
+[ ! -s "$WORK/changed" ] || py changed "$WORK/changed" >> "$FINDINGS"
 
 rc=0; py write "$VERDICT" "$FINDINGS" "$FINDINGS_DIR/look.json" || rc=$?
 [ -z "$SETUP_STEPS" ] || die "look: setup error: suite step(s)${SETUP_STEPS} failed on a permission error, most likely the sandbox, not the code. Give them writable temp and cache dirs, then look again; their output is in look.json as watchpoints."

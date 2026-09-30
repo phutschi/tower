@@ -1430,6 +1430,9 @@ if section look; then
   # A harmless check gate for the fixtures without suite lines or scripts, so
   # the suite part of the look is green unless a test says otherwise.
   export CHECK_CMD=true
+  # No install in look's temp worktree unless a test asks for one (set, even
+  # empty, INSTALL_CMD wins over the package manager's).
+  export INSTALL_CMD=
   # Settings the caller's shell may carry; the fixtures decide them here.
   unset STATIC_BASELINE SUITE_SKIP PR METHOD REVIEWER_KIND TYPECHECK_TASK PM
   # A fixture repo on a branch: tag base, then one commit that changes app.js,
@@ -1501,6 +1504,65 @@ for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'],
   assert_match "look: a committed symlink contract: refused" "$out" 'exit=2$'
   assert_match "look: ... saying it is a symlink" "$out" 'look: \.orchestrate is a symlink'
   [ -e "$mark" ] && bad "look: ... and what it points at is not run" || ok "look: ... and what it points at is not run"
+  # look runs HEAD, not the live checkout: a fresh detached worktree of HEAD
+  # in a temp dir, removed afterwards, on success and on failure. What the
+  # checkout holds beyond HEAD (untracked files, index bits, dirty kit files)
+  # does not reach the look.
+  LT="$TMP/look-tmp"; mkdir -p "$LT"; LTP=$(cd "$LT" && pwd -P)
+  tree_gone() { [ -z "$(ls -A "$LT")" ] && [ "$(git -C "$1" worktree list | wc -l | tr -d ' ')" = 1 ] && echo gone || echo left; }
+  rm -f "$mark"; r=$(look_repo none tree-untracked-test)
+  printf '%s\n' "suite t 'for f in *.test.sh; do bash \"\$f\" || exit 1; done'" > "$r/.orchestrate"
+  printf 'true\n' > "$r/ok.test.sh"; git -C "$r" add -A; git -C "$r" commit -qm tests
+  printf 'touch "%s"; exit 1\n' "$mark" > "$r/evil.test.sh"
+  out=$(TMPDIR="$LT" look "$r" base "$TMP/findings-tree")
+  assert_match "look: an untracked test file in the checkout: not in the suite, green" "$out" 'exit=0$'
+  [ -e "$mark" ] && bad "look: ... and it is not run" || ok "look: ... and it is not run"
+  assert_eq "look: ... the temp worktree is gone after a green look" "$(tree_gone "$r")" gone
+  # The kit inside the checkout under review (tower reviewing itself): HEAD's.
+  kit_repo() {  # NAME
+    local r; r=$(look_repo none "$1"); mkdir -p "$r/skills"
+    cp -R "$PREFLIGHT_DIR" "$KIT" "$r/skills/"; rm -rf "$r/skills/orchestrate/tests/fixtures"
+    git -C "$r" add -A && git -C "$r" commit -qm kit; echo "$r"
+  }
+  kit_look() { (cd "$1" && TMPDIR="$LT" "$1/skills/preflight/look.sh" base "$TMP/findings-tree" 2>&1; echo "exit=$?"); }
+  rm -f "$mark"; r=$(kit_repo tree-dirty-common); printf 'touch "%s"\n' "$mark" >> "$r/skills/orchestrate/common.sh"
+  out=$(kit_look "$r")
+  assert_match "look: a dirty common.sh: refused as a dirty tree" "$out" 'uncommitted changes to tracked files: skills/orchestrate/common\.sh'
+  assert_match "look: ... a setup error" "$out" 'exit=2$'
+  [ -e "$mark" ] && bad "look: ... and the dirty common.sh is not run" || ok "look: ... and the dirty common.sh is not run"
+  rm -f "$mark"; r=$(kit_repo tree-skip-worktree); git -C "$r" update-index --skip-worktree skills/orchestrate/detect-stack.sh
+  printf 'touch "%s"\n' "$mark" >> "$r/skills/orchestrate/detect-stack.sh"
+  out=$(kit_look "$r")
+  assert_match "look: a skip-worktree detect-stack.sh with an edit: the look runs HEAD's, green" "$out" 'exit=0$'
+  [ -e "$mark" ] && bad "look: ... and the edit is not run" || ok "look: ... and the edit is not run"
+  assert_eq "look: ... the temp worktree is gone" "$(tree_gone "$r")" gone
+  # The install runs in the temp worktree (INSTALL_CMD, else the package
+  # manager's); one that fails is a setup error, and the worktree still goes.
+  r=$(look_repo none tree-install); rm -f "$TMP/install-where"
+  out=$(TMPDIR="$LT" INSTALL_CMD='pwd -P > "$INSTALL_WHERE"' INSTALL_WHERE="$TMP/install-where" look "$r" base "$TMP/findings-tree")
+  assert_match "look: the install runs in the temp worktree" "$(cat "$TMP/install-where" 2>/dev/null)" "^$LTP/"
+  assert_match "look: ... and the look goes on" "$out" 'exit=0$'
+  out=$(TMPDIR="$LT" INSTALL_CMD='echo "no lockfile" >&2; exit 4' look "$r" base "$TMP/findings-tree")
+  assert_match "look: a failed install is a setup error" "$out" 'exit=2$'
+  assert_match "look: ... saying so, with its output" "$out" 'look: the install failed \(exit 4\): .*no lockfile'
+  assert_eq "look: ... no look.json" "$([ -e "$TMP/findings-tree/look.json" ] && echo yes || echo no)" no
+  assert_eq "look: ... the temp worktree is gone after a setup error" "$(tree_gone "$r")" gone
+  r=$(look_repo none tree-red); printf '%s\n' "suite red 'exit 1'" > "$r/.orchestrate"; commit_contract "$r"
+  out=$(TMPDIR="$LT" look "$r" base "$TMP/findings-tree")
+  assert_match "look: a red suite" "$out" 'exit=1$'
+  assert_eq "look: ... the temp worktree is gone after a red look" "$(tree_gone "$r")" gone
+  # What the suite changes, it changes in the temp worktree: a should-fix
+  # finding names it, and the checkout is untouched.
+  r=$(look_repo none tree-suite-writes); printf '%s\n' "suite writes 'echo z >> app.js; echo n > left.txt'" > "$r/.orchestrate"; commit_contract "$r"
+  out=$(TMPDIR="$LT" look "$r" base "$TMP/findings-tree"); f=$(findings "$TMP/findings-tree/look.json")
+  assert_match "look: tracked files the suite changed: a should-fix suite finding" "$f" '^suite should-fix \.:None the suite changed tracked files \| changed: app\.js; new, untracked: left\.txt$'
+  assert_match "look: ... not a failure" "$out" 'exit=0$'
+  assert_eq "look: ... the checkout untouched" "$(git -C "$r" status --porcelain)" ""
+  r=$(look_repo none tree-suite-leaves); printf '%s\n' "suite leaves 'echo n > left.txt'" > "$r/.orchestrate"; commit_contract "$r"
+  out=$(TMPDIR="$LT" look "$r" base "$TMP/findings-tree"); f=$(findings "$TMP/findings-tree/look.json")
+  assert_match "look: only new untracked files: named in the same finding" "$f" '^suite should-fix \.:None the suite left untracked files \| new, untracked: left\.txt$'
+  assert_eq "look: ... none in the checkout" "$([ -e "$r/left.txt" ] && echo yes || echo no)" no
+  unset -f tree_gone kit_repo kit_look
   rm -f "$mark"; r=$(look_repo none contract-committed); printf 'touch "%s"\n' "$mark" > "$r/.orchestrate"
   git -C "$r" add .orchestrate; git -C "$r" commit -qm contract
   out=$(look "$r" base "$TMP/findings-contract")
@@ -1563,10 +1625,10 @@ for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'],
   printf 'z\n' > "$r/café app.js"; git -C "$r" add -A; git -C "$r" commit -qm odd
   reset_stub; out=$(look "$r" base "$F"); log=$(cat "$HERDR_STUB_LOG")
   assert_match "look: a file name with spaces and accents is passed as is" "$log" '^semgrep scan .* -- app\.js café app\.js new\.py$'
-  # A sparse checkout can lack a changed file without the tree being dirty.
+  # A sparse checkout can lack a changed file without the tree being dirty:
+  # look's worktree of HEAD has it, and scans it.
   git -C "$r" update-index --skip-worktree new.py; rm "$r/new.py"; reset_stub; out=$(look "$r" base "$F")
-  assert_nomatch "look: a changed file missing from a sparse checkout is not scanned" "$(cat "$HERDR_STUB_LOG")" '^semgrep .*new\.py'
-  assert_match "look: ... the rest is still scanned"    "$(cat "$HERDR_STUB_LOG")" '^semgrep scan .* -- app\.js café app\.js$'
+  assert_match "look: a changed file the checkout lacks (sparse) is scanned from HEAD" "$(cat "$HERDR_STUB_LOG")" '^semgrep scan .* -- app\.js café app\.js new\.py$'
   git -C "$r" update-index --no-skip-worktree new.py; git -C "$r" checkout -q -- new.py
   mkdir -p "$r/sub"; reset_stub
   out=$(cd "$r/sub" && "$PREFLIGHT_DIR/look.sh" base rel-findings 2>&1; echo "exit=$?")
@@ -1588,7 +1650,10 @@ for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'],
   assert_match "look: the table names the findings file" "$out" "findings: $F/look.json"
   r=$(look_repo suite suite); export SUITE_ORDER="$TMP/suite-order"; : > "$SUITE_ORDER"
   out=$(SUITE_SKIP='' look "$r" base "$F")
-  assert_eq "look: every suite step runs in its DIR, in contract order" "$(cat "$SUITE_ORDER")" "$(printf 'lint %s\ntest %s\nbuild %s/web' "$r" "$r" "$r")"
+  o=$(cat "$SUITE_ORDER"); d=$(sed -n 's/^lint //p' <<< "$o")
+  assert_eq "look: every suite step runs in its DIR, in contract order" "$o" "$(printf 'lint %s\ntest %s\nbuild %s/web' "$d" "$d" "$d")"
+  [ -n "$d" ] && [ "$d" != "$r" ] && [ "$d" != "$(cd "$r" && pwd -P)" ] \
+    && ok "look: ... in look's own worktree of HEAD, not the checkout" || bad "look: ... in look's own worktree of HEAD, not the checkout" "$d"
   v=$(verdict "$F/look.json")
   assert_match "look: a passing step is a pass row"      "$v" '^lint pass '
   assert_match "look: a failing step is a fail row"      "$v" '^test fail exit 3'
@@ -1720,7 +1785,7 @@ for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'],
   reset_stub; out=$(GIT_SSH="$TMP/ssh-stub" look "$r" origin/main "$F")
   assert_match "look: a GIT_SSH wrapper is used as it is"  "$(cat "$TMP/ssh.log")" 'git\.example\.invalid'
   assert_nomatch "look: ... without ssh's -o options"     "$(cat "$TMP/ssh.log")" 'BatchMode'
-  unset CHECK_CMD SUITE_ORDER; unset -f look_repo findings verdict look
+  unset CHECK_CMD INSTALL_CMD SUITE_ORDER; unset -f look_repo findings verdict look
 fi
 
 # --- install -----------------------------------------------------------------
