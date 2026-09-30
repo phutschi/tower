@@ -297,11 +297,11 @@ if section detect; then
   r=$(fixture_repo none)
   assert_eq "switches: defaults when neither file nor environment sets them" \
     "$(detect_in "$r" 'switches_line')" \
-    "TASK_REVIEW=on LANE_REVIEW=on PREFLIGHT=on STATIC_BASELINE=on PR=draft METHOD=tdd REVIEWER_KIND=other REVIEWER_MODEL= REVIEW_AREAS= SUITE_SKIP= PR_TEMPLATE="
+    "TASK_REVIEW=on LANE_REVIEW=on PREFLIGHT=on STATIC_BASELINE=on PR=draft METHOD=tdd REVIEWER_KIND=other REVIEWER_MODEL= REVIEWER_BY_CREDITS=off REVIEWER_CREDITS_MIN=20 REVIEW_AREAS= SUITE_SKIP= PR_TEMPLATE="
   r=$(fixture_repo contract-switches)
   assert_eq "switches: the file's values are used" \
     "$(detect_in "$r" 'switches_line')" \
-    "TASK_REVIEW=off LANE_REVIEW=off PREFLIGHT=off STATIC_BASELINE=off PR=ready METHOD=plain REVIEWER_KIND=claude REVIEWER_MODEL=claude-fable-5-1 REVIEW_AREAS=security,spec SUITE_SKIP=build PR_TEMPLATE=.github/pull_request_template.md"
+    "TASK_REVIEW=off LANE_REVIEW=off PREFLIGHT=off STATIC_BASELINE=off PR=ready METHOD=plain REVIEWER_KIND=claude REVIEWER_MODEL=claude-fable-5-1 REVIEWER_BY_CREDITS=off REVIEWER_CREDITS_MIN=20 REVIEW_AREAS=security,spec SUITE_SKIP=build PR_TEMPLATE=.github/pull_request_template.md"
   assert_eq "switches: the environment wins over the file" \
     "$(PR=off METHOD=tdd SUITE_SKIP=lint,test REVIEWER_KIND=codex detect_in "$r" 'echo "$PR $METHOD $SUITE_SKIP $REVIEWER_KIND $TASK_REVIEW"')" \
     "off tdd lint,test codex off"
@@ -372,7 +372,7 @@ if section bootstrap; then
   assert_eq "output: no test runner detected, said once" "$(printf '%s\n' "$out" | grep -c '^info: no test runner detected')" 1
   assert_nomatch "output: the note is on stderr, not stdout" "$(cd "$(fixture_repo pnpm-notest)" && "$KIT/bootstrap.sh" "$TMP/run-norunner2" "No runner" main 2>/dev/null)" '^info: no test runner detected'
   assert_match "output: the note says how to declare one" "$out" '^info: no test runner detected: the checks pane has nothing to run; declare  pane checks "<cmd>"  in \.orchestrate$'
-  assert_match "switches: pane map has every switch"    "$map" '^switches: +TASK_REVIEW=on LANE_REVIEW=on PREFLIGHT=on STATIC_BASELINE=on PR=draft METHOD=tdd REVIEWER_KIND=other REVIEWER_MODEL= REVIEW_AREAS= SUITE_SKIP= PR_TEMPLATE=$'
+  assert_match "switches: pane map has every switch"    "$map" '^switches: +TASK_REVIEW=on LANE_REVIEW=on PREFLIGHT=on STATIC_BASELINE=on PR=draft METHOD=tdd REVIEWER_KIND=other REVIEWER_MODEL= REVIEWER_BY_CREDITS=off REVIEWER_CREDITS_MIN=20 REVIEW_AREAS= SUITE_SKIP= PR_TEMPLATE=$'
   assert_match "switches: the record gets a tower note" "$(notes "$TMP/run-empty")" '^switches: TASK_REVIEW=on LANE_REVIEW=on .* PR_TEMPLATE=$'
   assert_match "switches: printed with the pane map"    "$out" '^switches: +TASK_REVIEW=on '
   assert_match "reviewer: pane map has kind and model"  "$map" '^reviewer: +kind codex, model gpt-6-astra$'
@@ -1276,7 +1276,7 @@ if section model-defaults; then
   out=$(HOME="$TMP/md-home" MODEL_DEFAULTS_FILE="$TMP/nope" in_kit ". \"\$KIT/executor.sh\"; echo \"exit=\$?\"")
   assert_match "model-defaults: a missing file is refused" "$out" "no EXECUTOR_MODEL_CLAUDE in $TMP/nope"
   out=$(MODEL_DEFAULTS_FILE="$TMP/nope" boot "$(fixture_repo bun-vitest)" "$TMP/run-md-nofile" "No file" main; echo "exit=$?")
-  assert_match "model-defaults: a missing file fails bootstrap, naming it" "$out" "no EXECUTOR_MODEL_CLAUDE in $TMP/nope"
+  assert_match "model-defaults: a missing file fails bootstrap, naming it" "$out" "no [A-Z_]+ in $TMP/nope"
   # No model id is left in the kit's logic; cursor's defaults are Grok -fast only.
   assert_nomatch "model-defaults: no model id in executor.sh or bootstrap.sh" \
     "$(cat "$KIT/executor.sh" "$KIT/bootstrap.sh")" '(claude-(opus|sonnet|fable|haiku)|gpt-[0-9]|grok-|\b(sonnet|opus|haiku)\b)'
@@ -1502,6 +1502,103 @@ if section cursor-reviewer; then
   assert_match "an unknown lane kind is refused" "$(rev gemini)" "lane kind must be claude, codex or cursor \\(got 'gemini'\\)"
   assert_match "an unknown lane kind is refused, a forced Reviewer kind too" "$(REVIEWER_KIND=cursor rev gemini)" "lane kind must be claude, codex or cursor \\(got 'gemini'\\)"
   assert_eq "reviewer_candidates: a cursor lane's, in order" "$(HOME="$TMP/cr-home" in_kit ". \"\$KIT/executor.sh\"; reviewer_candidates cursor" | tr '\n' ' ')" "claude codex "
+fi
+
+# --- credit-guard ------------------------------------------------------------
+# REVIEWER_BY_CREDITS=on skips a Reviewer candidate below REVIEWER_CREDITS_MIN
+# (% left), with a note. The probes run for real against per-section fakes:
+# security and curl here, the codex stub's app-server (CODEX_STUB_RATE_LIMITS).
+if section credit-guard; then
+  CG="$TMP/credit-guard"; mkdir -p "$CG/bin" "$CG/keychain" "$TMP/cg-home/.codex/skills/tdd" "$TMP/cg-home/.agents/skills/tdd"
+  TOK=tok-fake-sam-0002
+  cat > "$CG/bin/security" <<SH
+#!/bin/sh
+printf 'security %s\n' "\$*" >> "$CG/probes.log"
+while [ \$# -gt 0 ]; do [ "\$1" = -s ] && svc=\$2; shift; done
+[ -f "$CG/keychain/\$svc" ] || exit 44
+cat "$CG/keychain/\$svc"
+SH
+  cat > "$CG/bin/curl" <<SH
+#!/bin/sh
+printf 'curl %s\n' "\$*" >> "$CG/probes.log"
+h=\$(cat)
+case "\$h" in *"Authorization: Bearer $TOK"*) ;; *) exit 22 ;; esac
+case "\$*" in *oauth/usage*) f=claude ;; *DashboardService*) f=cursor ;; *) exit 22 ;; esac
+[ -f "$CG/\$f.json" ] || exit 22
+cat "$CG/\$f.json"
+SH
+  chmod +x "$CG/bin/security" "$CG/bin/curl"
+  printf '{"claudeAiOauth":{"accessToken":"%s"}}' "$TOK" > "$CG/keychain/Claude Code-credentials"
+  printf '%s' "$TOK" > "$CG/keychain/cursor-access-token"
+  # left KIND N: KIND's tightest window has N% left; left KIND -: unreadable.
+  left() {
+    case "$1:$2" in
+      *:-) rm -f "$CG/$1.json" "$CG/codex-limits" ;;
+      claude:*) echo "{\"five_hour\":{\"utilization\":$((100-$2))},\"seven_day\":{\"utilization\":0}}" > "$CG/claude.json" ;;
+      cursor:*) echo "{\"planUsage\":{\"totalPercentUsed\":$((100-$2))}}" > "$CG/cursor.json" ;;
+      codex:*)  echo "{\"rateLimits\":{\"primary\":{\"usedPercent\":$((100-$2))},\"secondary\":null}}" > "$CG/codex-limits" ;;
+    esac
+  }
+  export CODEX_STUB_RATE_LIMITS="$CG/codex-limits"
+  rev() { : > "$CG/probes.log"; PATH="$CG/bin:$PATH" HOME="$TMP/cg-home" in_kit ". \"\$KIT/executor.sh\"; reviewer_for $1"; }
+  T=$(printf '\t')
+  left codex 12; left claude 90; left cursor 90
+  assert_eq "guard off: the Reviewer as without credits" "$(rev claude)" "codex${T}gpt-6-astra${T}"
+  assert_eq "guard off: no probe runs" "$(cat "$CG/probes.log")" ""
+  assert_eq "guard on: a claude lane with codex at 12% is reviewed by claude, noted" "$(REVIEWER_BY_CREDITS=on rev claude)" \
+    "claude${T}claude-fable-5-1${T}reviewer: skipped codex, 12% credits left; fallback: codex is low on credits, so claude reviews claude"
+  reset_stub; out=$(rev cursor)
+  assert_nomatch "guard off: ... not even codex's app-server" "$(cat "$HERDR_STUB_LOG")" '^codex app-server'
+  left claude 5; left codex 50
+  assert_eq "guard on: a cursor lane with claude at 5% and codex at 50% is reviewed by codex" "$(REVIEWER_BY_CREDITS=on rev cursor)" \
+    "codex${T}gpt-6-astra${T}reviewer: skipped claude, 5% credits left"
+  left codex 9
+  assert_eq "guard on: a cursor lane with claude and codex low is reviewed by cursor, a note for each" "$(REVIEWER_BY_CREDITS=on rev cursor)" \
+    "cursor${T}grok-4.7-high-fast${T}reviewer: skipped claude, 5% credits left; reviewer: skipped codex, 9% credits left; fallback: claude and codex are low on credits, so a fresh cursor agent reviews cursor"
+  assert_eq "guard on: one absent, one low, the fallback says which is which" "$(REVIEWER_BY_CREDITS=on CLAUDE_STUB=absent rev cursor)" \
+    "cursor${T}grok-4.7-high-fast${T}reviewer: skipped codex, 9% credits left; fallback: claude is not installed and codex is low on credits, so a fresh cursor agent reviews cursor"
+  left claude -
+  assert_eq "guard on: unreadable credits count as enough, with no note" "$(REVIEWER_BY_CREDITS=on rev cursor)" "claude${T}claude-opus-5-5${T}"
+  assert_match "guard on: ... after a probe ran" "$(cat "$CG/probes.log")" '^security '
+  left claude 50
+  assert_eq "guard on: REVIEWER_CREDITS_MIN=60 makes 50% a skip" "$(REVIEWER_BY_CREDITS=on REVIEWER_CREDITS_MIN=60 CODEX_STUB=absent rev cursor)" \
+    "cursor${T}grok-4.7-high-fast${T}reviewer: skipped claude, 50% credits left; fallback: codex is not installed and claude is low on credits, so a fresh cursor agent reviews cursor"
+  left codex 1
+  reset_stub
+  assert_eq "guard on: REVIEWER_KIND=codex with codex at 1% is codex" "$(REVIEWER_BY_CREDITS=on REVIEWER_KIND=codex rev claude)" "codex${T}gpt-6-astra${T}"
+  assert_eq "guard on: ... and no probe runs" "$(cat "$CG/probes.log"; grep '^codex app-server' "$HERDR_STUB_LOG")" ""
+  assert_eq "guard on, the lane's own kind absent: the skipped candidate reviews after all" "$(REVIEWER_BY_CREDITS=on CLAUDE_STUB=absent rev claude)" \
+    "codex${T}gpt-6-astra${T}reviewer: skipped codex, 1% credits left; fallback: claude is not installed, so codex reviews despite its credits"
+  # The switches: in the pane map, validated, and from the user contract.
+  detect_in() { (cd "$1" && env XDG_CONFIG_HOME="$CG/xdg" bash -c "set -euo pipefail; . \"\$KIT/common.sh\"; . \"\$KIT/detect-stack.sh\"; $2" 2>&1); }
+  r=$(fixture_repo bun-vitest)
+  assert_match "switches: the guard is off by default, its threshold the defaults file's" "$(detect_in "$r" switches_line)" ' REVIEWER_BY_CREDITS=off REVIEWER_CREDITS_MIN=20 '
+  assert_match "switches: REVIEWER_BY_CREDITS accepts only on or off" "$(REVIEWER_BY_CREDITS=yes detect_in "$r" true)" "REVIEWER_BY_CREDITS must be on or off \\(got 'yes'\\)"
+  assert_match "switches: REVIEWER_CREDITS_MIN is a % from 0 to 100" "$(REVIEWER_CREDITS_MIN=120 detect_in "$r" true)" "REVIEWER_CREDITS_MIN must be a whole number from 0 to 100 \\(got '120'\\)"
+  mkdir -p "$CG/xdg/tower"; printf '%s\n' REVIEWER_BY_CREDITS=on REVIEWER_CREDITS_MIN=60 > "$CG/xdg/tower/orchestrate"
+  out=$(detect_in "$r" switches_line)
+  assert_match "user contract: sets the guard and its threshold" "$out" ' REVIEWER_BY_CREDITS=on REVIEWER_CREDITS_MIN=60 '
+  assert_nomatch "user contract: ... both its keys" "$out" 'not a setting|repo contract setting'
+  # add-reviewer: the skip notes go to the record, for a lane review and a
+  # preflight slot alike; the run's switches come from the pane map.
+  kit() { local d=$1; shift; (cd "$d" && env PATH="$CG/bin:$PATH" HOME="$TMP/cg-home" XDG_CONFIG_HOME="$TMP/cg-none" EXIT_WAIT_SECONDS=3 "$@" 2>&1); }
+  left codex 12; left claude 90
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-cg"
+  out=$(kit "$r" REVIEWER_BY_CREDITS=on "$KIT/bootstrap.sh" "$RUN" "Credits" main "$KIT/example-tasks.tsv")
+  reset_stub; out=$(kit "$r" "$KIT/add-reviewer.sh" "$RUN" R1 claude "Lane review A" "$RUN/findings/a.json" A)
+  assert_match "add-reviewer: a claude lane with codex at 12% gets claude" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-r1-1 --kind claude '
+  assert_match "add-reviewer: the record gets the skip note" "$(notes "$RUN")" '^reviewer: skipped codex, 12% credits left$'
+  assert_match "add-reviewer: ... and prints it once" "$out" '^reviewer: skipped codex, 12% credits left$'
+  assert_match "add-reviewer: ... and the fallback" "$out" '^reviewer: fallback: codex is low on credits, so claude reviews claude$'
+  left codex 50
+  reset_stub; out=$(kit "$r" "$KIT/add-reviewer.sh" "$RUN" R2 claude "Preflight: security" "$RUN/findings/security.json")
+  assert_match "preflight slot: the same guard, codex at 50% reviews" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-r2-1 --kind codex '
+  left codex 3; echo gone > "$HERDR_STUB_STATES_DIR/bun-vitest-r1-1"   # R1's first Reviewer has exited
+  reset_stub; out=$(kit "$r" "$KIT/add-reviewer.sh" "$RUN" R1 claude "Preflight: tests" "$RUN/findings/tests.json")
+  assert_match "preflight slot: codex at 3% is skipped" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-r1-2 --kind claude '
+  assert_match "preflight slot: ... noted in the record" "$(notes "$RUN")" '^reviewer: skipped codex, 3% credits left$'
+  rm -f "$HERDR_STUB_STATES_DIR"/bun-vitest-r1-* "$HERDR_STUB_STATES_DIR"/bun-vitest-r2-*
+  unset CODEX_STUB_RATE_LIMITS
 fi
 
 # --- watch -------------------------------------------------------------------

@@ -8,7 +8,7 @@
 # only USER_CONTRACT_VARS: EXECUTOR_KIND, the per-kind model keys and the
 # credit guard's REVIEWER_CREDITS_MIN (model-defaults' keys), STALE, and the
 # switches TASK_REVIEW LANE_REVIEW PREFLIGHT STATIC_BASELINE METHOD
-# REVIEWER_KIND. The rest is the repo's: its check gate, panes, suite and
+# REVIEWER_KIND REVIEWER_BY_CREDITS. The rest is the repo's: its check gate, panes, suite and
 # toolchain, the unsuffixed models (they would give every kind one model),
 # and the switches PR, REVIEW_AREAS, SUITE_SKIP and PR_TEMPLATE. Such a name,
 # an unknown one, or a pane or suite line is named on stderr and ignored; a
@@ -34,6 +34,8 @@
 #   PR                                                   draft | ready | off
 #   METHOD                                               tdd | plain
 #   REVIEWER_KIND                                        other | claude | codex | cursor
+#   REVIEWER_BY_CREDITS                                  off | on  (the credit guard, ADR 0013)
+#   REVIEWER_CREDITS_MIN                                 0-100, % left; default model-defaults' (20)
 #   REVIEWER_MODEL REVIEW_AREAS SUITE_SKIP PR_TEMPLATE   free text, empty by default;
 #                                                        lists are comma-separated
 # Pinned: the file is bash, and this shell is the orchestrator's, so within a
@@ -69,7 +71,7 @@
 MODEL_KEYS=$({ sed -n 's/^\([A-Z_]*\)=.*/\1/p' "${MODEL_DEFAULTS_FILE:-$KIT/model-defaults}" 2>/dev/null || true; } | tr '\n' ' ')
 CONTRACT_VARS="EXECUTOR_KIND EXECUTOR_MODEL SPEC_REVIEWER_MODEL QUALITY_REVIEWER_MODEL STALE PM TYPECHECK_TASK CHECK_CMD INSTALL_CMD TEST_PKG TEST_FILTER $SWITCHES $MODEL_KEYS"
 USER_CONTRACT_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/tower/orchestrate"
-USER_CONTRACT_VARS="EXECUTOR_KIND STALE TASK_REVIEW LANE_REVIEW PREFLIGHT STATIC_BASELINE METHOD REVIEWER_KIND $MODEL_KEYS"
+USER_CONTRACT_VARS="EXECUTOR_KIND STALE TASK_REVIEW LANE_REVIEW PREFLIGHT STATIC_BASELINE METHOD REVIEWER_KIND REVIEWER_BY_CREDITS $MODEL_KEYS"
 PANE_NAMES=(); PANE_CMDS=(); PANE_DIRS=()
 SUITE_NAMES=(); SUITE_CMDS=(); SUITE_DIRS=()
 # The contract file; the kit's old name for it still works, with a note.
@@ -262,6 +264,15 @@ TASK_REVIEW="${TASK_REVIEW:-on}"; LANE_REVIEW="${LANE_REVIEW:-on}"
 PREFLIGHT="${PREFLIGHT:-on}";     STATIC_BASELINE="${STATIC_BASELINE:-on}"
 PR="${PR:-draft}"; METHOD="${METHOD:-tdd}"; REVIEWER_KIND="${REVIEWER_KIND:-other}"
 REVIEWER_MODEL="${REVIEWER_MODEL:-}"; REVIEW_AREAS="${REVIEW_AREAS:-}"
+REVIEWER_BY_CREDITS="${REVIEWER_BY_CREDITS:-off}"
+# The credit guard's threshold: the defaults file's unless a contract sets it.
+if [ -z "${REVIEWER_CREDITS_MIN:-}" ]; then
+  _f="${MODEL_DEFAULTS_FILE:-$KIT/model-defaults}"
+  # shellcheck source=/dev/null  # the kit's data file, or a test's copy
+  REVIEWER_CREDITS_MIN=$(. "$_f" 2>/dev/null; echo "${REVIEWER_CREDITS_MIN:-}")
+  [ -n "$REVIEWER_CREDITS_MIN" ] || die "model-defaults: no REVIEWER_CREDITS_MIN in $_f"
+  unset _f
+fi
 SUITE_SKIP="${SUITE_SKIP:-}";         PR_TEMPLATE="${PR_TEMPLATE:-}"
 switch_allows() {  # NAME "a, b or c" VALUE...: refuse NAME unless its value is one of VALUE...
   local name="$1" say="$2" v; shift 2
@@ -271,6 +282,11 @@ switch_allows() {  # NAME "a, b or c" VALUE...: refuse NAME unless its value is 
 for _v in TASK_REVIEW LANE_REVIEW PREFLIGHT STATIC_BASELINE; do switch_allows "$_v" "on or off" on off; done; unset _v
 switch_allows PR            "draft, ready or off"     draft ready off
 switch_allows METHOD        "tdd or plain"            tdd plain
+switch_allows REVIEWER_BY_CREDITS "on or off"         on off
+case "$REVIEWER_CREDITS_MIN" in
+  ""|*[!0-9]*) false ;;
+  *) [ "$REVIEWER_CREDITS_MIN" -le 100 ] ;;
+esac || die "REVIEWER_CREDITS_MIN must be a whole number from 0 to 100 (got '$REVIEWER_CREDITS_MIN')"
 # shellcheck disable=SC2086  # KINDS: one word per kind
 switch_allows REVIEWER_KIND "other, $(kinds_say)" other $KINDS
 for _v in $SWITCHES; do  # one line each, for the pane map's switches: line

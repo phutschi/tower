@@ -13,7 +13,7 @@ KINDS="claude codex cursor"
 kind_known() { case " $KINDS " in *" $1 "*) return 0 ;; esac; return 1; }
 kinds_say() { echo "claude, codex or cursor"; }
 # The run switches' names (detect-stack.sh gives them their values).
-SWITCHES="TASK_REVIEW LANE_REVIEW PREFLIGHT STATIC_BASELINE PR METHOD REVIEWER_KIND REVIEWER_MODEL REVIEW_AREAS SUITE_SKIP PR_TEMPLATE"
+SWITCHES="TASK_REVIEW LANE_REVIEW PREFLIGHT STATIC_BASELINE PR METHOD REVIEWER_KIND REVIEWER_MODEL REVIEWER_BY_CREDITS REVIEWER_CREDITS_MIN REVIEW_AREAS SUITE_SKIP PR_TEMPLATE"
 if [ "${DRY_RUN:-0}" = 1 ]; then
   # A broken or non-executable stub would otherwise fall through silently to
   # whatever herdr/tower is next on PATH — the real ones. Refuse instead.

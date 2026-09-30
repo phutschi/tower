@@ -66,7 +66,9 @@
 #   sandbox may write so preflight's look.sh can make its temp worktree and
 #   keep its verdict files there (executor.sh AGENT_LOOK); no lane is granted
 #   it, and it is granted only where look.sh --dir accepts it (a refusal
-#   fails the call before anything is written).
+#   fails the call before anything is written);
+#   once the Reviewer is ready, each credit guard skip (executor.sh
+#   reviewer_for) as a tower note:  reviewer: skipped <kind>, <n>% credits left
 #
 # The Reviewer ends its report with  [[FINDINGS WRITTEN]] <findings-file>;
 # watch-lanes.sh then reads it as idle-after-final-report. The review tab and
@@ -298,5 +300,15 @@ else
 fi
 slot_line "$LINE"
 
-[ -z "$R_NOTE" ] || echo "reviewer: $R_NOTE"
+# The notes reviewer_for gave, "; "-separated: a credit guard's skip, already
+# "reviewer: …", goes to the record too (ADR 0013); a fallback is printed.
+if [ -n "$R_NOTE" ]; then
+  while IFS= read -r _n; do
+    case "$_n" in
+      "reviewer: "*) echo "$_n"; tower note "$_n" >/dev/null ;;
+      *) echo "reviewer: $_n" ;;
+    esac
+  done <<< "${R_NOTE//; /$'\n'}"
+  unset _n
+fi
 echo "reviewer $SLOT ready (task $ID): agent $NAME ($R_KIND, $R_MODEL) in $PANE — next: write $RUN_DIR/brief-$ID.md from brief-template.md (a Reviewer brief; findings to $FINDINGS), then  herdr agent prompt $NAME \"\$(cat $RUN_DIR/brief-$ID.md)\"  and add $NAME to watch-lanes.sh"
