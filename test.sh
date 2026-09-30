@@ -909,17 +909,19 @@ if section add-reviewer; then
   assert_match "a fallback is printed"                "$out" '^reviewer: fallback: codex is not installed'
   assert_match "a slot other than R1 or R2 is refused" "$(review R3 claude "X" "$RUN/findings/x.json")" "slot must be R1 or R2 \(got 'R3'\)"
   assert_match "a bad lane kind is refused"            "$(review R1 cursor "X" "$RUN/findings/x.json")" "lane kind must be claude or codex"
-  # A title is one field of one pane map line: a tab or a newline in it is
+  # A title is one field of one pane map line: a control character in it is
   # refused before the board, the map or an agent sees it.
-  for t in "$(printf 'two\nlines')" "$(printf 'a\ttab')"; do
+  for c in "newline:$(printf 'two\nlines')" "tab:$(printf 'a\ttab')" "carriage return:$(printf 'a\rcr')"; do
+    kind=${c%%:*}; t=${c#*:}
     cp "$RUN/panes.txt" "$TMP/panes-before"; : > "$HERDR_STUB_LOG"
     out=$(review R2 claude "$t" "$RUN/findings/t.json"; echo "exit=$?")
-    assert_match "a title with a tab or newline: refused" "$out" 'the review title must not hold a tab or a newline'
-    assert_match "... and fails"                        "$out" 'exit=1$'
-    assert_eq "... the pane map untouched"             "$(cmp -s "$TMP/panes-before" "$RUN/panes.txt" && echo same || echo changed)" same
-    assert_nomatch "... no task on the board"          "$(reviews "$RUN")" 'two|tab'
-    assert_nomatch "... no herdr call"                 "$(cat "$HERDR_STUB_LOG")" '^herdr (tab|pane|agent) '
+    assert_match "a title with a $kind: refused"       "$out" 'the review title must not hold a tab, a newline or another control character'
+    assert_match "a title with a $kind: fails"         "$out" 'exit=1$'
+    assert_eq "a title with a $kind: the pane map untouched" "$(cmp -s "$TMP/panes-before" "$RUN/panes.txt" && echo same || echo changed)" same
+    assert_nomatch "a title with a $kind: no task on the board" "$(reviews "$RUN")" 'two|tab|cr'
+    assert_nomatch "a title with a $kind: no herdr call" "$(cat "$HERDR_STUB_LOG")" '^herdr (tab|pane|agent) '
   done
+  rm -f "$TMP/panes-before"
   assert_match "no pane map: refused"                 "$(cd "$r" && "$KIT/add-reviewer.sh" "$TMP/nowhere" R1 claude "X" x.json 2>&1)" 'run bootstrap.sh first'
   cr=$(fixture_repo contract-switches); mkdir -p "$cr/sub"; RUNS="$TMP/run-review-sub"
   (cd "$cr" && "$KIT/bootstrap.sh" "$RUNS" "Sub" main >/dev/null 2>&1); reset_stub
