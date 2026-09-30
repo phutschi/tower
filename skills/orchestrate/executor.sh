@@ -86,7 +86,8 @@ start_agent() {
 # idle or working, and herdr's interactive_ready (an answer without that field
 # counts as ready: an older herdr). Only then is it ready. One that exited
 # (codex updating itself, say) is started once more, and an exit after that
-# fails the start, saying so; so does one that never accepts input.
+# fails the start, saying so; so does one that never accepts input, which is
+# left running in its pane.
 start_agent_with_trust_retry() {
   local name="$1" pane="$2" rc
   start_answering_trust "$name" "$pane" || return 1
@@ -114,22 +115,20 @@ until_ready() {
     [ "$checks" -lt "${READY_WAIT_SECONDS:-30}" ] || break
     [ "${DRY_RUN:-0}" = 1 ] || sleep 1
   done
-  echo "agent start: $name does not accept input in pane $pane after $checks checks ($state); read the pane, and start it again once it can" >&2
+  echo "agent start: $name does not accept input in pane $pane after $checks checks ($state); it is left running in $pane: brief it once  herdr agent get $name  shows interactive_ready true, or end it and start it again" >&2
   return 2
 }
 
-# NAME's readiness: ready, gone, unreadable (as common.sh state_of), or its
-# status when it does not accept input yet ("idle, not ready for input" when
-# herdr says idle but not interactive_ready).
+# NAME's readiness: ready (idle or working, and interactive_ready), gone,
+# unreadable (common.sh agent_of), or its state when it does not accept input
+# yet ("idle, not ready for input" when herdr says idle but not ready).
 ready_of() {
-  local out err r
-  err=$(mktemp)
-  if out=$(herdr agent get "$1" 2>"$err"); then
-    r=$(echo "$out" | jsonq '(lambda a: "unreadable" if not a.get("agent_status") else "ready" if a["agent_status"] in ("idle", "working") and a.get("interactive_ready", True) else a["agent_status"] + ("" if a["agent_status"] not in ("idle", "working") else ", not ready for input"))((d.get("result") or {}).get("agent") or {})' 2>/dev/null) || r=unreadable
-  elif grep -q '"agent_not_found"' "$err"; then r=gone
-  else r=unreadable
-  fi
-  rm -f "$err"; echo "$r"
+  local a; a=$(agent_of "$1")
+  case "$a" in
+    "idle True"|"working True")   echo ready ;;
+    "idle False"|"working False") echo "${a%% *}, not ready for input" ;;
+    *)                            echo "${a%% *}" ;;
+  esac
 }
 
 start_answering_trust() {

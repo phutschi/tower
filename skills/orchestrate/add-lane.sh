@@ -26,7 +26,8 @@
 # The agent is reported ready only once it accepts input (herdr's
 # interactive_ready), read about a second apart READY_WAIT_SECONDS times
 # (default 30) after START_SETTLE_SECONDS (default 3); one that exits right
-# after its start is started once more (executor.sh).
+# after its start is started once more, and one that never accepts input
+# fails the call and is left running in its pane (executor.sh).
 #
 # The lane's line goes into the pane map before its agent starts. When the
 # start fails, rerun the same call: when herdr does not find the lane's agent,

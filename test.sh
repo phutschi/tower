@@ -190,7 +190,18 @@ if section executor; then
   echo unreachable > "$HERDR_STUB_STATES_DIR/acme-lane-a.started"
   out=$(start acme-lane-a READY_WAIT_SECONDS=2)
   assert_match "herdr failing after the start: fails, saying herdr cannot tell" "$out" 'acme-lane-a does not accept input in pane pane-9 after 2 checks \(unreadable\)'
-  rm -f "$HERDR_STUB_STATES_DIR"/acme-lane-a*
+  # An older herdr answers without interactive_ready: idle is then ready.
+  echo legacy > "$HERDR_STUB_STATES_DIR/acme-lane-a.started"
+  out=$(start acme-lane-a READY_WAIT_SECONDS=2)
+  assert_match "no interactive_ready (an older herdr): idle is ready" "$out" 'exit=0$'
+  assert_eq "no interactive_ready: one read" "$(grep -c '^herdr agent get acme-lane-a$' "$HERDR_STUB_LOG")" 1
+  # Started once more after an exit, and then never accepting input: that fails.
+  printf 'gone\nunready\n' > "$HERDR_STUB_STATES_DIR/acme-lane-a.started"
+  out=$(start acme-lane-a READY_WAIT_SECONDS=2)
+  assert_eq "gone, then never ready: two starts" "$(grep -c '^herdr agent start acme-lane-a ' "$HERDR_STUB_LOG")" 2
+  assert_match "gone, then never ready: fails" "$out" 'exit=1$'
+  assert_match "gone, then never ready: says it does not accept input" "$out" 'acme-lane-a does not accept input in pane pane-9 after 2 checks'
+  assert_match "never ready: says the agent is left running" "$out" 'left running in pane-9: brief it once  herdr agent get acme-lane-a  shows interactive_ready true, or end it'
   rm -f "$HERDR_STUB_STATES_DIR"/acme-lane-a*
 fi
 
