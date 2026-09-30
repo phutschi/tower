@@ -33,15 +33,16 @@ from its own skill dirs: ~/.agents/skills, ~/.claude/skills or
 lane's reviewer models. In a run bootstrapped on cursor, they are the
 `spec-reviewer` and `quality-reviewer` roles `tower brief` prints. For a
 cursor lane added to a run of another kind, those roles are that kind's:
-ask the kit for cursor's, from lane A's checkout, in the environment you
-gave add-lane.sh:
+ask the kit for cursor's, in the environment you gave add-lane.sh:
 
-    bash -c '. "$0/common.sh"; CONTRACT_RUN="$1" . "$0/detect-stack.sh"; EXECUTOR_KIND=claude . "$0/executor.sh"; kind_default SPEC_REVIEWER_MODEL cursor; kind_default QUALITY_REVIEWER_MODEL cursor' <kit> <run-dir>
+    bash -c '. "$0/common.sh"; CONTRACT_RUN="$1" . "$0/detect-stack.sh"; EXECUTOR_KIND=claude . "$0/executor.sh"; kind_default SPEC_REVIEWER_MODEL cursor && kind_default QUALITY_REVIEWER_MODEL cursor' "<kit>" "<run-dir>"
 
-It prints the two, in that order, each resolved as every kit default is:
-the environment, then the run's repo contract, then the user contract, then
-the kit's `model-defaults` (`EXECUTOR_KIND=claude` only keeps a lane kind's
-setup hint out of the answer). Say in the brief that they replace the roles
+Its last two lines of stdout are the two, in that order, each resolved as
+every kit default is: the environment, then the run's repo contract, then
+the user contract, then the kit's `model-defaults`. A line before them is a
+note from a contract. A model the kit cannot resolve is named on stderr,
+and the command fails: fix that before the brief. (`EXECUTOR_KIND=claude` only keeps a lane kind's
+setup hint out of the answer.) Say in the brief that they replace the roles
 tower prints. Never write a model from memory.
 
 |                     | claude lane                                                     | codex lane                                                        | cursor lane                                                        |

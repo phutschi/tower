@@ -1858,11 +1858,16 @@ if section brief-cursor; then
   r=$(fixture_repo bun-vitest); RB="$TMP/run-brief-cursor"; reset_stub
   (cd "$r" && XDG_CONFIG_HOME="$TMP/xdg-brief-none" "$KIT/bootstrap.sh" "$RB" "Brief cursor" main "$KIT/example-tasks.tsv" >/dev/null 2>&1)
   assert_eq "brief: in a claude run, cursor's reviewer models are the kit's" "$(cursor_models "$r" "$RB" "$TMP/xdg-brief-none")" "$kit_spec $kit_quality"
+  grep -v '^SPEC_REVIEWER_MODEL_CURSOR=' "$KIT/model-defaults" > "$TMP/model-defaults-no-spec"
+  out=$(cursor_models "$r" "$RB" "$TMP/xdg-brief-none" MODEL_DEFAULTS_FILE="$TMP/model-defaults-no-spec")
+  assert_match "brief: ... a model the kit cannot resolve is named" "$out" 'no SPEC_REVIEWER_MODEL_CURSOR'
+  assert_nomatch "brief: ... and the other is not printed alone" "$out" "$kit_quality"
   UCB="$TMP/xdg-brief"; mkdir -p "$UCB/tower"
   printf 'SPEC_REVIEWER_MODEL_CURSOR=user-s\nQUALITY_REVIEWER_MODEL_CURSOR=user-q\n' > "$UCB/tower/orchestrate"
   r=$(fixture_repo bun-vitest); RB="$TMP/run-brief-cursor-2"
   echo 'QUALITY_REVIEWER_MODEL_CURSOR=repo-q' > "$r/.orchestrate"; git -C "$r" add .orchestrate; git -C "$r" commit -qm contract; reset_stub
   (cd "$r" && XDG_CONFIG_HOME="$UCB" "$KIT/bootstrap.sh" "$RB" "Brief cursor 2" main "$KIT/example-tasks.tsv" >/dev/null 2>&1)
+  echo 'QUALITY_REVIEWER_MODEL_CURSOR=checkout-q' > "$r/.orchestrate"   # after bootstrap: the pin, never the checkout
   assert_eq "brief: ... the user contract over the kit, the repo contract over both" "$(cursor_models "$r" "$RB" "$UCB")" "user-s repo-q"
   assert_eq "brief: ... and the environment over all" "$(cursor_models "$r" "$RB" "$UCB" SPEC_REVIEWER_MODEL_CURSOR=env-s)" "env-s repo-q"
   mkdir -p "$TMP/home-no-skills"
