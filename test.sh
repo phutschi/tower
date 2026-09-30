@@ -664,6 +664,21 @@ if section add-lane; then
   assert_match "failed move, rerun: the rest of the pane map is kept" "$(cat "$RUNM/panes.txt")" '^lane A: '
   assert_match "failed move, rerun: ... the switches line too" "$(cat "$RUNM/panes.txt")" '^switches:'
   assert_eq "failed move, rerun: no scratch map left" "$(compgen -G "$RUNM/panes.txt.*" || true)" ""
+  # A pane map that cannot be read when the lane's line replaces its unplaced
+  # one stops there: the map is kept whole and no agent starts. A grep on PATH
+  # fails only that read (exit 2, as grep does on a read error).
+  r=$(fixture_repo bun-vitest); RUNG="$TMP/run-failread"; reset_stub
+  (cd "$r" && "$KIT/bootstrap.sh" "$RUNG" "Fail read" main "$KIT/example-tasks.tsv" >/dev/null 2>&1)
+  reset_stub; (cd "$r" && HERDR_STUB_MOVE_FAIL=1 "$KIT/add-lane.sh" "$RUNG" B feat/b main 2,3 >/dev/null 2>&1)
+  gbin="$TMP/grep-fails-map"; mkdir -p "$gbin"; realgrep=$(command -v grep)
+  printf '#!/usr/bin/env bash\ncase "$1 $2" in "-v ^unplaced lane "*) echo "grep: %s: read error" >&2; exit 2 ;; esac\nexec %s "$@"\n' "$RUNG/panes.txt" "$realgrep" > "$gbin/grep"; chmod +x "$gbin/grep"
+  mkdir -p "$r/.worktrees/feat/b"; before=$(cat "$RUNG/panes.txt")
+  reset_stub; out=$(cd "$r" && PATH="$gbin:$PATH" "$KIT/add-lane.sh" "$RUNG" B feat/b main 2,3 2>&1; echo "exit=$?")
+  assert_match "map read fails: add-lane fails"        "$out" 'exit=1$'
+  assert_match "map read fails: says how to recover"   "$out" "could not rewrite .*/panes\.txt; lane B's pane is pane-[0-9]+: turn its unplaced line into  lane B: pane-[0-9]+  \(the rest as it is\) and rerun"
+  assert_eq "map read fails: the pane map is unchanged" "$(cat "$RUNG/panes.txt")" "$before"
+  assert_nomatch "map read fails: no agent start"      "$(cat "$HERDR_STUB_LOG")" '^herdr agent start'
+  assert_eq "map read fails: no scratch map left"      "$(compgen -G "$RUNG/panes.txt.*" || true)" ""
   # A worktree create that fails says what may be left behind.
   r=$(fixture_repo bun-vitest); RUNW="$TMP/run-failwt"; reset_stub
   (cd "$r" && "$KIT/bootstrap.sh" "$RUNW" "Fail worktree" main "$KIT/example-tasks.tsv" >/dev/null 2>&1)
