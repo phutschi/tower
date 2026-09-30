@@ -62,6 +62,8 @@ unset HERDR_PANE_ID HERDR_TAB_ID
 # config stay in $TMP, never the user's.
 export XDG_STATE_HOME="$LOOK_STATE/xdg-state" XDG_CONFIG_HOME="$TMP/xdg-config"
 unset TOWER_RUN
+# The credit probes' knobs (credits.sh, the codex stub's app-server).
+unset CREDITS_TIMEOUT CODEX_STUB_RATE_LIMITS
 # The repo contract's names and the run switches: the fixtures decide them,
 # not the shell test.sh is started from (a codex lane exports EXECUTOR_KIND).
 unset EXECUTOR_KIND EXECUTOR_MODEL SPEC_REVIEWER_MODEL QUALITY_REVIEWER_MODEL STALE PM TYPECHECK_TASK \
@@ -1493,6 +1495,78 @@ if section contract-pin; then
   assert_match "pin: a run without its pin is refused" "$out" "no pinned contract for the run $RUNP"
   assert_match "pin: ... as an error"                    "$out" 'exit=1$'
   [ -e "$TMP/pin-ran-added" ] && bad "pin: ... and the checkout's contract does not run" || ok "pin: ... and the checkout's contract does not run"
+fi
+
+# --- credits -----------------------------------------------------------------
+# credits_left KIND: % left in the kind's tightest window, or nothing. The
+# keychain and the endpoints are fakes on PATH: `security` answers from
+# $CB/keychain/<service> (no file: the item is missing), `curl` answers from
+# $CB/reply only when the header lines it reads on stdin carry the fake token,
+# and logs its argv to $CB/curl.log.
+if section credits; then
+  CB="$TMP/credits"; mkdir -p "$CB/bin" "$CB/keychain"
+  TOK=tok-fake-rex-0001
+  cat > "$CB/bin/security" <<SH
+#!/bin/sh
+while [ \$# -gt 0 ]; do [ "\$1" = -s ] && svc=\$2; shift; done
+[ -f "$CB/keychain/\$svc" ] || { echo "security: The specified item could not be found in the keychain." >&2; exit 44; }
+cat "$CB/keychain/\$svc"
+SH
+  cat > "$CB/bin/curl" <<SH
+#!/bin/sh
+printf '%s\n' "\$*" >> "$CB/curl.log"
+[ -n "\${FAKE_CURL_SLEEP:-}" ] && sleep "\$FAKE_CURL_SLEEP"
+grep -q "Authorization: Bearer $TOK" || { echo '{"error":"unauthorized"}'; exit 22; }
+[ "\${FAKE_CURL_STATUS:-200}" = 200 ] || { echo '{"error":"unauthorized"}'; exit 22; }
+cat "$CB/reply"
+SH
+  chmod +x "$CB/bin/security" "$CB/bin/curl"
+  credits() { PATH="$CB/bin:$PATH" in_kit ". \"\$KIT/credits.sh\"; credits_left $1"; }  # KIND
+  claude_creds() { printf '{"claudeAiOauth":{"accessToken":"%s","refreshToken":"ref-fake-rex"}}' "$TOK" > "$CB/keychain/Claude Code-credentials"; }
+
+  claude_creds
+  echo '{"five_hour":{"utilization":31,"resets_at":null},"seven_day":{"utilization":85,"resets_at":null}}' > "$CB/reply"
+  assert_eq "claude: the tightest of the 5-hour and 7-day windows" "$(credits claude)" 15
+  assert_eq "claude: a 401 prints nothing" "$(FAKE_CURL_STATUS=401 credits claude)" ""
+  rm "$CB/keychain/Claude Code-credentials"
+  assert_eq "claude: a missing keychain item prints nothing" "$(credits claude)" ""
+
+  printf '%s' "$TOK" > "$CB/keychain/cursor-access-token"
+  echo '{"billingCycleStart":"1","planUsage":{"totalPercentUsed":93}}' > "$CB/reply"
+  assert_eq "cursor: 100 - planUsage.totalPercentUsed" "$(credits cursor)" 7
+  assert_match "cursor: ... from DashboardService/GetCurrentPeriodUsage" "$(tail -1 "$CB/curl.log")" 'DashboardService/GetCurrentPeriodUsage'
+  echo '{"planUsage":{"totalPercentUsed":' > "$CB/reply"
+  assert_eq "cursor: malformed JSON prints nothing" "$(credits cursor)" ""
+
+  # codex: the stub's app-server answers account/rateLimits/read with the
+  # result in $CODEX_STUB_RATE_LIMITS, errors without it, and never answers
+  # when it is `silent`.
+  echo '{"rateLimits":{"primary":{"usedPercent":80,"windowDurationMins":300},"secondary":null}}' > "$CB/codex-limits"
+  assert_eq "codex: primary only" "$(CODEX_STUB_RATE_LIMITS="$CB/codex-limits" credits codex)" 20
+  echo '{"rateLimits":{"primary":{"usedPercent":10},"secondary":{"usedPercent":60}}}' > "$CB/codex-limits"
+  reset_stub
+  assert_eq "codex: the tightest of primary and secondary" "$(CODEX_STUB_RATE_LIMITS="$CB/codex-limits" credits codex)" 40
+  assert_match "codex: ... read from codex app-server" "$(cat "$HERDR_STUB_LOG")" '^codex app-server$'
+  assert_eq "codex: an app-server that errors prints nothing" "$(credits codex)" ""
+  SECONDS=0
+  assert_eq "codex: an app-server that never answers prints nothing" "$(CREDITS_TIMEOUT=1 CODEX_STUB_RATE_LIMITS=silent credits codex)" ""
+  [ "$SECONDS" -le 3 ] && ok "codex: ... within about the timeout" || bad "codex: ... within about the timeout" "took ${SECONDS}s"
+
+  claude_creds
+  echo '{"five_hour":{"utilization":31},"seven_day":{"utilization":85}}' > "$CB/reply"
+  SECONDS=0
+  assert_eq "a probe slower than its timeout prints nothing" "$(CREDITS_TIMEOUT=1 FAKE_CURL_SLEEP=8 credits claude)" ""
+  [ "$SECONDS" -le 3 ] && ok "... and returns within about the timeout" || bad "... and returns within about the timeout" "took ${SECONDS}s"
+  assert_eq "an unknown kind prints nothing" "$(credits gemini)" ""
+  assert_eq "no kind prints nothing" "$(credits '')" ""
+
+  # The token only ever reaches curl through a pipe.
+  : > "$CB/curl.log"; reset_stub
+  out=$(credits claude; FAKE_CURL_STATUS=401 credits claude; credits cursor; credits codex)
+  assert_match "token: the probes ran" "$(cat "$CB/curl.log")" 'oauth/usage'
+  assert_nomatch "token: never on stdout or stderr" "$out" "$TOK"
+  assert_nomatch "token: never in curl's argv" "$(cat "$CB/curl.log")" "$TOK"
+  assert_nomatch "token: never in HERDR_STUB_LOG" "$(cat "$HERDR_STUB_LOG")" "$TOK"
 fi
 
 # --- look --------------------------------------------------------------------

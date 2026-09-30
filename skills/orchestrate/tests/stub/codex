@@ -2,8 +2,23 @@
 # Stand-in for codex under DRY_RUN=1 and test.sh. Logs argv to HERDR_STUB_LOG.
 # CODEX_STUB=absent refuses to run, so the kind counts as not installed
 # (command -v still finds this stub).
+# `app-server` speaks JSON-RPC on stdin/stdout, one message a line: it answers
+# initialize, and answers account/rateLimits/read with the result held in the
+# file CODEX_STUB_RATE_LIMITS names. Unset, it errors; `silent`, it never
+# answers that request.
 [ "${CODEX_STUB:-}" = absent ] && { echo "codex: not installed (stub)" >&2; exit 127; }
 printf 'codex %s\n' "$*" >> "${HERDR_STUB_LOG:-/dev/null}"
 case "${1:-}" in
   --version) echo "codex (stub)" ;;
+  app-server)
+    [ -n "${CODEX_STUB_RATE_LIMITS:-}" ] || { echo "codex app-server: no rate limits (stub)" >&2; exit 1; }
+    while IFS= read -r line; do
+      id=$(printf '%s' "$line" | sed -nE 's/.*"id": *([0-9]+).*/\1/p')
+      case "$line" in
+        *'"account/rateLimits/read"'*)
+          [ "$CODEX_STUB_RATE_LIMITS" = silent ] && { sleep 30; exit 0; }
+          printf '{"id":%s,"result":%s}\n' "$id" "$(cat "$CODEX_STUB_RATE_LIMITS")" ;;
+        *'"initialize"'*) printf '{"id":%s,"result":{"userAgent":"codex (stub)"}}\n' "$id" ;;
+      esac
+    done ;;
 esac
