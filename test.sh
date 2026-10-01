@@ -2118,15 +2118,35 @@ if section brief-cursor; then
   assert_match "brief: ... with _ as bash's \$0, the kit and run dir as \$1 and \$2" "$cmd" "' _ \"<kit>\" \"<run-dir>\"\$"
   assert_nomatch "brief: ... never the kit as \$0" "$cmd" '"\$0/'
   assert_match "brief: says what EXECUTOR_KIND=claude does" "$(tr '\n' ' ' < "$KIT/brief-template.md")" 'EXECUTOR_KIND=claude. resolves [^)]*EXECUTOR_MODEL_CLAUDE[^)]*off stderr'
-  cursor_models() { (cd "$1" && env XDG_CONFIG_HOME="$3" ${4:+"$4"} bash -c "$(printf '%s' "$cmd" | sed "s#<kit>#$KIT#g; s#<run-dir>#$2#g")" 2>&1 | paste -sd' ' -); }  # CHECKOUT RUN_DIR XDG [VAR=value]
+  # cursor_run CHECKOUT RUN_DIR XDG [VAR=value]: runs the command; its stdout
+  # and stderr land in $CM.out and $CM.err, and it prints the exit status.
+  CM="$TMP/cursor-models"
+  cursor_run() { (cd "$1" && env XDG_CONFIG_HOME="$3" ${4:+"$4"} bash -c "$(printf '%s' "$cmd" | sed "s#<kit>#$KIT#g; s#<run-dir>#$2#g")" >"$CM.out" 2>"$CM.err"); echo $?; }
+  # cursor_models …: the same, its stdout's lines joined by a space.
+  cursor_models() { cursor_run "$@" >/dev/null; paste -sd' ' - < "$CM.out"; }
   kit_spec=$(sed -n 's/^SPEC_REVIEWER_MODEL_CURSOR=//p' "$KIT/model-defaults"); kit_quality=$(sed -n 's/^QUALITY_REVIEWER_MODEL_CURSOR=//p' "$KIT/model-defaults")
   r=$(fixture_repo bun-vitest); RB="$TMP/run-brief-cursor"; reset_stub
   (cd "$r" && XDG_CONFIG_HOME="$TMP/xdg-brief-none" "$KIT/bootstrap.sh" "$RB" "Brief cursor" main "$KIT/example-tasks.tsv" >/dev/null 2>&1)
   assert_eq "brief: in a claude run, cursor's reviewer models are the kit's" "$(cursor_models "$r" "$RB" "$TMP/xdg-brief-none")" "$kit_spec $kit_quality"
   grep -v '^SPEC_REVIEWER_MODEL_CURSOR=' "$KIT/model-defaults" > "$TMP/model-defaults-no-spec"
-  out=$(cursor_models "$r" "$RB" "$TMP/xdg-brief-none" MODEL_DEFAULTS_FILE="$TMP/model-defaults-no-spec")
-  assert_match "brief: ... a model the kit cannot resolve is named" "$out" 'no SPEC_REVIEWER_MODEL_CURSOR'
-  assert_nomatch "brief: ... and the other is not printed alone" "$out" "$kit_quality"
+  assert_eq "brief: ... exit 0" "$(cursor_run "$r" "$RB" "$TMP/xdg-brief-none")" 0
+  assert_eq "brief: ... the two alone on stdout, one per line" "$(cat "$CM.out")" "$kit_spec
+$kit_quality"
+  assert_eq "brief: ... nothing on stderr" "$(cat "$CM.err")" ""
+  assert_eq "brief: ... a missing SPEC model fails the command" "$(cursor_run "$r" "$RB" "$TMP/xdg-brief-none" MODEL_DEFAULTS_FILE="$TMP/model-defaults-no-spec")" 1
+  assert_match "brief: ... named on stderr" "$(cat "$CM.err")" 'no SPEC_REVIEWER_MODEL_CURSOR'
+  assert_eq "brief: ... and nothing on stdout" "$(cat "$CM.out")" ""
+  grep -v '^QUALITY_REVIEWER_MODEL_CURSOR=' "$KIT/model-defaults" > "$TMP/model-defaults-no-quality"
+  assert_eq "brief: ... a missing QUALITY model fails the command" "$(cursor_run "$r" "$RB" "$TMP/xdg-brief-none" MODEL_DEFAULTS_FILE="$TMP/model-defaults-no-quality")" 1
+  assert_match "brief: ... named on stderr" "$(cat "$CM.err")" 'no QUALITY_REVIEWER_MODEL_CURSOR'
+  assert_nomatch "brief: ... and stdout never holds two models" "$(sed -n 2p "$CM.out")" '.'
+  # A contract's note goes to stderr: stdout stays the two.
+  mkdir -p "$TMP/xdg-brief-note/tower"; echo MODLE=x > "$TMP/xdg-brief-note/tower/orchestrate"
+  assert_eq "brief: ... with a contract's note, still exit 0" "$(cursor_run "$r" "$RB" "$TMP/xdg-brief-note")" 0
+  assert_match "brief: ... the note on stderr" "$(cat "$CM.err")" "'MODLE' is not a setting"
+  assert_eq "brief: ... stdout still the two alone" "$(cat "$CM.out")" "$kit_spec
+$kit_quality"
+  assert_match "brief: the template says stdout is the two, notes on stderr" "$(tr '\n' ' ' < "$KIT/brief-template.md")" 'Its stdout is the two lines, in that order[^.]*\. [^.]*note[^.]*stderr'
   UCB="$TMP/xdg-brief"; mkdir -p "$UCB/tower"
   printf 'SPEC_REVIEWER_MODEL_CURSOR=user-s\nQUALITY_REVIEWER_MODEL_CURSOR=user-q\n' > "$UCB/tower/orchestrate"
   r=$(fixture_repo bun-vitest); RB="$TMP/run-brief-cursor-2"

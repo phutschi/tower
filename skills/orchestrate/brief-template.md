@@ -37,11 +37,11 @@ ask the kit for cursor's, in the environment you gave add-lane.sh:
 
     bash -c '. "$1/common.sh"; CONTRACT_RUN="$2" . "$1/detect-stack.sh"; EXECUTOR_KIND=claude . "$1/executor.sh"; kind_default SPEC_REVIEWER_MODEL cursor && kind_default QUALITY_REVIEWER_MODEL cursor' _ "<kit>" "<run-dir>"
 
-Its last two lines of stdout are the two, in that order, each resolved as
-every kit default is: the environment, then the run's repo contract, then
-the user contract, then the kit's `model-defaults`. A line before them is a
-note from a contract. A model the kit cannot resolve is named on stderr,
-and the command fails: fix that before the brief. (`EXECUTOR_KIND=claude`
+Its stdout is the two lines, in that order, each resolved as every kit
+default is: the environment, then the run's repo contract, then the user
+contract, then the kit's `model-defaults`. A contract's note goes to stderr.
+A model the kit cannot resolve is named on stderr too, and the command fails
+(exit 1): fix that before the brief. (`EXECUTOR_KIND=claude`
 resolves executor.sh's own lane model as claude's, so unless `EXECUTOR_MODEL`
 is set the command also fails when no `EXECUTOR_MODEL_CLAUDE` resolves; and
 it keeps a codex or cursor setup hint off stderr, as claude has none.) Say
