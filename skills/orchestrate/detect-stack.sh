@@ -135,8 +135,10 @@ for _v in $CONTRACT_VARS; do [ -z "${!_v+set}" ] || _env+=("$_v=${!_v}"); done
 # before, which the file cannot reach: only a USER_CONTRACT_VARS name is set;
 # any other name the file set, and a pane or suite line, is named on stderr
 # and ignored; a name this shell held already (HOME, KIT, …) and a private
-# _name are ignored silently. A record that is neither a marker nor NAME=…
-# with NAME an identifier means the report was garbled: refused, never echoed.
+# _name, and one bash sets itself (BASH_REMATCH, REPLY, …), are ignored
+# silently. A report that does not start with -start, or holds a record that
+# is neither a marker nor NAME=… with NAME an identifier, was garbled:
+# refused, never echoed.
 # The file can still forge -end before it fails, which fools only its own
 # load check, never the judging.
 _user_contract() {
@@ -147,30 +149,40 @@ _user_contract() {
   suite() { _uc_suite=1; }
   # shellcheck source=/dev/null  # the user's own file
   . "$USER_CONTRACT_FILE" >&2
-  IFS=$' \t\n'  # the file may have set its own
-  [ -z "$_uc_pane" ] || printf -- '-pane\0'
-  [ -z "$_uc_suite" ] || printf -- '-suite\0'
-  for _v in $(compgen -v); do printf '%s=%s\0' "$_v" "${!_v-}"; done
-  printf -- '-end\0'
+  # The report: builtins (never the file's functions), no trace of its values
+  # whatever set -x the file turned on, and nothing on stderr. -start first,
+  # so a stray write before it, NUL or not, garbles the first record.
+  {
+    builtin set +xv
+    IFS=$' \t\n'  # the file may have set its own
+    builtin printf -- '-start\0'
+    [ -z "$_uc_pane" ] || builtin printf -- '-pane\0'
+    [ -z "$_uc_suite" ] || builtin printf -- '-suite\0'
+    for _v in $(builtin compgen -v); do builtin printf '%s=%s\0' "$_v" "${!_v-}"; done
+    builtin printf -- '-end\0'
+  } 2>/dev/null
 }
 _ucf="$USER_CONTRACT_FILE"
 if [ -f "$_ucf" ]; then
   # Read as the reader runs, from a function in a subshell: FUNCNAME and the
   # like are there too.
   _held=" $(_f() { compgen -v; }; _f | tr '\n' ' ') "
-  _loaded=0
+  _loaded=0; _started=0
+  _garbled="$_ucf: its reader's report was garbled (did it write to the reader's output?); fix it or move it away"
   while IFS= read -r -d '' _rec; do
+    if [ "$_started" = 0 ]; then
+      [ "$_rec" = "-start" ] || die "$_garbled"
+      _started=1; continue
+    fi
     case "$_rec" in
       -end) _loaded=1; break ;;
       -pane|-suite) echo "$_ucf: '${_rec#-}' is a repo contract setting; ignored here" >&2; continue ;;
     esac
+    # NAME=value, NAME an identifier; a record without = has no NAME at all.
     _k=${_rec%%=*}
-    case "$_rec" in
-      *=*) ;;
-      *) die "$_ucf: its reader's report was garbled (did it write to the reader's output?); fix it or move it away" ;;
-    esac
+    [ "$_k" != "$_rec" ] || die "$_garbled"
     case "$_k" in
-      ""|[0-9]*|*[!A-Za-z0-9_]*) die "$_ucf: its reader's report was garbled (did it write to the reader's output?); fix it or move it away" ;;
+      ""|[0-9]*|*[!A-Za-z0-9_]*) die "$_garbled" ;;
     esac
     _val=${_rec#*=}
     case " $USER_CONTRACT_VARS " in
@@ -188,13 +200,14 @@ if [ -f "$_ucf" ]; then
     case "$_held" in
       *" $_k "*) continue ;;
     esac
+    # A private _name, or one bash sets itself as the file runs.
     case "$_k" in
-      _*) continue ;;
+      _*|BASH_REMATCH|REPLY|MAPFILE|COPROC) continue ;;
     esac
     echo "$_ucf: '$_k' is not a setting the kit reads (see example.orchestrate)" >&2
   done < <(_user_contract)
   [ "$_loaded" = 1 ] || die "$_ucf: it failed to load (a command in it failed, it exited, or it broke its reader): see above, then fix it or move it away"
-  unset _rec _k _val _loaded _held
+  unset _rec _k _val _loaded _held _started _garbled
 fi
 unset _ucf
 unset -f _user_contract

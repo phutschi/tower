@@ -1378,17 +1378,30 @@ if section user-contract; then
   assert_match "user contract: a reassigned _file does not change the file it names" "$(detect_clean "$r" true)" "^$UC/tower/orchestrate: 'CHECK_CMD' is a repo contract setting"
   # The reader's own surface: shadowed builtins and a stray write garble only
   # its report, which is refused, never echoed; no value reaches stderr.
-  uc 'printf() { builtin printf "CHECK_CMD=pwned\0"; }' 'compgen() { echo CHECK_CMD; }' STALE=9
+  uc 'printf() { builtin printf "CHECK_CMD=pwned\0"; }' STALE=9
   out=$(detect_clean "$r" 'echo "[$CHECK_CMD] [$STALE]"'; echo "exit=$?")
-  assert_nomatch "user contract: a shadowed printf or compgen lets nothing in" "$out" 'pwned'
+  assert_match "user contract: a shadowed printf neither breaks its reader nor lets anything in" "$out" '^\[bun run typecheck && bun run test\] \[9\]$'
+  assert_nomatch "user contract: ... no trace of its value" "$out" 'pwned'
+  uc 'compgen() { echo CHECK_CMD; }' STALE=9
+  out=$(detect_clean "$r" 'echo "[$CHECK_CMD] [$STALE]"')
+  assert_match "user contract: a shadowed compgen garbles nothing in" "$out" '^\[bun run typecheck && bun run test\] \[9\]$'
   uc 'printf "X\0" >&3' STALE=9
   out=$(detect_clean "$r" true; echo "exit=$?")
   assert_match "user contract: a write to fd 3 is refused" "$out" 'exit=1$'
   assert_nomatch "user contract: ... and no value reaches stderr" "$out" 'sk_live_rex'
   uc 'printf "X\0" >&10' STALE=9
   out=$(detect_clean "$r" true; echo "exit=$?")
-  assert_match "user contract: a stray write to the reader's saved stdout is refused" "$out" "^$UC/tower/orchestrate: its reader's report was garbled|exit=1$"
+  assert_match "user contract: a stray write to the reader's saved stdout is refused" "$out" "^$UC/tower/orchestrate: its reader's report was garbled"
   assert_nomatch "user contract: ... and no value reaches stderr" "$out" 'sk_live_rex'
+  uc 'printf abc >&10' STALE=9
+  out=$(detect_clean "$r" true; echo "exit=$?")
+  assert_match "user contract: ... even with no NUL in it" "$out" "^$UC/tower/orchestrate: its reader's report was garbled"
+  uc 'set -x' STALE=9
+  out=$(detect_clean "$r" 'echo "[$STALE]"')
+  assert_nomatch "user contract: set -x in it traces no value of the reader's" "$out" 'sk_live_rex'
+  assert_match "user contract: ... and it still loads" "$out" '^\[9\]$'
+  uc '[[ abc =~ b ]]' 'read -r REPLY <<< x' STALE=9
+  assert_nomatch "user contract: names bash sets itself are not warned about" "$(detect_clean "$r" true)" 'BASH_REMATCH|REPLY'
   uc 'pane checks "x"' STALE=9
   out=$(detect_clean "$r" 'echo "[$STALE]"')
   assert_match "user contract: a pane line is still named" "$out" "^$UC/tower/orchestrate: 'pane' is a repo contract setting; ignored here$"
