@@ -155,11 +155,13 @@ _user_contract() {
   # over the builtins the report uses, and its traps and tracing. set +o posix
   # also unsets POSIXLY_CORRECT. After it, the report runs only builtin,
   # case, for and assignments: nothing a function of the file's can shadow
-  # (not even [ ).
+  # (not even [ ). A file that disables a special builtin itself (enable -n)
+  # can still have its own function run here; that runs only its own code,
+  # with no value it did not already hold.
   POSIXLY_CORRECT=1
   unset -f builtin command printf compgen
   trap - DEBUG RETURN ERR
-  set +xvT
+  set -eu +xvT  # errexit back on too: a set +e of the file's must not hide a failing report
   set +o posix
   # The report, on stdout alone. NAME=value only for a USER_CONTRACT_VARS
   # name, a bare NAME for every other: the environment's values never enter

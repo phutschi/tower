@@ -1427,6 +1427,9 @@ if section user-contract; then
   uc 'enable -n compgen' STALE=9
   out=$(detect_clean "$r" true; echo "exit=$?")
   assert_match "user contract: a disabled compgen refuses the load, never drops it silently" "$out" 'exit=1$'
+  uc 'enable -n compgen' 'set +e' STALE=9
+  out=$(detect_clean "$r" true; echo "exit=$?")
+  assert_match "user contract: ... even after a set +e in it" "$out" 'exit=1$'
   uc 'pane checks "x"' STALE=9
   out=$(detect_clean "$r" 'echo "[$STALE]"')
   assert_match "user contract: a pane line is still named" "$out" "^$UC/tower/orchestrate: 'pane' is a repo contract setting; ignored here$"
