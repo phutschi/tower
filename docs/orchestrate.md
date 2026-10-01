@@ -366,7 +366,10 @@ gets a reply of another shape counts as enough credits, with a tower note:
 `reviewer: claude credits unreadable, counted as enough`. A candidate with less
 than `REVIEWER_CREDITS_MIN` % left (default 20) is skipped, and the record
 gets a tower note: `reviewer: skipped codex, 12% credits left`. With every
-candidate skipped, the lane's own kind reviews. The guard applies to lane
+candidate skipped, the lane's own kind reviews. When the lane's own kind is
+not installed either, the first candidate skipped reviews after all, with the
+note `fallback: <kind> is not installed, so <candidate> reviews despite its
+credits`: credits steer the Reviewer, they never leave a lane unreviewed. The guard applies to lane
 reviews and preflight's Reviewer slots alike. A `REVIEWER_KIND` other than
 `other` bypasses it, and with the guard off the kit never reads the keychain. Tokens are never
 logged or written to the run dir. bootstrap's `reviewer:` line is a forecast

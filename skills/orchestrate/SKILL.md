@@ -256,10 +256,12 @@ and `reviewer:` in the pane map carries the fallback note. `REVIEWER_KIND`
 names one kind for every lane instead. With `REVIEWER_BY_CREDITS=on`, a
 candidate with less than `REVIEWER_CREDITS_MIN` % of its quota left is
 skipped for the next one, with a tower note (`reviewer: skipped codex, 12%
-credits left`); every candidate skipped: the lane's own kind. Credits that
-cannot be read count as enough, with a note (`reviewer: claude credits
-unreadable, counted as enough`), and an explicit `REVIEWER_KIND` is never
-probed. The same order holds for preflight slots.
+credits left`). Every candidate skipped: the lane's own kind reviews; with
+that not installed either, the first candidate skipped reviews after all,
+and its fallback note says "despite its credits". Credits that cannot be
+read count as enough, with a note (`reviewer: claude credits unreadable,
+counted as enough`), and an explicit `REVIEWER_KIND` is never probed. The
+same order holds for preflight slots.
 
 ## Triage
 
