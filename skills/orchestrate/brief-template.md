@@ -35,14 +35,16 @@ lane's reviewer models. In a run bootstrapped on cursor, they are the
 cursor lane added to a run of another kind, those roles are that kind's:
 ask the kit for cursor's, in the environment you gave add-lane.sh:
 
-    bash -c '. "$0/common.sh"; CONTRACT_RUN="$1" . "$0/detect-stack.sh"; EXECUTOR_KIND=claude . "$0/executor.sh"; kind_default SPEC_REVIEWER_MODEL cursor && kind_default QUALITY_REVIEWER_MODEL cursor' "<kit>" "<run-dir>"
+    bash -c '. "$1/common.sh"; CONTRACT_RUN="$2" . "$1/detect-stack.sh"; EXECUTOR_KIND=claude . "$1/executor.sh"; kind_default SPEC_REVIEWER_MODEL cursor && kind_default QUALITY_REVIEWER_MODEL cursor' _ "<kit>" "<run-dir>"
 
 Its last two lines of stdout are the two, in that order, each resolved as
 every kit default is: the environment, then the run's repo contract, then
 the user contract, then the kit's `model-defaults`. A line before them is a
 note from a contract. A model the kit cannot resolve is named on stderr,
-and the command fails: fix that before the brief. (`EXECUTOR_KIND=claude` only keeps a lane kind's
-setup hint out of the answer.) Say in the brief that they replace the roles
+and the command fails: fix that before the brief. (`EXECUTOR_KIND=claude` resolves
+executor.sh's own lane model as claude's, so the command also fails when no
+`EXECUTOR_MODEL_CLAUDE` resolves; and it keeps a codex or cursor setup hint
+off stderr, as claude has none.) Say in the brief that they replace the roles
 tower prints. Never write a model from memory.
 
 |                     | claude lane                                                     | codex lane                                                        | cursor lane                                                        |
