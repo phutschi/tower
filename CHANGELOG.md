@@ -22,7 +22,9 @@ All notable changes to this project are documented here. The format follows
 - An opt-in credit guard (`REVIEWER_BY_CREDITS=on`, threshold
   `REVIEWER_CREDITS_MIN`, default 20%) skips a Reviewer kind nearly out of
   quota, read through undocumented endpoints and failing open, and notes each
-  skip in the record (ADR 0013).
+  skip in the record (ADR 0013). It never leaves a lane unreviewed: with every
+  candidate skipped, the lane's own kind reviews, or, with that not installed,
+  the first candidate skipped.
 - `tower ids <ids>` prints the ids a spec expands to, one per line, as
   `tower assign` would record them, and refuses an id the run lacks. It
   records nothing. Additive: a minor version.
