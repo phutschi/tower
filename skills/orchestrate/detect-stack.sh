@@ -125,44 +125,65 @@ fi
 # source the repo contract, put the call's values back.
 _env=()
 for _v in $CONTRACT_VARS; do [ -z "${!_v+set}" ] || _env+=("$_v=${!_v}"); done
-# The user contract, read in a subshell under set -eu: only USER_CONTRACT_VARS
-# come back, as NUL-separated name and value, then _END once it loaded. Any
-# other name it sets, and a pane or suite line, is named on stderr and ignored.
-# What the reader needs is kept in locals first, so the file cannot change it.
+# The user contract, read in a subshell under set -eu that judges nothing: a
+# file it sources can change any of that subshell's names, so the subshell
+# only reports, NUL-separated, every name and value it then holds (builtins
+# only, so no PATH it sets matters), a pane or suite line as -pane or -suite,
+# and -end once the file loaded; none of the three can be a variable's name.
+# This shell judges them against its own USER_CONTRACT_VARS and CONTRACT_VARS
+# and the names it held before, which the file cannot reach: only a
+# USER_CONTRACT_VARS name is set; any other name the file set, and a pane or
+# suite line, is named on stderr and ignored.
 _user_contract() {
-  local _v _before _file="$USER_CONTRACT_FILE" _allowed=" $USER_CONTRACT_VARS " _known=" $CONTRACT_VARS " _path="$PATH"
+  local _v
   set -eu
   for _v in $CONTRACT_VARS; do unset "$_v"; done
-  pane()  { echo "$_file: 'pane' is a repo contract setting; ignored here" >&2; }
-  suite() { echo "$_file: 'suite' is a repo contract setting; ignored here" >&2; }
-  _before="$(compgen -v | sort)"
+  exec 3>&1
+  pane()  { printf -- '-pane\0\0' >&3; }
+  suite() { printf -- '-suite\0\0' >&3; }
   # shellcheck source=/dev/null  # the user's own file
-  . "$_file" >&2
-  PATH=$_path
-  for _v in $(comm -13 <(echo "$_before") <(compgen -v | sort) | { grep -v '^_' || true; }); do
-    case "$_allowed" in
-      *" $_v "*) printf '%s\0%s\0' "$_v" "${!_v}" ;;
-      *) case "$_v" in
-           EXECUTOR_MODEL|REVIEWER_MODEL|SPEC_REVIEWER_MODEL|QUALITY_REVIEWER_MODEL)
-             echo "$_file: '$_v' is a repo contract setting; ignored here (set ${_v}_<KIND>, e.g. ${_v}_CLAUDE)" >&2 ;;
-           *) case "$_known" in
-                *" $_v "*) echo "$_file: '$_v' is a repo contract setting; ignored here" >&2 ;;
-                *) echo "$_file: '$_v' is not a setting the kit reads (see example.orchestrate)" >&2 ;;
-              esac ;;
-         esac ;;
-    esac
-  done
-  printf '_END\0\0'
+  . "$USER_CONTRACT_FILE" >&2
+  IFS=$' \t\n'  # the file may have set its own
+  for _v in $(compgen -v); do printf '%s\0%s\0' "$_v" "${!_v-}"; done
+  printf -- '-end\0\0'
 }
-if [ -f "$USER_CONTRACT_FILE" ]; then
+_ucf="$USER_CONTRACT_FILE"
+if [ -f "$_ucf" ]; then
+  # Read from a function in a subshell, as the reader runs: FUNCNAME and the
+  # like are there too.
+  _names() { compgen -v | tr '\n' ' '; }
+  _held=" $(_names) "; unset -f _names
   _loaded=0
   while IFS= read -r -d '' _k && IFS= read -r -d '' _val; do
-    [ "$_k" != _END ] || { _loaded=1; break; }
-    printf -v "$_k" '%s' "$_val"
+    case "$_k" in
+      -end) _loaded=1; break ;;
+      -pane|-suite) echo "$_ucf: '${_k#-}' is a repo contract setting; ignored here" >&2; continue ;;
+    esac
+    case " $USER_CONTRACT_VARS " in
+      *" $_k "*) printf -v "$_k" '%s' "$_val"; continue ;;
+    esac
+    case " $CONTRACT_VARS " in
+      *" $_k "*)
+        case "$_k" in
+          EXECUTOR_MODEL|REVIEWER_MODEL|SPEC_REVIEWER_MODEL|QUALITY_REVIEWER_MODEL)
+            echo "$_ucf: '$_k' is a repo contract setting; ignored here (set ${_k}_<KIND>, e.g. ${_k}_CLAUDE)" >&2 ;;
+          *) echo "$_ucf: '$_k' is a repo contract setting; ignored here" >&2 ;;
+        esac
+        continue ;;
+    esac
+    # A name this shell held already, or a private _name: not the file's setting.
+    case "$_held" in
+      *" $_k "*) continue ;;
+    esac
+    case "$_k" in
+      _*) continue ;;
+    esac
+    echo "$_ucf: '$_k' is not a setting the kit reads (see example.orchestrate)" >&2
   done < <(_user_contract)
-  [ "$_loaded" = 1 ] || die "$USER_CONTRACT_FILE: it failed to load (a command in it failed, or it exited): see above, then fix it or move it away"
-  unset _k _val _loaded
+  [ "$_loaded" = 1 ] || die "$_ucf: it failed to load (a command in it failed, or it exited): see above, then fix it or move it away"
+  unset _k _val _loaded _held
 fi
+unset _ucf
 unset -f _user_contract
 if [ -n "$_kit_contract" ]; then
   # Unknown names in the file are left alone but named, so a typo does not

@@ -1363,6 +1363,21 @@ if section user-contract; then
   out=$(detect_in "$r" 'echo "[$CHECK_CMD] [$STALE]"')
   assert_match "user contract: it cannot widen its own allowed keys" "$out" "^$UC/tower/orchestrate: 'CHECK_CMD' is a repo contract setting"
   assert_match "user contract: ... nor break its reader with PATH" "$out" '^\[bun run typecheck && bun run test\] \[9\]$'
+  # The reader's own names are out of its reach too: none of them lets a key in.
+  uc '_allowed=" CHECK_CMD "' 'CHECK_CMD="echo from-user-contract"'
+  out=$(detect_in "$r" 'echo "[$CHECK_CMD]"')
+  assert_match "user contract: a reassigned _allowed does not let CHECK_CMD in" "$out" '^\[bun run typecheck && bun run test\]$'
+  assert_match "user contract: ... CHECK_CMD is named and ignored" "$out" "^$UC/tower/orchestrate: 'CHECK_CMD' is a repo contract setting; ignored here$"
+  uc '_known=" MODLE "' MODLE=x
+  assert_match "user contract: a reassigned _known does not hide an unknown key" "$(detect_in "$r" true)" "^$UC/tower/orchestrate: 'MODLE' is not a setting the kit reads"
+  uc _file=/elsewhere CHECK_CMD=x
+  assert_match "user contract: a reassigned _file does not change the file it names" "$(detect_in "$r" true)" "^$UC/tower/orchestrate: 'CHECK_CMD' is a repo contract setting"
+  uc 'IFS=x' STALE=9
+  assert_eq "user contract: an IFS it sets does not break its reader" "$(detect_in "$r" 'echo "$STALE"' 2>/dev/null)" 9
+  uc _path=/nowhere STALE=9 CHECK_CMD=x
+  out=$(detect_in "$r" 'echo "[$CHECK_CMD] [$STALE]"'; echo "exit=$?")
+  assert_match "user contract: a reassigned _path neither breaks the reader nor lets CHECK_CMD in" "$out" '^\[bun run typecheck && bun run test\] \[9\]$'
+  assert_match "user contract: ... and CHECK_CMD is named" "$out" "^$UC/tower/orchestrate: 'CHECK_CMD' is a repo contract setting"
   # A contract that fails part way is refused, naming the file, never half read.
   for body in 'STALE=9; false' 'STALE=9; exit 3' 'STALE=9; if' 'STALE=9; echo "$UNSET_IN_TEST"'; do
     uc "$body"
