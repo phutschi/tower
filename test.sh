@@ -1363,19 +1363,40 @@ if section user-contract; then
   out=$(detect_in "$r" 'echo "[$CHECK_CMD] [$STALE]"')
   assert_match "user contract: it cannot widen its own allowed keys" "$out" "^$UC/tower/orchestrate: 'CHECK_CMD' is a repo contract setting"
   assert_match "user contract: ... nor break its reader with PATH" "$out" '^\[bun run typecheck && bun run test\] \[9\]$'
+  # These read the contract in a scrubbed environment (env -i): a regression
+  # that echoes values can then show only this fake token, never the caller's.
+  detect_clean() { (cd "$1" && env -i PATH="$PATH" HOME="$TMP/uc-home" KIT="$KIT" DRY_RUN=1 XDG_CONFIG_HOME="$UC" \
+    XDG_STATE_HOME="$XDG_STATE_HOME" SECRET_TOKEN_UC=sk_live_rex bash -c "set -euo pipefail; . \"\$KIT/common.sh\"; . \"\$KIT/detect-stack.sh\"; $2" 2>&1); }
   # The reader's own names are out of its reach too: none of them lets a key in.
   uc '_allowed=" CHECK_CMD "' 'CHECK_CMD="echo from-user-contract"'
-  out=$(detect_in "$r" 'echo "[$CHECK_CMD]"')
+  out=$(detect_clean "$r" 'echo "[$CHECK_CMD]"')
   assert_match "user contract: a reassigned _allowed does not let CHECK_CMD in" "$out" '^\[bun run typecheck && bun run test\]$'
   assert_match "user contract: ... CHECK_CMD is named and ignored" "$out" "^$UC/tower/orchestrate: 'CHECK_CMD' is a repo contract setting; ignored here$"
   uc '_known=" MODLE "' MODLE=x
-  assert_match "user contract: a reassigned _known does not hide an unknown key" "$(detect_in "$r" true)" "^$UC/tower/orchestrate: 'MODLE' is not a setting the kit reads"
+  assert_match "user contract: a reassigned _known does not hide an unknown key" "$(detect_clean "$r" true)" "^$UC/tower/orchestrate: 'MODLE' is not a setting the kit reads"
   uc _file=/elsewhere CHECK_CMD=x
-  assert_match "user contract: a reassigned _file does not change the file it names" "$(detect_in "$r" true)" "^$UC/tower/orchestrate: 'CHECK_CMD' is a repo contract setting"
+  assert_match "user contract: a reassigned _file does not change the file it names" "$(detect_clean "$r" true)" "^$UC/tower/orchestrate: 'CHECK_CMD' is a repo contract setting"
+  # The reader's own surface: shadowed builtins and a stray write garble only
+  # its report, which is refused, never echoed; no value reaches stderr.
+  uc 'printf() { builtin printf "CHECK_CMD=pwned\0"; }' 'compgen() { echo CHECK_CMD; }' STALE=9
+  out=$(detect_clean "$r" 'echo "[$CHECK_CMD] [$STALE]"'; echo "exit=$?")
+  assert_nomatch "user contract: a shadowed printf or compgen lets nothing in" "$out" 'pwned'
+  uc 'printf "X\0" >&3' STALE=9
+  out=$(detect_clean "$r" true; echo "exit=$?")
+  assert_match "user contract: a write to fd 3 is refused" "$out" 'exit=1$'
+  assert_nomatch "user contract: ... and no value reaches stderr" "$out" 'sk_live_rex'
+  uc 'printf "X\0" >&10' STALE=9
+  out=$(detect_clean "$r" true; echo "exit=$?")
+  assert_match "user contract: a stray write to the reader's saved stdout is refused" "$out" "^$UC/tower/orchestrate: its reader's report was garbled|exit=1$"
+  assert_nomatch "user contract: ... and no value reaches stderr" "$out" 'sk_live_rex'
+  uc 'pane checks "x"' STALE=9
+  out=$(detect_clean "$r" 'echo "[$STALE]"')
+  assert_match "user contract: a pane line is still named" "$out" "^$UC/tower/orchestrate: 'pane' is a repo contract setting; ignored here$"
+  assert_match "user contract: ... and the rest read" "$out" '^\[9\]$'
   uc 'IFS=x' STALE=9
-  assert_eq "user contract: an IFS it sets does not break its reader" "$(detect_in "$r" 'echo "$STALE"' 2>/dev/null)" 9
+  assert_eq "user contract: an IFS it sets does not break its reader" "$(detect_clean "$r" 'echo "$STALE"' 2>/dev/null)" 9
   uc _path=/nowhere STALE=9 CHECK_CMD=x
-  out=$(detect_in "$r" 'echo "[$CHECK_CMD] [$STALE]"'; echo "exit=$?")
+  out=$(detect_clean "$r" 'echo "[$CHECK_CMD] [$STALE]"'; echo "exit=$?")
   assert_match "user contract: a reassigned _path neither breaks the reader nor lets CHECK_CMD in" "$out" '^\[bun run typecheck && bun run test\] \[9\]$'
   assert_match "user contract: ... and CHECK_CMD is named" "$out" "^$UC/tower/orchestrate: 'CHECK_CMD' is a repo contract setting"
   # A contract that fails part way is refused, naming the file, never half read.

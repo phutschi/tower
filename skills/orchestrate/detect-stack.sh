@@ -126,39 +126,53 @@ fi
 _env=()
 for _v in $CONTRACT_VARS; do [ -z "${!_v+set}" ] || _env+=("$_v=${!_v}"); done
 # The user contract, read in a subshell under set -eu that judges nothing: a
-# file it sources can change any of that subshell's names, so the subshell
-# only reports, NUL-separated, every name and value it then holds (builtins
-# only, so no PATH it sets matters), a pane or suite line as -pane or -suite,
-# and -end once the file loaded; none of the three can be a variable's name.
-# This shell judges them against its own USER_CONTRACT_VARS and CONTRACT_VARS
-# and the names it held before, which the file cannot reach: only a
-# USER_CONTRACT_VARS name is set; any other name the file set, and a pane or
-# suite line, is named on stderr and ignored.
+# file it sources can change any of that subshell's names, and shadow its
+# builtins with functions, so the subshell only reports, one NUL-terminated
+# record each, every name it then holds as NAME=value, a pane or suite line as
+# -pane or -suite, and -end once the file loaded. A record is one item, so no
+# stray write can make a value read as a name. This shell judges the records
+# against its own USER_CONTRACT_VARS and CONTRACT_VARS and the names it held
+# before, which the file cannot reach: only a USER_CONTRACT_VARS name is set;
+# any other name the file set, and a pane or suite line, is named on stderr
+# and ignored; a name this shell held already (HOME, KIT, …) and a private
+# _name are ignored silently. A record that is neither a marker nor NAME=…
+# with NAME an identifier means the report was garbled: refused, never echoed.
+# The file can still forge -end before it fails, which fools only its own
+# load check, never the judging.
 _user_contract() {
-  local _v
+  local _v _uc_pane="" _uc_suite=""
   set -eu
   for _v in $CONTRACT_VARS; do unset "$_v"; done
-  exec 3>&1
-  pane()  { printf -- '-pane\0\0' >&3; }
-  suite() { printf -- '-suite\0\0' >&3; }
+  pane()  { _uc_pane=1; }
+  suite() { _uc_suite=1; }
   # shellcheck source=/dev/null  # the user's own file
   . "$USER_CONTRACT_FILE" >&2
   IFS=$' \t\n'  # the file may have set its own
-  for _v in $(compgen -v); do printf '%s\0%s\0' "$_v" "${!_v-}"; done
-  printf -- '-end\0\0'
+  [ -z "$_uc_pane" ] || printf -- '-pane\0'
+  [ -z "$_uc_suite" ] || printf -- '-suite\0'
+  for _v in $(compgen -v); do printf '%s=%s\0' "$_v" "${!_v-}"; done
+  printf -- '-end\0'
 }
 _ucf="$USER_CONTRACT_FILE"
 if [ -f "$_ucf" ]; then
-  # Read from a function in a subshell, as the reader runs: FUNCNAME and the
+  # Read as the reader runs, from a function in a subshell: FUNCNAME and the
   # like are there too.
-  _names() { compgen -v | tr '\n' ' '; }
-  _held=" $(_names) "; unset -f _names
+  _held=" $(_f() { compgen -v; }; _f | tr '\n' ' ') "
   _loaded=0
-  while IFS= read -r -d '' _k && IFS= read -r -d '' _val; do
-    case "$_k" in
+  while IFS= read -r -d '' _rec; do
+    case "$_rec" in
       -end) _loaded=1; break ;;
-      -pane|-suite) echo "$_ucf: '${_k#-}' is a repo contract setting; ignored here" >&2; continue ;;
+      -pane|-suite) echo "$_ucf: '${_rec#-}' is a repo contract setting; ignored here" >&2; continue ;;
     esac
+    _k=${_rec%%=*}
+    case "$_rec" in
+      *=*) ;;
+      *) die "$_ucf: its reader's report was garbled (did it write to the reader's output?); fix it or move it away" ;;
+    esac
+    case "$_k" in
+      ""|[0-9]*|*[!A-Za-z0-9_]*) die "$_ucf: its reader's report was garbled (did it write to the reader's output?); fix it or move it away" ;;
+    esac
+    _val=${_rec#*=}
     case " $USER_CONTRACT_VARS " in
       *" $_k "*) printf -v "$_k" '%s' "$_val"; continue ;;
     esac
@@ -171,7 +185,6 @@ if [ -f "$_ucf" ]; then
         esac
         continue ;;
     esac
-    # A name this shell held already, or a private _name: not the file's setting.
     case "$_held" in
       *" $_k "*) continue ;;
     esac
@@ -180,8 +193,8 @@ if [ -f "$_ucf" ]; then
     esac
     echo "$_ucf: '$_k' is not a setting the kit reads (see example.orchestrate)" >&2
   done < <(_user_contract)
-  [ "$_loaded" = 1 ] || die "$_ucf: it failed to load (a command in it failed, or it exited): see above, then fix it or move it away"
-  unset _k _val _loaded _held
+  [ "$_loaded" = 1 ] || die "$_ucf: it failed to load (a command in it failed, it exited, or it broke its reader): see above, then fix it or move it away"
+  unset _rec _k _val _loaded _held
 fi
 unset _ucf
 unset -f _user_contract
