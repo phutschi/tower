@@ -67,8 +67,9 @@
 #   keep its verdict files there (executor.sh AGENT_LOOK); no lane is granted
 #   it, and it is granted only where look.sh --dir accepts it (a refusal
 #   fails the call before anything is written);
-#   once the Reviewer is ready, each credit guard skip (executor.sh
+#   once the Reviewer is ready, each credit guard note (executor.sh
 #   reviewer_for) as a tower note:  reviewer: skipped <kind>, <n>% credits left
+#   or  reviewer: <kind> credits unreadable, counted as enough
 #
 # The Reviewer ends its report with  [[FINDINGS WRITTEN]] <findings-file>;
 # watch-lanes.sh then reads it as idle-after-final-report. The review tab and
@@ -300,8 +301,9 @@ else
 fi
 slot_line "$LINE"
 
-# The notes reviewer_for gave, "; "-separated: a credit guard's skip, already
-# "reviewer: …", goes to the record too (ADR 0013); a fallback is printed.
+# The notes reviewer_for gave, "; "-separated: a credit guard's note (a skip
+# or an unreadable candidate), already "reviewer: …", goes to the record too
+# (ADR 0013); a fallback is printed.
 if [ -n "$R_NOTE" ]; then
   while IFS= read -r _n; do
     case "$_n" in

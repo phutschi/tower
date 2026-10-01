@@ -331,12 +331,14 @@ is_are() { [ "$1" -eq 1 ] && echo is || echo are; }
 # credits.sh probes each installed candidate: one with less than
 # REVIEWER_CREDITS_MIN % left is skipped, with the note
 # "reviewer: skipped <kind>, <n>% credits left"; unreadable credits count as
-# enough, with the note "reviewer: <kind> credits unreadable, counted as enough". Every candidate absent or skipped, the lane's own kind reviews; with
-# that not installed, the first candidate skipped reviews after all (the
-# first in order, deliberately not the one with the most credits left). Several notes are "; "-separated,
-# the skips first.
+# enough, with the note "reviewer: <kind> credits unreadable, counted as
+# enough". Every candidate absent or skipped, the lane's own kind reviews;
+# with that not installed, the first candidate skipped reviews after all (the
+# first in order, deliberately not the one with the most credits left).
+# Several notes are "; "-separated: the credit guard's (skips and unreadable
+# candidates) first, in candidate order, then a fallback.
 reviewer_for() {
-  local lane="$1" lane_model="${2:-}" c kind="" model note="" why="" skips="" left min=""
+  local lane="$1" lane_model="${2:-}" c kind="" model note="" why="" guard_notes="" left min=""
   local absent=() low=()
   kind_known "$lane" || die "lane kind must be $(kinds_say) (got '$lane')"
   case "${REVIEWER_KIND:-other}" in
@@ -352,27 +354,27 @@ reviewer_for() {
         if [ -n "$min" ]; then
           left=$(credits_left "$c")
           if [ -z "$left" ]; then
-            skips="${skips}reviewer: $c credits unreadable, counted as enough; "
+            guard_notes="${guard_notes}reviewer: $c credits unreadable, counted as enough; "
           elif [ "$left" -lt "$min" ]; then
-            low+=("$c"); skips="${skips}reviewer: skipped $c, $left% credits left; "; continue
+            low+=("$c"); guard_notes="${guard_notes}reviewer: skipped $c, $left% credits left; "; continue
           fi
         fi
         kind=$c; break
       done
-      if [ -n "$kind" ]; then note=${skips%; }
+      if [ -n "$kind" ]; then note=${guard_notes%; }
       elif kind_installed "$lane"; then
         kind=$lane
         [ "${#absent[@]}" -eq 0 ] || why="$(and_list "${absent[@]}") $(is_are "${#absent[@]}") not installed"
         [ "${#low[@]}" -eq 0 ] || why="${why:+$why and }$(and_list "${low[@]}") $(is_are "${#low[@]}") low on credits"
         case "$lane" in
-          claude) note="${skips}fallback: $why, so claude reviews claude" ;;
-          *)      note="${skips}fallback: $why, so a fresh $lane agent reviews $lane" ;;
+          claude) note="${guard_notes}fallback: $why, so claude reviews claude" ;;
+          *)      note="${guard_notes}fallback: $why, so a fresh $lane agent reviews $lane" ;;
         esac
       elif [ "${#low[@]}" -gt 0 ]; then
         # Credits steer, never block: with the lane's own kind not there, the
         # first candidate skipped for them reviews after all.
         kind=${low[0]}
-        note="${skips}fallback: $lane is not installed, so $kind reviews despite its credits"
+        note="${guard_notes}fallback: $lane is not installed, so $kind reviews despite its credits"
       else
         note="no Reviewer for a $lane lane: $(and_list "${absent[@]}" "$lane") are not installed"
         [ "$lane" = cursor ] || note="$note (cursor reviews a $lane lane only with REVIEWER_KIND=cursor)"

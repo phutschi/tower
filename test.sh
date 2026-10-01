@@ -1578,6 +1578,10 @@ SH
   assert_eq "guard on: unreadable credits count as enough, noted" "$(REVIEWER_BY_CREDITS=on rev cursor)" \
     "claude${T}claude-opus-5-5${T}reviewer: claude credits unreadable, counted as enough"
   assert_match "guard on: ... after a probe ran" "$(cat "$CG/probes.log")" '^security '
+  left claude 5; left codex -
+  assert_eq "guard on: a skip, then an unreadable candidate, both noted in order" "$(REVIEWER_BY_CREDITS=on rev cursor)" \
+    "codex${T}gpt-6-astra${T}reviewer: skipped claude, 5% credits left; reviewer: codex credits unreadable, counted as enough"
+  left claude -
   left claude 50
   assert_eq "guard on: REVIEWER_CREDITS_MIN=60 makes 50% a skip" "$(REVIEWER_BY_CREDITS=on REVIEWER_CREDITS_MIN=60 CODEX_STUB=absent rev cursor)" \
     "cursor${T}grok-4.7-high-fast${T}reviewer: skipped claude, 50% credits left; fallback: codex is not installed and claude is low on credits, so a fresh cursor agent reviews cursor"
@@ -1660,6 +1664,7 @@ SH
   left claude -; left codex 90
   r=$(fixture_repo bun-vitest); RUN="$TMP/run-cg-unread"
   out=$(kit "$r" REVIEWER_BY_CREDITS=on EXECUTOR_KIND=cursor "$KIT/bootstrap.sh" "$RUN" "Unreadable" main "$KIT/example-tasks.tsv")
+  assert_nomatch "bootstrap: its forecast probes nothing, so notes no unreadable candidate" "$out" 'unreadable'
   reset_stub; out=$(kit "$r" "$KIT/add-reviewer.sh" "$RUN" R1 cursor "Lane review A" "$RUN/findings/a.json" A)
   assert_match "add-reviewer: an unreadable candidate's note is in the record" "$(notes "$RUN")" '^reviewer: claude credits unreadable, counted as enough$'
   assert_match "add-reviewer: ... and printed" "$out" '^reviewer: claude credits unreadable, counted as enough$'
