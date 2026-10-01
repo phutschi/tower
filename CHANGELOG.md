@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-10-01
+
 ### Added
 
 - The orchestrate kit runs lanes and Reviewers in Cursor's CLI
@@ -28,9 +30,15 @@ All notable changes to this project are documented here. The format follows
 - `tower ids <ids>` prints the ids a spec expands to, one per line, as
   `tower assign` would record them, and refuses an id the run lacks. It
   records nothing. Additive: a minor version.
+- The console honours `NO_COLOR`: a non-empty value draws no colour; bold
+  stays.
 
 ### Changed
 
+- An airborne row's title keeps at least 20 columns on an 80-column board;
+  the tail (elapsed, phase, note) is cut instead.
+- The README is rewritten for a newcomer and leads with the orchestrator; the
+  CLI reference moves to `docs/cli.md`.
 - preflight's `look.sh` refuses a repo contract (`.orchestrate`) that is
   untracked, differs from HEAD or is a symlink, as a setup error naming the
   file: it is bash look runs, and a Reviewer sees only what is committed.
@@ -155,7 +163,8 @@ tower's first run was its own build.
 - Themes as JSON with `theme rules|new|check|preview`.
 - The orchestrator skill (`skills/run/SKILL.md`), experimental.
 
-[Unreleased]: https://github.com/phutschi/tower/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/phutschi/tower/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/phutschi/tower/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/phutschi/tower/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/phutschi/tower/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/phutschi/tower/releases/tag/v0.1.0
