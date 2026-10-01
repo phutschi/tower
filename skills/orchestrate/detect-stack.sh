@@ -143,7 +143,7 @@ for _v in $CONTRACT_VARS; do [ -z "${!_v+set}" ] || _env+=("$_v=${!_v}"); done
 # The file can still forge -end before it fails, which fools only its own
 # load check, never the judging.
 _user_contract() {
-  local _v _uc_pane="" _uc_suite=""
+  local _v _names _uc_pane="" _uc_suite=""
   set -eu
   for _v in $CONTRACT_VARS; do unset "$_v"; done
   pane()  { _uc_pane=1; }
@@ -152,13 +152,15 @@ _user_contract() {
   . "$USER_CONTRACT_FILE" >&2
   # Clear what the file put over the reader: posix mode finds unset, trap and
   # set before any function of the file's, which then removes its functions
-  # over the builtins the report uses, and its traps and tracing.
+  # over the builtins the report uses, and its traps and tracing. set +o posix
+  # also unsets POSIXLY_CORRECT. After it, the report runs only builtin,
+  # case, for and assignments: nothing a function of the file's can shadow
+  # (not even [ ).
   POSIXLY_CORRECT=1
   unset -f builtin command printf compgen
   trap - DEBUG RETURN ERR
   set +xvT
   set +o posix
-  unset POSIXLY_CORRECT
   # The report, on stdout alone. NAME=value only for a USER_CONTRACT_VARS
   # name, a bare NAME for every other: the environment's values never enter
   # the pipe. (A file that changes USER_CONTRACT_VARS here only withholds its
@@ -167,10 +169,15 @@ _user_contract() {
   # record.
   {
     IFS=$' \t\n'  # the file may have set its own
+    _names=$(builtin compgen -v)  # a compgen the file disabled fails the load
     builtin printf -- '-start\0'
-    [ -z "$_uc_pane" ] || builtin printf -- '-pane\0'
-    [ -z "$_uc_suite" ] || builtin printf -- '-suite\0'
-    for _v in $(builtin compgen -v); do
+    case $_uc_pane in
+      1) builtin printf -- '-pane\0' ;;
+    esac
+    case $_uc_suite in
+      1) builtin printf -- '-suite\0' ;;
+    esac
+    for _v in $_names; do
       case " $USER_CONTRACT_VARS " in
         *" $_v "*) builtin printf '%s=%s\0' "$_v" "${!_v-}" ;;
         *) builtin printf '%s\0' "$_v" ;;

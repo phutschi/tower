@@ -1416,6 +1416,17 @@ if section user-contract; then
   out=$(detect_clean "$r" 'echo "[$STALE]"')
   assert_nomatch "user contract: its builtin() function or DEBUG trap sees no value" "$out" 'sk_live_rex'
   assert_match "user contract: ... and it loads" "$out" '^\[9\]$'
+  # Nothing a file's function can shadow runs after it is cleared: a function
+  # named unset or [ is never called by the reader.
+  for f in unset '['; do
+    uc 'exec 7>&2' "$f() { echo 'reader called the file' >&7; command $f \"\$@\"; }" STALE=9
+    out=$(detect_clean "$r" 'echo "[$STALE]"')
+    assert_nomatch "user contract: its function named $f is never called by the reader" "$out" 'reader called the file'
+    assert_match "user contract: ... and it loads" "$out" '^\[9\]$'
+  done
+  uc 'enable -n compgen' STALE=9
+  out=$(detect_clean "$r" true; echo "exit=$?")
+  assert_match "user contract: a disabled compgen refuses the load, never drops it silently" "$out" 'exit=1$'
   uc 'pane checks "x"' STALE=9
   out=$(detect_clean "$r" 'echo "[$STALE]"')
   assert_match "user contract: a pane line is still named" "$out" "^$UC/tower/orchestrate: 'pane' is a repo contract setting; ignored here$"
