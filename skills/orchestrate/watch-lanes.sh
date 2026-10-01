@@ -127,6 +127,7 @@ poll() {
       [ "$state" = unreadable ] || UNREADABLE[$i]=0
       case "$state" in
         working|unknown) IDLE_SEEN[$i]=0; working=1 ;;
+        # ${X[$i]:-0}, not X[i]: every element is set, but semgrep cannot parse X[i] in $(( )).
         unreadable) IDLE_SEEN[$i]=0; UNREADABLE[$i]=$(( ${UNREADABLE[$i]:-0} + 1 ))
               if [ "${UNREADABLE[$i]}" -ge "$UNREADABLE_MAX" ]; then settled=1; else working=1; fi ;;
         idle) if [ $(( $(date +%s) - started )) -ge "$GRACE" ]; then

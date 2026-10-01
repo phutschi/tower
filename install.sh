@@ -202,9 +202,9 @@ unlink_old() {  # DIR NAME
   local target
   [ -L "$1/$2" ] || return 0
   target=$(readlink "$1/$2")
-  case "$target" in  # relative to the link's dir
+  case "$target" in
     /*) ;;
-    *) target="$1/$target" ;;
+    *) target="$1/$target" ;;  # relative to the link's dir
   esac
   # Where it really points: links followed as far as they exist, '..' resolved.
   target=$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$target") || return 0
