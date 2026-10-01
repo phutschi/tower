@@ -2117,7 +2117,7 @@ if section brief-cursor; then
   assert_match "brief: the template gives the command" "$cmd" 'kind_default QUALITY_REVIEWER_MODEL cursor'
   assert_match "brief: ... with _ as bash's \$0, the kit and run dir as \$1 and \$2" "$cmd" "' _ \"<kit>\" \"<run-dir>\"\$"
   assert_nomatch "brief: ... never the kit as \$0" "$cmd" '"\$0/'
-  assert_match "brief: says what EXECUTOR_KIND=claude does" "$(tr '\n' ' ' < "$KIT/brief-template.md")" 'EXECUTOR_KIND=claude. resolves .*EXECUTOR_MODEL_CLAUDE.*stderr'
+  assert_match "brief: says what EXECUTOR_KIND=claude does" "$(tr '\n' ' ' < "$KIT/brief-template.md")" 'EXECUTOR_KIND=claude. resolves [^)]*EXECUTOR_MODEL_CLAUDE[^)]*off stderr'
   cursor_models() { (cd "$1" && env XDG_CONFIG_HOME="$3" ${4:+"$4"} bash -c "$(printf '%s' "$cmd" | sed "s#<kit>#$KIT#g; s#<run-dir>#$2#g")" 2>&1 | paste -sd' ' -); }  # CHECKOUT RUN_DIR XDG [VAR=value]
   kit_spec=$(sed -n 's/^SPEC_REVIEWER_MODEL_CURSOR=//p' "$KIT/model-defaults"); kit_quality=$(sed -n 's/^QUALITY_REVIEWER_MODEL_CURSOR=//p' "$KIT/model-defaults")
   r=$(fixture_repo bun-vitest); RB="$TMP/run-brief-cursor"; reset_stub

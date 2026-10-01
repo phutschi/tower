@@ -41,11 +41,12 @@ Its last two lines of stdout are the two, in that order, each resolved as
 every kit default is: the environment, then the run's repo contract, then
 the user contract, then the kit's `model-defaults`. A line before them is a
 note from a contract. A model the kit cannot resolve is named on stderr,
-and the command fails: fix that before the brief. (`EXECUTOR_KIND=claude` resolves
-executor.sh's own lane model as claude's, so the command also fails when no
-`EXECUTOR_MODEL_CLAUDE` resolves; and it keeps a codex or cursor setup hint
-off stderr, as claude has none.) Say in the brief that they replace the roles
-tower prints. Never write a model from memory.
+and the command fails: fix that before the brief. (`EXECUTOR_KIND=claude`
+resolves executor.sh's own lane model as claude's, so unless `EXECUTOR_MODEL`
+is set the command also fails when no `EXECUTOR_MODEL_CLAUDE` resolves; and
+it keeps a codex or cursor setup hint off stderr, as claude has none.) Say
+in the brief that they replace the roles tower prints. Never write a model
+from memory.
 
 |                     | claude lane                                                     | codex lane                                                        | cursor lane                                                        |
 |---------------------|-----------------------------------------------------------------|-------------------------------------------------------------------|--------------------------------------------------------------------|
