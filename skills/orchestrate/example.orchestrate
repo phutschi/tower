@@ -86,7 +86,8 @@ pane checks "bun test --watch"
 #                       nearly out of quota. On, it reads claude's and
 #                       cursor's tokens from the macOS keychain and calls
 #                       undocumented endpoints. Unreadable credits count as
-#                       enough; each skip is a tower note.
+#                       enough. Each skip, and each unreadable candidate, is
+#                       a tower note.
 # REVIEWER_CREDITS_MIN=20
 #                       0-100: the % left below which the guard skips a kind
 # REVIEW_AREAS=         preflight's areas, comma-separated; empty: every area

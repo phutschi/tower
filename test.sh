@@ -1575,7 +1575,8 @@ SH
   assert_eq "guard on: one absent, one low, the fallback says which is which" "$(REVIEWER_BY_CREDITS=on CLAUDE_STUB=absent rev cursor)" \
     "cursor${T}grok-4.7-high-fast${T}reviewer: skipped codex, 9% credits left; fallback: claude is not installed and codex is low on credits, so a fresh cursor agent reviews cursor"
   left claude -
-  assert_eq "guard on: unreadable credits count as enough, with no note" "$(REVIEWER_BY_CREDITS=on rev cursor)" "claude${T}claude-opus-5-5${T}"
+  assert_eq "guard on: unreadable credits count as enough, noted" "$(REVIEWER_BY_CREDITS=on rev cursor)" \
+    "claude${T}claude-opus-5-5${T}reviewer: claude credits unreadable, counted as enough"
   assert_match "guard on: ... after a probe ran" "$(cat "$CG/probes.log")" '^security '
   left claude 50
   assert_eq "guard on: REVIEWER_CREDITS_MIN=60 makes 50% a skip" "$(REVIEWER_BY_CREDITS=on REVIEWER_CREDITS_MIN=60 CODEX_STUB=absent rev cursor)" \
@@ -1655,6 +1656,15 @@ SH
   assert_match "without the user contract: claude at 50% reviews (the default 20%)" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-r1-1 --kind claude '
   assert_nomatch "without the user contract: ... with no skip note" "$(notes "$RUN")" '^reviewer: skipped'
   rm -f "$HERDR_STUB_STATES_DIR"/bun-vitest-r1-* "$HERDR_STUB_STATES_DIR"/bun-vitest-r2-*
+  # add-reviewer writes an unreadable candidate's note to the record.
+  left claude -; left codex 90
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-cg-unread"
+  out=$(kit "$r" REVIEWER_BY_CREDITS=on EXECUTOR_KIND=cursor "$KIT/bootstrap.sh" "$RUN" "Unreadable" main "$KIT/example-tasks.tsv")
+  reset_stub; out=$(kit "$r" "$KIT/add-reviewer.sh" "$RUN" R1 cursor "Lane review A" "$RUN/findings/a.json" A)
+  assert_match "add-reviewer: an unreadable candidate's note is in the record" "$(notes "$RUN")" '^reviewer: claude credits unreadable, counted as enough$'
+  assert_match "add-reviewer: ... and printed" "$out" '^reviewer: claude credits unreadable, counted as enough$'
+  assert_match "add-reviewer: ... and claude reviews" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-r1-1 --kind claude '
+  rm -f "$HERDR_STUB_STATES_DIR"/bun-vitest-r1-*
   unset CODEX_STUB_RATE_LIMITS
 fi
 

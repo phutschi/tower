@@ -257,7 +257,8 @@ names one kind for every lane instead. With `REVIEWER_BY_CREDITS=on`, a
 candidate with less than `REVIEWER_CREDITS_MIN` % of its quota left is
 skipped for the next one, with a tower note (`reviewer: skipped codex, 12%
 credits left`); every candidate skipped: the lane's own kind. Credits that
-cannot be read count as enough, and an explicit `REVIEWER_KIND` is never
+cannot be read count as enough, with a note (`reviewer: claude credits
+unreadable, counted as enough`), and an explicit `REVIEWER_KIND` is never
 probed. The same order holds for preflight slots.
 
 ## Triage

@@ -362,7 +362,8 @@ kit reads the % left in its tightest window:
 
 These endpoints are undocumented or internal, and any CLI update can break
 one, so the guard fails open: a probe that errors, times out (about 2 s) or
-gets a reply of another shape counts as enough credits. A candidate with less
+gets a reply of another shape counts as enough credits, with a tower note:
+`reviewer: claude credits unreadable, counted as enough`. A candidate with less
 than `REVIEWER_CREDITS_MIN` % left (default 20) is skipped, and the record
 gets a tower note: `reviewer: skipped codex, 12% credits left`. With every
 candidate skipped, the lane's own kind reviews. The guard applies to lane

@@ -331,7 +331,7 @@ is_are() { [ "$1" -eq 1 ] && echo is || echo are; }
 # credits.sh probes each installed candidate: one with less than
 # REVIEWER_CREDITS_MIN % left is skipped, with the note
 # "reviewer: skipped <kind>, <n>% credits left"; unreadable credits count as
-# enough. Every candidate absent or skipped, the lane's own kind reviews; with
+# enough, with the note "reviewer: <kind> credits unreadable, counted as enough". Every candidate absent or skipped, the lane's own kind reviews; with
 # that not installed, the first candidate skipped reviews after all (the
 # first in order, deliberately not the one with the most credits left). Several notes are "; "-separated,
 # the skips first.
@@ -350,8 +350,10 @@ reviewer_for() {
       for c in $(reviewer_candidates "$lane"); do
         if ! kind_installed "$c"; then absent+=("$c"); continue; fi
         if [ -n "$min" ]; then
-          left=$(credits_left "$c")   # nothing: unreadable, which counts as enough
-          if [ -n "$left" ] && [ "$left" -lt "$min" ]; then
+          left=$(credits_left "$c")
+          if [ -z "$left" ]; then
+            skips="${skips}reviewer: $c credits unreadable, counted as enough; "
+          elif [ "$left" -lt "$min" ]; then
             low+=("$c"); skips="${skips}reviewer: skipped $c, $left% credits left; "; continue
           fi
         fi
