@@ -1,7 +1,24 @@
 #!/usr/bin/env bash
-# The repo contract and the JS default. Sourced (after common.sh) with $PWD at
-# the checkout. Resolution for every value: environment > .orchestrate >
-# detection > built-in default.
+# The repo contract, the user contract and the JS default. Sourced (after
+# common.sh) with $PWD at the checkout. Resolution for every value:
+# environment > .orchestrate > user contract > detection > built-in default.
+#
+# The user contract, USER_CONTRACT_FILE (${XDG_CONFIG_HOME:-~/.config}/tower/orchestrate),
+# is one person's run defaults for every repo, in the same syntax. It may set
+# only USER_CONTRACT_VARS: EXECUTOR_KIND, the per-kind model keys and the
+# credit guard's REVIEWER_CREDITS_MIN (model-defaults' keys), STALE, and the
+# switches TASK_REVIEW LANE_REVIEW PREFLIGHT STATIC_BASELINE METHOD
+# REVIEWER_KIND REVIEWER_BY_CREDITS. The rest is the repo's: its check gate,
+# panes, suite and toolchain, the unsuffixed models (they would give every kind one model),
+# and the switches PR, REVIEW_AREAS, SUITE_SKIP and PR_TEMPLATE. Such a name,
+# an unknown one, or a pane or suite line is named on stderr and ignored; a
+# file that fails to load (a failing command, an exit) is refused; a missing
+# file is silent. The file itself is never pinned, but its run switches,
+# REVIEWER_CREDITS_MIN among them, are fixed at bootstrap: the pane map's
+# switches: line records them, and add-reviewer.sh takes them from there, so
+# a switch changed mid-run does not reach the rest of the run (STALE, too, is
+# read only at bootstrap). Its per-kind model keys and EXECUTOR_KIND are read
+# on every call.
 #
 # .orchestrate is plain bash in the repo root (see example.orchestrate):
 #   CHECK_CMD="bun run check"           the check gate; one-shot, must pass before a commit
@@ -9,19 +26,26 @@
 #                                       the package manager's install, none without a package.json
 #   pane checks "bun test --watch"      pane NAME "CMD" [DIR]; DIR relative to the checkout
 #   pane dev    "bun run dev" apps/web  only checks and dev are placed
-#   EXECUTOR_KIND=codex                 the lanes' harness: claude (default) | codex
-#   EXECUTOR_MODEL=gpt-6-astra          the lanes' model (executor.sh has the kind's default)
+#   EXECUTOR_KIND=codex                 the lanes' harness: claude (default) | codex | cursor
+#   EXECUTOR_MODEL=gpt-6-astra          the lanes' model (model-defaults has each kind's default)
 #   SPEC_REVIEWER_MODEL=sonnet          the two reviewer models tower records for the run
-#   QUALITY_REVIEWER_MODEL=opus
+#   QUALITY_REVIEWER_MODEL=opus         (default: SPEC_/QUALITY_REVIEWER_MODEL_<run's kind>)
+#   EXECUTOR_MODEL_<KIND>=...           a kind's default model (model-defaults' keys, below)
 #   STALE=30                            minutes before the console and tower wait flag a lane as stale
 #   suite lint "bun run lint" [DIR]     suite NAME "CMD" [DIR]: the full suite as named steps, in order
+# model-defaults' keys, each replacing the kit's default, with <KIND> one of
+# CLAUDE, CODEX, CURSOR: EXECUTOR_MODEL_<KIND>, REVIEWER_MODEL_<KIND>,
+# REVIEWER_MODEL_CLAUDE_SELF, SPEC_/QUALITY_REVIEWER_MODEL_<KIND> and
+# REVIEWER_CREDITS_MIN;
 # plus PM, TYPECHECK_TASK, TEST_PKG and TEST_FILTER to steer the detection below,
 # and the run switches (default first; a value outside the list, or on more than
 # one line, is refused):
 #   TASK_REVIEW LANE_REVIEW PREFLIGHT STATIC_BASELINE   on | off
 #   PR                                                   draft | ready | off
 #   METHOD                                               tdd | plain
-#   REVIEWER_KIND                                        other | claude | codex
+#   REVIEWER_KIND                                        other | claude | codex | cursor
+#   REVIEWER_BY_CREDITS                                  off | on  (the credit guard, ADR 0013)
+#   REVIEWER_CREDITS_MIN                                 0-100, % left; default model-defaults' (20)
 #   REVIEWER_MODEL REVIEW_AREAS SUITE_SKIP PR_TEMPLATE   free text, empty by default;
 #                                                        lists are comma-separated
 # Pinned: the file is bash, and this shell is the orchestrator's, so within a
@@ -41,7 +65,9 @@
 #
 # Sets: PM PM_EXEC PM_RUN INSTALL_CMD TYPECHECK_TASK CHECK_CMD
 #       INSTALL_WHY  (why INSTALL_CMD is empty, for the one line add-lane.sh prints)
-#       EXECUTOR_KIND EXECUTOR_MODEL SPEC_REVIEWER_MODEL QUALITY_REVIEWER_MODEL STALE  (when the file sets them)
+#       EXECUTOR_KIND EXECUTOR_MODEL SPEC_REVIEWER_MODEL QUALITY_REVIEWER_MODEL STALE  (when a contract sets them)
+#       the model-defaults keys a contract sets, unexported: executor.sh's
+#       model_default reads them in this shell
 #       PANE_NAMES PANE_CMDS PANE_DIRS   (parallel arrays; pane_index NAME finds one)
 #       NO_RUNNER   1 when no checks pane is declared and no test runner is detected
 #                   (the checks pane then only echoes a note), else 0
@@ -50,7 +76,12 @@
 #       every switch above, exported; switches_line prints them all on one line,
 #       NAME=value, a value with spaces or quotes single-quoted the shell's way
 
-CONTRACT_VARS="EXECUTOR_KIND EXECUTOR_MODEL SPEC_REVIEWER_MODEL QUALITY_REVIEWER_MODEL STALE PM TYPECHECK_TASK CHECK_CMD INSTALL_CMD TEST_PKG TEST_FILTER $SWITCHES"
+# The per-kind model keys and the credit threshold: model-defaults' keys.
+# A missing file gives none here; executor.sh model_default then names it.
+MODEL_KEYS=$({ sed -n 's/^\([A-Z_]*\)=.*/\1/p' "${MODEL_DEFAULTS_FILE:-$KIT/model-defaults}" 2>/dev/null || true; } | tr '\n' ' ')
+CONTRACT_VARS="EXECUTOR_KIND EXECUTOR_MODEL SPEC_REVIEWER_MODEL QUALITY_REVIEWER_MODEL STALE PM TYPECHECK_TASK CHECK_CMD INSTALL_CMD TEST_PKG TEST_FILTER $SWITCHES $MODEL_KEYS"
+USER_CONTRACT_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/tower/orchestrate"
+USER_CONTRACT_VARS="EXECUTOR_KIND STALE TASK_REVIEW LANE_REVIEW PREFLIGHT STATIC_BASELINE METHOD REVIEWER_KIND REVIEWER_BY_CREDITS $MODEL_KEYS"
 PANE_NAMES=(); PANE_CMDS=(); PANE_DIRS=()
 SUITE_NAMES=(); SUITE_CMDS=(); SUITE_DIRS=()
 # The contract file; the kit's old name for it still works, with a note.
@@ -60,7 +91,10 @@ if [ ! -f .orchestrate ] && [ -f .herdr-orchestrate ]; then
   echo "note: rename .herdr-orchestrate to .orchestrate; the old name still works for now" >&2
 fi
 pane() {
-  case "${1:-}" in checks|dev) ;; *) die "$CONTRACT_FILE: unknown pane '${1:-}' (only checks and dev are placed)" ;; esac
+  case "${1:-}" in
+    checks|dev) ;;
+    *) die "$CONTRACT_FILE: unknown pane '${1:-}' (only checks and dev are placed)" ;;
+  esac
   [ -n "${2:-}" ] || die "$CONTRACT_FILE: pane $1 needs a command"
   PANE_NAMES[${#PANE_NAMES[@]}]="$1"; PANE_CMDS[${#PANE_CMDS[@]}]="$2"; PANE_DIRS[${#PANE_DIRS[@]}]="${3:-.}"
 }
@@ -87,25 +121,147 @@ if [ -n "${CONTRACT_RUN:-}" ]; then  # pinned: never a checkout's file (header)
 elif [ -f "$CONTRACT_FILE" ]; then
   _kit_contract="./$CONTRACT_FILE"
 fi
+# Environment first: remember what the call set, apply the user contract,
+# source the repo contract, put the call's values back.
+_env=()
+for _v in $CONTRACT_VARS; do [ -z "${!_v+set}" ] || _env+=("$_v=${!_v}"); done
+# The user contract, read in a subshell under set -eu that judges nothing: a
+# file it sources can change any of that subshell's names, and shadow its
+# builtins with functions, so the subshell only reports, one NUL-terminated
+# record each, every name it then holds as NAME=value, a pane or suite line as
+# -pane or -suite, and -end once the file loaded. A record is one item, so no
+# stray write can make a value read as a name. This shell judges the records
+# against its own USER_CONTRACT_VARS and CONTRACT_VARS and the names it held
+# before, which the file cannot reach: only a USER_CONTRACT_VARS name sent
+# with its value is set;
+# any other name the file set, and a pane or suite line, is named on stderr
+# and ignored; a name this shell held already (HOME, KIT, …) and a private
+# _name, and one bash sets itself (BASH_REMATCH, REPLY, OPTARG, …), are ignored
+# silently. A report that does not start with -start, or holds a record that
+# is neither a marker nor NAME[=…] with NAME an identifier, was garbled:
+# refused, never echoed.
+# The file can still forge -end before it fails, which fools only its own
+# load check, never the judging.
+_user_contract() {
+  local _v _names _uc_pane="" _uc_suite=""
+  set -eu
+  for _v in $CONTRACT_VARS; do unset "$_v"; done
+  pane()  { _uc_pane=1; }
+  suite() { _uc_suite=1; }
+  # shellcheck source=/dev/null  # the user's own file
+  . "$USER_CONTRACT_FILE" >&2
+  # Clear what the file put over the reader: posix mode finds unset, trap and
+  # set before any function of the file's, which then removes its functions
+  # over the builtins the report uses, and its traps and tracing. set +o posix
+  # also unsets POSIXLY_CORRECT. After it, the report runs only builtin,
+  # case, for and assignments: nothing a function of the file's can shadow
+  # (not even [ ). A file that disables a special builtin itself (enable -n)
+  # can still have its own function run here; that runs only its own code,
+  # with no value it did not already hold.
+  POSIXLY_CORRECT=1
+  unset -f builtin command printf compgen
+  trap - DEBUG RETURN ERR
+  set -eu +xvT  # errexit back on too: a set +e of the file's must not hide a failing report
+  set +o posix
+  # The report, on stdout alone. NAME=value only for a USER_CONTRACT_VARS
+  # name, a bare NAME for every other: the environment's values never enter
+  # the pipe. (A file that changes USER_CONTRACT_VARS here only withholds its
+  # own values: a bare NAME is never set.)
+  # -start first, so a stray write before it, NUL or not, garbles the first
+  # record.
+  {
+    IFS=$' \t\n'  # the file may have set its own
+    _names=$(builtin compgen -v)  # a compgen the file disabled fails the load
+    builtin printf -- '-start\0'
+    case $_uc_pane in
+      1) builtin printf -- '-pane\0' ;;
+    esac
+    case $_uc_suite in
+      1) builtin printf -- '-suite\0' ;;
+    esac
+    for _v in $_names; do
+      case " $USER_CONTRACT_VARS " in
+        *" $_v "*) builtin printf '%s=%s\0' "$_v" "${!_v-}" ;;
+        *) builtin printf '%s\0' "$_v" ;;
+      esac
+    done
+    builtin printf -- '-end\0'
+  } 2>/dev/null
+}
+_ucf="$USER_CONTRACT_FILE"
+if [ -f "$_ucf" ]; then
+  # Read as the reader runs, from a function in a subshell: FUNCNAME and the
+  # like are there too.
+  _held=" $(_f() { compgen -v; }; _f | tr '\n' ' ') "
+  # Never traced, even under bash -x: the records pass through this loop.
+  _xtrace=0
+  case $- in
+    *x*) _xtrace=1; { set +x; } 2>/dev/null ;;
+  esac
+  _loaded=0; _started=0
+  _garbled="$_ucf: its reader's report was garbled (did it write to the reader's output?); fix it or move it away"
+  while IFS= read -r -d '' _rec; do
+    if [ "$_started" = 0 ]; then
+      [ "$_rec" = "-start" ] || die "$_garbled"
+      _started=1; continue
+    fi
+    case "$_rec" in
+      -end) _loaded=1; break ;;
+      -pane|-suite) echo "$_ucf: '${_rec#-}' is a repo contract setting; ignored here" >&2; continue ;;
+    esac
+    # NAME=value, or a bare NAME whose value was withheld; NAME an identifier.
+    _k=${_rec%%=*}
+    case "$_k" in
+      ""|[0-9]*|*[!A-Za-z0-9_]*) die "$_garbled" ;;
+    esac
+    case " $USER_CONTRACT_VARS " in
+      *" $_k "*)
+        [ "$_k" = "$_rec" ] || printf -v "$_k" '%s' "${_rec#*=}"
+        continue ;;
+    esac
+    case " $CONTRACT_VARS " in
+      *" $_k "*)
+        case "$_k" in
+          EXECUTOR_MODEL|REVIEWER_MODEL|SPEC_REVIEWER_MODEL|QUALITY_REVIEWER_MODEL)
+            echo "$_ucf: '$_k' is a repo contract setting; ignored here (set ${_k}_<KIND>, e.g. ${_k}_CLAUDE)" >&2 ;;
+          *) echo "$_ucf: '$_k' is a repo contract setting; ignored here" >&2 ;;
+        esac
+        continue ;;
+    esac
+    case "$_held" in
+      *" $_k "*) continue ;;
+    esac
+    # A private _name, or one bash sets itself as the file runs.
+    case "$_k" in
+      _*|BASH_*|REPLY|MAPFILE|COPROC|COPROC_PID|OPTARG|OLDPWD|POSIXLY_CORRECT) continue ;;
+    esac
+    echo "$_ucf: '$_k' is not a setting the kit reads (see example.orchestrate)" >&2
+  done < <(_user_contract)
+  [ "$_xtrace" = 0 ] || set -x
+  [ "$_loaded" = 1 ] || die "$_ucf: it failed to load (a command in it failed, it exited, or it broke its reader): see above, then fix it or move it away"
+  unset _rec _k _loaded _held _started _garbled _xtrace
+fi
+unset _ucf
+unset -f _user_contract
 if [ -n "$_kit_contract" ]; then
-  # Environment first: remember what the call set, source the file, put the
-  # call's values back. Unknown names in the file are left alone but named,
-  # so a typo does not pass silently.
-  _env=()
-  for _v in $CONTRACT_VARS; do [ -z "${!_v+set}" ] || _env+=("$_v=${!_v}"); done
+  # Unknown names in the file are left alone but named, so a typo does not
+  # pass silently.
   _before="$(compgen -v | sort)"
   # shellcheck source=/dev/null  # the repo's own file
   . "$_kit_contract"
-  for _kv in ${_env[@]+"${_env[@]}"}; do export "$_kv"; done
   # grep finds nothing when the file adds no names (only pane and suite lines);
   # that is not an error for a caller running under set -e and pipefail.
   _new="$(comm -13 <(echo "$_before") <(compgen -v | sort) | { grep -vE '^(_|PANE_)' || true; })"
   for _v in $_new; do
-    case " $CONTRACT_VARS " in *" $_v "*) ;; *) echo "$CONTRACT_FILE: '$_v' is not a setting the kit reads (see example.orchestrate)" >&2 ;; esac
+    case " $CONTRACT_VARS " in
+      *" $_v "*) ;;
+      *) echo "$CONTRACT_FILE: '$_v' is not a setting the kit reads (see example.orchestrate)" >&2 ;;
+    esac
   done
-  unset _env _v _kv _before _new
+  unset _before _new
 fi
-unset _kit_contract
+for _kv in ${_env[@]+"${_env[@]}"}; do export "$_kv"; done
+unset _kit_contract _env _v _kv
 
 # --- package manager ---------------------------------------------------------
 if [ -z "${PM:-}" ]; then
@@ -203,6 +359,16 @@ TASK_REVIEW="${TASK_REVIEW:-on}"; LANE_REVIEW="${LANE_REVIEW:-on}"
 PREFLIGHT="${PREFLIGHT:-on}";     STATIC_BASELINE="${STATIC_BASELINE:-on}"
 PR="${PR:-draft}"; METHOD="${METHOD:-tdd}"; REVIEWER_KIND="${REVIEWER_KIND:-other}"
 REVIEWER_MODEL="${REVIEWER_MODEL:-}"; REVIEW_AREAS="${REVIEW_AREAS:-}"
+REVIEWER_BY_CREDITS="${REVIEWER_BY_CREDITS:-off}"
+# The credit guard's threshold: the defaults file's unless a contract sets it
+# (as executor.sh model_default reads it, which is not loaded yet).
+if [ -z "${REVIEWER_CREDITS_MIN:-}" ]; then
+  _f="${MODEL_DEFAULTS_FILE:-$KIT/model-defaults}"
+  # shellcheck source=/dev/null  # the kit's data file, or a test's copy
+  REVIEWER_CREDITS_MIN=$(. "$_f" 2>/dev/null; echo "${REVIEWER_CREDITS_MIN:-}")
+  [ -n "$REVIEWER_CREDITS_MIN" ] || die "model-defaults: no REVIEWER_CREDITS_MIN in $_f"
+  unset _f
+fi
 SUITE_SKIP="${SUITE_SKIP:-}";         PR_TEMPLATE="${PR_TEMPLATE:-}"
 switch_allows() {  # NAME "a, b or c" VALUE...: refuse NAME unless its value is one of VALUE...
   local name="$1" say="$2" v; shift 2
@@ -212,9 +378,14 @@ switch_allows() {  # NAME "a, b or c" VALUE...: refuse NAME unless its value is 
 for _v in TASK_REVIEW LANE_REVIEW PREFLIGHT STATIC_BASELINE; do switch_allows "$_v" "on or off" on off; done; unset _v
 switch_allows PR            "draft, ready or off"     draft ready off
 switch_allows METHOD        "tdd or plain"            tdd plain
-switch_allows REVIEWER_KIND "other, claude or codex"  other claude codex
+switch_allows REVIEWER_BY_CREDITS "on or off"         on off
+credits_min_ok "$REVIEWER_CREDITS_MIN" || credits_min_refused "$REVIEWER_CREDITS_MIN"
+# shellcheck disable=SC2086  # KINDS: one word per kind
+switch_allows REVIEWER_KIND "other, $(kinds_say)" other $KINDS
 for _v in $SWITCHES; do  # one line each, for the pane map's switches: line
-  case "${!_v}" in *$'\n'*) die "$_v must be one line" ;; esac
+  case "${!_v}" in
+    *$'\n'*) die "$_v must be one line" ;;
+  esac
 done; unset _v
 switches_line() {  # every switch and its value, on one line; a value with any
   # character outside [A-Za-z0-9_.,:/@%+-] is single-quoted the shell's way, so
@@ -222,7 +393,9 @@ switches_line() {  # every switch and its value, on one line; a value with any
   local v val out=""
   for v in $SWITCHES; do
     val=${!v}
-    case "$val" in *[!A-Za-z0-9_.,:/@%+-]*) val="'$(printf '%s' "$val" | sed "s/'/'\\\\''/g")'" ;; esac
+    case "$val" in
+      *[!A-Za-z0-9_.,:/@%+-]*) val="'$(printf '%s' "$val" | sed "s/'/'\\\\''/g")'" ;;
+    esac
     out="$out $v=$val"
   done
   echo "${out# }"

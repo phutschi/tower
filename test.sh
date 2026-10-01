@@ -34,7 +34,11 @@ assert_nomatch() { printf '%s\n' "$2" | grep -qE -- "$3" && bad "$1" "unexpected
 section() {
   [ -z "$ONLY" ] || [ "$ONLY" = "$1" ] || return 1
   MATCHED=1
-  [ "$FAST" = 0 ] || [ -n "$ONLY" ] || case " $SLOW " in *" $1 "*) return 1 ;; esac
+  if [ "$FAST" = 1 ] && [ -z "$ONLY" ]; then
+    case " $SLOW " in
+      *" $1 "*) return 1 ;;
+    esac
+  fi
   [ "$LIST" = 0 ] || { echo "$1"; return 1; }
 }
 
@@ -62,11 +66,17 @@ unset HERDR_PANE_ID HERDR_TAB_ID
 # config stay in $TMP, never the user's.
 export XDG_STATE_HOME="$LOOK_STATE/xdg-state" XDG_CONFIG_HOME="$TMP/xdg-config"
 unset TOWER_RUN
+# The credit probes' knobs (credits.sh, the codex stub's app-server; the
+# claude probe reads nothing under a CLAUDE_CONFIG_DIR).
+unset CREDITS_TIMEOUT CODEX_STUB_RATE_LIMITS CLAUDE_CONFIG_DIR
 # The repo contract's names and the run switches: the fixtures decide them,
 # not the shell test.sh is started from (a codex lane exports EXECUTOR_KIND).
 unset EXECUTOR_KIND EXECUTOR_MODEL SPEC_REVIEWER_MODEL QUALITY_REVIEWER_MODEL STALE PM TYPECHECK_TASK \
   CHECK_CMD INSTALL_CMD TEST_PKG TEST_FILTER LANES TASK_REVIEW LANE_REVIEW PREFLIGHT STATIC_BASELINE PR METHOD \
   REVIEWER_KIND REVIEWER_MODEL REVIEW_AREAS SUITE_SKIP PR_TEMPLATE
+# The model defaults (model-defaults): the kit's file, never the calling shell's keys.
+# shellcheck disable=SC2046  # the file's keys, one word each
+unset CURSOR_STUB REVIEWER_BY_CREDITS CREDITS_FAKES MODEL_DEFAULTS_FILE $(sed -n 's/^\([A-Z_]*\)=.*/\1/p' "$KIT/model-defaults")
 mkdir -p "$HERDR_STUB_STATES_DIR"
 
 # Guard: every section below runs herdr/tower/claude/codex calls through common.sh's
@@ -75,7 +85,7 @@ mkdir -p "$HERDR_STUB_STATES_DIR"
 # test touching the real herdr or tower (this happened once: HERDR_ENV=1 is
 # inherited from the orchestrating pane, so `in_herdr` alone does not stop a
 # script run outside test.sh and outside DRY_RUN=1 from driving real panes).
-for _tool in herdr tower claude codex semgrep gitleaks; do
+for _tool in herdr tower claude codex semgrep gitleaks cursor-agent; do
   _which=$(bash -c ". \"$KIT/common.sh\"; command -v $_tool" 2>/dev/null || true)
   [ "$_which" = "$KIT/tests/stub/$_tool" ] || { echo "test.sh: $_tool resolves to '$_which', not the stub ($KIT/tests/stub/$_tool) — refusing to run" >&2; exit 1; }
 done
@@ -160,8 +170,8 @@ if section executor; then
   assert_eq "reviewer: REVIEWER_MODEL overrides a fallback's model" "$(CODEX_STUB=absent REVIEWER_MODEL=sonnet rev claude)" "claude${T}sonnet${T}fallback: codex is not installed, so claude reviews claude"
   assert_match "reviewer: a forced kind that is not installed is refused" "$(CODEX_STUB=absent REVIEWER_KIND=codex rev claude; echo "exit=$?")" "REVIEWER_KIND=codex, but codex is not installed"
   assert_match "reviewer: the refusal exits non-zero" "$(CODEX_STUB=absent REVIEWER_KIND=codex rev claude; echo "exit=$?")" "exit=1$"
-  assert_match "reviewer: an unknown REVIEWER_KIND is refused" "$(REVIEWER_KIND=Claude rev claude)" "REVIEWER_KIND must be other, claude or codex \(got 'Claude'\)"
-  assert_match "reviewer: neither kind installed is refused" "$(CODEX_STUB=absent CLAUDE_STUB=absent rev claude)" "neither claude nor codex is installed"
+  assert_match "reviewer: an unknown REVIEWER_KIND is refused" "$(REVIEWER_KIND=Claude rev claude)" "REVIEWER_KIND must be other, claude, codex or cursor \(got 'Claude'\)"
+  assert_match "reviewer: no candidate and the lane's own kind absent: refused" "$(CODEX_STUB=absent CLAUDE_STUB=absent rev claude)" "no Reviewer for a claude lane: codex and claude are not installed \\(cursor reviews a claude lane only with REVIEWER_KIND=cursor\\)"
   # An agent start: `start NAME [ENV...]` runs start_agent_with_trust_retry
   # for NAME in pane-9 of a codex executor, in repo $r.
   start() { local n=$1; shift; reset_stub; (cd "$r" && env HOME="$TMP/rev-home" EXECUTOR_KIND=codex "$@" bash -c ". \"\$KIT/common.sh\"; . \"\$KIT/executor.sh\"; start_agent_with_trust_retry $n pane-9; echo \"exit=\$?\"" 2>&1); }
@@ -291,11 +301,11 @@ if section detect; then
   r=$(fixture_repo none)
   assert_eq "switches: defaults when neither file nor environment sets them" \
     "$(detect_in "$r" 'switches_line')" \
-    "TASK_REVIEW=on LANE_REVIEW=on PREFLIGHT=on STATIC_BASELINE=on PR=draft METHOD=tdd REVIEWER_KIND=other REVIEWER_MODEL= REVIEW_AREAS= SUITE_SKIP= PR_TEMPLATE="
+    "TASK_REVIEW=on LANE_REVIEW=on PREFLIGHT=on STATIC_BASELINE=on PR=draft METHOD=tdd REVIEWER_KIND=other REVIEWER_MODEL= REVIEWER_BY_CREDITS=off REVIEWER_CREDITS_MIN=20 REVIEW_AREAS= SUITE_SKIP= PR_TEMPLATE="
   r=$(fixture_repo contract-switches)
   assert_eq "switches: the file's values are used" \
     "$(detect_in "$r" 'switches_line')" \
-    "TASK_REVIEW=off LANE_REVIEW=off PREFLIGHT=off STATIC_BASELINE=off PR=ready METHOD=plain REVIEWER_KIND=claude REVIEWER_MODEL=claude-fable-5-1 REVIEW_AREAS=security,spec SUITE_SKIP=build PR_TEMPLATE=.github/pull_request_template.md"
+    "TASK_REVIEW=off LANE_REVIEW=off PREFLIGHT=off STATIC_BASELINE=off PR=ready METHOD=plain REVIEWER_KIND=claude REVIEWER_MODEL=claude-fable-5-1 REVIEWER_BY_CREDITS=off REVIEWER_CREDITS_MIN=20 REVIEW_AREAS=security,spec SUITE_SKIP=build PR_TEMPLATE=.github/pull_request_template.md"
   assert_eq "switches: the environment wins over the file" \
     "$(PR=off METHOD=tdd SUITE_SKIP=lint,test REVIEWER_KIND=codex detect_in "$r" 'echo "$PR $METHOD $SUITE_SKIP $REVIEWER_KIND $TASK_REVIEW"')" \
     "off tdd lint,test codex off"
@@ -314,7 +324,7 @@ if section detect; then
   assert_match "switches: a bad value is refused with the allowed values" "$(detect_in "$r" 'echo reached')" "PR must be draft, ready or off \(got 'maybe'\)"
   assert_nomatch "switches: the refusal stops the script" "$(detect_in "$r" 'echo reached')" "^reached$"
   assert_match "switches: METHOD=fast is refused"          "$(METHOD=fast detect_in "$(fixture_repo none)" 'true')" "METHOD must be tdd or plain \(got 'fast'\)"
-  assert_match "switches: REVIEWER_KIND=cursor is refused" "$(REVIEWER_KIND=cursor detect_in "$(fixture_repo none)" 'true')" "REVIEWER_KIND must be other, claude or codex \(got 'cursor'\)"
+  assert_match "switches: an unknown REVIEWER_KIND is refused" "$(REVIEWER_KIND=gemini detect_in "$(fixture_repo none)" 'true')" "REVIEWER_KIND must be other, claude, codex or cursor \(got 'gemini'\)"
   assert_match "switches: a value on two lines is refused" "$(PR_TEMPLATE=$'a\nb' detect_in "$(fixture_repo none)" 'true')" "PR_TEMPLATE must be one line"
   assert_match "switches: LANE_REVIEW=yes is refused"      "$(LANE_REVIEW=yes detect_in "$(fixture_repo none)" 'true')" "LANE_REVIEW must be on or off \(got 'yes'\)"
   tr_="$TMP/repos/suite-typo"; mkdir -p "$tr_"; echo 'SUITE_SKP=build' > "$tr_/.orchestrate"
@@ -366,7 +376,7 @@ if section bootstrap; then
   assert_eq "output: no test runner detected, said once" "$(printf '%s\n' "$out" | grep -c '^info: no test runner detected')" 1
   assert_nomatch "output: the note is on stderr, not stdout" "$(cd "$(fixture_repo pnpm-notest)" && "$KIT/bootstrap.sh" "$TMP/run-norunner2" "No runner" main 2>/dev/null)" '^info: no test runner detected'
   assert_match "output: the note says how to declare one" "$out" '^info: no test runner detected: the checks pane has nothing to run; declare  pane checks "<cmd>"  in \.orchestrate$'
-  assert_match "switches: pane map has every switch"    "$map" '^switches: +TASK_REVIEW=on LANE_REVIEW=on PREFLIGHT=on STATIC_BASELINE=on PR=draft METHOD=tdd REVIEWER_KIND=other REVIEWER_MODEL= REVIEW_AREAS= SUITE_SKIP= PR_TEMPLATE=$'
+  assert_match "switches: pane map has every switch"    "$map" '^switches: +TASK_REVIEW=on LANE_REVIEW=on PREFLIGHT=on STATIC_BASELINE=on PR=draft METHOD=tdd REVIEWER_KIND=other REVIEWER_MODEL= REVIEWER_BY_CREDITS=off REVIEWER_CREDITS_MIN=20 REVIEW_AREAS= SUITE_SKIP= PR_TEMPLATE=$'
   assert_match "switches: the record gets a tower note" "$(notes "$TMP/run-empty")" '^switches: TASK_REVIEW=on LANE_REVIEW=on .* PR_TEMPLATE=$'
   assert_match "switches: printed with the pane map"    "$out" '^switches: +TASK_REVIEW=on '
   assert_match "reviewer: pane map has kind and model"  "$map" '^reviewer: +kind codex, model gpt-6-astra$'
@@ -978,7 +988,7 @@ if section add-reviewer; then
   out=$(CODEX_STUB=absent review R2 claude "Preflight R2" "$RUN/findings/preflight-r2.json")
   assert_match "a fallback is printed"                "$out" '^reviewer: fallback: codex is not installed'
   assert_match "a slot other than R1 or R2 is refused" "$(review R3 claude "X" "$RUN/findings/x.json")" "slot must be R1 or R2 \(got 'R3'\)"
-  assert_match "a bad lane kind is refused"            "$(review R1 cursor "X" "$RUN/findings/x.json")" "lane kind must be claude or codex"
+  assert_match "a bad lane kind is refused"            "$(review R1 gemini "X" "$RUN/findings/x.json")" "lane kind must be claude, codex or cursor \(got 'gemini'\)"
   # A title is one field of one pane map line: a control character in it is
   # refused before the board, the map or an agent sees it.
   for c in "newline:$(printf 'two\nlines')" "tab:$(printf 'a\ttab')" "carriage return:$(printf 'a\rcr')"; do
@@ -1196,6 +1206,595 @@ if section add-reviewer; then
   assert_match "not accepting input: add-reviewer fails" "$out" 'exit=1$'
   assert_match "not accepting input: says so"          "$out" 'bun-vitest-r1-1 does not accept input in pane pane-[0-9]+ after 2 checks'
   assert_nomatch "not accepting input: no ready line"  "$out" 'reviewer R1 ready'
+fi
+
+# --- model-defaults ----------------------------------------------------------
+# Every default model comes from the kit's model-defaults file; MODEL_DEFAULTS_FILE
+# points the kit at a test copy with changed values.
+if section model-defaults; then
+  MD="$TMP/model-defaults"
+  sed -e "s/^EXECUTOR_MODEL_CLAUDE=.*/EXECUTOR_MODEL_CLAUDE=claude-md-exec/" "$KIT/model-defaults" > "$MD"
+  boot() { (cd "$1" && shift && "$KIT/bootstrap.sh" "$@" 2>&1); }
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-md-claude"; reset_stub
+  out=$(MODEL_DEFAULTS_FILE="$MD" boot "$r" "$RUN" "Defaults" main)
+  assert_match "model-defaults: a claude lane starts on EXECUTOR_MODEL_CLAUDE" "$(cat "$HERDR_STUB_LOG")" \
+    '^herdr agent start bun-vitest-lane-a --kind claude --pane pane-2 -- --model claude-md-exec$'
+  sed -i.bak -e "s/^EXECUTOR_MODEL_CODEX=.*/EXECUTOR_MODEL_CODEX=codex-md-exec/" \
+    -e "s/^REVIEWER_MODEL_CODEX=.*/REVIEWER_MODEL_CODEX=codex-md-rev/" \
+    -e "s/^REVIEWER_MODEL_CLAUDE=.*/REVIEWER_MODEL_CLAUDE=claude-md-rev/" \
+    -e "s/^REVIEWER_MODEL_CLAUDE_SELF=.*/REVIEWER_MODEL_CLAUDE_SELF=claude-md-self/" "$MD"
+  mkdir -p "$TMP/md-home/.codex/skills/tdd"
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-md-codex"; reset_stub
+  out=$(HOME="$TMP/md-home" EXECUTOR_KIND=codex MODEL_DEFAULTS_FILE="$MD" boot "$r" "$RUN" "Defaults" main)
+  assert_match "model-defaults: a codex lane starts on EXECUTOR_MODEL_CODEX" "$(cat "$HERDR_STUB_LOG")" \
+    '^herdr agent start bun-vitest-lane-a --kind codex --pane pane-2 -- -m codex-md-exec '
+  rev() { HOME="$TMP/md-home" MODEL_DEFAULTS_FILE="$MD" in_kit ". \"\$KIT/executor.sh\"; reviewer_for $1"; }
+  T=$(printf '\t')
+  assert_eq "model-defaults: codex reviews claude on REVIEWER_MODEL_CODEX" "$(rev claude)" "codex${T}codex-md-rev${T}"
+  assert_eq "model-defaults: claude reviews codex on REVIEWER_MODEL_CLAUDE" "$(EXECUTOR_KIND=codex rev codex)" "claude${T}claude-md-rev${T}"
+  assert_eq "model-defaults: claude reviews claude on REVIEWER_MODEL_CLAUDE_SELF" "$(CODEX_STUB=absent rev claude)" \
+    "claude${T}claude-md-self${T}fallback: codex is not installed, so claude reviews claude"
+  assert_eq "model-defaults: a codex Reviewer of a codex lane with no model known is on EXECUTOR_MODEL_CODEX" \
+    "$(CLAUDE_STUB=absent rev codex)" "codex${T}codex-md-exec${T}fallback: claude is not installed, so a fresh codex agent reviews codex"
+  sed -i.bak -e "s/^SPEC_REVIEWER_MODEL_CLAUDE=.*/SPEC_REVIEWER_MODEL_CLAUDE=claude-md-spec/" \
+    -e "s/^QUALITY_REVIEWER_MODEL_CLAUDE=.*/QUALITY_REVIEWER_MODEL_CLAUDE=claude-md-quality/" \
+    -e "s/^SPEC_REVIEWER_MODEL_CODEX=.*/SPEC_REVIEWER_MODEL_CODEX=codex-md-spec/" \
+    -e "s/^QUALITY_REVIEWER_MODEL_CODEX=.*/QUALITY_REVIEWER_MODEL_CODEX=codex-md-quality/" "$MD"
+  roles='" ".join(k+"="+v for k,v in sorted(d["run"]["models"].items()))'
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-md-roles-claude"
+  out=$(MODEL_DEFAULTS_FILE="$MD" boot "$r" "$RUN" "Defaults" main)
+  assert_eq "model-defaults: a claude run records its kind's spec and quality reviewer models" "$(board "$RUN" "$roles")" \
+    "implementer=claude-md-exec quality-reviewer=claude-md-quality spec-reviewer=claude-md-spec"
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-md-roles-codex"
+  out=$(HOME="$TMP/md-home" EXECUTOR_KIND=codex MODEL_DEFAULTS_FILE="$MD" boot "$r" "$RUN" "Defaults" main)
+  assert_eq "model-defaults: a codex run records its kind's spec and quality reviewer models" "$(board "$RUN" "$roles")" \
+    "implementer=codex-md-exec quality-reviewer=codex-md-quality spec-reviewer=codex-md-spec"
+  # The unsuffixed names, from the environment or the repo contract, win over the file.
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-md-env"; reset_stub
+  out=$(EXECUTOR_MODEL=lane-m SPEC_REVIEWER_MODEL=spec-m QUALITY_REVIEWER_MODEL=quality-m REVIEWER_MODEL=rev-m \
+    MODEL_DEFAULTS_FILE="$MD" boot "$r" "$RUN" "Env" main)
+  assert_match "model-defaults: EXECUTOR_MODEL in the environment wins" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start .* -- --model lane-m$'
+  assert_eq "model-defaults: the environment's reviewer models win" "$(board "$RUN" "$roles")" \
+    "implementer=lane-m quality-reviewer=quality-m spec-reviewer=spec-m"
+  assert_match "model-defaults: REVIEWER_MODEL in the environment wins" "$(cat "$RUN/panes.txt")" '^reviewer: +kind codex, model rev-m$'
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-md-contract"; reset_stub
+  printf '%s\n' EXECUTOR_MODEL=lane-c SPEC_REVIEWER_MODEL=spec-c QUALITY_REVIEWER_MODEL=quality-c REVIEWER_MODEL=rev-c > "$r/.orchestrate"
+  out=$(MODEL_DEFAULTS_FILE="$MD" boot "$r" "$RUN" "Contract" main)
+  assert_match "model-defaults: EXECUTOR_MODEL in the repo contract wins" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start .* -- --model lane-c$'
+  assert_eq "model-defaults: the repo contract's reviewer models win" "$(board "$RUN" "$roles")" \
+    "implementer=lane-c quality-reviewer=quality-c spec-reviewer=spec-c"
+  assert_match "model-defaults: REVIEWER_MODEL in the repo contract wins" "$(cat "$RUN/panes.txt")" '^reviewer: +kind codex, model rev-c$'
+  assert_eq "model-defaults: a per-kind key in the environment wins over the file" \
+    "$(REVIEWER_MODEL_CODEX=rev-env rev claude)" "codex${T}rev-env${T}"
+  # A key the file lacks is refused, never an agent on an empty model.
+  grep -v '^EXECUTOR_MODEL_CLAUDE=' "$KIT/model-defaults" > "$TMP/md-nokey"
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-md-nokey"; reset_stub
+  out=$(MODEL_DEFAULTS_FILE="$TMP/md-nokey" boot "$r" "$RUN" "No key" main; echo "exit=$?")
+  assert_match "model-defaults: a missing key fails bootstrap" "$out" 'exit=[1-9][0-9]*$'
+  assert_match "model-defaults: ... naming the key and the file" "$out" "no EXECUTOR_MODEL_CLAUDE in $TMP/md-nokey"
+  assert_nomatch "model-defaults: ... and starts no agent" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start '
+  grep -v '^REVIEWER_MODEL_CODEX=' "$KIT/model-defaults" > "$TMP/md-norev"
+  out=$(HOME="$TMP/md-home" MODEL_DEFAULTS_FILE="$TMP/md-norev" in_kit ". \"\$KIT/executor.sh\"; reviewer_for claude; echo \"exit=\$?\"")
+  assert_match "model-defaults: a missing Reviewer key is refused" "$out" "no REVIEWER_MODEL_CODEX in $TMP/md-norev"
+  assert_nomatch "model-defaults: ... with no Reviewer line" "$out" "^codex$T"
+  out=$(HOME="$TMP/md-home" MODEL_DEFAULTS_FILE="$TMP/nope" in_kit ". \"\$KIT/executor.sh\"; echo \"exit=\$?\"")
+  assert_match "model-defaults: a missing file is refused" "$out" "no EXECUTOR_MODEL_CLAUDE in $TMP/nope"
+  out=$(MODEL_DEFAULTS_FILE="$TMP/nope" boot "$(fixture_repo bun-vitest)" "$TMP/run-md-nofile" "No file" main; echo "exit=$?")
+  assert_match "model-defaults: a missing file fails bootstrap, naming it" "$out" "no [A-Z_]+ in $TMP/nope"
+  # No model id is left in the kit's logic; cursor's defaults are Grok -fast only.
+  assert_nomatch "model-defaults: no model id in executor.sh or bootstrap.sh" \
+    "$(cat "$KIT/executor.sh" "$KIT/bootstrap.sh")" '(claude-(opus|sonnet|fable|haiku)|gpt-[0-9]|grok-|\b(sonnet|opus|haiku)\b)'
+  cursor_keys=$(grep -E '^[A-Z_]+_CURSOR=' "$KIT/model-defaults")
+  assert_match "model-defaults: the file has cursor's executor and reviewer keys" "$(printf '%s\n' "$cursor_keys" | sed 's/=.*//' | sort | tr '\n' ' ')" \
+    '^EXECUTOR_MODEL_CURSOR QUALITY_REVIEWER_MODEL_CURSOR REVIEWER_MODEL_CURSOR SPEC_REVIEWER_MODEL_CURSOR $'
+  assert_eq "model-defaults: every cursor model is a Grok -fast model" \
+    "$(printf '%s\n' "$cursor_keys" | grep -cvE "^[A-Z_]+=['\"]?grok-[a-z0-9.-]+-fast['\"]?\$")" 0
+fi
+
+# --- user-contract -----------------------------------------------------------
+# One person's run defaults, ${XDG_CONFIG_HOME}/tower/orchestrate: under the
+# repo contract and the call's environment, over the kit's model-defaults.
+if section user-contract; then
+  UC="$TMP/uc-config"; mkdir -p "$UC/tower" "$TMP/uc-home/.codex/skills/tdd"
+  uc() { printf '%s\n' "$@" > "$UC/tower/orchestrate"; }
+  boot() { (cd "$1" && shift && env HOME="$TMP/uc-home" XDG_CONFIG_HOME="$UC" "$KIT/bootstrap.sh" "$@" 2>&1); }
+  lane_a() { sed -nE 's/^lane A: .*, kind ([a-z]+), .*, model (.*)\)$/\1 \2/p' "$1/panes.txt"; }
+  uc EXECUTOR_MODEL_CODEX=codex-user
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-uc-model"; reset_stub
+  out=$(EXECUTOR_KIND=codex boot "$r" "$RUN" "User" main)
+  assert_eq "user contract: its EXECUTOR_MODEL_CODEX is a codex lane's model" "$(lane_a "$RUN")" "codex codex-user"
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-uc-repo"; echo EXECUTOR_MODEL_CODEX=codex-repo > "$r/.orchestrate"
+  out=$(EXECUTOR_KIND=codex boot "$r" "$RUN" "User" main)
+  assert_eq "user contract: the repo contract wins over it" "$(lane_a "$RUN")" "codex codex-repo"
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-uc-env"; echo EXECUTOR_MODEL_CODEX=codex-repo > "$r/.orchestrate"
+  out=$(EXECUTOR_KIND=codex EXECUTOR_MODEL_CODEX=codex-env boot "$r" "$RUN" "User" main)
+  assert_eq "user contract: bootstrap's environment wins over both" "$(lane_a "$RUN")" "codex codex-env"
+  # add-lane reads the user contract too; the run's repo contract and the
+  # call's environment win over it.
+  lane() { (cd "$1" && shift && env HOME="$TMP/uc-home" XDG_CONFIG_HOME="$UC" "$@" 2>&1); }
+  lane_of() { sed -nE "s/^lane $2: .*, kind ([a-z]+), .*, model (.*)\\)\$/\\1 \\2/p" "$1/panes.txt"; }
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-uc-lanes"
+  out=$(boot "$r" "$RUN" "Lanes" main "$KIT/example-tasks.tsv")
+  out=$(lane "$r" EXECUTOR_KIND=codex "$KIT/add-lane.sh" "$RUN" B feat/b main 2)
+  out=$(lane "$r" EXECUTOR_KIND=codex EXECUTOR_MODEL_CODEX=codex-env "$KIT/add-lane.sh" "$RUN" C feat/c main 3)
+  assert_eq "user contract: an add-lane call reads it" "$(lane_of "$RUN" B)" "codex codex-user"
+  assert_eq "user contract: an add-lane call's environment wins over it" "$(lane_of "$RUN" C)" "codex codex-env"
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-uc-lanes-repo"; echo EXECUTOR_MODEL_CODEX=codex-repo > "$r/.orchestrate"
+  out=$(boot "$r" "$RUN" "Lanes" main "$KIT/example-tasks.tsv")
+  out=$(lane "$r" EXECUTOR_KIND=codex "$KIT/add-lane.sh" "$RUN" B feat/b main 2)
+  assert_eq "user contract: an add-lane call's repo contract wins over it" "$(lane_of "$RUN" B)" "codex codex-repo"
+  rm -f "$UC/tower/orchestrate"
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-uc-none"
+  out=$(EXECUTOR_KIND=codex boot "$r" "$RUN" "User" main)
+  assert_eq "user contract: without one, the defaults file's value" "$(lane_a "$RUN")" "codex gpt-6-astra"
+  assert_nomatch "user contract: a missing file is silent" "$out" 'tower/orchestrate'
+  uc EXECUTOR_KIND=codex LANE_REVIEW=off
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-uc-kind"
+  out=$(boot "$r" "$RUN" "User" main)
+  assert_eq "user contract: its EXECUTOR_KIND makes the lanes codex" "$(lane_a "$RUN")" "codex gpt-6-astra"
+  assert_match "user contract: its run switch is in the switches: line" "$(cat "$RUN/panes.txt")" '^switches: .* LANE_REVIEW=off '
+  uc REVIEWER_MODEL_CODEX=rev-user
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-uc-rev"
+  out=$(boot "$r" "$RUN" "User" main)
+  assert_match "user contract: its REVIEWER_MODEL_CODEX is a codex Reviewer's model" "$(cat "$RUN/panes.txt")" '^reviewer: +kind codex, model rev-user$'
+  # Repo-only keys and unknown keys are named, and ignored.
+  # As the kit's scripts run: set -euo pipefail.
+  detect_in() { (cd "$1" && env XDG_CONFIG_HOME="$UC" bash -c "set -euo pipefail; . \"\$KIT/common.sh\"; . \"\$KIT/detect-stack.sh\"; $2" 2>&1); }
+  r=$(fixture_repo bun-vitest)
+  for key in CHECK_CMD INSTALL_CMD PM TYPECHECK_TASK TEST_PKG TEST_FILTER; do
+    uc "$key=from-user"
+    out=$(detect_in "$r" "echo \"[\$$key]\"")
+    assert_match "user contract: repo-only $key is named, with the file" "$out" "^$UC/tower/orchestrate: '$key' is a repo contract setting"
+    assert_nomatch "user contract: ... and ignored" "$out" '^\[from-user\]$'
+  done
+  uc 'pane checks "make watch"' 'suite lint "make lint"'
+  out=$(detect_in "$r" 'echo "${PANE_CMDS[*]}|${#SUITE_NAMES[@]}"')
+  assert_match "user contract: repo-only pane is named" "$out" "^$UC/tower/orchestrate: 'pane' is a repo contract setting"
+  assert_match "user contract: repo-only suite is named" "$out" "^$UC/tower/orchestrate: 'suite' is a repo contract setting"
+  assert_match "user contract: ... and both ignored" "$out" '^bunx vitest --watch\|0$'
+  uc EXECUTOR_MODEL=lane-m
+  out=$(detect_in "$r" 'echo "[${EXECUTOR_MODEL:-}]"')
+  assert_match "user contract: an unsuffixed model is ignored, pointing to the per-kind key" "$out" \
+    "^$UC/tower/orchestrate: 'EXECUTOR_MODEL' is a repo contract setting; ignored here \\(set EXECUTOR_MODEL_<KIND>"
+  assert_match "user contract: ... and not read" "$out" '^\[\]$'
+  uc MODLE=x
+  assert_match "user contract: an unknown key is named" "$(detect_in "$r" true)" "^$UC/tower/orchestrate: 'MODLE' is not a setting the kit reads"
+  uc USER_CONTRACT_VARS=CHECK_CMD CHECK_CMD=from-user STALE=9
+  out=$(detect_in "$r" 'echo "[$CHECK_CMD] [${STALE-}]"')
+  assert_match "user contract: it cannot widen its own allowed keys" "$out" "^$UC/tower/orchestrate: 'CHECK_CMD' is a repo contract setting"
+  assert_match "user contract: ... narrowing them only withholds its own, never sets one empty" "$out" '^\[bun run typecheck && bun run test\] \[\]$'
+  uc PATH=/nowhere STALE=9
+  assert_eq "user contract: a PATH it sets does not break its reader" "$(detect_in "$r" 'echo "[$STALE]"')" "[9]"
+  # These read the contract in a scrubbed environment (env -i): a regression
+  # that echoes values can then show only this fake token, never the caller's.
+  detect_clean() { (cd "$1" && env -i PATH="$PATH" HOME="$TMP/uc-home" KIT="$KIT" DRY_RUN=1 XDG_CONFIG_HOME="$UC" \
+    XDG_STATE_HOME="$XDG_STATE_HOME" SECRET_TOKEN_UC=sk_live_rex bash -c "set -euo pipefail; . \"\$KIT/common.sh\"; . \"\$KIT/detect-stack.sh\"; $2" 2>&1); }
+  # The reader's own names are out of its reach too: none of them lets a key in.
+  uc '_allowed=" CHECK_CMD "' 'CHECK_CMD="echo from-user-contract"'
+  out=$(detect_clean "$r" 'echo "[$CHECK_CMD]"')
+  assert_match "user contract: a reassigned _allowed does not let CHECK_CMD in" "$out" '^\[bun run typecheck && bun run test\]$'
+  assert_match "user contract: ... CHECK_CMD is named and ignored" "$out" "^$UC/tower/orchestrate: 'CHECK_CMD' is a repo contract setting; ignored here$"
+  uc '_known=" MODLE "' MODLE=x
+  assert_match "user contract: a reassigned _known does not hide an unknown key" "$(detect_clean "$r" true)" "^$UC/tower/orchestrate: 'MODLE' is not a setting the kit reads"
+  uc _file=/elsewhere CHECK_CMD=x
+  assert_match "user contract: a reassigned _file does not change the file it names" "$(detect_clean "$r" true)" "^$UC/tower/orchestrate: 'CHECK_CMD' is a repo contract setting"
+  # The reader's own surface: shadowed builtins and a stray write garble only
+  # its report, which is refused, never echoed; no value reaches stderr.
+  uc 'printf() { builtin printf "CHECK_CMD=pwned\0"; }' STALE=9
+  out=$(detect_clean "$r" 'echo "[$CHECK_CMD] [$STALE]"'; echo "exit=$?")
+  assert_match "user contract: a shadowed printf neither breaks its reader nor lets anything in" "$out" '^\[bun run typecheck && bun run test\] \[9\]$'
+  assert_nomatch "user contract: ... no trace of its value" "$out" 'pwned'
+  uc 'compgen() { echo CHECK_CMD; }' STALE=9
+  out=$(detect_clean "$r" 'echo "[$CHECK_CMD] [$STALE]"')
+  assert_match "user contract: a shadowed compgen garbles nothing in" "$out" '^\[bun run typecheck && bun run test\] \[9\]$'
+  uc 'printf "X\0" >&3' STALE=9
+  out=$(detect_clean "$r" true; echo "exit=$?")
+  assert_match "user contract: a write to fd 3 is refused" "$out" 'exit=1$'
+  assert_nomatch "user contract: ... and no value reaches stderr" "$out" 'sk_live_rex'
+  uc 'printf "X\0" >&10' STALE=9
+  out=$(detect_clean "$r" true; echo "exit=$?")
+  assert_match "user contract: a stray write to the reader's saved stdout is refused" "$out" "^$UC/tower/orchestrate: its reader's report was garbled"
+  assert_nomatch "user contract: ... and no value reaches stderr" "$out" 'sk_live_rex'
+  uc 'printf abc >&10' STALE=9
+  out=$(detect_clean "$r" true; echo "exit=$?")
+  assert_match "user contract: ... even with no NUL in it" "$out" "^$UC/tower/orchestrate: its reader's report was garbled"
+  uc 'set -x' STALE=9
+  out=$(detect_clean "$r" 'echo "[$STALE]"')
+  assert_nomatch "user contract: set -x in it traces no value of the reader's" "$out" 'sk_live_rex'
+  assert_match "user contract: ... and it still loads" "$out" '^\[9\]$'
+  uc '[[ abc =~ b ]]' 'read -r REPLY <<< x' 'getopts a: o -a 1 || true' 'cd /' STALE=9
+  assert_nomatch "user contract: names bash sets itself are not warned about" "$(detect_clean "$r" true)" 'BASH_REMATCH|REPLY|OPTARG|OLDPWD|OPTIND'
+  # A caller that traces (bash -x, while debugging the kit) sees no value
+  # but the user contract's own.
+  uc STALE=9
+  out=$( (cd "$r" && env -i PATH="$PATH" HOME="$TMP/uc-home" KIT="$KIT" DRY_RUN=1 XDG_CONFIG_HOME="$UC" XDG_STATE_HOME="$XDG_STATE_HOME" \
+    SECRET_TOKEN_UC=sk_live_rex bash -c 'set -x; . "$KIT/common.sh"; . "$KIT/detect-stack.sh"; echo "[$STALE]"' 2>&1) )
+  assert_nomatch "user contract: a traced caller sees no environment value" "$out" 'sk_live_rex'
+  assert_match "user contract: ... and the contract loads" "$out" '^\[9\]$'
+  # Functions and traps it defines over the reader's builtins are cleared first.
+  uc 'exec 7>&2' 'builtin() { echo "seen: $*" >&7; command builtin "$@"; }' 'trap '"'"'echo "trap: ${!_v-}" >&7'"'"' DEBUG' STALE=9
+  out=$(detect_clean "$r" 'echo "[$STALE]"')
+  assert_nomatch "user contract: its builtin() function or DEBUG trap sees no value" "$out" 'sk_live_rex'
+  assert_match "user contract: ... and it loads" "$out" '^\[9\]$'
+  # Nothing a file's function can shadow runs after it is cleared: a function
+  # named unset or [ is never called by the reader.
+  for f in unset '['; do
+    uc 'exec 7>&2' "$f() { echo 'reader called the file' >&7; command $f \"\$@\"; }" STALE=9
+    out=$(detect_clean "$r" 'echo "[$STALE]"')
+    assert_nomatch "user contract: its function named $f is never called by the reader" "$out" 'reader called the file'
+    assert_match "user contract: ... and it loads" "$out" '^\[9\]$'
+  done
+  uc 'enable -n compgen' STALE=9
+  out=$(detect_clean "$r" true; echo "exit=$?")
+  assert_match "user contract: a disabled compgen refuses the load, never drops it silently" "$out" 'exit=1$'
+  uc 'enable -n compgen' 'set +e' STALE=9
+  out=$(detect_clean "$r" true; echo "exit=$?")
+  assert_match "user contract: ... even after a set +e in it" "$out" 'exit=1$'
+  uc 'pane checks "x"' STALE=9
+  out=$(detect_clean "$r" 'echo "[$STALE]"')
+  assert_match "user contract: a pane line is still named" "$out" "^$UC/tower/orchestrate: 'pane' is a repo contract setting; ignored here$"
+  assert_match "user contract: ... and the rest read" "$out" '^\[9\]$'
+  uc 'IFS=x' STALE=9
+  assert_eq "user contract: an IFS it sets does not break its reader" "$(detect_clean "$r" 'echo "$STALE"' 2>/dev/null)" 9
+  uc _path=/nowhere STALE=9 CHECK_CMD=x
+  out=$(detect_clean "$r" 'echo "[$CHECK_CMD] [$STALE]"'; echo "exit=$?")
+  assert_match "user contract: a reassigned _path neither breaks the reader nor lets CHECK_CMD in" "$out" '^\[bun run typecheck && bun run test\] \[9\]$'
+  assert_match "user contract: ... and CHECK_CMD is named" "$out" "^$UC/tower/orchestrate: 'CHECK_CMD' is a repo contract setting"
+  # A contract that fails part way is refused, naming the file, never half read.
+  for body in 'STALE=9; false' 'STALE=9; exit 3' 'STALE=9; if' 'STALE=9; echo "$UNSET_IN_TEST"'; do
+    uc "$body"
+    out=$(detect_in "$r" 'echo "reached [$STALE]"'; echo "exit=$?")
+    assert_match "user contract: '$body' is refused" "$out" 'exit=1$'
+    assert_match "user contract: '$body' ... naming the file" "$out" "^$UC/tower/orchestrate: it failed to load"
+    assert_nomatch "user contract: '$body' ... before anything runs on it" "$out" '^reached'
+  done
+  uc LANE_REVIEW=maybe
+  out=$(detect_in "$r" 'echo reached'; echo "exit=$?")
+  assert_match "user contract: a bad switch value is refused" "$out" "LANE_REVIEW must be on or off \\(got 'maybe'\\)"
+  assert_match "user contract: ... and fails" "$out" 'exit=1$'
+  uc LANE_REVIEW=off
+  assert_eq "user contract: the call's environment wins over its switch" "$(LANE_REVIEW=on detect_in "$r" 'echo $LANE_REVIEW')" on
+  # add-reviewer reads it too.
+  uc REVIEWER_MODEL_CODEX=rev-user
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-uc-review"
+  out=$(boot "$r" "$RUN" "Review" main "$KIT/example-tasks.tsv")
+  uc REVIEWER_MODEL_CODEX=rev-later
+  out=$(cd "$r" && env HOME="$TMP/uc-home" XDG_CONFIG_HOME="$UC" EXIT_WAIT_SECONDS=3 "$KIT/add-reviewer.sh" "$RUN" R1 claude "Lane review A" "$RUN/findings/a.json" 2>&1)
+  assert_match "user contract: add-reviewer's Reviewer takes its REVIEWER_MODEL_CODEX" "$(cat "$RUN/panes.txt")" '^reviewer R1: .*kind codex, model rev-later, '
+fi
+
+# --- cursor-lane -------------------------------------------------------------
+# EXECUTOR_KIND=cursor: a lane in the Cursor CLI (cursor-agent), through herdr.
+if section cursor-lane; then
+  mkdir -p "$TMP/cl-home/.agents/skills/tdd"
+  boot() { (cd "$1" && shift && env HOME="$TMP/cl-home" "$KIT/bootstrap.sh" "$@" 2>&1); }
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-cursor"; reset_stub
+  out=$(EXECUTOR_KIND=cursor boot "$r" "$RUN" "Cursor" main)
+  C=$(git -C "$r" rev-parse --path-format=absolute --git-common-dir)
+  log=$(cat "$HERDR_STUB_LOG")
+  assert_match "cursor lane: started trusted, without approvals or self-update, on grok-4.7-high-fast" "$log" \
+    "^herdr agent start bun-vitest-lane-a --kind cursor --pane pane-2 -- --model grok-4\\.7-high-fast --trust --force --disable-auto-update --add-dir $RUN --add-dir $C\$"
+  assert_nomatch "cursor lane: no --sandbox flag" "$log" '^herdr agent start .*--sandbox'
+  assert_match "cursor lane: the pane map says kind cursor and its model" "$(cat "$RUN/panes.txt")" \
+    '^lane A: +pane-2 +\(agent "bun-vitest-lane-a", kind cursor, .*, model grok-4\.7-high-fast\)$'
+  assert_eq "cursor run: grok-4.7-high-fast is the recorded spec and quality reviewer model" \
+    "$(board "$RUN" '" ".join(k+"="+v for k,v in sorted(d["run"]["models"].items()))')" \
+    "implementer=grok-4.7-high-fast quality-reviewer=grok-4.7-high-fast spec-reviewer=grok-4.7-high-fast"
+  assert_match "cursor run: its Reviewer has a model" "$(cat "$RUN/panes.txt")" '^reviewer: +kind claude, model claude-opus-5-5$'
+  # start NAME [ENV...]: start_agent_with_trust_retry for a cursor NAME in pane-9.
+  start() { local n=$1; shift; reset_stub; (cd "$r" && env HOME="$TMP/cl-home" EXECUTOR_KIND=cursor "$@" bash -c ". \"\$KIT/common.sh\"; . \"\$KIT/executor.sh\"; start_agent_with_trust_retry $n pane-9; echo \"exit=\$?\"" 2>&1); }
+  out=$(start acme-lane-a HERDR_STUB_TRUST_STARTS=1)
+  assert_match "cursor trust box: the start fails" "$out" 'exit=1$'
+  assert_match "cursor trust box: ... saying to check the pane" "$out" 'acme-lane-a is blocked during startup in pane pane-9.*check the pane'
+  assert_nomatch "cursor trust box: ... and sends no keys" "$(cat "$HERDR_STUB_LOG")" '^herdr pane send-keys'
+  model_of() { start acme-lane-a "$@" >/dev/null; sed -nE 's/^herdr agent start .* -- --model ([^ ]+) .*/\1/p' "$HERDR_STUB_LOG"; }
+  assert_eq "cursor model: EXECUTOR_MODEL in the environment" "$(model_of EXECUTOR_MODEL=lane-m)" lane-m
+  assert_eq "cursor model: EXECUTOR_MODEL_CURSOR in the environment" "$(model_of EXECUTOR_MODEL_CURSOR=lane-k)" lane-k
+  mkdir -p "$TMP/cl-xdg/tower"; echo EXECUTOR_MODEL_CURSOR=lane-u > "$TMP/cl-xdg/tower/orchestrate"
+  rc=$(fixture_repo bun-vitest); RUN="$TMP/run-cursor-uc"
+  out=$(cd "$rc" && env HOME="$TMP/cl-home" XDG_CONFIG_HOME="$TMP/cl-xdg" EXECUTOR_KIND=cursor "$KIT/bootstrap.sh" "$RUN" "Cursor" main 2>&1)
+  assert_match "cursor model: EXECUTOR_MODEL_CURSOR in the user contract" "$(cat "$RUN/panes.txt")" '^lane A: .*kind cursor, .*, model lane-u\)$'
+  rc=$(fixture_repo bun-vitest); RUN="$TMP/run-cursor-rc"; echo EXECUTOR_MODEL=lane-r > "$rc/.orchestrate"
+  out=$(cd "$rc" && env HOME="$TMP/cl-home" XDG_CONFIG_HOME="$TMP/cl-xdg" EXECUTOR_KIND=cursor "$KIT/bootstrap.sh" "$RUN" "Cursor" main 2>&1)
+  assert_match "cursor model: EXECUTOR_MODEL in the repo contract" "$(cat "$RUN/panes.txt")" '^lane A: .*kind cursor, .*, model lane-r\)$'
+  # One that exits right after its start is started once more; gone again, the start fails.
+  printf 'gone\ngone\n' > "$HERDR_STUB_STATES_DIR/acme-lane-x.started"
+  out=$(start acme-lane-x)
+  assert_eq "cursor exits after its start: started once more" "$(grep -c '^herdr agent start acme-lane-x --kind cursor ' "$HERDR_STUB_LOG")" 2
+  assert_match "cursor exits after its start: ... then the start fails, saying so" "$out" 'acme-lane-x exited again after it was started once more'
+  assert_match "cursor exits after its start: ... non-zero" "$out" 'exit=1$'
+  rm -f "$HERDR_STUB_STATES_DIR"/acme-lane-x*
+  # A mixed run: a cursor lane B beside claude lane A.
+  rm_=$(fixture_repo bun-vitest); RUN="$TMP/run-mixed-cursor"
+  (cd "$rm_" && env HOME="$TMP/cl-home" "$KIT/bootstrap.sh" "$RUN" "Mixed" main "$KIT/example-tasks.tsv" >/dev/null 2>&1)
+  git -C "$rm_" worktree add -q "$rm_/.worktrees/feat/b" -b feat/b   # the stub's worktree create makes none
+  C=$(git -C "$rm_" rev-parse --path-format=absolute --git-common-dir)
+  reset_stub; out=$(cd "$rm_" && env HOME="$TMP/cl-home" EXECUTOR_KIND=cursor "$KIT/add-lane.sh" "$RUN" B feat/b main 2 2>&1)
+  map=$(cat "$RUN/panes.txt")
+  assert_match "mixed: lane A is claude" "$map" '^lane A: .*kind claude, '
+  assert_match "mixed: add-lane opens a cursor lane B" "$map" '^lane B: .*kind cursor, .*, model grok-4\.7-high-fast\)$'
+  assert_match "mixed: ... started as cursor in its worktree's run" "$(cat "$HERDR_STUB_LOG")" "^herdr agent start bun-vitest-lane-b --kind cursor --pane pane-[0-9]+ -- --model grok-4\\.7-high-fast --trust --force --disable-auto-update --add-dir $RUN --add-dir $C\$"
+  out=$(cd "$rm_" && EXECUTOR_KIND=gemini bash -c ". \"\$KIT/common.sh\"; . \"\$KIT/executor.sh\"" 2>&1)
+  assert_match "EXECUTOR_KIND=gemini: refused, listing the kinds" "$out" "EXECUTOR_KIND must be claude, codex or cursor \\(got 'gemini'\\)"
+  installed() { env HOME="$TMP/cl-home" "$@" bash -c ". \"\$KIT/common.sh\"; . \"\$KIT/executor.sh\"; kind_installed cursor && echo yes || echo no" 2>&1; }
+  assert_eq "cursor: installed when cursor-agent answers --version" "$(installed)" yes
+  assert_match "cursor: ... probed through cursor-agent" "$(reset_stub; installed >/dev/null; cat "$HERDR_STUB_LOG")" '^cursor-agent --version$'
+  assert_eq "cursor: not installed when cursor-agent refuses" "$(installed CURSOR_STUB=absent)" no
+  # The tdd skill: cursor reads ~/.agents/skills, ~/.claude/skills and ~/.codex/skills.
+  hint_in() { env HOME="$1" EXECUTOR_KIND=cursor bash -c ". \"\$KIT/common.sh\"; . \"\$KIT/executor.sh\"" 2>&1; }
+  mkdir -p "$TMP/cl-none"
+  assert_match "cursor tdd: no skill in any of its dirs, a hint" "$(hint_in "$TMP/cl-none")" '^info: no tdd skill in ~/\.agents/skills, ~/\.claude/skills or ~/\.codex/skills — the cursor$'
+  for d in .agents/skills .claude/skills .codex/skills; do
+    mkdir -p "$TMP/cl-$d/$d/tdd"
+    assert_eq "cursor tdd: in ~/$d, no hint" "$(hint_in "$TMP/cl-$d")" ""
+  done
+fi
+
+# --- cursor-reviewer ---------------------------------------------------------
+# The Reviewer is the first installed of the lane's candidates (claude lane:
+# codex; codex lane: claude; cursor lane: claude, then codex), else the lane's
+# own kind with a note.
+if section cursor-reviewer; then
+  mkdir -p "$TMP/cr-home/.codex/skills/tdd" "$TMP/cr-home/.agents/skills/tdd"
+  rev() { HOME="$TMP/cr-home" in_kit ". \"\$KIT/executor.sh\"; reviewer_for $1"; }
+  T=$(printf '\t')
+  assert_eq "cursor lane: claude reviews it on claude-opus-5-5" "$(rev cursor)" "claude${T}claude-opus-5-5${T}"
+  assert_eq "cursor lane, claude absent: codex on gpt-6-astra" "$(CLAUDE_STUB=absent rev cursor)" "codex${T}gpt-6-astra${T}"
+  assert_eq "cursor lane, claude and codex absent: a fresh cursor agent, with a note" "$(CLAUDE_STUB=absent CODEX_STUB=absent rev cursor)" \
+    "cursor${T}grok-4.7-high-fast${T}fallback: claude and codex are not installed, so a fresh cursor agent reviews cursor"
+  assert_eq "claude lane, codex absent: never cursor, claude as before" "$(CODEX_STUB=absent rev claude)" \
+    "claude${T}claude-fable-5-1${T}fallback: codex is not installed, so claude reviews claude"
+  assert_eq "codex lane, claude absent: never cursor, codex as before" "$(CLAUDE_STUB=absent EXECUTOR_KIND=codex rev codex)" \
+    "codex${T}gpt-6-astra${T}fallback: claude is not installed, so a fresh codex agent reviews codex"
+  for lane in claude codex cursor; do
+    assert_eq "REVIEWER_KIND=cursor: a $lane lane gets cursor on REVIEWER_MODEL_CURSOR" "$(REVIEWER_KIND=cursor rev $lane)" "cursor${T}grok-4.7-high-fast${T}"
+  done
+  assert_match "REVIEWER_KIND=cursor: refused when cursor is not installed" "$(CURSOR_STUB=absent REVIEWER_KIND=cursor rev claude)" 'REVIEWER_KIND=cursor, but cursor is not installed'
+  assert_eq "REVIEWER_MODEL: replaces a cursor Reviewer's model" "$(REVIEWER_KIND=cursor REVIEWER_MODEL=rev-m rev cursor)" "cursor${T}rev-m${T}"
+  assert_eq "REVIEWER_MODEL: replaces the model for a cursor lane" "$(REVIEWER_MODEL=rev-m rev cursor)" "claude${T}rev-m${T}"
+  out=$(CLAUDE_STUB=absent CODEX_STUB=absent CURSOR_STUB=absent rev cursor)
+  assert_match "no candidate and the lane's own kind absent: refused, naming all three" "$out" 'no Reviewer for a cursor lane: claude, codex and cursor are not installed'
+  detect_in() { (cd "$1" && bash -c "set -euo pipefail; . \"\$KIT/common.sh\"; . \"\$KIT/detect-stack.sh\"; $2" 2>&1); }
+  r=$(fixture_repo bun-vitest)
+  assert_eq "REVIEWER_KIND=cursor: a valid switch value" "$(REVIEWER_KIND=cursor detect_in "$r" 'echo $REVIEWER_KIND')" cursor
+  assert_match "REVIEWER_KIND: an unknown kind is refused, listing cursor" "$(REVIEWER_KIND=gemini detect_in "$r" true)" "REVIEWER_KIND must be other, claude, codex or cursor \\(got 'gemini'\\)"
+  # add-reviewer: a cursor lane, and a cursor Reviewer.
+  review() { local d=$1; shift; (cd "$d" && env HOME="$TMP/cr-home" EXIT_WAIT_SECONDS=3 "$@" 2>&1); }
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-cr-lane"
+  out=$(review "$r" EXECUTOR_KIND=cursor "$KIT/bootstrap.sh" "$RUN" "Cursor" main "$KIT/example-tasks.tsv")
+  reset_stub; out=$(review "$r" "$KIT/add-reviewer.sh" "$RUN" R1 cursor "Lane review A" "$RUN/findings/a.json" A; echo "exit=$?")
+  assert_match "add-reviewer: lane kind cursor is accepted" "$out" 'exit=0$'
+  assert_match "add-reviewer: a cursor lane gets a claude Reviewer" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-r1-1 --kind claude --pane pane-[0-9]+ -- --model claude-opus-5-5$'
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-cr-kind"; C=$(git -C "$r" rev-parse --path-format=absolute --git-common-dir)
+  out=$(review "$r" REVIEWER_KIND=cursor "$KIT/bootstrap.sh" "$RUN" "Cursor reviews" main "$KIT/example-tasks.tsv")
+  assert_match "REVIEWER_KIND=cursor: the tower note names the cursor Reviewer" "$(notes "$RUN")" '^reviewer: kind cursor, model grok-4\.7-high-fast$'
+  reset_stub; out=$(review "$r" "$KIT/add-reviewer.sh" "$RUN" R1 claude "Lane review A" "$RUN/findings/a.json")
+  assert_match "REVIEWER_KIND=cursor: started with the cursor argv" "$(cat "$HERDR_STUB_LOG")" \
+    "^herdr agent start bun-vitest-r1-1 --kind cursor --pane pane-[0-9]+ -- --model grok-4\\.7-high-fast --trust --force --disable-auto-update --add-dir $RUN --add-dir $C\$"
+  assert_match "REVIEWER_KIND=cursor: the pane map's reviewer line" "$(cat "$RUN/panes.txt")" '^reviewer R1: +pane-[0-9]+ +\(agent "bun-vitest-r1-1", kind cursor, model grok-4\.7-high-fast, review '
+  # A cursor lane reviewed by cursor: the lane named, its line read from the pane map.
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-cr-self"
+  out=$(review "$r" EXECUTOR_KIND=cursor EXECUTOR_MODEL=lane-m "$KIT/bootstrap.sh" "$RUN" "Cursor" main "$KIT/example-tasks.tsv")
+  reset_stub; out=$(review "$r" CLAUDE_STUB=absent CODEX_STUB=absent "$KIT/add-reviewer.sh" "$RUN" R1 cursor "Lane review A" "$RUN/findings/a.json" A)
+  assert_match "cursor reviews cursor: on REVIEWER_MODEL_CURSOR" "$(cat "$RUN/panes.txt")" '^reviewer R1: .*kind cursor, model grok-4\.7-high-fast, review '
+  assert_match "cursor reviews cursor: ... with the fallback note" "$out" '^reviewer: fallback: claude and codex are not installed, so a fresh cursor agent reviews cursor$'
+  assert_match "no candidate and a codex lane's own kind absent: refused, naming cursor's way in" "$(CLAUDE_STUB=absent CODEX_STUB=absent EXECUTOR_KIND=codex rev codex)" \
+    'no Reviewer for a codex lane: claude and codex are not installed \(cursor reviews a codex lane only with REVIEWER_KIND=cursor\)'
+  assert_match "an unknown lane kind is refused" "$(rev gemini)" "lane kind must be claude, codex or cursor \\(got 'gemini'\\)"
+  assert_match "an unknown lane kind is refused, a forced Reviewer kind too" "$(REVIEWER_KIND=cursor rev gemini)" "lane kind must be claude, codex or cursor \\(got 'gemini'\\)"
+  assert_eq "reviewer_candidates: a cursor lane's, in order" "$(HOME="$TMP/cr-home" in_kit ". \"\$KIT/executor.sh\"; reviewer_candidates cursor" | tr '\n' ' ')" "claude codex "
+fi
+
+# --- credit-guard ------------------------------------------------------------
+# REVIEWER_BY_CREDITS=on skips a Reviewer candidate below REVIEWER_CREDITS_MIN
+# (% left), with a note. The probes run for real against per-section fakes:
+# security and curl here, the codex stub's app-server (CODEX_STUB_RATE_LIMITS).
+if section credit-guard; then
+  CG="$TMP/credit-guard"; mkdir -p "$CG/bin" "$CG/keychain" "$TMP/cg-home/.codex/skills/tdd" "$TMP/cg-home/.agents/skills/tdd"
+  TOK=tok-fake-sam-0002
+  cat > "$CG/bin/security" <<SH
+#!/bin/sh
+printf 'security %s\n' "\$*" >> "$CG/probes.log"
+while [ \$# -gt 0 ]; do [ "\$1" = -s ] && svc=\$2; shift; done
+[ -f "$CG/keychain/\$svc" ] || exit 44
+cat "$CG/keychain/\$svc"
+SH
+  cat > "$CG/bin/curl" <<SH
+#!/bin/sh
+printf 'curl %s\n' "\$*" >> "$CG/probes.log"
+h=\$(cat)
+case "\$h" in
+  *"Authorization: Bearer $TOK"*) ;;
+  *) exit 22 ;;
+esac
+case "\$*" in
+  *oauth/usage*) f=claude ;;
+  *DashboardService*) f=cursor ;;
+  *) exit 22 ;;
+esac
+[ -f "$CG/\$f.json" ] || exit 22
+cat "$CG/\$f.json"
+SH
+  chmod +x "$CG/bin/security" "$CG/bin/curl"
+  printf '{"claudeAiOauth":{"accessToken":"%s"}}' "$TOK" > "$CG/keychain/Claude Code-credentials"
+  printf '%s' "$TOK" > "$CG/keychain/cursor-access-token"
+  # left KIND N: KIND's tightest window has N% left; left KIND -: unreadable.
+  left() {
+    case "$1:$2" in
+      *:-) rm -f "$CG/$1.json" "$CG/codex-limits" ;;
+      claude:*) echo "{\"five_hour\":{\"utilization\":$((100-$2))},\"seven_day\":{\"utilization\":0}}" > "$CG/claude.json" ;;
+      cursor:*) echo "{\"planUsage\":{\"totalPercentUsed\":$((100-$2))}}" > "$CG/cursor.json" ;;
+      codex:*)  echo "{\"rateLimits\":{\"primary\":{\"usedPercent\":$((100-$2))},\"secondary\":null}}" > "$CG/codex-limits" ;;
+    esac
+  }
+  export CODEX_STUB_RATE_LIMITS="$CG/codex-limits"
+  rev() { : > "$CG/probes.log"; CREDITS_FAKES="$CG/bin" HOME="$TMP/cg-home" in_kit ". \"\$KIT/executor.sh\"; reviewer_for $1"; }
+  T=$(printf '\t')
+  left codex 12; left claude 90; left cursor 90
+  # DRY_RUN opens nothing real: with a security and curl on PATH that are not
+  # a test's declared fakes (CREDITS_FAKES), no probe runs.
+  : > "$CG/probes.log"; reset_stub
+  out=$(PATH="$CG/bin:$PATH" HOME="$TMP/cg-home" REVIEWER_BY_CREDITS=on in_kit ". \"\$KIT/executor.sh\"; reviewer_for claude")
+  assert_eq "DRY_RUN: no CREDITS_FAKES, no keychain or endpoint is reached" "$(cat "$CG/probes.log"; grep '^codex app-server' "$HERDR_STUB_LOG")" ""
+  assert_eq "DRY_RUN: ... and codex, its credits unread, reviews" "$(printf '%s\n' "$out" | head -1 | cut -f1)" codex
+  assert_eq "DRY_RUN: credits_left prints nothing without CREDITS_FAKES" "$(PATH="$CG/bin:$PATH" in_kit ". \"\$KIT/credits.sh\"; credits_left claude")" ""
+  assert_eq "DRY_RUN: ... nor for cursor" "$(PATH="$CG/bin:$PATH" in_kit ". \"\$KIT/credits.sh\"; credits_left cursor")" ""
+  assert_eq "DRY_RUN: ... nor for codex" "$(in_kit ". \"\$KIT/credits.sh\"; credits_left codex")" ""
+  # An incomplete fakes dir probes nothing either. Asked for codex, whose probe
+  # is the stub's app-server: a regression here reaches no real tool.
+  mkdir -p "$CG/no-curl" "$CG/no-security" "$CG/dir-fakes/security" "$CG/dir-fakes/curl"
+  ln -sf "$CG/bin/security" "$CG/no-curl/security"; ln -sf "$CG/bin/curl" "$CG/no-security/curl"
+  for d in no-curl no-security dir-fakes; do
+    assert_eq "DRY_RUN: CREDITS_FAKES=$d probes nothing" "$(CREDITS_FAKES="$CG/$d" in_kit ". \"\$KIT/credits.sh\"; credits_left codex")" ""
+  done
+  assert_eq "DRY_RUN: ... though a full one does" "$(CREDITS_FAKES="$CG/bin" in_kit ". \"\$KIT/credits.sh\"; credits_left codex")" 12
+  assert_eq "guard off: the Reviewer as without credits" "$(rev claude)" "codex${T}gpt-6-astra${T}"
+  assert_eq "guard off: no probe runs" "$(cat "$CG/probes.log")" ""
+  assert_eq "guard on: a claude lane with codex at 12% is reviewed by claude, noted" "$(REVIEWER_BY_CREDITS=on rev claude)" \
+    "claude${T}claude-fable-5-1${T}reviewer: skipped codex, 12% credits left; fallback: codex is low on credits, so claude reviews claude"
+  reset_stub; out=$(rev cursor)
+  assert_nomatch "guard off: ... not even codex's app-server" "$(cat "$HERDR_STUB_LOG")" '^codex app-server'
+  left claude 5; left codex 50
+  assert_eq "guard on: a cursor lane with claude at 5% and codex at 50% is reviewed by codex" "$(REVIEWER_BY_CREDITS=on rev cursor)" \
+    "codex${T}gpt-6-astra${T}reviewer: skipped claude, 5% credits left"
+  left codex 9
+  assert_eq "guard on: a cursor lane with claude and codex low is reviewed by cursor, a note for each" "$(REVIEWER_BY_CREDITS=on rev cursor)" \
+    "cursor${T}grok-4.7-high-fast${T}reviewer: skipped claude, 5% credits left; reviewer: skipped codex, 9% credits left; fallback: claude and codex are low on credits, so a fresh cursor agent reviews cursor"
+  assert_eq "guard on: one absent, one low, the fallback says which is which" "$(REVIEWER_BY_CREDITS=on CLAUDE_STUB=absent rev cursor)" \
+    "cursor${T}grok-4.7-high-fast${T}reviewer: skipped codex, 9% credits left; fallback: claude is not installed and codex is low on credits, so a fresh cursor agent reviews cursor"
+  left claude -
+  assert_eq "guard on: unreadable credits count as enough, noted" "$(REVIEWER_BY_CREDITS=on rev cursor)" \
+    "claude${T}claude-opus-5-5${T}reviewer: claude credits unreadable, counted as enough"
+  assert_match "guard on: ... after a probe ran" "$(cat "$CG/probes.log")" '^security '
+  left claude 5; left codex -
+  assert_eq "guard on: a skip, then an unreadable candidate, both noted in order" "$(REVIEWER_BY_CREDITS=on rev cursor)" \
+    "codex${T}gpt-6-astra${T}reviewer: skipped claude, 5% credits left; reviewer: codex credits unreadable, counted as enough"
+  left claude -
+  left claude 50
+  assert_eq "guard on: REVIEWER_CREDITS_MIN=60 makes 50% a skip" "$(REVIEWER_BY_CREDITS=on REVIEWER_CREDITS_MIN=60 CODEX_STUB=absent rev cursor)" \
+    "cursor${T}grok-4.7-high-fast${T}reviewer: skipped claude, 50% credits left; fallback: codex is not installed and claude is low on credits, so a fresh cursor agent reviews cursor"
+  for v in 120 abc 99999999999999999999; do
+    out=$(REVIEWER_BY_CREDITS=on REVIEWER_CREDITS_MIN="$v" rev claude; echo "exit=$?")
+    assert_match "guard on: REVIEWER_CREDITS_MIN='$v' is refused by reviewer_for too" "$out" \
+      "^REVIEWER_CREDITS_MIN must be a whole number from 0 to 100 \\(got '$v'\\)"
+    assert_match "guard on: ... '$v' exits non-zero" "$out" 'exit=1$'
+  done
+  left codex 99
+  assert_eq "guard on: REVIEWER_CREDITS_MIN=100 is valid, and 99% is below it" "$(REVIEWER_BY_CREDITS=on REVIEWER_CREDITS_MIN=100 rev claude | cut -f1,3)" \
+    "claude${T}reviewer: skipped codex, 99% credits left; fallback: codex is low on credits, so claude reviews claude"
+  assert_nomatch "guard on: ... with no shell error" "$(REVIEWER_BY_CREDITS=on REVIEWER_CREDITS_MIN=99999999999999999999 rev claude)" 'expression|out of range'
+  left codex 20
+  assert_eq "guard on: exactly the threshold is enough" "$(REVIEWER_BY_CREDITS=on rev claude)" "codex${T}gpt-6-astra${T}"
+  left codex 1
+  reset_stub
+  assert_eq "guard on: REVIEWER_KIND=codex with codex at 1% is codex" "$(REVIEWER_BY_CREDITS=on REVIEWER_KIND=codex rev claude)" "codex${T}gpt-6-astra${T}"
+  assert_eq "guard on: ... and no probe runs" "$(cat "$CG/probes.log"; grep '^codex app-server' "$HERDR_STUB_LOG")" ""
+  assert_eq "guard on, the lane's own kind absent: the skipped candidate reviews after all" "$(REVIEWER_BY_CREDITS=on CLAUDE_STUB=absent rev claude)" \
+    "codex${T}gpt-6-astra${T}reviewer: skipped codex, 1% credits left; fallback: claude is not installed, so codex reviews despite its credits"
+  # The switches: in the pane map, validated, and from the user contract.
+  detect_in() { (cd "$1" && env XDG_CONFIG_HOME="$CG/xdg" bash -c "set -euo pipefail; . \"\$KIT/common.sh\"; . \"\$KIT/detect-stack.sh\"; $2" 2>&1); }
+  r=$(fixture_repo bun-vitest)
+  assert_match "switches: the guard is off by default, its threshold the defaults file's" "$(detect_in "$r" switches_line)" ' REVIEWER_BY_CREDITS=off REVIEWER_CREDITS_MIN=20 '
+  assert_match "switches: REVIEWER_BY_CREDITS accepts only on or off" "$(REVIEWER_BY_CREDITS=yes detect_in "$r" true)" "REVIEWER_BY_CREDITS must be on or off \\(got 'yes'\\)"
+  for v in 120 abc -5 99999999999999999999 ' 7'; do
+    assert_match "switches: REVIEWER_CREDITS_MIN='$v' is refused" "$(REVIEWER_CREDITS_MIN="$v" detect_in "$r" true 2>&1)" "^REVIEWER_CREDITS_MIN must be a whole number from 0 to 100 \\(got '$v'\\)\$"
+  done
+  assert_nomatch "switches: a huge REVIEWER_CREDITS_MIN is refused without a shell error" "$(REVIEWER_CREDITS_MIN=99999999999999999999 detect_in "$r" true 2>&1)" 'expression|out of range'
+  assert_match "switches: REVIEWER_CREDITS_MIN=08 is 8%" "$(REVIEWER_CREDITS_MIN=08 detect_in "$r" switches_line)" ' REVIEWER_CREDITS_MIN=08 '
+  mkdir -p "$CG/xdg/tower"; printf '%s\n' REVIEWER_BY_CREDITS=on REVIEWER_CREDITS_MIN=60 > "$CG/xdg/tower/orchestrate"
+  out=$(detect_in "$r" switches_line)
+  assert_match "user contract: sets the guard and its threshold" "$out" ' REVIEWER_BY_CREDITS=on REVIEWER_CREDITS_MIN=60 '
+  assert_nomatch "user contract: ... both its keys" "$out" 'not a setting|repo contract setting'
+  # add-reviewer: the skip notes go to the record, for a lane review and a
+  # preflight slot alike; the run's switches come from the pane map.
+  kit() { local d=$1; shift; (cd "$d" && env CREDITS_FAKES="$CG/bin" HOME="$TMP/cg-home" XDG_CONFIG_HOME="$TMP/cg-none" EXIT_WAIT_SECONDS=3 "$@" 2>&1); }
+  left codex 12; left claude 90
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-cg"; : > "$CG/probes.log"; reset_stub
+  out=$(kit "$r" REVIEWER_BY_CREDITS=on "$KIT/bootstrap.sh" "$RUN" "Credits" main "$KIT/example-tasks.tsv")
+  map=$(cat "$RUN/panes.txt")
+  assert_match "bootstrap: its reviewer line is a forecast, probing nothing" "$map" '^reviewer: +kind codex, model gpt-6-astra \(credit guard on: each review skips a kind below 20% credits left\)$'
+  assert_eq "bootstrap: ... no probe ran" "$(cat "$CG/probes.log"; grep '^codex app-server' "$HERDR_STUB_LOG")" ""
+  reset_stub; out=$(kit "$r" "$KIT/add-reviewer.sh" "$RUN" R1 claude "Lane review A" "$RUN/findings/a.json" A)
+  assert_match "add-reviewer: a claude lane with codex at 12% gets claude" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-r1-1 --kind claude '
+  assert_match "add-reviewer: the record gets the skip note" "$(notes "$RUN")" '^reviewer: skipped codex, 12% credits left$'
+  assert_eq "add-reviewer: ... and prints it once" "$(printf '%s\n' "$out" | grep -c '^reviewer: skipped codex, 12% credits left$')" 1
+  assert_match "add-reviewer: ... and the fallback" "$out" '^reviewer: fallback: codex is low on credits, so claude reviews claude$'
+  left codex 50
+  reset_stub; out=$(kit "$r" "$KIT/add-reviewer.sh" "$RUN" R2 claude "Preflight: security" "$RUN/findings/security.json")
+  assert_match "preflight slot: the same guard, codex at 50% reviews" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-r2-1 --kind codex '
+  # A cursor lane with both candidates low: each skip in the record, the fallback printed.
+  rc=$(fixture_repo bun-vitest); RUNC="$TMP/run-cg-cursor"; left claude 5; left codex 9
+  out=$(kit "$rc" REVIEWER_BY_CREDITS=on EXECUTOR_KIND=cursor "$KIT/bootstrap.sh" "$RUNC" "Credits" main "$KIT/example-tasks.tsv")
+  out=$(kit "$rc" "$KIT/add-reviewer.sh" "$RUNC" R1 cursor "Lane review A" "$RUNC/findings/a.json" A)
+  assert_eq "add-reviewer: two skips, two notes in the record" "$(notes "$RUNC" | grep '^reviewer: skipped' | tr '\n' '|')" \
+    "reviewer: skipped claude, 5% credits left|reviewer: skipped codex, 9% credits left|"
+  assert_match "add-reviewer: ... and the fallback printed" "$out" '^reviewer: fallback: claude and codex are low on credits, so a fresh cursor agent reviews cursor$'
+  left codex 3; echo gone > "$HERDR_STUB_STATES_DIR/bun-vitest-r1-1"   # R1's first Reviewer has exited
+  reset_stub; out=$(kit "$r" "$KIT/add-reviewer.sh" "$RUN" R1 claude "Preflight: tests" "$RUN/findings/tests.json")
+  assert_match "preflight slot: codex at 3% is skipped" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-r1-2 --kind claude '
+  assert_match "preflight slot: ... noted in the record" "$(notes "$RUN")" '^reviewer: skipped codex, 3% credits left$'
+  rm -f "$HERDR_STUB_STATES_DIR"/bun-vitest-r1-* "$HERDR_STUB_STATES_DIR"/bun-vitest-r2-*
+  # The user's path: a user contract turns the guard on at 60%, bootstrap
+  # records both, and add-reviewer skips a candidate at 50%, which the
+  # default 20% would keep.
+  UCG="$CG/uc-guard"; mkdir -p "$UCG/tower"; printf '%s\n' REVIEWER_BY_CREDITS=on REVIEWER_CREDITS_MIN=60 > "$UCG/tower/orchestrate"
+  left claude 50; left codex 90
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-cg-user"
+  out=$(kit "$r" XDG_CONFIG_HOME="$UCG" EXECUTOR_KIND=cursor "$KIT/bootstrap.sh" "$RUN" "User guard" main "$KIT/example-tasks.tsv")
+  assert_match "user contract guard: bootstrap records it" "$(cat "$RUN/panes.txt")" '^switches: .* REVIEWER_BY_CREDITS=on REVIEWER_CREDITS_MIN=60 '
+  # add-reviewer without the user contract: only the pane map carries on/60.
+  reset_stub; out=$(kit "$r" "$KIT/add-reviewer.sh" "$RUN" R1 cursor "Lane review A" "$RUN/findings/a.json" A)
+  assert_match "user contract guard: claude at 50% is skipped" "$(notes "$RUN")" '^reviewer: skipped claude, 50% credits left$'
+  assert_match "user contract guard: ... and codex, the next candidate, reviews" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-r1-1 --kind codex '
+  # The user contract changed mid-run to 40%: the pane map's 60% still holds.
+  printf '%s\n' REVIEWER_BY_CREDITS=on REVIEWER_CREDITS_MIN=40 > "$UCG/tower/orchestrate"
+  reset_stub; out=$(kit "$r" XDG_CONFIG_HOME="$UCG" "$KIT/add-reviewer.sh" "$RUN" R2 cursor "Preflight: security" "$RUN/findings/security.json")
+  assert_eq "user contract guard: a mid-run change to it does not reach a review" "$(notes "$RUN" | grep -c '^reviewer: skipped claude, 50% credits left$')" 2
+  assert_match "user contract guard: ... codex still reviews" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-r2-1 --kind codex '
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-cg-default"
+  out=$(kit "$r" REVIEWER_BY_CREDITS=on EXECUTOR_KIND=cursor "$KIT/bootstrap.sh" "$RUN" "Default guard" main "$KIT/example-tasks.tsv")
+  assert_match "without the user contract: the guard is on, at the default 20%" "$(cat "$RUN/panes.txt")" '^switches: .* REVIEWER_BY_CREDITS=on REVIEWER_CREDITS_MIN=20 '
+  reset_stub; out=$(kit "$r" "$KIT/add-reviewer.sh" "$RUN" R1 cursor "Lane review A" "$RUN/findings/a.json" A)
+  assert_match "without the user contract: claude at 50% reviews (the default 20%)" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-r1-1 --kind claude '
+  assert_nomatch "without the user contract: ... with no skip note" "$(notes "$RUN")" '^reviewer: skipped'
+  rm -f "$HERDR_STUB_STATES_DIR"/bun-vitest-r1-* "$HERDR_STUB_STATES_DIR"/bun-vitest-r2-*
+  # add-reviewer writes an unreadable candidate's note to the record.
+  left claude -; left codex 90
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-cg-unread"
+  out=$(kit "$r" REVIEWER_BY_CREDITS=on EXECUTOR_KIND=cursor "$KIT/bootstrap.sh" "$RUN" "Unreadable" main "$KIT/example-tasks.tsv")
+  assert_nomatch "bootstrap: its forecast probes nothing, so notes no unreadable candidate" "$out" 'unreadable'
+  reset_stub; out=$(kit "$r" "$KIT/add-reviewer.sh" "$RUN" R1 cursor "Lane review A" "$RUN/findings/a.json" A)
+  assert_match "add-reviewer: an unreadable candidate's note is in the record" "$(notes "$RUN")" '^reviewer: claude credits unreadable, counted as enough$'
+  assert_match "add-reviewer: ... and printed" "$out" '^reviewer: claude credits unreadable, counted as enough$'
+  assert_match "add-reviewer: ... and claude reviews" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-r1-1 --kind claude '
+  rm -f "$HERDR_STUB_STATES_DIR"/bun-vitest-r1-*
+  unset CODEX_STUB_RATE_LIMITS
+fi
+
+# --- cursor-docs -------------------------------------------------------------
+# install.sh and the example repo contract know cursor, the user contract and
+# the credit guard.
+if section cursor-docs; then
+  # TOWER_BIN_DIR in $TMP: install.sh puts it on PATH, never a real ~/.local/bin.
+  out=$(HOME="$TMP/cd-home" TOWER_BIN_DIR="$TMP/cd-home/bin" CURSOR_STUB=absent "$ROOT/install.sh" --check 2>&1)
+  assert_match "install: cursor-agent is optional, for cursor lanes" "$out" '^  optional  cursor-agent lanes with EXECUTOR_KIND=cursor$'
+  assert_match "install: ... ok when it answers" "$(HOME="$TMP/cd-home" TOWER_BIN_DIR="$TMP/cd-home/bin" "$ROOT/install.sh" --check 2>&1)" '^  ok        cursor-agent \(optional\)$'
+  assert_nomatch "install: links no skill dir for cursor" "$(grep -E '^ *link ' "$ROOT/install.sh")" 'cursor'
+  ex="$KIT/example.orchestrate"
+  for key in 'EXECUTOR_KIND=cursor' 'EXECUTOR_MODEL_CURSOR=' 'EXECUTOR_MODEL_CLAUDE=' 'EXECUTOR_MODEL_CODEX=' 'REVIEWER_MODEL_CURSOR=' \
+    'REVIEWER_MODEL_CLAUDE_SELF=' 'SPEC_REVIEWER_MODEL_CURSOR=' 'REVIEWER_BY_CREDITS=off' 'REVIEWER_CREDITS_MIN=20' 'tower/orchestrate'; do
+    assert_match "example.orchestrate: documents $key" "$(cat "$ex")" "$key"
+  done
+  assert_match "example.orchestrate: REVIEWER_KIND lists cursor" "$(cat "$ex")" '^# REVIEWER_KIND=other +other \| claude \| codex \| cursor'
+  r=$(fixture_repo bun-vitest); cp "$ex" "$r/.orchestrate"
+  out=$(cd "$r" && bash -c "set -euo pipefail; . \"\$KIT/common.sh\"; . \"\$KIT/detect-stack.sh\"; echo parsed" 2>&1)
+  assert_match "example.orchestrate: parses" "$out" '^parsed$'
+  assert_nomatch "example.orchestrate: ... with no unknown setting" "$out" 'not a setting'
+  # Every KEY=value it shows in a comment is a setting the kit reads.
+  sed -nE 's/^# ([A-Z_]+=[^ "]*)( .*)?$/\1/p' "$ex" | grep -v '^EXECUTOR_KIND=' > "$r/.orchestrate"
+  out=$(cd "$r" && bash -c "set -euo pipefail; . \"\$KIT/common.sh\"; . \"\$KIT/detect-stack.sh\"; echo parsed" 2>&1)
+  assert_match "example.orchestrate: its commented settings, set, parse" "$out" '^parsed$'
+  assert_nomatch "example.orchestrate: ... every one a setting the kit reads" "$out" 'not a setting'
 fi
 
 # --- watch -------------------------------------------------------------------
@@ -1493,6 +2092,176 @@ if section contract-pin; then
   assert_match "pin: a run without its pin is refused" "$out" "no pinned contract for the run $RUNP"
   assert_match "pin: ... as an error"                    "$out" 'exit=1$'
   [ -e "$TMP/pin-ran-added" ] && bad "pin: ... and the checkout's contract does not run" || ok "pin: ... and the checkout's contract does not run"
+fi
+
+# --- credits -----------------------------------------------------------------
+# credits_left KIND: % left in the kind's tightest window, or nothing. The
+# keychain and the endpoints are fakes on PATH: `security` answers from
+# $CB/keychain/<service> (no file: the item is missing), `curl` answers from
+# $CB/reply only when the header lines it reads on stdin carry the fake token
+# (and, for claude's endpoint, the OAuth beta header), prints nothing and fails
+# as `curl -f` does otherwise, and logs its argv to $CB/curl.log.
+if section credits; then
+  CB="$TMP/credits"; mkdir -p "$CB/bin" "$CB/keychain"
+  TOK=tok-fake-rex-0001
+  cat > "$CB/bin/security" <<SH
+#!/bin/sh
+while [ \$# -gt 0 ]; do [ "\$1" = -s ] && svc=\$2; shift; done
+[ -f "$CB/keychain/\$svc" ] || { echo "security: The specified item could not be found in the keychain." >&2; exit 44; }
+cat "$CB/keychain/\$svc"
+SH
+  cat > "$CB/bin/curl" <<SH
+#!/bin/sh
+printf '%s\n' "\$*" >> "$CB/curl.log"
+[ -n "\${FAKE_CURL_SLEEP:-}" ] && sleep "\$FAKE_CURL_SLEEP"
+h=\$(cat)
+case "\$h" in
+  *"Authorization: Bearer $TOK"*) ;;
+  *) exit 22 ;;
+esac
+case "\$*" in
+  *oauth/usage*)
+    case "\$h" in
+      *"anthropic-beta: oauth-2025-04-20"*) ;;
+      *) exit 22 ;;
+    esac ;;
+esac
+[ "\${FAKE_CURL_STATUS:-200}" = 200 ] || exit 22
+cat "$CB/reply"
+SH
+  chmod +x "$CB/bin/security" "$CB/bin/curl"
+  credits() { CREDITS_FAKES="$CB/bin" in_kit ". \"\$KIT/credits.sh\"; credits_left $1"; }  # KIND
+  claude_creds() { printf '{"claudeAiOauth":{"accessToken":"%s","refreshToken":"ref-fake-rex"}}' "$TOK" > "$CB/keychain/Claude Code-credentials"; }
+
+  claude_creds
+  echo '{"five_hour":{"utilization":31,"resets_at":null},"seven_day":{"utilization":85,"resets_at":null}}' > "$CB/reply"
+  assert_eq "claude: the tightest of the 5-hour and 7-day windows" "$(credits claude)" 15
+  assert_match "claude: ... asked with curl -f, so an error status fails" "$(tail -1 "$CB/curl.log")" '^-sf '
+  assert_eq "claude: a 401 prints nothing" "$(FAKE_CURL_STATUS=401 credits claude)" ""
+  assert_eq "claude: with CLAUDE_CONFIG_DIR, another account's item, nothing" "$(CLAUDE_CONFIG_DIR="$TMP/claude-other" credits claude)" ""
+  rm "$CB/keychain/Claude Code-credentials"
+  assert_eq "claude: a missing keychain item prints nothing" "$(credits claude)" ""
+
+  printf '%s' "$TOK" > "$CB/keychain/cursor-access-token"
+  echo '{"billingCycleStart":"1","planUsage":{"totalPercentUsed":93}}' > "$CB/reply"
+  assert_eq "cursor: 100 - planUsage.totalPercentUsed" "$(credits cursor)" 7
+  assert_match "cursor: ... from DashboardService/GetCurrentPeriodUsage" "$(tail -1 "$CB/curl.log")" 'DashboardService/GetCurrentPeriodUsage'
+  echo '{"planUsage":{"totalPercentUsed":' > "$CB/reply"
+  assert_eq "cursor: malformed JSON prints nothing" "$(credits cursor)" ""
+
+  # codex: the stub's app-server answers account/rateLimits/read with the
+  # result in $CODEX_STUB_RATE_LIMITS, errors without it, answers with a
+  # JSON-RPC error when it is `error`, and never answers when it is `silent`.
+  echo '{"rateLimits":{"primary":{"usedPercent":80,"windowDurationMins":300},"secondary":null}}' > "$CB/codex-limits"
+  assert_eq "codex: primary only" "$(CODEX_STUB_RATE_LIMITS="$CB/codex-limits" credits codex)" 20
+  echo '{"rateLimits":{"primary":{"usedPercent":10},"secondary":{"usedPercent":60}}}' > "$CB/codex-limits"
+  reset_stub
+  assert_eq "codex: the tightest of primary and secondary" "$(CODEX_STUB_RATE_LIMITS="$CB/codex-limits" credits codex)" 40
+  assert_match "codex: ... read from codex app-server" "$(cat "$HERDR_STUB_LOG")" '^codex app-server$'
+  assert_eq "codex: an app-server that errors prints nothing" "$(credits codex)" ""
+  assert_eq "codex: a JSON-RPC error reply prints nothing" "$(CODEX_STUB_RATE_LIMITS=error credits codex)" ""
+  SECONDS=0
+  assert_eq "codex: an app-server that never answers prints nothing" "$(CREDITS_TIMEOUT=1 CODEX_STUB_RATE_LIMITS=silent credits codex)" ""
+  [ "$SECONDS" -le 4 ] && ok "codex: ... within about the timeout" || bad "codex: ... within about the timeout" "took ${SECONDS}s"
+  pgrep -f 'sleep 31.7' >/dev/null && bad "codex: ... and leaves no app-server behind" || ok "codex: ... and leaves no app-server behind"
+
+  claude_creds
+  echo '{"five_hour":{"utilization":31},"seven_day":{"utilization":85}}' > "$CB/reply"
+  SECONDS=0
+  assert_eq "a probe slower than its timeout prints nothing" "$(CREDITS_TIMEOUT=1 FAKE_CURL_SLEEP=8.3 credits claude)" ""
+  [ "$SECONDS" -le 4 ] && ok "... and returns within about the timeout" || bad "... and returns within about the timeout" "took ${SECONDS}s"
+  pgrep -f 'sleep 8.3' >/dev/null && bad "... and leaves nothing it started behind" || ok "... and leaves nothing it started behind"
+  # A timeout set in the caller's shell, not exported, is the probe's too;
+  # and the module, sourced by a relative path, still probes after a cd.
+  assert_eq "a caller's CREDITS_TIMEOUT holds for the whole probe" \
+    "$(CREDITS_FAKES="$CB/bin" in_kit "CREDITS_TIMEOUT=6; . \"\$KIT/credits.sh\"; FAKE_CURL_SLEEP=3 credits_left claude")" 15
+  assert_eq "a module sourced by a relative path probes after a cd" \
+    "$(cd "$KIT" && CREDITS_FAKES="$CB/bin" in_kit ". ./credits.sh; cd /; credits_left claude")" 15
+  assert_eq "an unknown kind prints nothing" "$(credits gemini)" ""
+  assert_eq "no kind prints nothing" "$(credits '')" ""
+
+  # The token only ever reaches curl through a pipe.
+  : > "$CB/curl.log"; reset_stub
+  out=$(credits claude; FAKE_CURL_STATUS=401 credits claude; credits cursor; credits codex)
+  assert_match "token: the probes ran" "$(cat "$CB/curl.log")" 'oauth/usage'
+  assert_nomatch "token: never on stdout or stderr" "$out" "$TOK"
+  assert_nomatch "token: never in curl's argv" "$(cat "$CB/curl.log")" "$TOK"
+  assert_nomatch "token: never in HERDR_STUB_LOG" "$(cat "$HERDR_STUB_LOG")" "$TOK"
+fi
+
+# --- brief-cursor ------------------------------------------------------------
+# The markdown a cursor lane, its orchestrator and a lone preflight read.
+if section brief-cursor; then
+  bt=$(cat "$KIT/brief-template.md"); os=$(cat "$KIT/SKILL.md"); ps=$(cat "$PREFLIGHT_DIR/SKILL.md")
+  assert_match "brief: the per-kind table has a cursor column" "$bt" '^\| +\| claude lane +\| codex lane +\| cursor lane +\|'
+  method=$(grep '^METHOD:' "$KIT/brief-template.md")
+  assert_match "brief: METHOD has a cursor variant with subagent reviews on the run's models" "$method" 'cursor: "a spec-compliance review subagent \(model \{\{SPEC_REVIEWER_MODEL\}\}\) and a code-quality review subagent \(model \{\{QUALITY_REVIEWER_MODEL\}\}\).*Pass the model explicitly on every dispatch'
+  assert_match "brief: the final review has a cursor variant" "$(grep '^WHEN YOUR LAST TASK IS DONE:' "$KIT/brief-template.md")" 'cursor: subagent, model \{\{QUALITY_REVIEWER_MODEL\}\}'
+  assert_match "brief: a cursor lane loads tdd from its own skill dirs" "$bt" 'own skill dirs: ~/\.agents/skills'
+  assert_match "preflight: alone on cursor, one subagent per area in parallel" "$ps" 'Alone on cursor: one subagent per area, in parallel'
+  assert_match "orchestrate: EXECUTOR_KIND names cursor" "$os" 'EXECUTOR_KIND=codex` or `EXECUTOR_KIND=cursor`'
+  assert_match "orchestrate: REVIEWER_KIND takes cursor" "$os" '^\| `REVIEWER_KIND` +\| other +\| .*claude, codex or cursor: that kind reviews every lane'
+  assert_match "orchestrate: the switches table has REVIEWER_BY_CREDITS" "$os" '^\| `REVIEWER_BY_CREDITS` +\| off +\|'
+  assert_match "orchestrate: the Reviewer order covers cursor" "$os" 'cursor lane: claude, then codex'
+  assert_match "orchestrate: red flag, cursor has subagents" "$os" '^\| Briefing a cursor lane .*subagents'
+  assert_match "orchestrate: red flag, never answer cursor's trust box" "$os" "^\\| Answering a cursor lane's trust box .*--trust"
+  assert_nomatch "brief: the cursor variant names no claude model" "$(printf '%s\n' "$method" | sed -n 's/.*cursor: "\([^"]*\)".*/\1/p')" 'sonnet|opus'
+  assert_nomatch "orchestrate: a cursor lane is never sent to the run's roles alone" "$os" "cursor.*run's reviewer models|run's .spec-reviewer. and .quality-reviewer. models"
+  assert_nomatch "no two-kind wording is left in the three files" "$bt$os$ps" 'both kinds|either kind|claude or codex|one Reviewer of each kind'
+  # The command the template gives for a cursor lane's reviewer models in a
+  # run of another kind, run as written: every layer, the environment first.
+  cmd=$(sed -n 's/^    \(bash -c .*kind_default SPEC_REVIEWER_MODEL cursor.*\)$/\1/p' "$KIT/brief-template.md")
+  assert_match "brief: the template gives the command" "$cmd" 'kind_default QUALITY_REVIEWER_MODEL cursor'
+  assert_match "brief: ... with _ as bash's \$0, the kit and run dir as \$1 and \$2" "$cmd" "' _ \"<kit>\" \"<run-dir>\"\$"
+  assert_nomatch "brief: ... never the kit as \$0" "$cmd" '"\$0/'
+  assert_match "brief: says what EXECUTOR_KIND=claude does" "$(tr '\n' ' ' < "$KIT/brief-template.md")" 'EXECUTOR_KIND=claude. resolves [^)]*EXECUTOR_MODEL_CLAUDE[^)]*off stderr'
+  # cursor_run CHECKOUT RUN_DIR XDG [VAR=value]: runs the command; its stdout
+  # and stderr land in $CM.out and $CM.err, and it prints the exit status.
+  CM="$TMP/cursor-models"
+  cursor_run() { (cd "$1" && env XDG_CONFIG_HOME="$3" ${4:+"$4"} bash -c "$(printf '%s' "$cmd" | sed "s#<kit>#$KIT#g; s#<run-dir>#$2#g")") >"$CM.out" 2>"$CM.err"; echo $?; }
+  # cursor_models …: the same, its stdout's lines joined by a space.
+  cursor_models() { cursor_run "$@" >/dev/null; paste -sd' ' - < "$CM.out"; }
+  kit_spec=$(sed -n 's/^SPEC_REVIEWER_MODEL_CURSOR=//p' "$KIT/model-defaults"); kit_quality=$(sed -n 's/^QUALITY_REVIEWER_MODEL_CURSOR=//p' "$KIT/model-defaults")
+  r=$(fixture_repo bun-vitest); RB="$TMP/run-brief-cursor"; reset_stub
+  (cd "$r" && XDG_CONFIG_HOME="$TMP/xdg-brief-none" "$KIT/bootstrap.sh" "$RB" "Brief cursor" main "$KIT/example-tasks.tsv" >/dev/null 2>&1)
+  assert_eq "brief: in a claude run, cursor's reviewer models are the kit's" "$(cursor_models "$r" "$RB" "$TMP/xdg-brief-none")" "$kit_spec $kit_quality"
+  assert_eq "brief: ... exit 0" "$(cursor_run "$r" "$RB" "$TMP/xdg-brief-none")" 0
+  assert_eq "brief: ... the two alone on stdout, one per line" "$(cat "$CM.out")" "$kit_spec
+$kit_quality"
+  assert_eq "brief: ... nothing on stderr" "$(cat "$CM.err")" ""
+  grep -v '^SPEC_REVIEWER_MODEL_CURSOR=' "$KIT/model-defaults" > "$TMP/model-defaults-no-spec"
+  assert_eq "brief: ... a missing SPEC model fails the command" "$(cursor_run "$r" "$RB" "$TMP/xdg-brief-none" MODEL_DEFAULTS_FILE="$TMP/model-defaults-no-spec")" 1
+  assert_match "brief: ... SPEC named on stderr" "$(cat "$CM.err")" 'no SPEC_REVIEWER_MODEL_CURSOR'
+  assert_eq "brief: ... and nothing on stdout" "$(cat "$CM.out")" ""
+  grep -v '^QUALITY_REVIEWER_MODEL_CURSOR=' "$KIT/model-defaults" > "$TMP/model-defaults-no-quality"
+  assert_eq "brief: ... a missing QUALITY model fails the command" "$(cursor_run "$r" "$RB" "$TMP/xdg-brief-none" MODEL_DEFAULTS_FILE="$TMP/model-defaults-no-quality")" 1
+  assert_match "brief: ... QUALITY named on stderr" "$(cat "$CM.err")" 'no QUALITY_REVIEWER_MODEL_CURSOR'
+  assert_eq "brief: ... stdout only the SPEC model, never the two" "$(cat "$CM.out")" "$kit_spec"
+  # A contract's note goes to stderr: stdout stays the two.
+  mkdir -p "$TMP/xdg-brief-note/tower"; echo MODLE=x > "$TMP/xdg-brief-note/tower/orchestrate"
+  assert_eq "brief: ... with a contract's note, still exit 0" "$(cursor_run "$r" "$RB" "$TMP/xdg-brief-note")" 0
+  assert_match "brief: ... the note on stderr" "$(cat "$CM.err")" "'MODLE' is not a setting"
+  assert_eq "brief: ... stdout still the two alone" "$(cat "$CM.out")" "$kit_spec
+$kit_quality"
+  assert_match "brief: the template says stdout is the two, notes on stderr" "$(tr '\n' ' ' < "$KIT/brief-template.md")" 'Its stdout is the two lines, in that order[^.]*\. [^.]*note[^.]*stderr'
+  UCB="$TMP/xdg-brief"; mkdir -p "$UCB/tower"
+  printf 'SPEC_REVIEWER_MODEL_CURSOR=user-s\nQUALITY_REVIEWER_MODEL_CURSOR=user-q\n' > "$UCB/tower/orchestrate"
+  r=$(fixture_repo bun-vitest); RB="$TMP/run-brief-cursor-2"
+  echo 'QUALITY_REVIEWER_MODEL_CURSOR=repo-q' > "$r/.orchestrate"; git -C "$r" add .orchestrate; git -C "$r" commit -qm contract; reset_stub
+  (cd "$r" && XDG_CONFIG_HOME="$UCB" "$KIT/bootstrap.sh" "$RB" "Brief cursor 2" main "$KIT/example-tasks.tsv" >/dev/null 2>&1)
+  echo 'QUALITY_REVIEWER_MODEL_CURSOR=checkout-q' > "$r/.orchestrate"   # after bootstrap: the pin, never the checkout
+  assert_eq "brief: ... the user contract over the kit, the repo contract over both" "$(cursor_models "$r" "$RB" "$UCB")" "user-s repo-q"
+  assert_eq "brief: ... and the environment over all" "$(cursor_models "$r" "$RB" "$UCB" SPEC_REVIEWER_MODEL_CURSOR=env-s)" "env-s repo-q"
+  mkdir -p "$TMP/home-no-skills"
+  assert_eq "brief: ... printing only the two, whatever kind add-lane.sh was given" \
+    "$(HOME="$TMP/home-no-skills" cursor_models "$r" "$RB" "$UCB" EXECUTOR_KIND=cursor)" "user-s repo-q"
+  assert_eq "brief: ... and no setup hint on stderr" "$(cat "$CM.err")" ""
+  for m in $(sed -n 's/^[A-Z_]*_CURSOR=//p' "$KIT/model-defaults" | sort -u); do
+    case "$bt$os$ps" in
+      *"$m"*) bad "no cursor default ($m) is written into the three files" ;;
+      *) ok "no cursor default ($m) is written into the three files" ;;
+    esac
+  done
 fi
 
 # --- look --------------------------------------------------------------------
@@ -2178,7 +2947,9 @@ if section install; then
     "$(grep -- '--proto-redir =https' "$TMP/curl.log" | grep -- '--connect-timeout 15' | grep -- '--speed-limit 1024' | grep -c -- '--speed-time 30')" 2
   # The checksums come; the binary's download then stalls (curl exit 28), or
   # is interrupted with Ctrl-C (SIGINT to the installer).
-  real_for_sums="case \"\$*\" in *SHA256SUMS*) exec '$REAL_CURL' \"\$@\" ;; esac"
+  real_for_sums="case \"\$*\" in
+  *SHA256SUMS*) exec '$REAL_CURL' \"\$@\" ;;
+esac"
   fake_curl "$TMP/curlstall" "$real_for_sums; exit 28"
   out=$(fetch "$H5" "$TMP/bin11" PATH="$TMP/curlstall:$U:$PATH")
   assert_match "fetch: a stalled download names curl's exit" "$out" 'could not download tower-linux-x64 .*curl exit 28'

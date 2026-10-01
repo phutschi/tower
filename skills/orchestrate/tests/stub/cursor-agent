@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Stand-in for cursor-agent under DRY_RUN=1 and test.sh. Logs argv to HERDR_STUB_LOG.
+# CURSOR_STUB=absent refuses to run, so the kind counts as not installed
+# (command -v still finds this stub).
+[ "${CURSOR_STUB:-}" = absent ] && { echo "cursor-agent: not installed (stub)" >&2; exit 127; }
+printf 'cursor-agent %s\n' "$*" >> "${HERDR_STUB_LOG:-/dev/null}"
+case "${1:-}" in
+  --version) echo "cursor-agent (stub)" ;;
+esac

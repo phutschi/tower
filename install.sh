@@ -14,9 +14,11 @@
 # Needs: herdr (the terminal), tower (the record and the console; it must run,
 # and install.sh fetches the release binary into TOWER_BIN_DIR, default
 # ~/.local/bin, when it is missing), git, bash, python3 (reads herdr's JSON),
-# node (reads package.json in JS repos), curl (fetches tower). Optional: claude (the plugin), codex (EXECUTOR_KIND=codex lanes),
-# semgrep and gitleaks (preflight's static baseline). Running it again changes
-# nothing. A claude command, or a link or unlink of a skill, that fails is
+# node (reads package.json in JS repos), curl (fetches tower). Optional: claude
+# (the plugin), codex (EXECUTOR_KIND=codex lanes), cursor-agent
+# (EXECUTOR_KIND=cursor lanes; it reads the skills linked for claude and
+# codex, so nothing more is linked), semgrep and gitleaks (preflight's static
+# baseline). Running it again changes nothing. A claude command, or a link or unlink of a skill, that fails is
 # printed as FAILED, and the install exits 1.
 set -u
 ROOT="$(cd "$(dirname "$0")" && pwd -P)"  # -P: run through a link, it still installs the real repo
@@ -33,7 +35,10 @@ RELEASE_URL="${TOWER_RELEASE_URL:-https://github.com/phutschi/tower/releases/dow
 GIT_INSTALL='npm i -g github:phutschi/tower (Node >= 22.12)'
 on_path() {  # a tower in BIN_DIR that runs, though BIN_DIR is not on PATH
   export PATH="$BIN_DIR:$PATH"
-  case ":$ORIG_PATH:" in *":$BIN_DIR:"*) ;; *) echo "  note      $BIN_DIR is not on your PATH; add it" ;; esac
+  case ":$ORIG_PATH:" in
+    *":$BIN_DIR:"*) ;;
+    *) echo "  note      $BIN_DIR is not on your PATH; add it" ;;
+  esac
   # A tower that does not run, found before BIN_DIR, still wins in your shell.
   local first; first=$(PATH="$ORIG_PATH" command -v tower || true)
   if [ -n "$first" ] && [ "$first" != "$BIN_DIR/tower" ]; then
@@ -47,8 +52,16 @@ get() { curl -fsSL --proto-redir '=https' --connect-timeout 15 --speed-limit 102
 sha256() { if command -v sha256sum >/dev/null; then sha256sum "$1"; else shasum -a 256 "$1"; fi | awk '{print $1}'; }
 fetch_tower() {
   local os arch v asset sums want rc
-  case "$(uname -s)" in Darwin) os=darwin ;; Linux) os=linux ;; *) os="" ;; esac
-  case "$(uname -m)" in arm64|aarch64) arch=arm64 ;; x86_64|amd64) arch=x64 ;; *) arch="" ;; esac
+  case "$(uname -s)" in
+    Darwin) os=darwin ;;
+    Linux) os=linux ;;
+    *) os="" ;;
+  esac
+  case "$(uname -m)" in
+    arm64|aarch64) arch=arm64 ;;
+    x86_64|amd64) arch=x64 ;;
+    *) arch="" ;;
+  esac
   [ -n "$os" ] && [ -n "$arch" ] || { echo "  no release binary of tower for $(uname -s) $(uname -m); install it with  $GIT_INSTALL" >&2; return 1; }
   command -v curl >/dev/null || { echo "  curl is needed to fetch tower; or install it with  $GIT_INSTALL" >&2; return 1; }
   v=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$ROOT/.claude-plugin/plugin.json") || return 1
@@ -89,10 +102,10 @@ if ! tower_ok; then
   elif [ "$CHECK_ONLY" = 0 ] && fetch_tower; then on_path
   fi
 fi
-have() { if command -v "$1" >/dev/null; then printf '  ok        %s\n' "$1"; else printf '  MISSING   %-8s %s\n' "$1" "$2"; ok=0; fi; }
-runs() { if tower_ok; then printf '  ok        tower\n'; else printf '  MISSING   %-8s %s\n' tower "the record and the console, and it must run — $TOWER_POINTER"; ok=0; fi; }
+have() { if command -v "$1" >/dev/null; then printf '  ok        %s\n' "$1"; else printf '  MISSING   %-12s %s\n' "$1" "$2"; ok=0; fi; }
+runs() { if tower_ok; then printf '  ok        tower\n'; else printf '  MISSING   %-12s %s\n' tower "the record and the console, and it must run — $TOWER_POINTER"; ok=0; fi; }
 # opt TOOL WHAT [PROBE-ARG]: with PROBE-ARG, the tool must also run (`TOOL PROBE-ARG`).
-opt()  { if command -v "$1" >/dev/null && { [ -z "${3:-}" ] || "$1" "$3" >/dev/null 2>&1; }; then printf '  ok        %s (optional)\n' "$1"; else printf '  optional  %-8s %s\n' "$1" "$2"; fi; }
+opt()  { if command -v "$1" >/dev/null && { [ -z "${3:-}" ] || "$1" "$3" </dev/null >/dev/null 2>&1; }; then printf '  ok        %s (optional)\n' "$1"; else printf '  optional  %-12s %s\n' "$1" "$2"; fi; }
 echo "dependencies:"
 have herdr   "the terminal this kit runs in"
 runs
@@ -102,6 +115,7 @@ have python3 "reads herdr's JSON"
 have node    "reads package.json in JS repos"
 opt  claude  "Claude Code, where the plugin is installed"
 opt  codex   "lanes with EXECUTOR_KIND=codex"
+opt  cursor-agent "lanes with EXECUTOR_KIND=cursor" --version
 opt  semgrep "preflight's static baseline (a warn row without it)" --version
 opt  gitleaks "preflight's secret scan (a warn row without it)" version
 [ "$ok" = 1 ] || { echo "install the missing dependencies first" >&2; exit 1; }
@@ -172,7 +186,9 @@ link() {  # TARGET DIR NAME
 # name is not recognised (the link then stays, which is the safe side).
 old_kit_link() {  # TARGET: absolute, resolved (no links, no '..')
   local kit
-  case "$1" in "$ROOT"|"$ROOT"/*) return 0 ;; esac
+  case "$1" in
+    "$ROOT"|"$ROOT"/*) return 0 ;;
+  esac
   case "$1" in
     */herdr-orchestrate) kit=$1 ;;
     */herdr-orchestrate/*) kit="${1%%/herdr-orchestrate/*}/herdr-orchestrate" ;;
@@ -186,7 +202,10 @@ unlink_old() {  # DIR NAME
   local target
   [ -L "$1/$2" ] || return 0
   target=$(readlink "$1/$2")
-  case "$target" in /*) ;; *) target="$1/$target" ;; esac  # relative to the link's dir
+  case "$target" in
+    /*) ;;
+    *) target="$1/$target" ;;  # relative to the link's dir
+  esac
   # Where it really points: links followed as far as they exist, '..' resolved.
   target=$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$target") || return 0
   if old_kit_link "$target"; then

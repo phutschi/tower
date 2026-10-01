@@ -31,7 +31,7 @@
 # their command is shell code: a checkout path with an apostrophe or a space
 # stays one directory. With no checks pane declared and no test runner
 # detected, one info: line on stderr says so. Lane A is EXECUTOR_KIND
-# (claude | codex) on EXECUTOR_MODEL: .orchestrate sets the run's default,
+# (claude | codex | cursor) on EXECUTOR_MODEL: .orchestrate sets the run's default,
 # the environment of this call overrides it (executor.sh).
 #
 # Writes <run-dir>/panes.txt, the pane map for the whole run, then prints it
@@ -59,7 +59,7 @@
 # fails the call and is left running in its pane (executor.sh).
 #
 # Never run this for real to see what it does; use DRY_RUN=1, which answers
-# every herdr, claude and codex call from tests/stub and opens nothing. tower
+# every herdr, claude, codex and cursor-agent call from tests/stub and opens nothing. tower
 # is the real CLI from this checkout (it needs bun): it records the run in the
 # run dir, and bootstrap points the repo at that run. Use a scratch repo and
 # run dir, never a live run's.
@@ -89,7 +89,9 @@ for _spec in ${LANE_SPECS[@]+"${LANE_SPECS[@]}"}; do
     [A-D]=*) ;;
     *) die "LANES '$_spec' is not <lane>=<ids> or <lane>=all for a lane A to D" ;;
   esac
-  case "$_seen" in *" ${_spec%%=*} "*) die "LANES names lane ${_spec%%=*} twice (LANES=\"$LANES\")" ;; esac
+  case "$_seen" in
+    *" ${_spec%%=*} "*) die "LANES names lane ${_spec%%=*} twice (LANES=\"$LANES\")" ;;
+  esac
   _seen="$_seen${_spec%%=*} "
   if [ "${_spec#*=}" = all ]; then
     [ "${#LANE_SPECS[@]}" = 1 ] || die "LANES: <lane>=all must be the whole of LANES (got \"$LANES\")"
@@ -112,18 +114,25 @@ need_tower
 
 . "$KIT/detect-stack.sh"  # PM, CHECK_CMD, PANE_*, INSTALL_CMD, and .orchestrate's EXECUTOR_*/reviewer models
 . "$KIT/executor.sh"      # EXECUTOR_KIND, EXECUTOR_MODEL, agent_name, start_agent*
-SPEC_REVIEWER_MODEL="${SPEC_REVIEWER_MODEL:-sonnet}"
-QUALITY_REVIEWER_MODEL="${QUALITY_REVIEWER_MODEL:-opus}"
+[ -n "${SPEC_REVIEWER_MODEL:-}" ] || SPEC_REVIEWER_MODEL=$(kind_default SPEC_REVIEWER_MODEL "$EXECUTOR_KIND")
+[ -n "${QUALITY_REVIEWER_MODEL:-}" ] || QUALITY_REVIEWER_MODEL=$(kind_default QUALITY_REVIEWER_MODEL "$EXECUTOR_KIND")
 STALE="${STALE:-30}"
 LANE_A="$(agent_name -lane-a)"
 # Who reviews lane A (and every lane of its kind); refused here, before the run
-# dir exists, when a forced REVIEWER_KIND is not installed.
+# dir exists, when a forced REVIEWER_KIND is not installed. A forecast without
+# the credit guard's probes: with the guard on, each review (add-reviewer.sh)
+# probes then, and notes its skips.
 if [ "$LANE_REVIEW" = off ] && [ "$PREFLIGHT" = off ]; then
   REVIEWER="none (LANE_REVIEW=off, PREFLIGHT=off)"
 else
-  _rev=$(reviewer_for "$EXECUTOR_KIND")
+  _rev=$(REVIEWER_BY_CREDITS=off reviewer_for "$EXECUTOR_KIND")
   IFS=$'\t' read -r R_KIND R_MODEL R_NOTE <<< "$_rev"
-  REVIEWER="kind $R_KIND, model $R_MODEL${R_NOTE:+ ($R_NOTE)}"
+  if [ "$REVIEWER_BY_CREDITS" = on ] && [ "$REVIEWER_KIND" = other ]; then
+    [ -z "$R_NOTE" ] || R_NOTE="$R_NOTE; "
+    R_NOTE="${R_NOTE}credit guard on: each review skips a kind below $REVIEWER_CREDITS_MIN% credits left"
+  fi
+  REVIEWER="kind $R_KIND, model $R_MODEL"
+  [ -z "$R_NOTE" ] || REVIEWER="$REVIEWER ($R_NOTE)"
   unset _rev
 fi
 

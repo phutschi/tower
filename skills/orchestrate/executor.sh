@@ -1,11 +1,18 @@
 # Sourced by bootstrap.sh and add-lane.sh: everything that depends on which
-# agent runs a lane. EXECUTOR_KIND=claude (default) | codex, chosen per lane:
+# agent runs a lane. EXECUTOR_KIND=claude (default) | codex | cursor, chosen per lane:
 # the repo's .orchestrate sets the run's default, the environment of the
 # bootstrap or add-lane call overrides it (so source detect-stack.sh first).
-# EXECUTOR_MODEL overrides the kind's default model the same way.
+# EXECUTOR_MODEL overrides the kind's default model the same way. Every
+# default model is data: EXECUTOR_MODEL_<KIND> and the Reviewer's keys in
+# model-defaults (MODEL_DEFAULTS_FILE, default $KIT/model-defaults), which the
+# same key in the call's environment, the repo contract or the user contract
+# replaces, in that order (detect-stack.sh loads the two contracts; ADR 0012).
 #
-#   claude: claude-opus-5-5[1m], started with --model.
-#   codex:  gpt-6-astra, started with -m, no approval prompts (-a never), writes
+#   claude: started with --model.
+#   cursor: cursor-agent, started with --model, trusted (--trust), without
+#           approvals (--force) or self-update (--disable-auto-update), no
+#           sandbox flag; the run dir and the common git dir are added dirs.
+#   codex:  started with -m, no approval prompts (-a never), writes
 #           limited to the worktree (-s workspace-write) with network allowed
 #           for installs and fetches. Outside the worktree, the run dir is
 #           writable (tower task|block|note append to it), and what a commit
@@ -44,12 +51,25 @@
 # it is read again; READY_WAIT_SECONDS (default 30) how many reads, about a
 # second apart, it then gets to accept input.
 
+MODEL_DEFAULTS_FILE="${MODEL_DEFAULTS_FILE:-$KIT/model-defaults}"
+
+# KEY's default: its value in this shell (the call's environment, the repo
+# contract or the user contract) when set, else the model-defaults file's
+# (ADR 0012). A key that none of them sets fails, saying so: a caller runs it
+# as  v=$(model_default KEY) || exit 1 .
+model_default() {
+  local key="$1"
+  if [ -n "${!key:-}" ]; then printf '%s\n' "${!key}"; return; fi
+  # shellcheck source=/dev/null  # the kit's data file, or a test's copy
+  ( unset "$key"; . "$MODEL_DEFAULTS_FILE" 2>/dev/null && [ -n "${!key:-}" ] && printf '%s\n' "${!key}" ) \
+    || { echo "model-defaults: no $key in $MODEL_DEFAULTS_FILE" >&2; return 1; }
+}
+# VAR's default for KIND: VAR_<KIND upper>, e.g. kind_default EXECUTOR_MODEL codex.
+kind_default() { model_default "$1_$(printf '%s' "$2" | tr '[:lower:]' '[:upper:]')"; }
+
 EXECUTOR_KIND="${EXECUTOR_KIND:-claude}"
-case "$EXECUTOR_KIND" in
-  claude) EXECUTOR_MODEL="${EXECUTOR_MODEL:-claude-opus-5-5[1m]}" ;;
-  codex)  EXECUTOR_MODEL="${EXECUTOR_MODEL:-gpt-6-astra}" ;;
-  *) echo "EXECUTOR_KIND must be claude or codex (got '$EXECUTOR_KIND')" >&2; exit 2 ;;
-esac
+kind_known "$EXECUTOR_KIND" || { echo "EXECUTOR_KIND must be $(kinds_say) (got '$EXECUTOR_KIND')" >&2; exit 2; }
+[ -n "${EXECUTOR_MODEL:-}" ] || EXECUTOR_MODEL=$(kind_default EXECUTOR_MODEL "$EXECUTOR_KIND") || exit 1
 
 # The codex lane follows the same TDD skill as the claude lane. Codex reads user
 # skills from ~/.codex/skills; the mattpocock tdd skill ships an agents/openai.yaml
@@ -63,6 +83,21 @@ info: ~/.codex/skills/tdd is missing — the codex lane cannot load the tdd skil
         ln -s $S/tdd ~/.codex/skills/tdd
         ln -s $S/codebase-design ~/.codex/skills/codebase-design
         ln -s $S/code-review ~/.codex/skills/code-review
+MSG
+fi
+# A cursor lane reads skills from ~/.agents/skills, ~/.claude/skills and
+# ~/.codex/skills: the tdd skill in any of them will do.
+if [ "$EXECUTOR_KIND" = cursor ] && [ ! -e "$HOME/.agents/skills/tdd" ] \
+  && [ ! -e "$HOME/.claude/skills/tdd" ] && [ ! -e "$HOME/.codex/skills/tdd" ]; then
+  cat >&2 <<'MSG'
+info: no tdd skill in ~/.agents/skills, ~/.claude/skills or ~/.codex/skills — the cursor
+      lane cannot load the tdd skill the brief asks for. To add it (and the two skills it
+      references):
+        S=~/.claude/plugins/marketplaces/mattpocock/skills/engineering
+        mkdir -p ~/.agents/skills
+        ln -s $S/tdd ~/.agents/skills/tdd
+        ln -s $S/codebase-design ~/.agents/skills/codebase-design
+        ln -s $S/code-review ~/.agents/skills/code-review
 MSG
 fi
 
@@ -79,14 +114,34 @@ agent_name() {
   printf '%s%s' "${repo%-}" "$suffix"
 }
 
+# The agent's checkout (AGENT_CHECKOUT, default: here). Under DRY_RUN the
+# stub's worktree create makes no worktree, so a missing one is here.
+agent_checkout() {
+  local co="${AGENT_CHECKOUT:-.}"
+  [ -d "$co" ] || [ "${DRY_RUN:-0}" != 1 ] || co=.
+  printf '%s' "$co"
+}
+
 start_agent() {
   local name="$1" pane="$2"
   case "$EXECUTOR_KIND" in
     claude) herdr agent start "$name" --kind claude --pane "$pane" -- --model "$EXECUTOR_MODEL" ;;
+    cursor)
+      # --trust is the only guard against cursor's trust box: herdr reports
+      # that box as idle and ready, so a brief would be typed into it, and
+      # it is never answered with keys. --force runs commands without
+      # approvals; no --sandbox, so the user's own sandbox setting applies.
+      # --disable-auto-update keeps the harness version still under a
+      # running lane; it is undocumented (not in --help as of 2026.09.28).
+      # The run dir (tower's record) and the common git dir (commits from a
+      # lane worktree) are added dirs.
+      local common
+      common=$(git -C "$(agent_checkout)" rev-parse --path-format=absolute --git-common-dir) || return 1
+      herdr agent start "$name" --kind cursor --pane "$pane" -- --model "$EXECUTOR_MODEL" \
+        --trust --force --disable-auto-update ${RUN_DIR:+--add-dir "$RUN_DIR"} --add-dir "$common" ;;
     codex)
-      local extra=() common gitdir roots="" p co="${AGENT_CHECKOUT:-.}"
-      # Under DRY_RUN the stub's worktree create makes no worktree.
-      [ -d "$co" ] || [ "${DRY_RUN:-0}" != 1 ] || co=.
+      local extra=() common gitdir roots="" p co
+      co=$(agent_checkout)
       common=$(git -C "$co" rev-parse --path-format=absolute --git-common-dir) || return 1
       gitdir=$(git -C "$co" rev-parse --path-format=absolute --git-dir) || return 1
       [ -n "${RUN_DIR:-}" ] && extra+=(--add-dir "$RUN_DIR")
@@ -129,6 +184,8 @@ toml_string() { local s=${1//\\/\\\\}; printf '"%s"' "${s//\"/\\\"}"; }
 # "blocked during startup". Claude's prompt wants Down Enter ("Yes, I trust this
 # folder" is the second option); codex's wants Enter ("Yes, continue" is the
 # first). Answer it, and try once more if herdr then says the agent is gone.
+# cursor's is never answered: it starts with --trust, and one still blocked
+# fails the start, saying to check the pane.
 # It returns 1, saying why, when the answer cannot be sent or the agent is
 # then neither working nor idle (blocked, herdr's unknown, anything else).
 # Once started, the agent is given START_SETTLE_SECONDS, then read about once
@@ -142,11 +199,17 @@ start_agent_with_trust_retry() {
   local name="$1" pane="$2" rc
   start_answering_trust "$name" "$pane" || return 1
   rc=0; until_ready "$name" "$pane" || rc=$?
-  case $rc in 0) return 0 ;; 2) return 1 ;; esac
+  case $rc in
+    0) return 0 ;;
+    2) return 1 ;;
+  esac
   echo "agent start: $name exited right after its start in pane $pane; starting it once more" >&2
   start_answering_trust "$name" "$pane" || return 1
   rc=0; until_ready "$name" "$pane" || rc=$?
-  case $rc in 0) return 0 ;; 2) return 1 ;; esac
+  case $rc in
+    0) return 0 ;;
+    2) return 1 ;;
+  esac
   echo "agent start: $name exited again after it was started once more in pane $pane; read the pane for why, then start it again" >&2
   return 1
 }
@@ -191,6 +254,12 @@ start_answering_trust() {
     if echo "$out" | grep -q agent_pane_busy && [ "$tries" -lt "${START_TRIES:-10}" ]; then
       tries=$((tries+1))
       [ "${DRY_RUN:-0}" = 1 ] || sleep 1
+    elif echo "$out" | grep -q "blocked during startup" && [ "$EXECUTOR_KIND" = cursor ]; then
+      # cursor starts with --trust, and its box is never answered with keys
+      # (start_agent). herdr usually reports that box as idle and ready;
+      # this covers a herdr that reports it as blocked.
+      echo "agent start: $name is blocked during startup in pane $pane although it started with --trust; check the pane" >&2
+      return 1
     elif echo "$out" | grep -q "blocked during startup"; then
       # Every failure returns 1 itself: callers run this under || too, where
       # errexit is off.
@@ -220,47 +289,115 @@ start_answering_trust() {
   done
 }
 
-# Is KIND (claude | codex) installed and runnable? --version answers in well
-# under a second; keep the probe that cheap (macOS has no timeout(1)).
-kind_installed() { command -v "$1" >/dev/null && "$1" --version >/dev/null 2>&1; }
+# Is KIND (one of KINDS) installed and runnable? --version answers in well
+# under a second; keep the probe that cheap (macOS has no timeout(1)). cursor's
+# CLI is cursor-agent (a plain cursor may be the editor).
+kind_installed() {
+  local c=$1; [ "$c" != cursor ] || c=cursor-agent
+  command -v "$c" >/dev/null && "$c" --version </dev/null >/dev/null 2>&1
+}
+
+# The kinds that may review a lane of LANE_KIND, in order, one per line:
+# never the lane's own kind, and never cursor unasked for a claude or codex lane.
+reviewer_candidates() {
+  case "$1" in
+    claude) echo codex ;;
+    codex)  echo claude ;;
+    cursor) printf '%s\n' claude codex ;;
+  esac
+}
+
+# WORD... as prose: "a", "a and b", "a, b and c".
+and_list() {
+  local out="" i=1
+  while [ $# -gt 0 ]; do
+    if [ "$i" -eq 1 ]; then out=$1
+    elif [ $# -eq 1 ]; then out="$out and $1"
+    else out="$out, $1"; fi
+    i=$((i+1)); shift
+  done
+  printf '%s' "$out"
+}
+
+# "is" for a count of 1, else "are".
+is_are() { [ "$1" -eq 1 ] && echo is || echo are; }
 
 # Who reviews a lane of LANE_KIND [on LANE_MODEL] (ADR 0010). Prints one line:
 #   <kind>\t<model>\t<fallback note, or empty>
-# The other kind when it is installed: codex on gpt-6-astra, claude on
-# claude-opus-5-5. Otherwise the lane's own kind: claude on claude-fable-5-1,
-# codex on the lane's model (a fresh agent), with a fallback note. The lane's
-# model is LANE_MODEL when given (add-reviewer.sh reads it from the pane map),
-# else EXECUTOR_MODEL when EXECUTOR_KIND is LANE_KIND, else gpt-6-astra.
-# REVIEWER_KIND=claude|codex forces the kind (refused when not installed);
-# REVIEWER_MODEL replaces the model the rules picked.
+# The first installed of reviewer_candidates, on REVIEWER_MODEL_<its kind>.
+# Otherwise the lane's own kind, with a fallback note naming the candidates
+# passed over: claude on REVIEWER_MODEL_CLAUDE_SELF, cursor on
+# REVIEWER_MODEL_CURSOR, codex on the lane's model (a fresh agent; LANE_MODEL
+# when given, which add-reviewer.sh reads from the pane map, else
+# EXECUTOR_MODEL when EXECUTOR_KIND is codex, else EXECUTOR_MODEL_CODEX).
+# Every default is kind_default's (model-defaults). REVIEWER_KIND=claude|codex|cursor
+# forces the kind (refused when not installed); REVIEWER_MODEL replaces the
+# model the rules picked.
+# With REVIEWER_BY_CREDITS=on (ADR 0013; never with a forced REVIEWER_KIND),
+# credits.sh probes each installed candidate: one with less than
+# REVIEWER_CREDITS_MIN % left is skipped, with the note
+# "reviewer: skipped <kind>, <n>% credits left"; unreadable credits count as
+# enough, with the note "reviewer: <kind> credits unreadable, counted as
+# enough". Every candidate absent or skipped, the lane's own kind reviews;
+# with that not installed, the first candidate skipped reviews after all (the
+# first in order, deliberately not the one with the most credits left).
+# Several notes are "; "-separated: the credit guard's (skips and unreadable
+# candidates) first, in candidate order, then a fallback.
 reviewer_for() {
-  local lane="$1" lane_model="${2:-}" other kind model note=""
-  other=$([ "$lane" = claude ] && echo codex || echo claude)
+  local lane="$1" lane_model="${2:-}" c kind="" model note="" why="" guard_notes="" left min=""
+  local absent=() low=()
+  kind_known "$lane" || die "lane kind must be $(kinds_say) (got '$lane')"
   case "${REVIEWER_KIND:-other}" in
     other)
-      if kind_installed "$other"; then kind=$other
+      if [ "${REVIEWER_BY_CREDITS:-off}" = on ]; then
+        . "$KIT/credits.sh"
+        min=${REVIEWER_CREDITS_MIN:-}
+        [ -n "$min" ] || min=$(model_default REVIEWER_CREDITS_MIN) || exit 1
+        credits_min_ok "$min" || credits_min_refused "$min"
+      fi
+      for c in $(reviewer_candidates "$lane"); do
+        if ! kind_installed "$c"; then absent+=("$c"); continue; fi
+        if [ -n "$min" ]; then
+          left=$(credits_left "$c")
+          if [ -z "$left" ]; then
+            guard_notes="${guard_notes}reviewer: $c credits unreadable, counted as enough; "
+          elif [ "$left" -lt "$min" ]; then
+            low+=("$c"); guard_notes="${guard_notes}reviewer: skipped $c, $left% credits left; "; continue
+          fi
+        fi
+        kind=$c; break
+      done
+      if [ -n "$kind" ]; then note=${guard_notes%??}  # less the last "; "
       elif kind_installed "$lane"; then
         kind=$lane
+        [ "${#absent[@]}" -eq 0 ] || why="$(and_list "${absent[@]}") $(is_are "${#absent[@]}") not installed"
+        [ "${#low[@]}" -eq 0 ] || why="${why:+$why and }$(and_list "${low[@]}") $(is_are "${#low[@]}") low on credits"
         case "$lane" in
-          claude) note="fallback: codex is not installed, so claude reviews claude" ;;
-          codex)  note="fallback: claude is not installed, so a fresh codex agent reviews codex" ;;
+          claude) note="${guard_notes}fallback: $why, so claude reviews claude" ;;
+          *)      note="${guard_notes}fallback: $why, so a fresh $lane agent reviews $lane" ;;
         esac
+      elif [ "${#low[@]}" -gt 0 ]; then
+        # Credits steer, never block: with the lane's own kind not there, the
+        # first candidate skipped for them reviews after all.
+        kind=${low[0]}
+        note="${guard_notes}fallback: $lane is not installed, so $kind reviews despite its credits"
       else
-        die "no Reviewer: neither claude nor codex is installed"
+        note="no Reviewer for a $lane lane: $(and_list "${absent[@]}" "$lane") are not installed"
+        [ "$lane" = cursor ] || note="$note (cursor reviews a $lane lane only with REVIEWER_KIND=cursor)"
+        die "$note"
       fi ;;
-    claude|codex)
+    *)
+      kind_known "$REVIEWER_KIND" || die "REVIEWER_KIND must be other, $(kinds_say) (got '$REVIEWER_KIND')"
       kind=$REVIEWER_KIND
       kind_installed "$kind" || die "REVIEWER_KIND=$kind, but $kind is not installed" ;;
-    *) die "REVIEWER_KIND must be other, claude or codex (got '$REVIEWER_KIND')" ;;
   esac
   case "$kind:$lane" in
-    codex:claude)  model=gpt-6-astra ;;
-    claude:codex)  model=claude-opus-5-5 ;;
-    claude:claude) model=claude-fable-5-1 ;;
+    claude:claude) model=$(model_default REVIEWER_MODEL_CLAUDE_SELF) || exit 1 ;;
     codex:codex)
       if [ -n "$lane_model" ]; then model=$lane_model
       elif [ "$EXECUTOR_KIND" = codex ]; then model=$EXECUTOR_MODEL
-      else model=gpt-6-astra; fi ;;
+      else model=$(kind_default EXECUTOR_MODEL "$lane") || exit 1; fi ;;
+    *) model=$(kind_default REVIEWER_MODEL "$kind") || exit 1 ;;
   esac
   model="${REVIEWER_MODEL:-$model}"
   printf '%s\t%s\t%s\n' "$kind" "$model" "$note"

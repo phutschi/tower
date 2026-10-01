@@ -36,6 +36,7 @@ test("names no harness", () => {
     "claude-code",
     "codex",
     "cursor",
+    "cursor-agent",
     "gemini",
     "run_in_background",
   ])

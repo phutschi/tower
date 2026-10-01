@@ -44,12 +44,20 @@ esac
 [ -n "${CLAUDE_STUB_FAIL:-}" ] && [ "$verb" = "$CLAUDE_STUB_FAIL" ] && { echo "claude: $verb failed (stub)" >&2; exit 1; }
 case "$cmd" in
   --version*)                        echo "claude (stub)" ;;
-  "plugin marketplace list")         case "${CLAUDE_STUB_GARBAGE:-}" in "") json marketplace ;; list) echo "[1, 2]" ;; *) echo "not json" ;; esac ;;
+  "plugin marketplace list")         case "${CLAUDE_STUB_GARBAGE:-}" in
+                                       "") json marketplace ;;
+                                       list) echo "[1, 2]" ;;
+                                       *) echo "not json" ;;
+                                     esac ;;
   "plugin marketplace add")          name=$(sed -n '/"name"/{s/^ *"name": *"\([^"]*\)".*/\1/p;q;}' "$arg/.claude-plugin/marketplace.json" 2>/dev/null)
                                      put "marketplace ${name:-$(basename "$arg")}" ;;
   "plugin marketplace remove"|"plugin marketplace rm") drop "marketplace $arg" ;;
   "plugin marketplace update")       has "marketplace $arg" || exit 1 ;;
-  "plugin list")                     case "${CLAUDE_STUB_GARBAGE:-}" in "") json plugin ;; list) echo "[1, 2]" ;; *) echo "not json" ;; esac ;;
+  "plugin list")                     case "${CLAUDE_STUB_GARBAGE:-}" in
+                                       "") json plugin ;;
+                                       list) echo "[1, 2]" ;;
+                                       *) echo "not json" ;;
+                                     esac ;;
   "plugin install")                  has "marketplace ${arg#*@}" || { echo "claude: marketplace ${arg#*@} not found (stub)" >&2; exit 1; }
                                      put "plugin $arg $(scope "$@")" ;;
   "plugin uninstall"|"plugin remove") r=$(row "$arg" "$(scope "$@")"); drop "${r:-plugin $arg $(scope "$@")}" ;;

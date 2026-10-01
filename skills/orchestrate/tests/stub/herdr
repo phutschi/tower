@@ -85,7 +85,9 @@ case "${1:-} ${2:-}" in
     echo '{"result":{"agent":{"agent_status":"idle"}}}' ;;
   "pane send-keys")
     [ "${HERDR_STUB_SEND_KEYS_FAIL:-}" != 1 ] || { echo '{"error":{"code":"server_unavailable","message":"herdr server is not answering"}}' >&2; exit 1; }
-    case " $* " in *" Enter "*) echo $(( $(cat "$counter.enters" 2>/dev/null || echo 0) + 1 )) > "$counter.enters"; rm -f "$counter.started" ;; esac
+    case " $* " in
+      *" Enter "*) echo $(( $(cat "$counter.enters" 2>/dev/null || echo 0) + 1 )) > "$counter.enters"; rm -f "$counter.started" ;;
+    esac
     echo '{"result":{}}' ;;
   "agent get")
     if [ -n "${HERDR_STUB_EXIT_ON_ENTER:-}" ] && [ "$(cat "$counter.enters" 2>/dev/null || echo 0)" -ge "$HERDR_STUB_EXIT_ON_ENTER" ] \

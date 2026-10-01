@@ -1,0 +1,29 @@
+# The kit's default models, keyed per kind (ADR 0012). Plain KEY=value bash,
+# read by the kit (executor.sh model_default, detect-stack.sh), never by
+# hand. The same key set in the environment of a kit call, the repo contract
+# or the user contract wins over the one here. A new model is a change to
+# this file, not to the kit's logic.
+
+# The lanes' model, per the lane's kind.
+EXECUTOR_MODEL_CLAUDE='claude-opus-5-5[1m]'
+EXECUTOR_MODEL_CODEX=gpt-6-astra
+EXECUTOR_MODEL_CURSOR=grok-4.7-high-fast
+
+# The Reviewer's model, per the Reviewer's kind; _CLAUDE_SELF when claude
+# reviews a claude lane.
+REVIEWER_MODEL_CLAUDE=claude-opus-5-5
+REVIEWER_MODEL_CODEX=gpt-6-astra
+REVIEWER_MODEL_CURSOR=grok-4.7-high-fast
+REVIEWER_MODEL_CLAUDE_SELF=claude-fable-5-1
+
+# The spec and quality reviewer models tower records for a run, per the run's
+# executor kind: the ones a lane's per-task reviews use.
+SPEC_REVIEWER_MODEL_CLAUDE=sonnet
+QUALITY_REVIEWER_MODEL_CLAUDE=opus
+SPEC_REVIEWER_MODEL_CODEX=sonnet
+QUALITY_REVIEWER_MODEL_CODEX=opus
+SPEC_REVIEWER_MODEL_CURSOR=grok-4.7-high-fast
+QUALITY_REVIEWER_MODEL_CURSOR=grok-4.7-high-fast
+
+# The credit guard's threshold: a Reviewer candidate with less % left is skipped.
+REVIEWER_CREDITS_MIN=20

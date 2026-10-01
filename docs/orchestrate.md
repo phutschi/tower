@@ -66,8 +66,8 @@ git clone git@github.com:phutschi/tower.git ~/tools/tower
 ```
 
 That checks the dependencies (herdr, tower, git, bash, python3, node; claude,
-codex, semgrep and gitleaks optional). tower is required and must run: a
-missing tower shows up here, not at the start of a run.
+codex, cursor-agent, semgrep and gitleaks optional). tower is required and
+must run: a missing tower shows up here, not at the start of a run.
 
 When tower is missing, install.sh fetches it. The primary path is the release
 binary for macOS or Linux (arm64 or x64) of this checkout's version, into
@@ -84,8 +84,9 @@ installed. A claude command that fails is printed as `FAILED`, and the install
 exits 1. For codex it links `orchestrate`, `spec-to-plan` and `preflight` into
 `~/.agents/skills`, and `preflight` into `~/.codex/skills` (codex Reviewers
 load it). Links of the kit's old layout in `~/.claude/skills` are removed, so
-no skill shows up twice. `install.sh --check` only checks, and fetches
-nothing.
+no skill shows up twice. cursor needs no links of its own: it reads the
+skills in `~/.agents/skills`, `~/.claude/skills` and `~/.codex/skills`.
+`install.sh --check` only checks, and fetches nothing.
 
 Claude Code installs a copy of the plugin. After a `git pull`, run
 `install.sh` again (it updates the plugin) and restart Claude Code.
@@ -147,11 +148,17 @@ this order:
 
 1. **Lane review.** When a lane reports ready (lane A too, after its last
    task), a **Reviewer** reviews the lane's diff before it is merged. It is
-   a fresh agent of the other kind: codex reviews claude lanes on
-   gpt-6-astra, claude reviews codex lanes on claude-opus-5-5. With only
-   one kind installed, the same kind reviews in a fresh agent (claude on
-   claude-fable-5-1, codex on the reviewed lane's model); bootstrap prints
-   the choice and any fallback on its `reviewer:` line. Reviewers only report. The orchestrator triages their
+   a fresh agent of another kind, the first installed of an ordered list:
+   codex for a claude lane, claude for a codex lane, claude then codex for
+   a cursor lane. cursor never reviews a claude or codex lane unless
+   `REVIEWER_KIND=cursor` says so. Each kind reviews on its
+   `REVIEWER_MODEL_<KIND>` (by default codex on gpt-6-astra, claude on
+   claude-opus-5-5, cursor on grok-4.7-high-fast). With no candidate
+   installed, the lane's own kind reviews in a fresh agent (claude on
+   claude-fable-5-1, codex on the reviewed lane's model, cursor on
+   grok-4.7-high-fast), with a fallback note; bootstrap prints the choice on
+   its `reviewer:` line. The credit guard (below) can skip a candidate that is
+   nearly out of quota. Reviewers only report. The orchestrator triages their
    findings alone: a real problem the lane introduced goes back to that
    lane as a fix task, the rest waits for the preflight table. Each fix
    prompt starts the lane's next report round and asks for an end line
@@ -192,8 +199,9 @@ CHECK_CMD="make check"            # the check gate every lane runs before a comm
 INSTALL_CMD="make deps"           # what each new lane's worktree runs; empty turns it off
 pane checks "make test-watch"     # pane NAME "COMMAND" [DIR]; NAME is checks or dev
 pane dev    "make dev" web
-EXECUTOR_KIND=codex               # the lanes' harness: claude (default) or codex
-EXECUTOR_MODEL=gpt-6-astra        # the lanes' model
+EXECUTOR_KIND=codex               # the lanes' harness: claude (default), codex or cursor
+EXECUTOR_MODEL=gpt-6-astra        # the lanes' model, for this repo's runs
+EXECUTOR_MODEL_CURSOR=grok-4.7-high-fast  # a kind's default model (see below)
 SPEC_REVIEWER_MODEL=sonnet        # the reviewer models tower records
 QUALITY_REVIEWER_MODEL=opus
 STALE=30                          # minutes before the console and tower wait flag a lane as stale
@@ -224,6 +232,41 @@ environment only too, are how long a started agent is given, and how many
 reads about a second apart it then gets, to accept input. An agent that never
 does fails the call and is left running in its pane.
 
+### Model defaults and the user contract
+
+Every default model is data: `skills/orchestrate/model-defaults` holds them,
+keyed per kind (`EXECUTOR_MODEL_<KIND>`, `REVIEWER_MODEL_<KIND>`,
+`REVIEWER_MODEL_CLAUDE_SELF`, `SPEC_REVIEWER_MODEL_<KIND>` and
+`QUALITY_REVIEWER_MODEL_<KIND>`, with `<KIND>` one of `CLAUDE`, `CODEX`,
+`CURSOR`), plus the credit guard's `REVIEWER_CREDITS_MIN`. A new model is a
+change to that file, or to one of the contracts below, never to the kit's
+logic.
+
+Your own defaults for every repo go in the **user contract**,
+`${XDG_CONFIG_HOME:-~/.config}/tower/orchestrate`, in the repo contract's
+syntax. It may set:
+
+- `EXECUTOR_KIND`, `STALE`, and the per-kind model keys and
+  `REVIEWER_CREDITS_MIN`;
+- the switches `TASK_REVIEW`, `LANE_REVIEW`, `PREFLIGHT`, `STATIC_BASELINE`,
+  `METHOD`, `REVIEWER_KIND` and `REVIEWER_BY_CREDITS`.
+
+Anything else is the repo's (the check gate, install, panes, suite and
+toolchain, the unsuffixed `EXECUTOR_MODEL` and friends, `PR`,
+`REVIEW_AREAS`, `SUITE_SKIP`, `PR_TEMPLATE`): the user contract names such a
+key on stderr and ignores it. A file that fails to load is refused, and a
+missing one is silent. The file itself is never pinned, but its run switches,
+`REVIEWER_CREDITS_MIN` among them, are fixed at bootstrap: the pane map's
+`switches:` line records them, and each review takes them from there, so a
+switch you change mid-run does not reach the rest of the run (`STALE`, too, is
+read only at bootstrap). Its per-kind model keys and `EXECUTOR_KIND` are read
+on every call.
+
+Precedence, first wins: the environment of a kit call, the repo contract,
+the user contract, the kit's `model-defaults`. The unsuffixed
+`EXECUTOR_MODEL` and `REVIEWER_MODEL` still replace the model of the lane or
+Reviewer a call opens.
+
 ## Run switches
 
 Each stage is a switch. The repo contract sets the defaults, you change them
@@ -231,29 +274,54 @@ per run in plain words ("no PR", "skip the lane reviews", "no tdd, it's a
 spike"), and bootstrap records the values the run uses on the `switches:`
 line of the pane map and in the record.
 
-| Switch            | Default        | Other values                                    |
-| ----------------- | -------------- | ----------------------------------------------- |
-| `TASK_REVIEW`     | on             | off: no spec and quality review after each task |
-| `LANE_REVIEW`     | on             | off: lanes are merged without a Reviewer        |
-| `PREFLIGHT`       | on             | off: no whole-branch check before the PR        |
-| `STATIC_BASELINE` | on             | off: preflight skips semgrep and gitleaks       |
-| `PR`              | draft          | ready, or off (no push, no PR)                  |
-| `METHOD`          | tdd            | plain: lanes work without the tdd loop          |
-| `REVIEWER_KIND`   | other          | claude or codex, for every review               |
-| `REVIEWER_MODEL`  | the kit's pick | any model                                       |
-| `REVIEW_AREAS`    | every area     | e.g. `security,spec`                            |
-| `SUITE_SKIP`      | none           | suite steps to skip, e.g. `build`               |
-| `PR_TEMPLATE`     | preflight's    | a PR body template in the repo                  |
+| Switch                 | Default        | Other values                                    |
+| ---------------------- | -------------- | ----------------------------------------------- |
+| `TASK_REVIEW`          | on             | off: no spec and quality review after each task |
+| `LANE_REVIEW`          | on             | off: lanes are merged without a Reviewer        |
+| `PREFLIGHT`            | on             | off: no whole-branch check before the PR        |
+| `STATIC_BASELINE`      | on             | off: preflight skips semgrep and gitleaks       |
+| `PR`                   | draft          | ready, or off (no push, no PR)                  |
+| `METHOD`               | tdd            | plain: lanes work without the tdd loop          |
+| `REVIEWER_KIND`        | other          | claude, codex or cursor, for every review       |
+| `REVIEWER_MODEL`       | the kit's pick | any model                                       |
+| `REVIEWER_BY_CREDITS`  | off            | on: the credit guard (below)                    |
+| `REVIEWER_CREDITS_MIN` | 20             | 0-100: the % left below which the guard skips   |
+| `REVIEW_AREAS`         | every area     | e.g. `security,spec`                            |
+| `SUITE_SKIP`           | none           | suite steps to skip, e.g. `build`               |
+| `PR_TEMPLATE`          | preflight's    | a PR body template in the repo                  |
 
 A value outside the list is refused at bootstrap.
 
 ## Executor kinds
 
 Lanes run Claude Code by default (`claude-opus-5-5[1m]`). A repo can switch
-its runs to codex in `.orchestrate` (`EXECUTOR_KIND=codex`, model
-`gpt-6-astra`; `EXECUTOR_MODEL` overrides either), and a single lane can
-differ: `EXECUTOR_KIND=codex` in that bootstrap or add-lane call. Mixed runs
-are fine.
+its runs to codex (`EXECUTOR_KIND=codex`, model `gpt-6-astra`) or to Cursor's
+CLI (`EXECUTOR_KIND=cursor`, `cursor-agent`, model `grok-4.7-high-fast`) in
+`.orchestrate` or the user contract; `EXECUTOR_MODEL` or the kind's
+`EXECUTOR_MODEL_<KIND>` changes the model. A single lane can differ:
+`EXECUTOR_KIND=cursor` in that bootstrap or add-lane call. Mixed runs are
+fine.
+
+A cursor agent starts with these arguments:
+
+```
+--model <m> --trust --force --disable-auto-update
+--add-dir <run-dir> --add-dir <git-common-dir>
+```
+
+- `--trust`: no workspace trust box. herdr reads that box as idle and ready,
+  so the brief would land in it. The kit never answers it with keys; a start
+  still blocked there fails and asks you to check the pane.
+- `--force`: no approval prompts.
+- `--disable-auto-update`: no self-update during the run. The flag is
+  undocumented.
+- `--add-dir`: it may write the run dir and the common git dir.
+
+It gets no `--sandbox` flag, so your own cursor sandbox setting applies. One
+that exits right after its start is started once more, as the other kinds
+are. A cursor lane loads the tdd skill from `~/.agents/skills`,
+`~/.claude/skills` or `~/.codex/skills`. With it in none of them, the start
+prints how to link it.
 
 A codex agent runs in codex's workspace-write sandbox, with its startup update
 check off. Outside its checkout it may write the run dir and what a commit
@@ -278,10 +346,44 @@ check) refuse a
 `tower/look/` that is a symlink, is not yours, or resolves under a checkout
 or worktree of the repo, its git dir, the run dir, `/tmp` or `$TMPDIR`.
 
+## The credit guard
+
+With `REVIEWER_BY_CREDITS=on` (off by default), the Reviewer's kind also
+follows how much quota each harness has left. Only the Reviewer is steered; a
+lane's kind stays as it started (ADR 0013). For each candidate in order, the
+kit reads the % left in its tightest window:
+
+- claude: the OAuth token in the macOS keychain item `Claude Code-credentials`,
+  then Anthropic's OAuth usage endpoint (the 5-hour and 7-day windows);
+- codex: `codex app-server`'s `account/rateLimits/read` (primary and
+  secondary windows);
+- cursor: the token in the keychain item `cursor-access-token`, then Cursor's
+  dashboard service (the month's plan usage).
+
+These endpoints are undocumented or internal, and any CLI update can break
+one, so the guard fails open: a probe that errors, times out (about 2 s) or
+gets a reply of another shape counts as enough credits, with a tower note:
+`reviewer: claude credits unreadable, counted as enough`. A candidate with less
+than `REVIEWER_CREDITS_MIN` % left (default 20) is skipped, and the record
+gets a tower note: `reviewer: skipped codex, 12% credits left`. With every
+candidate absent or skipped, the lane's own kind reviews. When the lane's own
+kind is not installed either, the first candidate skipped for credits reviews
+after all, with the note
+`fallback: <lane kind> is not installed, so <candidate> reviews despite its credits`.
+Credits steer the choice of Reviewer; they never leave a lane unreviewed for
+lack of credits. The guard applies to lane reviews and preflight's Reviewer
+slots alike. A `REVIEWER_KIND` other than `other` bypasses it, and with the
+guard off the kit never reads the keychain. Tokens are never logged or
+written to the run dir. bootstrap's `reviewer:` line is a forecast
+made without probes; each review probes when it starts.
+
 ## Testing the kit
 
-`./test.sh` runs without herdr, claude, codex, semgrep or gitleaks: stubs
-under `skills/orchestrate/tests/stub/` log what would be called. tower is the
+`./test.sh` runs without herdr, claude, codex, cursor-agent, semgrep or
+gitleaks, and never reads the keychain or calls the network: stubs under
+`skills/orchestrate/tests/stub/` log what would be called, and the credit
+probes run against per-section fakes of `security` and `curl`
+(`CREDITS_FAKES`; under `DRY_RUN=1` without it, no probe runs). tower is the
 real CLI from this checkout, run with bun, so a change to tower's commands or
 to `tower state --json` breaks the kit's tests in the same change.
 `DRY_RUN=1 skills/orchestrate/bootstrap.sh …` shows the same for a real repo,
@@ -312,4 +414,6 @@ install.sh, test.sh    install and test the kit
 
 `CONTEXT.md` is the glossary. `docs/adr/` holds the decisions: lanes never
 change the task list (0008), orchestrate requires tower (0011, which
-supersedes 0009), and Reviewers report and the orchestrator decides (0010).
+supersedes 0009), Reviewers report and the orchestrator decides (0010),
+model defaults are data and a user contract holds them (0012), and credits
+steer the Reviewer through opt-in probes (0013).

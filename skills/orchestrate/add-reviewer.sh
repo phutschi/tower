@@ -2,14 +2,16 @@
 # Start a review: a fresh Reviewer in a slot of the review tab, and the review
 # on the board as a task owned by that slot.
 #
-#   [REVIEWER_KIND=other|claude|codex] [REVIEWER_MODEL=<model>] \
+#   [REVIEWER_KIND=other|claude|codex|cursor] [REVIEWER_MODEL=<model>] \
 #     add-reviewer.sh <run-dir> <R1|R2> <lane-kind> "<review title>" <findings-file> [lane]
 #
 # Run it from the orchestrator's pane after bootstrap.sh. lane-kind is the kind
-# (claude | codex) of the lane under review; for a preflight slot, the kind
-# whose other kind should review. [lane] (A-D) names the lane under review; its
-# pane map line must be of lane-kind, and its model is the one a codex Reviewer
-# of a codex lane runs on when claude is not installed or REVIEWER_KIND=codex.
+# (claude | codex | cursor) of the lane under review; for a preflight slot,
+# the kind whose Reviewer is wanted (its candidates: executor.sh
+# reviewer_candidates). [lane] (A-D) names the lane under review; its pane map
+# line must be of lane-kind, and its model is the one a codex Reviewer of a
+# codex lane runs on when claude is not installed or REVIEWER_KIND=codex (a
+# cursor Reviewer of a cursor lane runs on REVIEWER_MODEL_CURSOR instead).
 # Without it, the first lane of lane-kind in the pane map stands in; with none,
 # executor.sh's default. The Reviewer's kind and model
 # come from executor.sh reviewer_for (REVIEWER_KIND and REVIEWER_MODEL from the
@@ -64,7 +66,10 @@
 #   sandbox may write so preflight's look.sh can make its temp worktree and
 #   keep its verdict files there (executor.sh AGENT_LOOK); no lane is granted
 #   it, and it is granted only where look.sh --dir accepts it (a refusal
-#   fails the call before anything is written).
+#   fails the call before anything is written);
+#   once the Reviewer is ready, each credit guard note (executor.sh
+#   reviewer_for) as a tower note:  reviewer: skipped <kind>, <n>% credits left
+#   or  reviewer: <kind> credits unreadable, counted as enough
 #
 # The Reviewer ends its report with  [[FINDINGS WRITTEN]] <findings-file>;
 # watch-lanes.sh then reads it as idle-after-final-report. The review tab and
@@ -83,7 +88,7 @@
 # fails the call and is left running in its pane (executor.sh).
 #
 # Never run this for real to see what it does; use DRY_RUN=1, which answers
-# every herdr, claude and codex call from tests/stub and opens nothing. tower
+# every herdr, claude, codex and cursor-agent call from tests/stub and opens nothing. tower
 # is the real CLI from this checkout (it needs bun): it records the run in the
 # run dir, and bootstrap points the repo at that run. Use a scratch repo and
 # run dir, never a live run's.
@@ -96,14 +101,22 @@ need_tower
 RUN_DIR="$1"; SLOT="$2"; LANE_KIND="$3"; TITLE="$4"; FINDINGS="$5"; LANE="${6:-}"
 MAP="$RUN_DIR/panes.txt"
 [ -f "$MAP" ] || die "no pane map at $MAP: run bootstrap.sh first"
-case "$SLOT" in R1|R2) ;; *) die "slot must be R1 or R2 (got '$SLOT')" ;; esac
+case "$SLOT" in
+  R1|R2) ;;
+  *) die "slot must be R1 or R2 (got '$SLOT')" ;;
+esac
 # The title is one field of the slot's pane map line (and of the board).
-case "$TITLE" in *[[:cntrl:]]*) die "the review title must not hold a tab, a newline or another control character" ;; esac
+case "$TITLE" in
+  *[[:cntrl:]]*) die "the review title must not hold a tab, a newline or another control character" ;;
+esac
 # Absolute, since the rest runs from lane A's checkout.
 RUN_DIR="$(cd "$RUN_DIR" && pwd)"; MAP="$RUN_DIR/panes.txt"
 # Every tower call is about this run, wherever it is called from.
 export TOWER_RUN="$RUN_DIR"
-case "$FINDINGS" in /*) ;; *) FINDINGS="$PWD/$FINDINGS" ;; esac
+case "$FINDINGS" in
+  /*) ;;
+  *) FINDINGS="$PWD/$FINDINGS" ;;
+esac
 # The run's switches, as bootstrap resolved them, unless this call sets one.
 # The line is shell-quoted (detect-stack.sh switches_line); python3 splits it
 # into NAME=value words, one per line, so a value keeps its spaces and is never
@@ -114,18 +127,24 @@ _words=$(sed -nE 's/^switches: +//p' "$MAP" \
 while IFS= read -r _kv; do
   [ -n "$_kv" ] || continue
   _k=${_kv%%=*}
-  case " $SWITCHES " in *" $_k "*) ;; *) die "the switches: line in $MAP holds '$_kv', not a run switch" ;; esac
+  case " $SWITCHES " in
+    *" $_k "*) ;;
+    *) die "the switches: line in $MAP holds '$_kv', not a run switch" ;;
+  esac
   [ -n "${!_k+set}" ] || export "$_kv"
 done <<< "$_words"
 unset _words _kv _k
-case "$LANE_KIND" in claude|codex) ;; *) die "lane kind must be claude or codex (got '$LANE_KIND')" ;; esac
+kind_known "$LANE_KIND" || die "lane kind must be $(kinds_say) (got '$LANE_KIND')"
 # The Reviewer works in lane A's checkout (the integration branch), where the
 # repo contract lives too.
 REPO=$(sed -nE 's/^lane A: .* checkout (.*), model .*/\1/p' "$MAP")
 [ -n "$REPO" ] || die "no lane A in $MAP: run bootstrap.sh first"
 # The lane under review, for its model: the one named, else the first of lane-kind.
 if [ -n "$LANE" ]; then
-  case "$LANE" in A|B|C|D) ;; *) die "lane must be A, B, C or D (got '$LANE')" ;; esac
+  case "$LANE" in
+    A|B|C|D) ;;
+    *) die "lane must be A, B, C or D (got '$LANE')" ;;
+  esac
   _line=$(grep -E "^lane $LANE: " "$MAP" || true)
   [ -n "$_line" ] || die "no lane $LANE in $MAP"
   _kind=$(echo "$_line" | sed -nE 's/^lane [A-D]: +[^ ]+ +\(agent "[^"]*", kind ([a-z]+), .*/\1/p')
@@ -189,7 +208,9 @@ if [ -n "$PREV" ]; then
     *" starting")
       prev_status=$(tower state --json | jsonq "next((t.get('status', '?') for t in d['tasks'] if t['id'] == '$SLOT-${PREV##*-}'), 'missing')") \
         || die "add-reviewer: tower state failed; rerun once tower answers"
-      case "$prev_status" in pending|missing) RESUME=1; N=${PREV##*-} ;; esac ;;
+      case "$prev_status" in
+        pending|missing) RESUME=1; N=${PREV##*-} ;;
+      esac ;;
   esac
   # A resumed review's agent of this call's kind and model is kept once it
   # accepts input, working or not; one that does not yet is still starting,
@@ -252,7 +273,10 @@ fi
 # under this call's title, while nobody has worked on it: pending on the board.
 REUSED=0
 if ! out=$(tower add "$TITLE" --id "$ID" --area review --lane "$SLOT" 2>&1); then
-  case "$out" in *"task \"$ID\" already exists"*) ;; *) die "$out" ;; esac
+  case "$out" in
+    *"task \"$ID\" already exists"*) ;;
+    *) die "$out" ;;
+  esac
   status=$(tower state --json | jsonq "next((t.get('status', '?') for t in d['tasks'] if t['id'] == '$ID'), 'missing')")
   [ "$status" = pending ] || die "task $ID is $status on the board, so not a failed start: check it, or  tower remove $ID  and rerun"
   tower change "$ID" --title "$TITLE" >/dev/null
@@ -296,5 +320,17 @@ else
 fi
 slot_line "$LINE"
 
-[ -z "$R_NOTE" ] || echo "reviewer: $R_NOTE"
+# The notes reviewer_for gave, "; "-separated: a credit guard's note (a skip
+# or an unreadable candidate), already "reviewer: …", goes to the record too
+# (ADR 0013); a fallback is printed.
+if [ -n "$R_NOTE" ]; then
+  while IFS= read -r _n; do
+    case "$_n" in
+      "reviewer: "*) echo "$_n"
+                     tower note "$_n" >/dev/null </dev/null || echo "note: could not record '$_n' in tower" >&2 ;;
+      *) echo "reviewer: $_n" ;;
+    esac
+  done <<< "${R_NOTE//; /$'\n'}"
+  unset _n
+fi
 echo "reviewer $SLOT ready (task $ID): agent $NAME ($R_KIND, $R_MODEL) in $PANE — next: write $RUN_DIR/brief-$ID.md from brief-template.md (a Reviewer brief; findings to $FINDINGS), then  herdr agent prompt $NAME \"\$(cat $RUN_DIR/brief-$ID.md)\"  and add $NAME to watch-lanes.sh"

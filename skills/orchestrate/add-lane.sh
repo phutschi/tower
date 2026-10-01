@@ -2,7 +2,7 @@
 # Add a lane: a git worktree with its own executor, placed in the lane grid,
 # owning the given task ids.
 #
-#   [EXECUTOR_KIND=claude|codex] add-lane.sh <run-dir> <B|C|D> <branch> <base-branch> <task-ids>
+#   [EXECUTOR_KIND=claude|codex|cursor] add-lane.sh <run-dir> <B|C|D> <branch> <base-branch> <task-ids>
 #
 # Four lanes at most. Lane A is started by bootstrap.sh in the main checkout;
 # B goes right of A, C under A, D under B:
@@ -49,7 +49,7 @@
 # move).
 #
 # Never run this for real to see what it does; use DRY_RUN=1, which answers
-# every herdr, claude and codex call from tests/stub and opens nothing. tower
+# every herdr, claude, codex and cursor-agent call from tests/stub and opens nothing. tower
 # is the real CLI from this checkout (it needs bun): it records the run in the
 # run dir, and bootstrap points the repo at that run. Use a scratch repo and
 # run dir, never a live run's.
@@ -142,7 +142,10 @@ if [ -n "$PANE" ]; then
   # find it, and otherwise left to the human. On a started lane, its agent
   # running means the lane exists, and herdr not finding it means it is
   # started again. Any other answer from herdr decides nothing.
-  STARTING=""; case "$(grep -E "^lane $LANE:" "$MAP")" in *" starting") STARTING=" starting" ;; esac
+  STARTING=""
+  case "$(grep -E "^lane $LANE:" "$MAP")" in
+    *" starting") STARTING=" starting" ;;
+  esac
   state=$(state_of "$NAME")
   case "$state" in
     gone) ;;
