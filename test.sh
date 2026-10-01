@@ -1359,10 +1359,12 @@ if section user-contract; then
   assert_match "user contract: ... and not read" "$out" '^\[\]$'
   uc MODLE=x
   assert_match "user contract: an unknown key is named" "$(detect_in "$r" true)" "^$UC/tower/orchestrate: 'MODLE' is not a setting the kit reads"
-  uc USER_CONTRACT_VARS=CHECK_CMD CHECK_CMD=from-user PATH=/nowhere STALE=9
-  out=$(detect_in "$r" 'echo "[$CHECK_CMD] [$STALE]"')
+  uc USER_CONTRACT_VARS=CHECK_CMD CHECK_CMD=from-user STALE=9
+  out=$(detect_in "$r" 'echo "[$CHECK_CMD] [${STALE-}]"')
   assert_match "user contract: it cannot widen its own allowed keys" "$out" "^$UC/tower/orchestrate: 'CHECK_CMD' is a repo contract setting"
-  assert_match "user contract: ... nor break its reader with PATH" "$out" '^\[bun run typecheck && bun run test\] \[9\]$'
+  assert_match "user contract: ... narrowing them only withholds its own, never sets one empty" "$out" '^\[bun run typecheck && bun run test\] \[\]$'
+  uc PATH=/nowhere STALE=9
+  assert_eq "user contract: a PATH it sets does not break its reader" "$(detect_in "$r" 'echo "[$STALE]"')" "[9]"
   # These read the contract in a scrubbed environment (env -i): a regression
   # that echoes values can then show only this fake token, never the caller's.
   detect_clean() { (cd "$1" && env -i PATH="$PATH" HOME="$TMP/uc-home" KIT="$KIT" DRY_RUN=1 XDG_CONFIG_HOME="$UC" \
@@ -1400,8 +1402,20 @@ if section user-contract; then
   out=$(detect_clean "$r" 'echo "[$STALE]"')
   assert_nomatch "user contract: set -x in it traces no value of the reader's" "$out" 'sk_live_rex'
   assert_match "user contract: ... and it still loads" "$out" '^\[9\]$'
-  uc '[[ abc =~ b ]]' 'read -r REPLY <<< x' STALE=9
-  assert_nomatch "user contract: names bash sets itself are not warned about" "$(detect_clean "$r" true)" 'BASH_REMATCH|REPLY'
+  uc '[[ abc =~ b ]]' 'read -r REPLY <<< x' 'getopts a: o -a 1 || true' 'cd /' STALE=9
+  assert_nomatch "user contract: names bash sets itself are not warned about" "$(detect_clean "$r" true)" 'BASH_REMATCH|REPLY|OPTARG|OLDPWD|OPTIND'
+  # A caller that traces (bash -x, while debugging the kit) sees no value
+  # but the user contract's own.
+  uc STALE=9
+  out=$( (cd "$r" && env -i PATH="$PATH" HOME="$TMP/uc-home" KIT="$KIT" DRY_RUN=1 XDG_CONFIG_HOME="$UC" XDG_STATE_HOME="$XDG_STATE_HOME" \
+    SECRET_TOKEN_UC=sk_live_rex bash -c 'set -x; . "$KIT/common.sh"; . "$KIT/detect-stack.sh"; echo "[$STALE]"' 2>&1) )
+  assert_nomatch "user contract: a traced caller sees no environment value" "$out" 'sk_live_rex'
+  assert_match "user contract: ... and the contract loads" "$out" '^\[9\]$'
+  # Functions and traps it defines over the reader's builtins are cleared first.
+  uc 'exec 7>&2' 'builtin() { echo "seen: $*" >&7; command builtin "$@"; }' 'trap '"'"'echo "trap: ${!_v-}" >&7'"'"' DEBUG' STALE=9
+  out=$(detect_clean "$r" 'echo "[$STALE]"')
+  assert_nomatch "user contract: its builtin() function or DEBUG trap sees no value" "$out" 'sk_live_rex'
+  assert_match "user contract: ... and it loads" "$out" '^\[9\]$'
   uc 'pane checks "x"' STALE=9
   out=$(detect_clean "$r" 'echo "[$STALE]"')
   assert_match "user contract: a pane line is still named" "$out" "^$UC/tower/orchestrate: 'pane' is a repo contract setting; ignored here$"
