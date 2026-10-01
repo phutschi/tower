@@ -199,11 +199,17 @@ start_agent_with_trust_retry() {
   local name="$1" pane="$2" rc
   start_answering_trust "$name" "$pane" || return 1
   rc=0; until_ready "$name" "$pane" || rc=$?
-  case $rc in 0) return 0 ;; 2) return 1 ;; esac
+  case $rc in
+    0) return 0 ;;
+    2) return 1 ;;
+  esac
   echo "agent start: $name exited right after its start in pane $pane; starting it once more" >&2
   start_answering_trust "$name" "$pane" || return 1
   rc=0; until_ready "$name" "$pane" || rc=$?
-  case $rc in 0) return 0 ;; 2) return 1 ;; esac
+  case $rc in
+    0) return 0 ;;
+    2) return 1 ;;
+  esac
   echo "agent start: $name exited again after it was started once more in pane $pane; read the pane for why, then start it again" >&2
   return 1
 }
@@ -361,7 +367,7 @@ reviewer_for() {
         fi
         kind=$c; break
       done
-      if [ -n "$kind" ]; then note=${guard_notes%; }
+      if [ -n "$kind" ]; then note=${guard_notes%??}  # less the last "; "
       elif kind_installed "$lane"; then
         kind=$lane
         [ "${#absent[@]}" -eq 0 ] || why="$(and_list "${absent[@]}") $(is_are "${#absent[@]}") not installed"

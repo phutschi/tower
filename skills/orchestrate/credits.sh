@@ -38,7 +38,10 @@ _CREDITS_SH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/credits.sh"
 
 credits_left() {
   local path=$PATH
-  case "${1:-}" in claude|codex|cursor) ;; *) return 0 ;; esac
+  case "${1:-}" in
+    claude|codex|cursor) ;;
+    *) return 0 ;;
+  esac
   if [ "${DRY_RUN:-0}" = 1 ]; then
     local t
     [ -n "${CREDITS_FAKES:-}" ] || return 0

@@ -35,7 +35,10 @@ RELEASE_URL="${TOWER_RELEASE_URL:-https://github.com/phutschi/tower/releases/dow
 GIT_INSTALL='npm i -g github:phutschi/tower (Node >= 22.12)'
 on_path() {  # a tower in BIN_DIR that runs, though BIN_DIR is not on PATH
   export PATH="$BIN_DIR:$PATH"
-  case ":$ORIG_PATH:" in *":$BIN_DIR:"*) ;; *) echo "  note      $BIN_DIR is not on your PATH; add it" ;; esac
+  case ":$ORIG_PATH:" in
+    *":$BIN_DIR:"*) ;;
+    *) echo "  note      $BIN_DIR is not on your PATH; add it" ;;
+  esac
   # A tower that does not run, found before BIN_DIR, still wins in your shell.
   local first; first=$(PATH="$ORIG_PATH" command -v tower || true)
   if [ -n "$first" ] && [ "$first" != "$BIN_DIR/tower" ]; then
@@ -49,8 +52,16 @@ get() { curl -fsSL --proto-redir '=https' --connect-timeout 15 --speed-limit 102
 sha256() { if command -v sha256sum >/dev/null; then sha256sum "$1"; else shasum -a 256 "$1"; fi | awk '{print $1}'; }
 fetch_tower() {
   local os arch v asset sums want rc
-  case "$(uname -s)" in Darwin) os=darwin ;; Linux) os=linux ;; *) os="" ;; esac
-  case "$(uname -m)" in arm64|aarch64) arch=arm64 ;; x86_64|amd64) arch=x64 ;; *) arch="" ;; esac
+  case "$(uname -s)" in
+    Darwin) os=darwin ;;
+    Linux) os=linux ;;
+    *) os="" ;;
+  esac
+  case "$(uname -m)" in
+    arm64|aarch64) arch=arm64 ;;
+    x86_64|amd64) arch=x64 ;;
+    *) arch="" ;;
+  esac
   [ -n "$os" ] && [ -n "$arch" ] || { echo "  no release binary of tower for $(uname -s) $(uname -m); install it with  $GIT_INSTALL" >&2; return 1; }
   command -v curl >/dev/null || { echo "  curl is needed to fetch tower; or install it with  $GIT_INSTALL" >&2; return 1; }
   v=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$ROOT/.claude-plugin/plugin.json") || return 1
@@ -175,7 +186,9 @@ link() {  # TARGET DIR NAME
 # name is not recognised (the link then stays, which is the safe side).
 old_kit_link() {  # TARGET: absolute, resolved (no links, no '..')
   local kit
-  case "$1" in "$ROOT"|"$ROOT"/*) return 0 ;; esac
+  case "$1" in
+    "$ROOT"|"$ROOT"/*) return 0 ;;
+  esac
   case "$1" in
     */herdr-orchestrate) kit=$1 ;;
     */herdr-orchestrate/*) kit="${1%%/herdr-orchestrate/*}/herdr-orchestrate" ;;
@@ -189,7 +202,10 @@ unlink_old() {  # DIR NAME
   local target
   [ -L "$1/$2" ] || return 0
   target=$(readlink "$1/$2")
-  case "$target" in /*) ;; *) target="$1/$target" ;; esac  # relative to the link's dir
+  case "$target" in  # relative to the link's dir
+    /*) ;;
+    *) target="$1/$target" ;;
+  esac
   # Where it really points: links followed as far as they exist, '..' resolved.
   target=$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$target") || return 0
   if old_kit_link "$target"; then

@@ -73,7 +73,10 @@ RUN_DIR="$1"; shift
 # <agent>[:<round>] → NAMES and ROUNDS, by index.
 NAMES=(); ROUNDS=()
 for arg in "$@"; do
-  name=${arg%%:*}; round=1; case "$arg" in *:*) round=${arg#*:} ;; esac
+  name=${arg%%:*}; round=1
+  case "$arg" in
+    *:*) round=${arg#*:} ;;
+  esac
   [ -n "$name" ] && [[ "$round" =~ ^[1-9][0-9]*$ ]] || die "$USAGE"
   NAMES+=("$name"); ROUNDS+=("$round")
 done
@@ -101,8 +104,14 @@ board()    { tower state --json --run "$RUN_DIR" 2>/dev/null | python3 -c 'impor
 # settled counts as working. $2: the board, read here when not given. A
 # complete board is not the end while an agent works on (its final review,
 # preflight, the PR); closed is.
-finished() { local b; if [ $# -ge 2 ]; then b=$2; else b=$(board); fi
-  case "$b" in closed) return 0 ;; complete) [ "$1" = 0 ] ;; *) return 1 ;; esac; }
+finished() {
+  local b; if [ $# -ge 2 ]; then b=$2; else b=$(board); fi
+  case "$b" in
+    closed) return 0 ;;
+    complete) [ "$1" = 0 ] ;;
+    *) return 1 ;;
+  esac
+}
 
 # IDLE_SEEN: consecutive idle polls past GRACE. UNREADABLE: consecutive polls
 # on which herdr could not be read for the agent.
@@ -118,10 +127,10 @@ poll() {
       [ "$state" = unreadable ] || UNREADABLE[$i]=0
       case "$state" in
         working|unknown) IDLE_SEEN[$i]=0; working=1 ;;
-        unreadable) IDLE_SEEN[$i]=0; UNREADABLE[$i]=$(( UNREADABLE[$i] + 1 ))
+        unreadable) IDLE_SEEN[$i]=0; UNREADABLE[$i]=$(( ${UNREADABLE[$i]:-0} + 1 ))
               if [ "${UNREADABLE[$i]}" -ge "$UNREADABLE_MAX" ]; then settled=1; else working=1; fi ;;
         idle) if [ $(( $(date +%s) - started )) -ge "$GRACE" ]; then
-                IDLE_SEEN[$i]=$(( IDLE_SEEN[$i] + 1 ))
+                IDLE_SEEN[$i]=$(( ${IDLE_SEEN[$i]:-0} + 1 ))
               fi
               if [ "${IDLE_SEEN[$i]}" -ge 2 ]; then settled=1; else working=1; fi ;;
         *) settled=1 ;;
@@ -143,7 +152,7 @@ resample() {
   STATES=()
   for name in "${NAMES[@]}"; do
     STATES[$i]=$(state_of "$name")
-    if [ "${STATES[$i]}" = unreadable ]; then UNREADABLE[$i]=$(( UNREADABLE[$i] + 1 )); else UNREADABLE[$i]=0; fi
+    if [ "${STATES[$i]}" = unreadable ]; then UNREADABLE[$i]=$(( ${UNREADABLE[$i]:-0} + 1 )); else UNREADABLE[$i]=0; fi
     i=$((i+1))
   done
 }

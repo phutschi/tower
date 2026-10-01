@@ -91,7 +91,10 @@ if [ ! -f .orchestrate ] && [ -f .herdr-orchestrate ]; then
   echo "note: rename .herdr-orchestrate to .orchestrate; the old name still works for now" >&2
 fi
 pane() {
-  case "${1:-}" in checks|dev) ;; *) die "$CONTRACT_FILE: unknown pane '${1:-}' (only checks and dev are placed)" ;; esac
+  case "${1:-}" in
+    checks|dev) ;;
+    *) die "$CONTRACT_FILE: unknown pane '${1:-}' (only checks and dev are placed)" ;;
+  esac
   [ -n "${2:-}" ] || die "$CONTRACT_FILE: pane $1 needs a command"
   PANE_NAMES[${#PANE_NAMES[@]}]="$1"; PANE_CMDS[${#PANE_CMDS[@]}]="$2"; PANE_DIRS[${#PANE_DIRS[@]}]="${3:-.}"
 }
@@ -171,7 +174,10 @@ if [ -n "$_kit_contract" ]; then
   # that is not an error for a caller running under set -e and pipefail.
   _new="$(comm -13 <(echo "$_before") <(compgen -v | sort) | { grep -vE '^(_|PANE_)' || true; })"
   for _v in $_new; do
-    case " $CONTRACT_VARS " in *" $_v "*) ;; *) echo "$CONTRACT_FILE: '$_v' is not a setting the kit reads (see example.orchestrate)" >&2 ;; esac
+    case " $CONTRACT_VARS " in
+      *" $_v "*) ;;
+      *) echo "$CONTRACT_FILE: '$_v' is not a setting the kit reads (see example.orchestrate)" >&2 ;;
+    esac
   done
   unset _before _new
 fi
@@ -298,7 +304,9 @@ credits_min_ok "$REVIEWER_CREDITS_MIN" || credits_min_refused "$REVIEWER_CREDITS
 # shellcheck disable=SC2086  # KINDS: one word per kind
 switch_allows REVIEWER_KIND "other, $(kinds_say)" other $KINDS
 for _v in $SWITCHES; do  # one line each, for the pane map's switches: line
-  case "${!_v}" in *$'\n'*) die "$_v must be one line" ;; esac
+  case "${!_v}" in
+    *$'\n'*) die "$_v must be one line" ;;
+  esac
 done; unset _v
 switches_line() {  # every switch and its value, on one line; a value with any
   # character outside [A-Za-z0-9_.,:/@%+-] is single-quoted the shell's way, so
@@ -306,7 +314,9 @@ switches_line() {  # every switch and its value, on one line; a value with any
   local v val out=""
   for v in $SWITCHES; do
     val=${!v}
-    case "$val" in *[!A-Za-z0-9_.,:/@%+-]*) val="'$(printf '%s' "$val" | sed "s/'/'\\\\''/g")'" ;; esac
+    case "$val" in
+      *[!A-Za-z0-9_.,:/@%+-]*) val="'$(printf '%s' "$val" | sed "s/'/'\\\\''/g")'" ;;
+    esac
     out="$out $v=$val"
   done
   echo "${out# }"

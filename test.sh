@@ -34,7 +34,11 @@ assert_nomatch() { printf '%s\n' "$2" | grep -qE -- "$3" && bad "$1" "unexpected
 section() {
   [ -z "$ONLY" ] || [ "$ONLY" = "$1" ] || return 1
   MATCHED=1
-  [ "$FAST" = 0 ] || [ -n "$ONLY" ] || case " $SLOW " in *" $1 "*) return 1 ;; esac
+  if [ "$FAST" = 1 ] && [ -z "$ONLY" ]; then
+    case " $SLOW " in
+      *" $1 "*) return 1 ;;
+    esac
+  fi
   [ "$LIST" = 0 ] || { echo "$1"; return 1; }
 }
 
@@ -1522,8 +1526,15 @@ SH
 #!/bin/sh
 printf 'curl %s\n' "\$*" >> "$CG/probes.log"
 h=\$(cat)
-case "\$h" in *"Authorization: Bearer $TOK"*) ;; *) exit 22 ;; esac
-case "\$*" in *oauth/usage*) f=claude ;; *DashboardService*) f=cursor ;; *) exit 22 ;; esac
+case "\$h" in
+  *"Authorization: Bearer $TOK"*) ;;
+  *) exit 22 ;;
+esac
+case "\$*" in
+  *oauth/usage*) f=claude ;;
+  *DashboardService*) f=cursor ;;
+  *) exit 22 ;;
+esac
 [ -f "$CG/\$f.json" ] || exit 22
 cat "$CG/\$f.json"
 SH
@@ -2027,8 +2038,17 @@ SH
 printf '%s\n' "\$*" >> "$CB/curl.log"
 [ -n "\${FAKE_CURL_SLEEP:-}" ] && sleep "\$FAKE_CURL_SLEEP"
 h=\$(cat)
-case "\$h" in *"Authorization: Bearer $TOK"*) ;; *) exit 22 ;; esac
-case "\$*" in *oauth/usage*) case "\$h" in *"anthropic-beta: oauth-2025-04-20"*) ;; *) exit 22 ;; esac ;; esac
+case "\$h" in
+  *"Authorization: Bearer $TOK"*) ;;
+  *) exit 22 ;;
+esac
+case "\$*" in
+  *oauth/usage*)
+    case "\$h" in
+      *"anthropic-beta: oauth-2025-04-20"*) ;;
+      *) exit 22 ;;
+    esac ;;
+esac
 [ "\${FAKE_CURL_STATUS:-200}" = 200 ] || exit 22
 cat "$CB/reply"
 SH
@@ -2160,7 +2180,10 @@ $kit_quality"
     "$(HOME="$TMP/home-no-skills" cursor_models "$r" "$RB" "$UCB" EXECUTOR_KIND=cursor)" "user-s repo-q"
   assert_eq "brief: ... and no setup hint on stderr" "$(cat "$CM.err")" ""
   for m in $(sed -n 's/^[A-Z_]*_CURSOR=//p' "$KIT/model-defaults" | sort -u); do
-    case "$bt$os$ps" in *"$m"*) bad "no cursor default ($m) is written into the three files" ;; *) ok "no cursor default ($m) is written into the three files" ;; esac
+    case "$bt$os$ps" in
+      *"$m"*) bad "no cursor default ($m) is written into the three files" ;;
+      *) ok "no cursor default ($m) is written into the three files" ;;
+    esac
   done
 fi
 
@@ -2847,7 +2870,9 @@ if section install; then
     "$(grep -- '--proto-redir =https' "$TMP/curl.log" | grep -- '--connect-timeout 15' | grep -- '--speed-limit 1024' | grep -c -- '--speed-time 30')" 2
   # The checksums come; the binary's download then stalls (curl exit 28), or
   # is interrupted with Ctrl-C (SIGINT to the installer).
-  real_for_sums="case \"\$*\" in *SHA256SUMS*) exec '$REAL_CURL' \"\$@\" ;; esac"
+  real_for_sums="case \"\$*\" in
+  *SHA256SUMS*) exec '$REAL_CURL' \"\$@\" ;;
+esac"
   fake_curl "$TMP/curlstall" "$real_for_sums; exit 28"
   out=$(fetch "$H5" "$TMP/bin11" PATH="$TMP/curlstall:$U:$PATH")
   assert_match "fetch: a stalled download names curl's exit" "$out" 'could not download tower-linux-x64 .*curl exit 28'

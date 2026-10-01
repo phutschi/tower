@@ -152,7 +152,9 @@ look_root() {
   [ -z "${TOWER_RUN:-}" ] || under "the run dir" "$TOWER_RUN"
   under "the checkout" "$TOP"
   while IFS= read -r wt; do  # the main checkout and every lane's worktree
-    case "$wt" in "worktree "*) under "a worktree of this repo" "${wt#worktree }" ;; esac
+    case "$wt" in
+      "worktree "*) under "a worktree of this repo" "${wt#worktree }" ;;
+    esac
   done < <(git worktree list --porcelain)
   [ -z "${TMPDIR:-}" ] || under "TMPDIR" "$TMPDIR"
   under "/tmp" /tmp
@@ -161,8 +163,9 @@ look_root() {
 under() {  # WHAT DIR: refused when LOOK_ROOT is DIR or under it
   local d; [ -n "$2" ] || return 0  # cd "" would stay here
   d=$(cd "$2" 2>/dev/null && pwd -P) || return 0
-  case "$LOOK_ROOT/" in "${d%/}/"*)
-    die "look: its worktree dir $LOOK_ROOT is under $1 ($d), which a lane may write; set XDG_STATE_HOME elsewhere, then run look again" ;;
+  case "$LOOK_ROOT/" in
+    "${d%/}/"*)
+      die "look: its worktree dir $LOOK_ROOT is under $1 ($d), which a lane may write; set XDG_STATE_HOME elsewhere, then run look again" ;;
   esac
 }
 # look.sh --dir: that check alone, from the checkout; prints LOOK_ROOT.
@@ -259,7 +262,9 @@ verdict() {  # STEP STATUS NOTE; tabs, carriage returns and newlines in NOTE bec
 BASE_REF=$(git rev-parse --symbolic-full-name "$BASE" 2>/dev/null || true)
 REMOTE=""
 for rem in $(git remote); do  # the longest remote name that prefixes the ref
-  case "$BASE_REF" in "refs/remotes/$rem/"*) [ "${#rem}" -le "${#REMOTE}" ] || REMOTE=$rem ;; esac
+  case "$BASE_REF" in
+    "refs/remotes/$rem/"*) [ "${#rem}" -le "${#REMOTE}" ] || REMOTE=$rem ;;
+  esac
 done
 if [ -z "$REMOTE" ]; then
   verdict base skip "$BASE is not a remote-tracking branch"
@@ -300,7 +305,7 @@ COMMITS=$(git rev-list --count "$MERGE_BASE..HEAD")
 # and adds its verdict row. Missing, erroring or unreadable is a warn row, never
 # a stop.
 scan() {
-  local step="$1" version="$2" rc=0 n reason errors; shift 2
+  local step="$1" version="$2" rc=0 n reason errors more; shift 2
   if ! "$step" "$version" >/dev/null 2>&1; then
     verdict "$step" warn "$step is not installed"; echo "look: $step is not installed; skipped" >&2; return
   fi
@@ -315,10 +320,11 @@ scan() {
   cat "$WORK/$step.findings" >> "$FINDINGS"
   n=$(wc -l < "$WORK/$step.findings" | tr -d ' ')
   errors=$(py errors < "$WORK/$step.json" 2>/dev/null || true)
+  more=""; [ -z "$errors" ] || more="; $errors"
   case "$n" in
     0) if [ -n "$errors" ]; then verdict "$step" warn "$errors"; else verdict "$step" pass ""; fi ;;
-    1) verdict "$step" fail "1 finding${errors:+; $errors}" ;;
-    *) verdict "$step" fail "$n findings${errors:+; $errors}" ;;
+    1) verdict "$step" fail "1 finding$more" ;;
+    *) verdict "$step" fail "$n findings$more" ;;
   esac
 }
 
@@ -354,7 +360,10 @@ else
   for s in $(TYPECHECK_TASK="$TYPECHECK_TASK" node -e '
     const s = (() => { try { return require("./package.json").scripts || {}; } catch { return {}; } })();
     console.log([process.env.TYPECHECK_TASK, "test"].filter(n => s[n]).join(" "));' 2>/dev/null); do
-    case "$s" in test) step test "$PM_RUN test" . ;; *) step typecheck "$PM_RUN $s" . ;; esac
+    case "$s" in
+      test) step test "$PM_RUN test" . ;;
+      *) step typecheck "$PM_RUN $s" . ;;
+    esac
   done
   # No typecheck script here, so detect-stack's default CHECK_CMD is a call
   # to it that can only fail; only a CHECK_CMD the repo or the call declared
@@ -370,12 +379,17 @@ fi
 SKIP=",${SUITE_SKIP// /},"
 PERMISSION_ERROR='PermissionDenied|Operation not permitted|EACCES'; SETUP_STEPS=""
 for name in ${SUITE_SKIP//,/ }; do
-  case " ${STEP_NAMES[*]:-} " in *" $name "*) ;; *) verdict SUITE_SKIP warn "no suite step named $name" ;; esac
+  case " ${STEP_NAMES[*]:-} " in
+    *" $name "*) ;;
+    *) verdict SUITE_SKIP warn "no suite step named $name" ;;
+  esac
 done
 py snapshot "$WORK/before.json" || die "look: git status failed in look's temp worktree"
 for i in ${STEP_NAMES[@]+"${!STEP_NAMES[@]}"}; do
   name="${STEP_NAMES[$i]}"; cmd="${STEP_CMDS[$i]}"; dir="${STEP_DIRS[$i]}"
-  case "$SKIP" in *",$name,"*) verdict "$name" skip SUITE_SKIP; continue ;; esac
+  case "$SKIP" in
+    *",$name,"*) verdict "$name" skip SUITE_SKIP; continue ;;
+  esac
   echo "look: suite step $name: $cmd" >&2
   rc=0; (cd "$dir" && bash -c "$cmd") < /dev/null > "$WORK/step.out" 2>&1 || rc=$?
   if [ "$rc" = 0 ]; then verdict "$name" pass "$cmd"; continue; fi

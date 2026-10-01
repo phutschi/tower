@@ -12,7 +12,12 @@ die()      { echo "$*" >&2; exit 1; }
 # The kinds an executor or Reviewer runs in (CONTEXT.md Kind): kind_known K
 # says whether K is one; kinds_say prints them for a message.
 KINDS="claude codex cursor"
-kind_known() { case " $KINDS " in *" $1 "*) return 0 ;; esac; return 1; }
+kind_known() {
+  case " $KINDS " in
+    *" $1 "*) return 0 ;;
+  esac
+  return 1
+}
 kinds_say() {  # "a, b or c", from KINDS
   local k out="" n=0 total; total=$(echo $KINDS | wc -w)
   for k in $KINDS; do
@@ -26,7 +31,9 @@ kinds_say() {  # "a, b or c", from KINDS
 # sees a huge one. The one
 # check detect-stack.sh and executor.sh's reviewer_for share.
 credits_min_ok() {
-  case "$1" in ""|*[!0-9]*) return 1 ;; esac
+  case "$1" in
+    ""|*[!0-9]*) return 1 ;;
+  esac
   [ "${#1}" -le 3 ] && [ "$1" -le 100 ]
 }
 credits_min_refused() { die "REVIEWER_CREDITS_MIN must be a whole number from 0 to 100 (got '$1')"; }

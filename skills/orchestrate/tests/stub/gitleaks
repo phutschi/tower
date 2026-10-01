@@ -11,7 +11,10 @@ case "${1:-}" in
 esac
 case "${GITLEAKS_STUB:-}" in
   error)   echo "gitleaks: not a git repository (stub)" >&2; exit 2 ;;
-  finding) secret=GLSTUBSECRET; case " $* " in *" --redact "*) secret=REDACTED ;; esac
+  finding) secret=GLSTUBSECRET
+           case " $* " in
+             *" --redact "*) secret=REDACTED ;;
+           esac
            echo '[{"RuleID":"generic-api-key","Description":"Generic API Key","File":"app.js","StartLine":2,"Commit":"abc1234","Secret":"'"$secret"'","Match":"key = '"$secret"'"}]' ;;
   *)       echo '[]' ;;
 esac

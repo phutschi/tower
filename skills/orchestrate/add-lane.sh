@@ -142,7 +142,10 @@ if [ -n "$PANE" ]; then
   # find it, and otherwise left to the human. On a started lane, its agent
   # running means the lane exists, and herdr not finding it means it is
   # started again. Any other answer from herdr decides nothing.
-  STARTING=""; case "$(grep -E "^lane $LANE:" "$MAP")" in *" starting") STARTING=" starting" ;; esac
+  STARTING=""
+  case "$(grep -E "^lane $LANE:" "$MAP")" in
+    *" starting") STARTING=" starting" ;;
+  esac
   state=$(state_of "$NAME")
   case "$state" in
     gone) ;;

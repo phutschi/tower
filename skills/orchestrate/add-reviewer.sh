@@ -101,14 +101,22 @@ need_tower
 RUN_DIR="$1"; SLOT="$2"; LANE_KIND="$3"; TITLE="$4"; FINDINGS="$5"; LANE="${6:-}"
 MAP="$RUN_DIR/panes.txt"
 [ -f "$MAP" ] || die "no pane map at $MAP: run bootstrap.sh first"
-case "$SLOT" in R1|R2) ;; *) die "slot must be R1 or R2 (got '$SLOT')" ;; esac
+case "$SLOT" in
+  R1|R2) ;;
+  *) die "slot must be R1 or R2 (got '$SLOT')" ;;
+esac
 # The title is one field of the slot's pane map line (and of the board).
-case "$TITLE" in *[[:cntrl:]]*) die "the review title must not hold a tab, a newline or another control character" ;; esac
+case "$TITLE" in
+  *[[:cntrl:]]*) die "the review title must not hold a tab, a newline or another control character" ;;
+esac
 # Absolute, since the rest runs from lane A's checkout.
 RUN_DIR="$(cd "$RUN_DIR" && pwd)"; MAP="$RUN_DIR/panes.txt"
 # Every tower call is about this run, wherever it is called from.
 export TOWER_RUN="$RUN_DIR"
-case "$FINDINGS" in /*) ;; *) FINDINGS="$PWD/$FINDINGS" ;; esac
+case "$FINDINGS" in
+  /*) ;;
+  *) FINDINGS="$PWD/$FINDINGS" ;;
+esac
 # The run's switches, as bootstrap resolved them, unless this call sets one.
 # The line is shell-quoted (detect-stack.sh switches_line); python3 splits it
 # into NAME=value words, one per line, so a value keeps its spaces and is never
@@ -119,7 +127,10 @@ _words=$(sed -nE 's/^switches: +//p' "$MAP" \
 while IFS= read -r _kv; do
   [ -n "$_kv" ] || continue
   _k=${_kv%%=*}
-  case " $SWITCHES " in *" $_k "*) ;; *) die "the switches: line in $MAP holds '$_kv', not a run switch" ;; esac
+  case " $SWITCHES " in
+    *" $_k "*) ;;
+    *) die "the switches: line in $MAP holds '$_kv', not a run switch" ;;
+  esac
   [ -n "${!_k+set}" ] || export "$_kv"
 done <<< "$_words"
 unset _words _kv _k
@@ -130,7 +141,10 @@ REPO=$(sed -nE 's/^lane A: .* checkout (.*), model .*/\1/p' "$MAP")
 [ -n "$REPO" ] || die "no lane A in $MAP: run bootstrap.sh first"
 # The lane under review, for its model: the one named, else the first of lane-kind.
 if [ -n "$LANE" ]; then
-  case "$LANE" in A|B|C|D) ;; *) die "lane must be A, B, C or D (got '$LANE')" ;; esac
+  case "$LANE" in
+    A|B|C|D) ;;
+    *) die "lane must be A, B, C or D (got '$LANE')" ;;
+  esac
   _line=$(grep -E "^lane $LANE: " "$MAP" || true)
   [ -n "$_line" ] || die "no lane $LANE in $MAP"
   _kind=$(echo "$_line" | sed -nE 's/^lane [A-D]: +[^ ]+ +\(agent "[^"]*", kind ([a-z]+), .*/\1/p')
@@ -194,7 +208,9 @@ if [ -n "$PREV" ]; then
     *" starting")
       prev_status=$(tower state --json | jsonq "next((t.get('status', '?') for t in d['tasks'] if t['id'] == '$SLOT-${PREV##*-}'), 'missing')") \
         || die "add-reviewer: tower state failed; rerun once tower answers"
-      case "$prev_status" in pending|missing) RESUME=1; N=${PREV##*-} ;; esac ;;
+      case "$prev_status" in
+        pending|missing) RESUME=1; N=${PREV##*-} ;;
+      esac ;;
   esac
   # A resumed review's agent of this call's kind and model is kept once it
   # accepts input, working or not; one that does not yet is still starting,
@@ -257,7 +273,10 @@ fi
 # under this call's title, while nobody has worked on it: pending on the board.
 REUSED=0
 if ! out=$(tower add "$TITLE" --id "$ID" --area review --lane "$SLOT" 2>&1); then
-  case "$out" in *"task \"$ID\" already exists"*) ;; *) die "$out" ;; esac
+  case "$out" in
+    *"task \"$ID\" already exists"*) ;;
+    *) die "$out" ;;
+  esac
   status=$(tower state --json | jsonq "next((t.get('status', '?') for t in d['tasks'] if t['id'] == '$ID'), 'missing')")
   [ "$status" = pending ] || die "task $ID is $status on the board, so not a failed start: check it, or  tower remove $ID  and rerun"
   tower change "$ID" --title "$TITLE" >/dev/null

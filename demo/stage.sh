@@ -4,7 +4,10 @@
 # below. Refuses to touch a herdr that is not the demo's own.
 set -euo pipefail
 : "${DEMO_DIR:?run demo/record.sh}" "${DEMO_ROOT:?run demo/record.sh}"
-case "${HERDR_SOCKET_PATH:-}" in "$DEMO_DIR"/*) ;; *) echo "demo: not the demo's herdr; stopping" >&2; exit 1 ;; esac
+case "${HERDR_SOCKET_PATH:-}" in
+  "$DEMO_DIR"/*) ;;
+  *) echo "demo: not the demo's herdr; stopping" >&2; exit 1 ;;
+esac
 workspaces=$(herdr workspace list | python3 -c 'import json,sys; print(len(json.load(sys.stdin)["result"]["workspaces"]))')
 [ "$workspaces" = 1 ] || { echo "demo: this herdr has other workspaces; stopping" >&2; exit 1; }
 

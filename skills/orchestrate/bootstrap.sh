@@ -89,7 +89,9 @@ for _spec in ${LANE_SPECS[@]+"${LANE_SPECS[@]}"}; do
     [A-D]=*) ;;
     *) die "LANES '$_spec' is not <lane>=<ids> or <lane>=all for a lane A to D" ;;
   esac
-  case "$_seen" in *" ${_spec%%=*} "*) die "LANES names lane ${_spec%%=*} twice (LANES=\"$LANES\")" ;; esac
+  case "$_seen" in
+    *" ${_spec%%=*} "*) die "LANES names lane ${_spec%%=*} twice (LANES=\"$LANES\")" ;;
+  esac
   _seen="$_seen${_spec%%=*} "
   if [ "${_spec#*=}" = all ]; then
     [ "${#LANE_SPECS[@]}" = 1 ] || die "LANES: <lane>=all must be the whole of LANES (got \"$LANES\")"
@@ -125,9 +127,12 @@ if [ "$LANE_REVIEW" = off ] && [ "$PREFLIGHT" = off ]; then
 else
   _rev=$(REVIEWER_BY_CREDITS=off reviewer_for "$EXECUTOR_KIND")
   IFS=$'\t' read -r R_KIND R_MODEL R_NOTE <<< "$_rev"
-  [ "$REVIEWER_BY_CREDITS" = off ] || [ "$REVIEWER_KIND" != other ] \
-    || R_NOTE="${R_NOTE:+$R_NOTE; }credit guard on: each review skips a kind below $REVIEWER_CREDITS_MIN% credits left"
-  REVIEWER="kind $R_KIND, model $R_MODEL${R_NOTE:+ ($R_NOTE)}"
+  if [ "$REVIEWER_BY_CREDITS" = on ] && [ "$REVIEWER_KIND" = other ]; then
+    [ -z "$R_NOTE" ] || R_NOTE="$R_NOTE; "
+    R_NOTE="${R_NOTE}credit guard on: each review skips a kind below $REVIEWER_CREDITS_MIN% credits left"
+  fi
+  REVIEWER="kind $R_KIND, model $R_MODEL"
+  [ -z "$R_NOTE" ] || REVIEWER="$REVIEWER ($R_NOTE)"
   unset _rev
 fi
 
