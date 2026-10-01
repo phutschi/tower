@@ -72,7 +72,7 @@ unset EXECUTOR_KIND EXECUTOR_MODEL SPEC_REVIEWER_MODEL QUALITY_REVIEWER_MODEL ST
   REVIEWER_KIND REVIEWER_MODEL REVIEW_AREAS SUITE_SKIP PR_TEMPLATE
 # The model defaults (model-defaults): the kit's file, never the calling shell's keys.
 # shellcheck disable=SC2046  # the file's keys, one word each
-unset CURSOR_STUB REVIEWER_BY_CREDITS MODEL_DEFAULTS_FILE $(sed -n 's/^\([A-Z_]*\)=.*/\1/p' "$KIT/model-defaults")
+unset CURSOR_STUB REVIEWER_BY_CREDITS CREDITS_FAKES MODEL_DEFAULTS_FILE $(sed -n 's/^\([A-Z_]*\)=.*/\1/p' "$KIT/model-defaults")
 mkdir -p "$HERDR_STUB_STATES_DIR"
 
 # Guard: every section below runs herdr/tower/claude/codex calls through common.sh's
@@ -1540,9 +1540,18 @@ SH
     esac
   }
   export CODEX_STUB_RATE_LIMITS="$CG/codex-limits"
-  rev() { : > "$CG/probes.log"; PATH="$CG/bin:$PATH" HOME="$TMP/cg-home" in_kit ". \"\$KIT/executor.sh\"; reviewer_for $1"; }
+  rev() { : > "$CG/probes.log"; CREDITS_FAKES="$CG/bin" HOME="$TMP/cg-home" in_kit ". \"\$KIT/executor.sh\"; reviewer_for $1"; }
   T=$(printf '\t')
   left codex 12; left claude 90; left cursor 90
+  # DRY_RUN opens nothing real: with a security and curl on PATH that are not
+  # a test's declared fakes (CREDITS_FAKES), no probe runs.
+  : > "$CG/probes.log"; reset_stub
+  out=$(PATH="$CG/bin:$PATH" HOME="$TMP/cg-home" REVIEWER_BY_CREDITS=on in_kit ". \"\$KIT/executor.sh\"; reviewer_for claude")
+  assert_eq "DRY_RUN: no CREDITS_FAKES, no keychain or endpoint is reached" "$(cat "$CG/probes.log"; grep '^codex app-server' "$HERDR_STUB_LOG")" ""
+  assert_eq "DRY_RUN: ... and codex, its credits unread, reviews" "$(printf '%s\n' "$out" | head -1 | cut -f1)" codex
+  assert_eq "DRY_RUN: credits_left prints nothing without CREDITS_FAKES" "$(PATH="$CG/bin:$PATH" in_kit ". \"\$KIT/credits.sh\"; credits_left claude")" ""
+  mkdir -p "$CG/no-curl"; ln -sf "$CG/bin/security" "$CG/no-curl/security"; : > "$CG/probes.log"
+  assert_eq "DRY_RUN: CREDITS_FAKES without a curl probes nothing" "$(CREDITS_FAKES="$CG/no-curl" in_kit ". \"\$KIT/credits.sh\"; credits_left claude")$(cat "$CG/probes.log")" ""
   assert_eq "guard off: the Reviewer as without credits" "$(rev claude)" "codex${T}gpt-6-astra${T}"
   assert_eq "guard off: no probe runs" "$(cat "$CG/probes.log")" ""
   assert_eq "guard on: a claude lane with codex at 12% is reviewed by claude, noted" "$(REVIEWER_BY_CREDITS=on rev claude)" \
@@ -1587,7 +1596,7 @@ SH
   assert_nomatch "user contract: ... both its keys" "$out" 'not a setting|repo contract setting'
   # add-reviewer: the skip notes go to the record, for a lane review and a
   # preflight slot alike; the run's switches come from the pane map.
-  kit() { local d=$1; shift; (cd "$d" && env PATH="$CG/bin:$PATH" HOME="$TMP/cg-home" XDG_CONFIG_HOME="$TMP/cg-none" EXIT_WAIT_SECONDS=3 "$@" 2>&1); }
+  kit() { local d=$1; shift; (cd "$d" && env CREDITS_FAKES="$CG/bin" HOME="$TMP/cg-home" XDG_CONFIG_HOME="$TMP/cg-none" EXIT_WAIT_SECONDS=3 "$@" 2>&1); }
   left codex 12; left claude 90
   r=$(fixture_repo bun-vitest); RUN="$TMP/run-cg"; : > "$CG/probes.log"; reset_stub
   out=$(kit "$r" REVIEWER_BY_CREDITS=on "$KIT/bootstrap.sh" "$RUN" "Credits" main "$KIT/example-tasks.tsv")
@@ -1991,7 +2000,7 @@ case "\$*" in *oauth/usage*) case "\$h" in *"anthropic-beta: oauth-2025-04-20"*)
 cat "$CB/reply"
 SH
   chmod +x "$CB/bin/security" "$CB/bin/curl"
-  credits() { PATH="$CB/bin:$PATH" in_kit ". \"\$KIT/credits.sh\"; credits_left $1"; }  # KIND
+  credits() { CREDITS_FAKES="$CB/bin" in_kit ". \"\$KIT/credits.sh\"; credits_left $1"; }  # KIND
   claude_creds() { printf '{"claudeAiOauth":{"accessToken":"%s","refreshToken":"ref-fake-rex"}}' "$TOK" > "$CB/keychain/Claude Code-credentials"; }
 
   claude_creds
@@ -2035,9 +2044,9 @@ SH
   # A timeout set in the caller's shell, not exported, is the probe's too;
   # and the module, sourced by a relative path, still probes after a cd.
   assert_eq "a caller's CREDITS_TIMEOUT holds for the whole probe" \
-    "$(PATH="$CB/bin:$PATH" in_kit "CREDITS_TIMEOUT=6; . \"\$KIT/credits.sh\"; FAKE_CURL_SLEEP=3 credits_left claude")" 15
+    "$(CREDITS_FAKES="$CB/bin" in_kit "CREDITS_TIMEOUT=6; . \"\$KIT/credits.sh\"; FAKE_CURL_SLEEP=3 credits_left claude")" 15
   assert_eq "a module sourced by a relative path probes after a cd" \
-    "$(cd "$KIT" && PATH="$CB/bin:$PATH" in_kit ". ./credits.sh; cd /; credits_left claude")" 15
+    "$(cd "$KIT" && CREDITS_FAKES="$CB/bin" in_kit ". ./credits.sh; cd /; credits_left claude")" 15
   assert_eq "an unknown kind prints nothing" "$(credits gemini)" ""
   assert_eq "no kind prints nothing" "$(credits '')" ""
 

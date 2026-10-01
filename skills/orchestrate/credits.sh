@@ -6,6 +6,10 @@
 #   CREDITS_TIMEOUT     seconds a probe gets, default 2; a probe still running
 #                       then is killed, with everything it started, and prints
 #                       nothing.
+#   CREDITS_FAKES       under DRY_RUN=1, a dir holding a test's own `security`
+#                       and `curl`: the probes run with it first on PATH. Without
+#                       one, a DRY_RUN probes nothing (no keychain, no endpoint,
+#                       no app-server) and credits_left prints nothing.
 #
 # Every probe reads an OAuth token from the macOS keychain and calls an
 # endpoint no vendor documents for this use; any CLI update can break one. A
@@ -33,8 +37,13 @@ CREDITS_TIMEOUT="${CREDITS_TIMEOUT:-2}"
 _CREDITS_SH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/credits.sh"
 
 credits_left() {
+  local path=$PATH
   case "${1:-}" in claude|codex|cursor) ;; *) return 0 ;; esac
-  python3 - "$CREDITS_TIMEOUT" "$_CREDITS_SH" "$1" <<'PY' 2>/dev/null || true
+  if [ "${DRY_RUN:-0}" = 1 ]; then
+    [ -n "${CREDITS_FAKES:-}" ] && [ -x "$CREDITS_FAKES/security" ] && [ -x "$CREDITS_FAKES/curl" ] || return 0
+    path="$CREDITS_FAKES:$PATH"
+  fi
+  PATH=$path python3 - "$CREDITS_TIMEOUT" "$_CREDITS_SH" "$1" <<'PY' 2>/dev/null || true
 import os, re, signal, subprocess, sys
 timeout, module, kind = float(sys.argv[1]), sys.argv[2], sys.argv[3]
 p = subprocess.Popen(["bash", "-c", '. "$0"; _credits_"$1"', module, kind],

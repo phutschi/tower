@@ -1,10 +1,12 @@
 # Sourced first by every script in the kit. Expects `set -u`.
 #
-# DRY_RUN=1 puts tests/stub first on PATH: herdr, claude, codex and cursor-agent are then
-# stand-ins that log their argv (HERDR_STUB_LOG, default stderr) and answer
-# with canned JSON, so a script can be run outside herdr to see what it would
-# do. tower is the real CLI from this checkout (tests/stub/tower), so the run
-# is recorded for real, in the run dir. test.sh runs everything this way.
+# DRY_RUN=1 puts tests/stub first on PATH: herdr, claude, codex and
+# cursor-agent are then stand-ins that log their argv (HERDR_STUB_LOG, default
+# stderr) and answer with canned JSON, so a script can be run outside herdr to
+# see what it would do. The credit guard's probes read no keychain and call no
+# endpoint then, unless a test names its own fakes (credits.sh CREDITS_FAKES).
+# tower is the real CLI from this checkout (tests/stub/tower), so the run is
+# recorded for real, in the run dir. test.sh runs everything this way.
 KIT="${KIT:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 die()      { echo "$*" >&2; exit 1; }
 # The kinds an executor or Reviewer runs in (CONTEXT.md Kind): kind_known K

@@ -376,7 +376,8 @@ made without probes; each review probes when it starts.
 `./test.sh` runs without herdr, claude, codex, cursor-agent, semgrep or
 gitleaks, and never reads the keychain or calls the network: stubs under
 `skills/orchestrate/tests/stub/` log what would be called, and the credit
-probes run against per-section fakes of `security` and `curl`. tower is the
+probes run against per-section fakes of `security` and `curl`
+(`CREDITS_FAKES`; under `DRY_RUN=1` without it, no probe runs). tower is the
 real CLI from this checkout, run with bun, so a change to tower's commands or
 to `tower state --json` breaks the kit's tests in the same change.
 `DRY_RUN=1 skills/orchestrate/bootstrap.sh …` shows the same for a real repo,
