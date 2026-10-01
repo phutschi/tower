@@ -347,7 +347,7 @@ reviewer_for() {
         . "$KIT/credits.sh"
         min=${REVIEWER_CREDITS_MIN:-}
         [ -n "$min" ] || min=$(model_default REVIEWER_CREDITS_MIN) || exit 1
-        case "$min" in ""|*[!0-9]*) die "REVIEWER_CREDITS_MIN must be a whole number from 0 to 100 (got '$min')" ;; esac
+        credits_min_ok "$min" || credits_min_refused "$min"
       fi
       for c in $(reviewer_candidates "$lane"); do
         if ! kind_installed "$c"; then absent+=("$c"); continue; fi

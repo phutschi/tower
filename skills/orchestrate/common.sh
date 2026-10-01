@@ -21,6 +21,14 @@ kinds_say() {  # "a, b or c", from KINDS
   done
   echo "$out"
 }
+# VALUE is a REVIEWER_CREDITS_MIN: a whole number from 0 to 100, at most
+# three digits so the shell's own arithmetic never sees a huge one. The one
+# check detect-stack.sh and executor.sh's reviewer_for share.
+credits_min_ok() {
+  case "$1" in ""|*[!0-9]*) return 1 ;; esac
+  [ "${#1}" -le 3 ] && [ "$1" -le 100 ]
+}
+credits_min_refused() { die "REVIEWER_CREDITS_MIN must be a whole number from 0 to 100 (got '$1')"; }
 # The run switches' names (detect-stack.sh gives them their values).
 SWITCHES="TASK_REVIEW LANE_REVIEW PREFLIGHT STATIC_BASELINE PR METHOD REVIEWER_KIND REVIEWER_MODEL REVIEWER_BY_CREDITS REVIEWER_CREDITS_MIN REVIEW_AREAS SUITE_SKIP PR_TEMPLATE"
 if [ "${DRY_RUN:-0}" = 1 ]; then

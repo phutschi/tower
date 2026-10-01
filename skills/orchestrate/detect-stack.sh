@@ -294,10 +294,7 @@ for _v in TASK_REVIEW LANE_REVIEW PREFLIGHT STATIC_BASELINE; do switch_allows "$
 switch_allows PR            "draft, ready or off"     draft ready off
 switch_allows METHOD        "tdd or plain"            tdd plain
 switch_allows REVIEWER_BY_CREDITS "on or off"         on off
-case "$REVIEWER_CREDITS_MIN" in
-  ""|*[!0-9]*) false ;;
-  *) [ "${#REVIEWER_CREDITS_MIN}" -le 3 ] && [ "$REVIEWER_CREDITS_MIN" -le 100 ] ;;
-esac || die "REVIEWER_CREDITS_MIN must be a whole number from 0 to 100 (got '$REVIEWER_CREDITS_MIN')"
+credits_min_ok "$REVIEWER_CREDITS_MIN" || credits_min_refused "$REVIEWER_CREDITS_MIN"
 # shellcheck disable=SC2086  # KINDS: one word per kind
 switch_allows REVIEWER_KIND "other, $(kinds_say)" other $KINDS
 for _v in $SWITCHES; do  # one line each, for the pane map's switches: line
