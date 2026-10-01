@@ -1550,8 +1550,16 @@ SH
   assert_eq "DRY_RUN: no CREDITS_FAKES, no keychain or endpoint is reached" "$(cat "$CG/probes.log"; grep '^codex app-server' "$HERDR_STUB_LOG")" ""
   assert_eq "DRY_RUN: ... and codex, its credits unread, reviews" "$(printf '%s\n' "$out" | head -1 | cut -f1)" codex
   assert_eq "DRY_RUN: credits_left prints nothing without CREDITS_FAKES" "$(PATH="$CG/bin:$PATH" in_kit ". \"\$KIT/credits.sh\"; credits_left claude")" ""
-  mkdir -p "$CG/no-curl"; ln -sf "$CG/bin/security" "$CG/no-curl/security"; : > "$CG/probes.log"
-  assert_eq "DRY_RUN: CREDITS_FAKES without a curl probes nothing" "$(CREDITS_FAKES="$CG/no-curl" in_kit ". \"\$KIT/credits.sh\"; credits_left claude")$(cat "$CG/probes.log")" ""
+  assert_eq "DRY_RUN: ... nor for cursor" "$(PATH="$CG/bin:$PATH" in_kit ". \"\$KIT/credits.sh\"; credits_left cursor")" ""
+  assert_eq "DRY_RUN: ... nor for codex" "$(in_kit ". \"\$KIT/credits.sh\"; credits_left codex")" ""
+  # An incomplete fakes dir probes nothing either. Asked for codex, whose probe
+  # is the stub's app-server: a regression here reaches no real tool.
+  mkdir -p "$CG/no-curl" "$CG/no-security" "$CG/dir-fakes/security" "$CG/dir-fakes/curl"
+  ln -sf "$CG/bin/security" "$CG/no-curl/security"; ln -sf "$CG/bin/curl" "$CG/no-security/curl"
+  for d in no-curl no-security dir-fakes; do
+    assert_eq "DRY_RUN: CREDITS_FAKES=$d probes nothing" "$(CREDITS_FAKES="$CG/$d" in_kit ". \"\$KIT/credits.sh\"; credits_left codex")" ""
+  done
+  assert_eq "DRY_RUN: ... though a full one does" "$(CREDITS_FAKES="$CG/bin" in_kit ". \"\$KIT/credits.sh\"; credits_left codex")" 12
   assert_eq "guard off: the Reviewer as without credits" "$(rev claude)" "codex${T}gpt-6-astra${T}"
   assert_eq "guard off: no probe runs" "$(cat "$CG/probes.log")" ""
   assert_eq "guard on: a claude lane with codex at 12% is reviewed by claude, noted" "$(REVIEWER_BY_CREDITS=on rev claude)" \

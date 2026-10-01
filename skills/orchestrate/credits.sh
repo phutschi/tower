@@ -40,8 +40,12 @@ credits_left() {
   local path=$PATH
   case "${1:-}" in claude|codex|cursor) ;; *) return 0 ;; esac
   if [ "${DRY_RUN:-0}" = 1 ]; then
-    [ -n "${CREDITS_FAKES:-}" ] && [ -x "$CREDITS_FAKES/security" ] && [ -x "$CREDITS_FAKES/curl" ] || return 0
-    path="$CREDITS_FAKES:$PATH"
+    local t
+    [ -n "${CREDITS_FAKES:-}" ] || return 0
+    for t in security curl; do
+      [ -f "$CREDITS_FAKES/$t" ] && [ -x "$CREDITS_FAKES/$t" ] || return 0
+    done
+    path="$(cd "$CREDITS_FAKES" && pwd):$PATH" || return 0
   fi
   PATH=$path python3 - "$CREDITS_TIMEOUT" "$_CREDITS_SH" "$1" <<'PY' 2>/dev/null || true
 import os, re, signal, subprocess, sys
