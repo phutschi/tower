@@ -2121,25 +2121,25 @@ if section brief-cursor; then
   # cursor_run CHECKOUT RUN_DIR XDG [VAR=value]: runs the command; its stdout
   # and stderr land in $CM.out and $CM.err, and it prints the exit status.
   CM="$TMP/cursor-models"
-  cursor_run() { (cd "$1" && env XDG_CONFIG_HOME="$3" ${4:+"$4"} bash -c "$(printf '%s' "$cmd" | sed "s#<kit>#$KIT#g; s#<run-dir>#$2#g")" >"$CM.out" 2>"$CM.err"); echo $?; }
+  cursor_run() { (cd "$1" && env XDG_CONFIG_HOME="$3" ${4:+"$4"} bash -c "$(printf '%s' "$cmd" | sed "s#<kit>#$KIT#g; s#<run-dir>#$2#g")") >"$CM.out" 2>"$CM.err"; echo $?; }
   # cursor_models …: the same, its stdout's lines joined by a space.
   cursor_models() { cursor_run "$@" >/dev/null; paste -sd' ' - < "$CM.out"; }
   kit_spec=$(sed -n 's/^SPEC_REVIEWER_MODEL_CURSOR=//p' "$KIT/model-defaults"); kit_quality=$(sed -n 's/^QUALITY_REVIEWER_MODEL_CURSOR=//p' "$KIT/model-defaults")
   r=$(fixture_repo bun-vitest); RB="$TMP/run-brief-cursor"; reset_stub
   (cd "$r" && XDG_CONFIG_HOME="$TMP/xdg-brief-none" "$KIT/bootstrap.sh" "$RB" "Brief cursor" main "$KIT/example-tasks.tsv" >/dev/null 2>&1)
   assert_eq "brief: in a claude run, cursor's reviewer models are the kit's" "$(cursor_models "$r" "$RB" "$TMP/xdg-brief-none")" "$kit_spec $kit_quality"
-  grep -v '^SPEC_REVIEWER_MODEL_CURSOR=' "$KIT/model-defaults" > "$TMP/model-defaults-no-spec"
   assert_eq "brief: ... exit 0" "$(cursor_run "$r" "$RB" "$TMP/xdg-brief-none")" 0
   assert_eq "brief: ... the two alone on stdout, one per line" "$(cat "$CM.out")" "$kit_spec
 $kit_quality"
   assert_eq "brief: ... nothing on stderr" "$(cat "$CM.err")" ""
+  grep -v '^SPEC_REVIEWER_MODEL_CURSOR=' "$KIT/model-defaults" > "$TMP/model-defaults-no-spec"
   assert_eq "brief: ... a missing SPEC model fails the command" "$(cursor_run "$r" "$RB" "$TMP/xdg-brief-none" MODEL_DEFAULTS_FILE="$TMP/model-defaults-no-spec")" 1
-  assert_match "brief: ... named on stderr" "$(cat "$CM.err")" 'no SPEC_REVIEWER_MODEL_CURSOR'
+  assert_match "brief: ... SPEC named on stderr" "$(cat "$CM.err")" 'no SPEC_REVIEWER_MODEL_CURSOR'
   assert_eq "brief: ... and nothing on stdout" "$(cat "$CM.out")" ""
   grep -v '^QUALITY_REVIEWER_MODEL_CURSOR=' "$KIT/model-defaults" > "$TMP/model-defaults-no-quality"
   assert_eq "brief: ... a missing QUALITY model fails the command" "$(cursor_run "$r" "$RB" "$TMP/xdg-brief-none" MODEL_DEFAULTS_FILE="$TMP/model-defaults-no-quality")" 1
-  assert_match "brief: ... named on stderr" "$(cat "$CM.err")" 'no QUALITY_REVIEWER_MODEL_CURSOR'
-  assert_nomatch "brief: ... and stdout never holds two models" "$(sed -n 2p "$CM.out")" '.'
+  assert_match "brief: ... QUALITY named on stderr" "$(cat "$CM.err")" 'no QUALITY_REVIEWER_MODEL_CURSOR'
+  assert_eq "brief: ... stdout only the SPEC model, never the two" "$(cat "$CM.out")" "$kit_spec"
   # A contract's note goes to stderr: stdout stays the two.
   mkdir -p "$TMP/xdg-brief-note/tower"; echo MODLE=x > "$TMP/xdg-brief-note/tower/orchestrate"
   assert_eq "brief: ... with a contract's note, still exit 0" "$(cursor_run "$r" "$RB" "$TMP/xdg-brief-note")" 0
@@ -2158,6 +2158,7 @@ $kit_quality"
   mkdir -p "$TMP/home-no-skills"
   assert_eq "brief: ... printing only the two, whatever kind add-lane.sh was given" \
     "$(HOME="$TMP/home-no-skills" cursor_models "$r" "$RB" "$UCB" EXECUTOR_KIND=cursor)" "user-s repo-q"
+  assert_eq "brief: ... and no setup hint on stderr" "$(cat "$CM.err")" ""
   for m in $(sed -n 's/^[A-Z_]*_CURSOR=//p' "$KIT/model-defaults" | sort -u); do
     case "$bt$os$ps" in *"$m"*) bad "no cursor default ($m) is written into the three files" ;; *) ok "no cursor default ($m) is written into the three files" ;; esac
   done
