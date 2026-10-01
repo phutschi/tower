@@ -21,8 +21,9 @@ kinds_say() {  # "a, b or c", from KINDS
   done
   echo "$out"
 }
-# VALUE is a REVIEWER_CREDITS_MIN: a whole number from 0 to 100, at most
-# three digits so the shell's own arithmetic never sees a huge one. The one
+# VALUE is a REVIEWER_CREDITS_MIN: a whole number from 0 to 100 in at most
+# three digits (so 0100 is refused), and the shell's own arithmetic never
+# sees a huge one. The one
 # check detect-stack.sh and executor.sh's reviewer_for share.
 credits_min_ok() {
   case "$1" in ""|*[!0-9]*) return 1 ;; esac

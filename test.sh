@@ -1586,9 +1586,14 @@ SH
   assert_eq "guard on: REVIEWER_CREDITS_MIN=60 makes 50% a skip" "$(REVIEWER_BY_CREDITS=on REVIEWER_CREDITS_MIN=60 CODEX_STUB=absent rev cursor)" \
     "cursor${T}grok-4.7-high-fast${T}reviewer: skipped claude, 50% credits left; fallback: codex is not installed and claude is low on credits, so a fresh cursor agent reviews cursor"
   for v in 120 abc 99999999999999999999; do
-    assert_match "guard on: REVIEWER_CREDITS_MIN='$v' is refused by reviewer_for too" "$(REVIEWER_BY_CREDITS=on REVIEWER_CREDITS_MIN="$v" rev claude; echo "exit=$?")" \
+    out=$(REVIEWER_BY_CREDITS=on REVIEWER_CREDITS_MIN="$v" rev claude; echo "exit=$?")
+    assert_match "guard on: REVIEWER_CREDITS_MIN='$v' is refused by reviewer_for too" "$out" \
       "^REVIEWER_CREDITS_MIN must be a whole number from 0 to 100 \\(got '$v'\\)"
+    assert_match "guard on: ... '$v' exits non-zero" "$out" 'exit=1$'
   done
+  left codex 99
+  assert_eq "guard on: REVIEWER_CREDITS_MIN=100 is valid, and 99% is below it" "$(REVIEWER_BY_CREDITS=on REVIEWER_CREDITS_MIN=100 rev claude | cut -f1,3)" \
+    "claude${T}reviewer: skipped codex, 99% credits left; fallback: codex is low on credits, so claude reviews claude"
   assert_nomatch "guard on: ... with no shell error" "$(REVIEWER_BY_CREDITS=on REVIEWER_CREDITS_MIN=99999999999999999999 rev claude)" 'expression|out of range'
   left codex 20
   assert_eq "guard on: exactly the threshold is enough" "$(REVIEWER_BY_CREDITS=on rev claude)" "codex${T}gpt-6-astra${T}"
