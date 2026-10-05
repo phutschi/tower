@@ -5,7 +5,8 @@
 # src/cli.ts with bun): the tests read what the scripts recorded with
 # `tower state --json`.
 #
-#   ./test.sh            all sections, in parallel (TEST_JOBS at once; the CPU count)
+#   ./test.sh            all sections, in parallel (TEST_JOBS at once; the CPU count);
+#                        TEST_SHARD=i/n runs every nth section from the ith (CI)
 #   ./test.sh bootstrap  one section (a word from the "# ---" headings below)
 #   ./test.sh --fast     all sections but the slow ones (SLOW): the check gate's
 #                        mode; the full suite runs them all. A section named
@@ -98,6 +99,11 @@ command -v npm >/dev/null || { echo "test.sh: the look section runs npm scripts 
 if [ -z "$ONLY" ] && [ "$LIST" = 0 ]; then
   OUT="$TMP/sections"; mkdir -p "$OUT"
   if [ "$FAST" = 1 ]; then sections=$("$ROOT/test.sh" --fast --list); else sections=$("$ROOT/test.sh" --list); fi
+  case "${TEST_SHARD:-}" in
+    "") ;;
+    [1-9]*/[1-9]*) sections=$(printf '%s\n' "$sections" | awk -v i="${TEST_SHARD%/*}" -v n="${TEST_SHARD#*/}" '(NR - i) % n == 0') ;;
+    *) echo "test.sh: TEST_SHARD is i/n, not $TEST_SHARD" >&2; exit 2 ;;
+  esac
   # shellcheck disable=SC2016 # expanded by the sh xargs starts
   printf '%s\n' "$sections" | xargs -P "${TEST_JOBS:-$(getconf _NPROCESSORS_ONLN)}" -I{} \
     sh -c '"$0" "$2" > "$1/$2" 2>&1' "$ROOT/test.sh" "$OUT" {}

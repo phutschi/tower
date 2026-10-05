@@ -5,9 +5,17 @@ on:
   pull_request:
 jobs:
   check:
+    # macOS has 3 cores, so its kit tests run as two shards (TEST_SHARD).
+    # The names are main's required checks: change them there too.
+    name: check (${{ matrix.os }}${{ matrix.shard && format(', {0}', matrix.shard) || '' }})
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+          - os: macos-latest
+            shard: 1/2
+          - os: macos-latest
+            shard: 2/2
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -29,6 +37,8 @@ jobs:
         if: runner.os == 'Linux'
         run: shellcheck -S warning *.sh skills/*/*.sh skills/orchestrate/tests/stub/*
       - name: kit tests
+        env:
+          TEST_SHARD: ${{ matrix.shard }}
         run: |
           git config --global user.name ci
           git config --global user.email ci@example.invalid
