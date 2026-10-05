@@ -5,7 +5,7 @@
 # src/cli.ts with bun): the tests read what the scripts recorded with
 # `tower state --json`.
 #
-#   ./test.sh            all sections
+#   ./test.sh            all sections, in parallel (TEST_JOBS at once; the CPU count)
 #   ./test.sh bootstrap  one section (a word from the "# ---" headings below)
 #   ./test.sh --fast     all sections but the slow ones (SLOW): the check gate's
 #                        mode; the full suite runs them all. A section named
@@ -92,6 +92,27 @@ done
 unset _tool _which
 command -v bun >/dev/null || { echo "test.sh: tower runs from this checkout with bun, and bun is not on PATH — refusing to run" >&2; exit 1; }
 command -v npm >/dev/null || { echo "test.sh: the look section runs npm scripts in its fixtures, and npm is not on PATH — refusing to run" >&2; exit 1; }
+# More than one section: each runs as its own ./test.sh <section>, with its
+# own $TMP, up to TEST_JOBS (the CPU count) at once; their output is printed
+# in section order and their counts summed.
+if [ -z "$ONLY" ] && [ "$LIST" = 0 ]; then
+  OUT="$TMP/sections"; mkdir -p "$OUT"
+  if [ "$FAST" = 1 ]; then sections=$("$ROOT/test.sh" --fast --list); else sections=$("$ROOT/test.sh" --list); fi
+  # shellcheck disable=SC2016 # expanded by the sh xargs starts
+  printf '%s\n' "$sections" | xargs -P "${TEST_JOBS:-$(getconf _NPROCESSORS_ONLN)}" -I{} \
+    sh -c '"$0" "$2" > "$1/$2" 2>&1' "$ROOT/test.sh" "$OUT" {}
+  for s in $sections; do
+    summary=$(tail -n 1 "$OUT/$s")
+    sed '$d' "$OUT/$s"
+    # shellcheck disable=SC2086 # the summary's words
+    case "$summary" in
+      *" passed, "*" failed") set -- $summary; pass=$((pass+$1)); fail=$((fail+$3)) ;;
+      *) bad "$s: the section ran to no summary" "$summary" ;;
+    esac
+  done
+  echo "$pass passed, $fail failed"
+  [ "$fail" = 0 ]; exit
+fi
 reset_stub() { : > "$HERDR_STUB_LOG"; rm -f "$HERDR_STUB_COUNTER" "$HERDR_STUB_COUNTER.busy" "$HERDR_STUB_COUNTER.enters" "$HERDR_STUB_COUNTER.trust" "$HERDR_STUB_COUNTER.started"; }
 # A new git repo built from tests/fixtures/<name> (or empty), named <name>, in
 # a directory of its own: every call is a fresh repo, so tower's run pointer
