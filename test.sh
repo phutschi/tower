@@ -2987,7 +2987,11 @@ esac"
   # builds with Node alone. A copy of the package, and a PATH without bun.
   P="$TMP/pkg"; mkdir -p "$P"
   for f in src themes scripts package.json tsconfig.json tsconfig.build.json; do [ -e "$ROOT/$f" ] && cp -R "$ROOT/$f" "$P/"; done
-  ln -s "$ROOT/node_modules" "$P/node_modules"
+  # The node_modules Node would resolve from $ROOT: a worktree under
+  # .worktrees/ has none of its own and uses the main checkout's.
+  NM="$ROOT"; while [ "$NM" != / ] && [ ! -d "$NM/node_modules/typescript" ]; do NM=$(dirname "$NM"); done
+  [ -d "$NM/node_modules/typescript" ] || echo "prepare: no node_modules with typescript above $ROOT; run bun install" >&2
+  ln -s "$NM/node_modules" "$P/node_modules"
   NB="$TMP/nobun"; mkdir -p "$NB"; for t in node npm sh env dirname; do ln -sf "$(command -v $t)" "$NB/$t"; done
   PATH="$NB" command -v bun >/dev/null && bad "prepare: the PATH has no bun" || ok "prepare: the PATH has no bun"
   out=$(cd "$P" && HOME="$TMP/npmhome" PATH="$NB" npm_config_update_notifier=false npm run prepare 2>&1; echo "exit=$?")
