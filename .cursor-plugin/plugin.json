@@ -1,0 +1,12 @@
+{
+  "name": "tower",
+  "displayName": "tower",
+  "description": "Plan and run work with agent lanes reporting into tower: /tower:run (any runner), /tower:orchestrate (herdr), /tower:spec-to-plan and /tower:preflight.",
+  "version": "0.4.0",
+  "author": { "name": "Philipp Wruck" },
+  "homepage": "https://github.com/phutschi/tower",
+  "repository": "https://github.com/phutschi/tower",
+  "license": "MIT",
+  "keywords": ["tower", "herdr", "orchestrate", "agents", "skills"],
+  "skills": "skills"
+}

@@ -85,12 +85,17 @@ npm install -g github:phutschi/tower
 
 tower is not on the npm registry yet.
 
-**The skills** come as a Claude Code plugin, installed from git:
+**The skills** ship as a plugin for Claude Code and Cursor:
 
 ```text
 /plugin marketplace add phutschi/tower
 /plugin install tower@phutschi-tower
 ```
+
+In Cursor: **Settings → Plugins → Add marketplace from GitHub** →
+`phutschi/tower`, then enable **tower** (Cursor reads `.cursor-plugin/`; a
+clone's `./install.sh` also links the kit into `~/.agents/skills` for Codex and
+cursor lanes).
 
 ## Docs
 
