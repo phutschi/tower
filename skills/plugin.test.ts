@@ -21,16 +21,8 @@ const SKILLS = ["run", "orchestrate", "spec-to-plan", "preflight"];
 
 test("every skill frontmatter parses as YAML", () => {
   for (const skill of SKILLS) {
-    const path = join(root, `skills/${skill}/SKILL.md`);
-    execFileSync(
-      "python3",
-      [
-        "-c",
-        'import sys,yaml; yaml.safe_load(open(sys.argv[1]).read().split("---", 2)[1])',
-        path,
-      ],
-      { stdio: "pipe" },
-    );
+    const frontmatter = read(`skills/${skill}/SKILL.md`).split("---", 3)[1];
+    expect(Bun.YAML.parse(frontmatter ?? "")).toHaveProperty("name", skill);
   }
 });
 
