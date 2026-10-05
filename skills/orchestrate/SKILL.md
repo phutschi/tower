@@ -1,6 +1,6 @@
 ---
 name: orchestrate
-description: Use when asked to implement a plan or a piece of work with separate executor agents inside herdr ("/tower:orchestrate <plan>", "implement this plan with orchestrate", "spin up orchestrate", "orchestrate this", "run this with lanes"). The plan usually comes from /tower:spec-to-plan. The session becomes the orchestrator: it opens the run, derives or loads the task list, briefs one to four lanes, watches, reviews, merges, runs preflight, opens the PR, closes. Requires HERDR_ENV=1; without herdr, use /tower:run. Not for single-task changes you can make yourself.
+description: 'Use when asked to implement a plan or a piece of work with separate executor agents inside herdr ("/tower:orchestrate <plan>", "implement this plan with orchestrate", "spin up orchestrate", "orchestrate this", "run this with lanes"). The plan usually comes from /tower:spec-to-plan. The session becomes the orchestrator: it opens the run, derives or loads the task list, briefs one to four lanes, watches, reviews, merges, runs preflight, opens the PR, closes. Requires HERDR_ENV=1; without herdr, use /tower:run. Not for single-task changes you can make yourself.'
 ---
 
 # Orchestrating a run

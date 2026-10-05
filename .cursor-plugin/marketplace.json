@@ -1,0 +1,11 @@
+{
+  "name": "phutschi-tower",
+  "owner": { "name": "Philipp Wruck" },
+  "plugins": [
+    {
+      "name": "tower",
+      "source": ".",
+      "description": "Plan and run work with agent lanes reporting into tower: /tower:run (any runner), /tower:orchestrate (herdr), /tower:spec-to-plan and /tower:preflight."
+    }
+  ]
+}

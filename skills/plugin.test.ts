@@ -19,20 +19,35 @@ const json = (path: string) => JSON.parse(read(path)) as Manifest;
 
 const SKILLS = ["run", "orchestrate", "spec-to-plan", "preflight"];
 
+test("every skill frontmatter parses as YAML", () => {
+  for (const skill of SKILLS) {
+    const frontmatter = read(`skills/${skill}/SKILL.md`).split("---", 3)[1];
+    expect(Bun.YAML.parse(frontmatter ?? "")).toHaveProperty("name", skill);
+  }
+});
+
 test("the plugin carries the package's version", () => {
-  expect(json(".claude-plugin/plugin.json").version).toBe(
-    json("package.json").version,
-  );
+  const version = json("package.json").version;
+  expect(json(".claude-plugin/plugin.json").version).toBe(version);
+  expect(json(".cursor-plugin/plugin.json").version).toBe(version);
 });
 
 test("the plugin and its marketplace entry name the four skills", () => {
   const plugin = json(".claude-plugin/plugin.json");
-  const entry = json(".claude-plugin/marketplace.json").plugins?.find(
-    (p) => p.name === "tower",
-  );
-  for (const description of [plugin.description, entry?.description])
-    for (const skill of SKILLS)
-      expect(description).toContain(`/tower:${skill}`);
+  const cursor = json(".cursor-plugin/plugin.json");
+  for (const marketplace of [
+    ".claude-plugin/marketplace.json",
+    ".cursor-plugin/marketplace.json",
+  ]) {
+    const entry = json(marketplace).plugins?.find((p) => p.name === "tower");
+    for (const description of [
+      plugin.description,
+      cursor.description,
+      entry?.description,
+    ])
+      for (const skill of SKILLS)
+        expect(description).toContain(`/tower:${skill}`);
+  }
 });
 
 // Files that keep the old names on purpose: history (the changelog and the
