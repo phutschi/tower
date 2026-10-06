@@ -5,7 +5,8 @@
 # src/cli.ts with bun): the tests read what the scripts recorded with
 # `tower state --json`.
 #
-#   ./test.sh            all sections
+#   ./test.sh            all sections, in parallel (TEST_JOBS at once; the CPU count);
+#                        TEST_SHARD=i/n runs every nth section from the ith (CI)
 #   ./test.sh bootstrap  one section (a word from the "# ---" headings below)
 #   ./test.sh --fast     all sections but the slow ones (SLOW): the check gate's
 #                        mode; the full suite runs them all. A section named
@@ -92,6 +93,32 @@ done
 unset _tool _which
 command -v bun >/dev/null || { echo "test.sh: tower runs from this checkout with bun, and bun is not on PATH — refusing to run" >&2; exit 1; }
 command -v npm >/dev/null || { echo "test.sh: the look section runs npm scripts in its fixtures, and npm is not on PATH — refusing to run" >&2; exit 1; }
+# More than one section: each runs as its own ./test.sh <section>, with its
+# own $TMP, up to TEST_JOBS (the CPU count) at once; their output is printed
+# in section order and their counts summed.
+if [ -z "$ONLY" ] && [ "$LIST" = 0 ]; then
+  OUT="$TMP/sections"; mkdir -p "$OUT"
+  if [ "$FAST" = 1 ]; then sections=$("$ROOT/test.sh" --fast --list); else sections=$("$ROOT/test.sh" --list); fi
+  case "${TEST_SHARD:-}" in
+    "") ;;
+    [1-9]*/[1-9]*) sections=$(printf '%s\n' "$sections" | awk -v i="${TEST_SHARD%/*}" -v n="${TEST_SHARD#*/}" '(NR - i) % n == 0') ;;
+    *) echo "test.sh: TEST_SHARD is i/n, not $TEST_SHARD" >&2; exit 2 ;;
+  esac
+  # shellcheck disable=SC2016 # expanded by the sh xargs starts
+  printf '%s\n' "$sections" | xargs -P "${TEST_JOBS:-$(getconf _NPROCESSORS_ONLN)}" -I{} \
+    sh -c '"$0" "$2" > "$1/$2" 2>&1' "$ROOT/test.sh" "$OUT" {}
+  for s in $sections; do
+    summary=$(tail -n 1 "$OUT/$s")
+    sed '$d' "$OUT/$s"
+    # shellcheck disable=SC2086 # the summary's words
+    case "$summary" in
+      *" passed, "*" failed") set -- $summary; pass=$((pass+$1)); fail=$((fail+$3)) ;;
+      *) bad "$s: the section ran to no summary" "$summary" ;;
+    esac
+  done
+  echo "$pass passed, $fail failed"
+  [ "$fail" = 0 ]; exit
+fi
 reset_stub() { : > "$HERDR_STUB_LOG"; rm -f "$HERDR_STUB_COUNTER" "$HERDR_STUB_COUNTER.busy" "$HERDR_STUB_COUNTER.enters" "$HERDR_STUB_COUNTER.trust" "$HERDR_STUB_COUNTER.started"; }
 # A new git repo built from tests/fixtures/<name> (or empty), named <name>, in
 # a directory of its own: every call is a fresh repo, so tower's run pointer
@@ -2987,7 +3014,11 @@ esac"
   # builds with Node alone. A copy of the package, and a PATH without bun.
   P="$TMP/pkg"; mkdir -p "$P"
   for f in src themes scripts package.json tsconfig.json tsconfig.build.json; do [ -e "$ROOT/$f" ] && cp -R "$ROOT/$f" "$P/"; done
-  ln -s "$ROOT/node_modules" "$P/node_modules"
+  # The node_modules Node would resolve from $ROOT: a worktree under
+  # .worktrees/ has none of its own and uses the main checkout's.
+  NM="$ROOT"; while [ "$NM" != / ] && [ ! -d "$NM/node_modules/typescript" ]; do NM=$(dirname "$NM"); done
+  [ -d "$NM/node_modules/typescript" ] || echo "prepare: no node_modules with typescript above $ROOT; run bun install" >&2
+  ln -s "$NM/node_modules" "$P/node_modules"
   NB="$TMP/nobun"; mkdir -p "$NB"; for t in node npm sh env dirname; do ln -sf "$(command -v $t)" "$NB/$t"; done
   PATH="$NB" command -v bun >/dev/null && bad "prepare: the PATH has no bun" || ok "prepare: the PATH has no bun"
   out=$(cd "$P" && HOME="$TMP/npmhome" PATH="$NB" npm_config_update_notifier=false npm run prepare 2>&1; echo "exit=$?")

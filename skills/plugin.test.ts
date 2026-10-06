@@ -163,7 +163,11 @@ test("orchestrate describes no run without tower", () => {
 
 test("CI checks both sides on Linux and macOS", () => {
   const ci = read(".github/workflows/ci.yml");
-  expect(ci).toContain("os: [ubuntu-latest, macos-latest]");
+  expect(ci).toContain("- os: ubuntu-latest");
+  // macOS runs the kit as two shards; together they are the whole suite.
+  for (const shard of ["1/2", "2/2"])
+    expect(ci).toContain(`- os: macos-latest\n            shard: ${shard}`);
+  expect(ci).toContain("TEST_SHARD: ${{ matrix.shard }}");
   for (const step of [
     "bun run check",
     "bun run build",
