@@ -2,8 +2,8 @@
 # Start a review: a fresh Reviewer in a slot of the review tab, and the review
 # on the board as a task owned by that slot.
 #
-#   [REVIEWER_KIND=other|claude|codex|cursor] [REVIEWER_MODEL=<model>] \
-#     add-reviewer.sh <run-dir> <R1|R2> <lane-kind> "<review title>" <findings-file> [lane]
+#   [REVIEW_STAGE=lane|preflight] [REVIEWER_KIND=other|claude|codex|cursor] \
+#     [REVIEWER_MODEL=<model>] add-reviewer.sh <run-dir> <R1|R2> <lane-kind> "<review title>" <findings-file> [lane]
 #
 # Run it from the orchestrator's pane after bootstrap.sh. lane-kind is the kind
 # (claude | codex | cursor) of the lane under review; for a preflight slot,
@@ -14,8 +14,11 @@
 # cursor Reviewer of a cursor lane runs on REVIEWER_MODEL_CURSOR instead).
 # Without it, the first lane of lane-kind in the pane map stands in; with none,
 # executor.sh's default. The Reviewer's kind and model
-# come from executor.sh reviewer_for (REVIEWER_KIND and REVIEWER_MODEL from the
-# pane map's switches: line, the run's values from bootstrap; this call's
+# come from executor.sh reviewer_for, or with REVIEW_STAGE=preflight (a
+# preflight slot) from preflight_reviewer: claude on PREFLIGHT_MODEL_CLAUDE,
+# and below REVIEWER_CREDITS_MIN % claude credits another kind, else claude on
+# REVIEWER_MODEL_CLAUDE. REVIEWER_KIND and REVIEWER_MODEL come from the
+# pane map's switches: line (the run's values from bootstrap; this call's
 # environment wins over them). It works in lane A's checkout, read from the
 # pane map. <run-dir> and <findings-file> may be relative to where it is
 # called. The title must not hold a tab, a newline or another control
@@ -135,6 +138,10 @@ while IFS= read -r _kv; do
 done <<< "$_words"
 unset _words _kv _k
 kind_known "$LANE_KIND" || die "lane kind must be $(kinds_say) (got '$LANE_KIND')"
+case "${REVIEW_STAGE:-lane}" in
+  lane|preflight) ;;
+  *) die "REVIEW_STAGE must be lane or preflight (got '$REVIEW_STAGE')" ;;
+esac
 # The Reviewer works in lane A's checkout (the integration branch), where the
 # repo contract lives too.
 REPO=$(sed -nE 's/^lane A: .* checkout (.*), model .*/\1/p' "$MAP")
@@ -158,7 +165,10 @@ _here="$PWD"; cd "$REPO"
 CONTRACT_RUN="$RUN_DIR" . "$KIT/detect-stack.sh"   # the run's pinned contract: REVIEWER_KIND, REVIEWER_MODEL (the environment wins)
 . "$KIT/executor.sh"       # reviewer_for, agent_name, start_agent*
 cd "$_here"; unset _here
-_rev=$(reviewer_for "$LANE_KIND" "$LANE_MODEL")
+case "${REVIEW_STAGE:-lane}" in
+  lane)      _rev=$(reviewer_for "$LANE_KIND" "$LANE_MODEL") ;;
+  preflight) _rev=$(preflight_reviewer "$LANE_KIND" "$LANE_MODEL") ;;
+esac
 IFS=$'\t' read -r R_KIND R_MODEL R_NOTE <<< "$_rev"; unset _rev
 # start_agent starts EXECUTOR_KIND on EXECUTOR_MODEL: here, the Reviewer.
 EXECUTOR_KIND=$R_KIND; EXECUTOR_MODEL=$R_MODEL

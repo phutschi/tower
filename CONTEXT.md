@@ -234,7 +234,8 @@ _Avoid_: fix round (a round is the ask, not the fix), iteration
 
 **Lane review**:
 A Reviewer's review of one lane's diff, after the lane reports ready and
-before the orchestrator merges it. Fixes go back to the same lane.
+before the orchestrator merges it. Fixes go back to the same lane. Off by
+default (`LANE_REVIEW`): a ready lane is merged at once.
 _Avoid_: per-task review (the executor's own review inside a lane)
 
 **Preflight**:
