@@ -129,8 +129,11 @@ One tab:
   branch (the integration branch); B to D get worktrees under `.worktrees/`.
   The grid grows one lane at a time: B right of A, C under A, D under B.
   Four at most. A lane that needs another lane's work merges it at its own
-  merge point; a _finished_ lane is merged into the integration branch by
-  the orchestrator, right away — never by lane A.
+  merge point; until that work is done it does its other tasks, then
+  stops, and the orchestrator prompts it the moment the task is done. A
+  _finished_ lane is merged into the integration branch by the orchestrator,
+  right away — never by lane A — and, while other lanes still have tasks
+  nobody started, the orchestrator moves some to it, so no lane sits idle.
 - **checks** runs your test runner in watch mode, **dev** your development
   server if you declare one. Both run in lane A's checkout.
 - **console** is tower's live board, the record of the run. It stays open
@@ -143,11 +146,14 @@ Nothing is closed until you say so.
 
 ## Reviews, preflight and the PR
 
-A run ends in a pull request, a draft by default (the `PR` switch), in
-this order:
+A run ends in a pull request, a draft by default (the `PR` switch). Every
+task is reviewed inside its lane: tdd, then a spec review subagent and a
+quality review subagent run in parallel. The whole branch is reviewed once,
+by preflight on the strongest model. In this order:
 
-1. **Lane review.** When a lane reports ready (lane A too, after its last
-   task), a **Reviewer** reviews the lane's diff before it is merged. It is
+1. **Lane review**, off by default (`LANE_REVIEW=on` turns it on). When a
+   lane reports ready (lane A too, after its last task), a **Reviewer**
+   reviews the lane's diff before it is merged. It is
    a fresh agent of another kind, the first installed of an ordered list:
    codex for a claude lane, claude for a codex lane, claude then codex for
    a cursor lane. cursor never reviews a claude or codex lane unless
@@ -170,16 +176,23 @@ this order:
    slots, R1 and R2 (`add-reviewer.sh`). Every review starts a new agent in
    a slot and becomes a task on the board owned by that slot. The tab
    stays open after the run.
-3. **Merge.** The orchestrator merges each reviewed lane, then `origin/main`.
+3. **Merge.** The orchestrator merges each lane as it reports ready (with
+   lane review: once reviewed), then `origin/main`.
    A merge that conflicts is aborted and becomes a task for lane A.
 4. **Preflight** checks the whole branch: semgrep and gitleaks on the diff,
    the repo's full suite, then agent review by area. R1 runs the checks and
    reviews the spec and problems between lanes; R2 reviews security,
-   performance and error handling. `/tower:preflight` is also a skill of
+   performance and error handling. Both run on claude's
+   `PREFLIGHT_MODEL_CLAUDE` (claude-fable-5-1). claude's credits are always
+   probed here: below `REVIEWER_CREDITS_MIN` % another installed kind with
+   credits reviews on its Reviewer model (codex, then cursor), and with
+   none, claude on `REVIEWER_MODEL_CLAUDE` (claude-opus-5-5). `/tower:preflight` is also a skill of
    its own: run it on any branch, without herdr.
 5. **One table, one reply.** The orchestrator shows you every finding in
    one table with a suggested outcome: fix, accept, follow-up or reject.
-   Your one reply approves the fixes, the follow-up issues (filed where
+   Fixes go back, in parallel, to the lanes that wrote the code, and the
+   next preflight round reviews them; after round 3 an open fix comes to
+   you. Your one reply approves the fixes, the follow-up issues (filed where
    `docs/agents/issue-tracker.md` says), the push and the PR. Nothing
    leaves your machine before it.
 6. **The PR.** The orchestrator pushes and opens the PR (a draft unless
@@ -236,7 +249,7 @@ does fails the call and is left running in its pane.
 
 Every default model is data: `skills/orchestrate/model-defaults` holds them,
 keyed per kind (`EXECUTOR_MODEL_<KIND>`, `REVIEWER_MODEL_<KIND>`,
-`REVIEWER_MODEL_CLAUDE_SELF`, `SPEC_REVIEWER_MODEL_<KIND>` and
+`REVIEWER_MODEL_CLAUDE_SELF`, `PREFLIGHT_MODEL_CLAUDE`, `SPEC_REVIEWER_MODEL_<KIND>` and
 `QUALITY_REVIEWER_MODEL_<KIND>`, with `<KIND>` one of `CLAUDE`, `CODEX`,
 `CURSOR`), plus the credit guard's `REVIEWER_CREDITS_MIN`. A new model is a
 change to that file, or to one of the contracts below, never to the kit's
@@ -277,7 +290,7 @@ line of the pane map and in the record.
 | Switch                 | Default        | Other values                                    |
 | ---------------------- | -------------- | ----------------------------------------------- |
 | `TASK_REVIEW`          | on             | off: no spec and quality review after each task |
-| `LANE_REVIEW`          | on             | off: lanes are merged without a Reviewer        |
+| `LANE_REVIEW`          | off            | on: a Reviewer reviews each lane before merging |
 | `PREFLIGHT`            | on             | off: no whole-branch check before the PR        |
 | `STATIC_BASELINE`      | on             | off: preflight skips semgrep and gitleaks       |
 | `PR`                   | draft          | ready, or off (no push, no PR)                  |
@@ -371,8 +384,9 @@ kind is not installed either, the first candidate skipped for credits reviews
 after all, with the note
 `fallback: <lane kind> is not installed, so <candidate> reviews despite its credits`.
 Credits steer the choice of Reviewer; they never leave a lane unreviewed for
-lack of credits. The guard applies to lane reviews and preflight's Reviewer
-slots alike. A `REVIEWER_KIND` other than `other` bypasses it, and with the
+lack of credits. The guard applies to lane reviews and, with claude not
+installed, to preflight's Reviewer slots; with claude installed, preflight
+always probes claude's credits (see "Reviews, preflight and the PR"). A `REVIEWER_KIND` other than `other` bypasses it, and with the
 guard off the kit never reads the keychain. Tokens are never logged or
 written to the run dir. bootstrap's `reviewer:` line is a forecast
 made without probes; each review probes when it starts.

@@ -50,7 +50,7 @@ memory.
 
 |                     | claude lane                                                     | codex lane                                                        | cursor lane                                                        |
 |---------------------|-----------------------------------------------------------------|-------------------------------------------------------------------|--------------------------------------------------------------------|
-| per-task review     | spec-compliance review subagent (model sonnet) + code-quality review subagent (model opus); pass the model explicitly | review the task's diff itself, first against the task spec, then with the code-review skill; fix what it flags before the next task | spec-compliance review subagent (model `{{SPEC_REVIEWER_MODEL}}`) + code-quality review subagent (model `{{QUALITY_REVIEWER_MODEL}}`); pass the model explicitly on every dispatch |
+| per-task review     | spec-compliance review subagent (model sonnet) + code-quality review subagent (model opus), in parallel; pass the model explicitly | review the task's diff itself, first against the task spec, then with the code-review skill; fix what it flags before the next task | spec-compliance review subagent (model `{{SPEC_REVIEWER_MODEL}}`) + code-quality review subagent (model `{{QUALITY_REVIEWER_MODEL}}`), in parallel; pass the model explicitly on every dispatch |
 | final review        | final whole-implementation review subagent (model opus)         | final self-review of the whole lane diff with the code-review skill | final whole-implementation review subagent (model `{{QUALITY_REVIEWER_MODEL}}`) |
 | reviewer roles      | as tower prints them                                             | both reviewer roles are the lane's own model; say so in the brief | `{{SPEC_REVIEWER_MODEL}}` and `{{QUALITY_REVIEWER_MODEL}}`          |
 
@@ -74,9 +74,12 @@ already merged into it) before the task that needs it. A finished lane never
 merges its own branch into the integration branch — only the orchestrator
 does that, right away, not lane A at its next merge point. So lane B's brief
 never says "merge into A"; it says "tower note … ready to merge" and waits.
-Ready is not the end: a lane review follows, and its fixes come back to the
-same lane, so every lane stays alive until the orchestrator says it is
-merged.
+Ready is not the end: the orchestrator merges the lane at once, may move
+more tasks to it (SKILL.md step 9), and sends preflight's fixes back to the
+lane that wrote the code, so every lane stays alive until the run closes.
+A lane waiting at a merge point never polls: it does what it can, then
+notes what it waits for and stops, and the orchestrator prompts it once the
+task it needs is done.
 
 ---
 
@@ -86,17 +89,17 @@ Read first: CONTEXT.md and docs/adr/ if the repo has them, then the spec and the
 
 YOUR TASKS are the ones below and nothing else. Do not add, change or remove tasks on the board — ignore the `tower add` paragraph below; if you discover work the list is missing, `tower block <id> "<what you found>"` (or `tower note --lane {{LANE}}`) and let the orchestrator decide.
 
-METHOD: {{e.g. "Before each task load the tdd skill and follow its loop; the seams are the modules in the task's Files list, tested through their exports. One failing test, then the minimal implementation, one slice at a time. When green: run the check gate  {{CHECK_CMD from panes.txt}}  from the repo root, commit, then" — claude: "a spec-compliance review subagent (model sonnet) and a code-quality review subagent (model opus); fix what they flag. Pass the model explicitly on every dispatch." — cursor: "a spec-compliance review subagent (model {{SPEC_REVIEWER_MODEL}}) and a code-quality review subagent (model {{QUALITY_REVIEWER_MODEL}}); fix what they flag. Pass the model explicitly on every dispatch." — codex: "review the task's diff yourself: first against the task spec, then with the code-review skill; fix what it flags before the next task. Report the two reviewing phases as usual; both reviewer roles below are you."}}
+METHOD: {{e.g. "Before each task load the tdd skill and follow its loop; the seams are the modules in the task's Files list, tested through their exports. One failing test, then the minimal implementation, one slice at a time. When green: run the check gate  {{CHECK_CMD from panes.txt}}  from the repo root, commit, then" — claude: "a spec-compliance review subagent (model sonnet) and a code-quality review subagent (model opus), both dispatched in one message so they run in parallel; fix what they flag. Pass the model explicitly on every dispatch." — cursor: "a spec-compliance review subagent (model {{SPEC_REVIEWER_MODEL}}) and a code-quality review subagent (model {{QUALITY_REVIEWER_MODEL}}), both dispatched in one message so they run in parallel; fix what they flag. Pass the model explicitly on every dispatch." — codex: "review the task's diff yourself: first against the task spec, then with the code-review skill; fix what it flags before the next task. Report the two reviewing phases as usual; both reviewer roles below are you."}}
 
 OTHER LANES: {{e.g. "Lane B (agent <name>, branch <branch>) owns tasks 5, 7-9; skip them entirely — do not implement them, do not touch their files, do not report on their ids."}}
 
-MERGE POINTS: {{lane A: "Before task N run  git merge <lane-b-branch> ; if lane B has not finished task M (tower state --json, or git log <branch> --oneline) wait and re-check every 3 minutes. Resolve conflicts keeping both sides, run the check gate, commit the merge, continue."  lane B: "Task M needs X from lane A's task K: before task M run  git merge <integration-branch>  and confirm <file> exists; if not, wait and re-check every 3 minutes — never write a local copy."}}
+MERGE POINTS: {{lane A: "Before task N run  git merge <lane-b-branch> ; if lane B has not finished task M (tower state --json), do your other tasks that do not need it first; when only task N is left,  tower note --lane A 'waiting for task M'  and stop: the orchestrator prompts you once M is done. Never poll. Resolve conflicts keeping both sides, run the check gate, commit the merge, continue."  lane B: "Task M needs X from lane A's task K: before task M run  git merge <integration-branch>  and confirm <file> exists; if not, do your other tasks first, then  tower note --lane B 'waiting for task K'  and stop: the orchestrator prompts you once K is done. Never poll, and never write a local copy."}}
 
 PANES you may read instead of re-running suites (herdr pane read <id> --source recent-unwrapped --lines 60): checks {{id}}{{, dev {{id}}}} — they run in lane A's checkout on the integration branch, so what they show is the merged state, not necessarily yours.
 
 Do not stop between tasks to ask whether to continue. If you cannot proceed: tower block <id> "<exactly what you need>", then stop and wait.
 
-WHEN YOUR LAST TASK IS DONE: {{lane A: "run the check gate from the repo root, then a final whole-implementation review (claude: subagent, model opus; cursor: subagent, model {{QUALITY_REVIEWER_MODEL}}, passed explicitly; codex: self-review of the whole lane diff with the code-review skill), fix what it flags, then  tower note --lane A 'ALL DONE - check green'  and report a summary; end your message with a last line of ALL DONE in double square brackets."  other lanes: "run the check gate for your files, then  tower note --lane {{LANE}} 'lane {{LANE}} complete - ready to merge' , end your message with a last line of READY TO MERGE in double square brackets, and wait; the orchestrator merges you."}} A Reviewer then reviews your lane. Stay in this session: fix tasks from that review come to you on the board and by prompt; do them like any task, and end your reply to each fix prompt with the last line that prompt names.
+WHEN YOUR LAST TASK IS DONE: {{lane A: "run the check gate from the repo root, then a final whole-implementation review (claude: subagent, model opus; cursor: subagent, model {{QUALITY_REVIEWER_MODEL}}, passed explicitly; codex: self-review of the whole lane diff with the code-review skill), fix what it flags, then  tower note --lane A 'ALL DONE - check green'  and report a summary; end your message with a last line of ALL DONE in double square brackets."  other lanes: "run the check gate for your files, then  tower note --lane {{LANE}} 'lane {{LANE}} complete - ready to merge' , end your message with a last line of READY TO MERGE in double square brackets, and wait; the orchestrator merges you."}} Stay in this session: the orchestrator may send you more tasks, and fix tasks from the review of the whole branch, on the board and by prompt; do them like any task, and end your reply to each such prompt with the last line that prompt names.
 
 Begin now with task {{FIRST_ID}}.
 
@@ -104,15 +107,21 @@ Begin now with task {{FIRST_ID}}.
 
 ## Fix prompts
 
-A lane review's fix tasks, and preflight's for lane A, go to the lane in
-one fix prompt, sent with `herdr agent prompt <agent> "<the fix prompt>"`.
+A lane review's fix tasks, and preflight's, go to the lane that wrote the
+code in one fix prompt, sent with `herdr agent prompt <agent> "<the fix prompt>"`.
 `{{REPORT_ROUND}}` is the report round `<n>` it starts (SKILL.md steps 8
-and 12).
+and 12). Moved tasks go out in a more-work prompt the same way (SKILL.md
+step 9).
 
 ### Fix prompt
 
-Report round {{REPORT_ROUND}}: {{"the lane review" | "preflight"}} found problems in your work. Your fix tasks are on the board: {{TASK_IDS}}. {{One line per task: its finding, the file and line it cites, and what to change.}} Do them like any task, with the same METHOD and reporting. When the last one is done, run the check gate {{lane A: "from the repo root" | other lanes: "for your files"}}, then  {{lane A: "tower note --lane A 'report round {{REPORT_ROUND}} done - check green'" | other lanes: "tower note --lane {{LANE}} 'report round {{REPORT_ROUND}} done - ready to merge'"}} . End your message with a last line of {{lane A: "ALL DONE" | other lanes: "READY TO MERGE"}}, a space and r{{REPORT_ROUND}}, all inside double square brackets.
+Report round {{REPORT_ROUND}}: {{"the lane review" | "preflight"}} found problems in your work. {{preflight, other lanes: "Your lane is merged: first run  git merge <integration-branch>  so you fix the merged code. "}}Your fix tasks are on the board: {{TASK_IDS}}. {{One line per task: its finding, the file and line it cites, and what to change.}} Do them like any task, with the same METHOD and reporting. When the last one is done, run the check gate {{lane A: "from the repo root" | other lanes: "for your files"}}, then  {{lane A: "tower note --lane A 'report round {{REPORT_ROUND}} done - check green'" | other lanes: "tower note --lane {{LANE}} 'report round {{REPORT_ROUND}} done - ready to merge'"}} . End your message with a last line of {{lane A: "ALL DONE" | other lanes: "READY TO MERGE"}}, a space and r{{REPORT_ROUND}}, all inside double square brackets.
 Stay in this session: another review may follow.
+
+### More-work prompt
+
+Report round {{REPORT_ROUND}}: your lane's tasks are done, and tasks {{TASK_IDS}} moved to you from lane {{FROM_LANE}}, which skips them now. {{other lanes: "First run  git merge <integration-branch> . "}}{{One line per task: its title, and the plan section or merge point it needs.}} Do them like any task, with the same METHOD, merge points and reporting. When the last one is done, run the check gate {{lane A: "from the repo root" | other lanes: "for your files"}}, then  {{lane A: "tower note --lane A 'report round {{REPORT_ROUND}} done - check green'" | other lanes: "tower note --lane {{LANE}} 'report round {{REPORT_ROUND}} done - ready to merge'"}} . End your message with a last line of {{lane A: "ALL DONE" | other lanes: "READY TO MERGE"}}, a space and r{{REPORT_ROUND}}, all inside double square brackets.
+Stay in this session: more may follow.
 
 ## Reviewer briefs
 

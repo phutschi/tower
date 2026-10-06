@@ -328,7 +328,7 @@ if section detect; then
   r=$(fixture_repo none)
   assert_eq "switches: defaults when neither file nor environment sets them" \
     "$(detect_in "$r" 'switches_line')" \
-    "TASK_REVIEW=on LANE_REVIEW=on PREFLIGHT=on STATIC_BASELINE=on PR=draft METHOD=tdd REVIEWER_KIND=other REVIEWER_MODEL= REVIEWER_BY_CREDITS=off REVIEWER_CREDITS_MIN=20 REVIEW_AREAS= SUITE_SKIP= PR_TEMPLATE="
+    "TASK_REVIEW=on LANE_REVIEW=off PREFLIGHT=on STATIC_BASELINE=on PR=draft METHOD=tdd REVIEWER_KIND=other REVIEWER_MODEL= REVIEWER_BY_CREDITS=off REVIEWER_CREDITS_MIN=20 REVIEW_AREAS= SUITE_SKIP= PR_TEMPLATE="
   r=$(fixture_repo contract-switches)
   assert_eq "switches: the file's values are used" \
     "$(detect_in "$r" 'switches_line')" \
@@ -403,8 +403,8 @@ if section bootstrap; then
   assert_eq "output: no test runner detected, said once" "$(printf '%s\n' "$out" | grep -c '^info: no test runner detected')" 1
   assert_nomatch "output: the note is on stderr, not stdout" "$(cd "$(fixture_repo pnpm-notest)" && "$KIT/bootstrap.sh" "$TMP/run-norunner2" "No runner" main 2>/dev/null)" '^info: no test runner detected'
   assert_match "output: the note says how to declare one" "$out" '^info: no test runner detected: the checks pane has nothing to run; declare  pane checks "<cmd>"  in \.orchestrate$'
-  assert_match "switches: pane map has every switch"    "$map" '^switches: +TASK_REVIEW=on LANE_REVIEW=on PREFLIGHT=on STATIC_BASELINE=on PR=draft METHOD=tdd REVIEWER_KIND=other REVIEWER_MODEL= REVIEWER_BY_CREDITS=off REVIEWER_CREDITS_MIN=20 REVIEW_AREAS= SUITE_SKIP= PR_TEMPLATE=$'
-  assert_match "switches: the record gets a tower note" "$(notes "$TMP/run-empty")" '^switches: TASK_REVIEW=on LANE_REVIEW=on .* PR_TEMPLATE=$'
+  assert_match "switches: pane map has every switch"    "$map" '^switches: +TASK_REVIEW=on LANE_REVIEW=off PREFLIGHT=on STATIC_BASELINE=on PR=draft METHOD=tdd REVIEWER_KIND=other REVIEWER_MODEL= REVIEWER_BY_CREDITS=off REVIEWER_CREDITS_MIN=20 REVIEW_AREAS= SUITE_SKIP= PR_TEMPLATE=$'
+  assert_match "switches: the record gets a tower note" "$(notes "$TMP/run-empty")" '^switches: TASK_REVIEW=on LANE_REVIEW=off .* PR_TEMPLATE=$'
   assert_match "switches: printed with the pane map"    "$out" '^switches: +TASK_REVIEW=on '
   assert_match "reviewer: pane map has kind and model"  "$map" '^reviewer: +kind codex, model gpt-6-astra$'
   assert_match "reviewer: the record gets a tower note" "$(notes "$TMP/run-empty")" '^reviewer: kind codex, model gpt-6-astra$'
@@ -1016,6 +1016,7 @@ if section add-reviewer; then
   assert_match "a fallback is printed"                "$out" '^reviewer: fallback: codex is not installed'
   assert_match "a slot other than R1 or R2 is refused" "$(review R3 claude "X" "$RUN/findings/x.json")" "slot must be R1 or R2 \(got 'R3'\)"
   assert_match "a bad lane kind is refused"            "$(review R1 gemini "X" "$RUN/findings/x.json")" "lane kind must be claude, codex or cursor \(got 'gemini'\)"
+  assert_match "a bad REVIEW_STAGE is refused"         "$(REVIEW_STAGE=final review R1 claude "X" "$RUN/findings/x.json")" "REVIEW_STAGE must be lane or preflight \(got 'final'\)"
   # A title is one field of one pane map line: a control character in it is
   # refused before the board, the map or an agent sees it.
   for c in "newline:$(printf 'two\nlines')" "tab:$(printf 'a\ttab')" "carriage return:$(printf 'a\rcr')"; do
@@ -1355,11 +1356,11 @@ if section user-contract; then
   out=$(EXECUTOR_KIND=codex boot "$r" "$RUN" "User" main)
   assert_eq "user contract: without one, the defaults file's value" "$(lane_a "$RUN")" "codex gpt-6-astra"
   assert_nomatch "user contract: a missing file is silent" "$out" 'tower/orchestrate'
-  uc EXECUTOR_KIND=codex LANE_REVIEW=off
+  uc EXECUTOR_KIND=codex LANE_REVIEW=on
   r=$(fixture_repo bun-vitest); RUN="$TMP/run-uc-kind"
   out=$(boot "$r" "$RUN" "User" main)
   assert_eq "user contract: its EXECUTOR_KIND makes the lanes codex" "$(lane_a "$RUN")" "codex gpt-6-astra"
-  assert_match "user contract: its run switch is in the switches: line" "$(cat "$RUN/panes.txt")" '^switches: .* LANE_REVIEW=off '
+  assert_match "user contract: its run switch is in the switches: line" "$(cat "$RUN/panes.txt")" '^switches: .* LANE_REVIEW=on '
   uc REVIEWER_MODEL_CODEX=rev-user
   r=$(fixture_repo bun-vitest); RUN="$TMP/run-uc-rev"
   out=$(boot "$r" "$RUN" "User" main)
@@ -1718,6 +1719,24 @@ SH
   assert_eq "guard on: ... and no probe runs" "$(cat "$CG/probes.log"; grep '^codex app-server' "$HERDR_STUB_LOG")" ""
   assert_eq "guard on, the lane's own kind absent: the skipped candidate reviews after all" "$(REVIEWER_BY_CREDITS=on CLAUDE_STUB=absent rev claude)" \
     "codex${T}gpt-6-astra${T}reviewer: skipped codex, 1% credits left; fallback: claude is not installed, so codex reviews despite its credits"
+  # A preflight slot: claude on Fable while its credits last, whatever the
+  # guard switch says; below them another kind, and with none, claude on Opus.
+  pre() { : > "$CG/probes.log"; CREDITS_FAKES="$CG/bin" HOME="$TMP/cg-home" in_kit ". \"\$KIT/executor.sh\"; preflight_reviewer $1"; }
+  assert_eq "preflight: claude with credits reviews on Fable, for any lane kind" "$(pre codex)" "claude${T}claude-fable-5-1${T}"
+  assert_match "preflight: ... after a probe, the guard switch off" "$(cat "$CG/probes.log")" '^security '
+  left claude 5; left codex 50
+  assert_eq "preflight: claude low, codex reviews on its Reviewer model" "$(pre claude)" "codex${T}gpt-6-astra${T}reviewer: skipped claude, 5% credits left"
+  left codex 9
+  assert_eq "preflight: claude and codex low, cursor reviews" "$(pre claude)" \
+    "cursor${T}grok-4.7-high-fast${T}reviewer: skipped claude, 5% credits left; reviewer: skipped codex, 9% credits left"
+  left cursor 3
+  assert_eq "preflight: every kind low, claude reviews on Opus" "$(pre claude)" \
+    "claude${T}claude-opus-5-5${T}reviewer: skipped claude, 5% credits left; reviewer: skipped codex, 9% credits left; reviewer: skipped cursor, 3% credits left; fallback: no other kind has credits, so claude reviews on claude-opus-5-5"
+  assert_eq "preflight: REVIEWER_KIND=claude is Fable" "$(REVIEWER_KIND=claude pre codex)" "claude${T}claude-fable-5-1${T}"
+  assert_eq "preflight: ... and no probe runs" "$(cat "$CG/probes.log")" ""
+  assert_eq "preflight: REVIEWER_MODEL replaces the model" "$(REVIEWER_MODEL=m pre claude | cut -f1,2)" "claude${T}m"
+  assert_eq "preflight: claude not installed, the lane order picks" "$(CLAUDE_STUB=absent pre claude | cut -f1,2)" "codex${T}gpt-6-astra"
+  left claude 50; left codex 1; left cursor 90
   # The switches: in the pane map, validated, and from the user contract.
   detect_in() { (cd "$1" && env XDG_CONFIG_HOME="$CG/xdg" bash -c "set -euo pipefail; . \"\$KIT/common.sh\"; . \"\$KIT/detect-stack.sh\"; $2" 2>&1); }
   r=$(fixture_repo bun-vitest)
@@ -1880,6 +1899,10 @@ if section watch; then
   assert_match "idle with only lane A's fix prompt in the tail, watched as round 2, is unexplained" "$out" '^attention: a idle-unexplained'
   echo idle > "$S/b"; fix_prompt B 's/\{\{lane A: "[^"]*" \| other lanes: "([^"]*)"\}\}/\1/g' > "$S/b.tail"; names_report "lane B fix prompt" "$S/b.tail"; out=$(watch b:2)
   assert_match "idle with only lane B's fix prompt in the tail, watched as round 2, is unexplained" "$out" '^attention: b idle-unexplained'
+  more_prompt() { sed -n '/^### More-work prompt/,/^Stay in this session/p' "$KIT/brief-template.md" \
+    | sed -E -e 's/\{\{REPORT_ROUND\}\}/2/g' -e "s/\{\{LANE\}\}/$1/g" -e "$2"; }
+  echo idle > "$S/b"; more_prompt B 's/\{\{lane A: "[^"]*" \| other lanes: "([^"]*)"\}\}/\1/g' > "$S/b.tail"; names_report "lane B more-work prompt" "$S/b.tail"; out=$(watch b:2)
+  assert_match "idle with only lane B's more-work prompt in the tail, watched as round 2, is unexplained" "$out" '^attention: b idle-unexplained'
   echo idle > "$S/r"; sed -n '/^## Who does what/,/^Look only/p' "$PREFLIGHT_DIR/SKILL.md" > "$S/r.tail"; names_report "preflight skill" "$S/r.tail"; out=$(watch r)
   assert_match "idle with only the preflight skill's Reviewer lines in the tail is unexplained" "$out" '^attention: r idle-unexplained'
   # Report rounds: after a fix prompt the orchestrator watches <agent>:<n>, and

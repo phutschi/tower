@@ -35,12 +35,13 @@
 #   suite lint "bun run lint" [DIR]     suite NAME "CMD" [DIR]: the full suite as named steps, in order
 # model-defaults' keys, each replacing the kit's default, with <KIND> one of
 # CLAUDE, CODEX, CURSOR: EXECUTOR_MODEL_<KIND>, REVIEWER_MODEL_<KIND>,
-# REVIEWER_MODEL_CLAUDE_SELF, SPEC_/QUALITY_REVIEWER_MODEL_<KIND> and
+# REVIEWER_MODEL_CLAUDE_SELF, PREFLIGHT_MODEL_CLAUDE, SPEC_/QUALITY_REVIEWER_MODEL_<KIND> and
 # REVIEWER_CREDITS_MIN;
 # plus PM, TYPECHECK_TASK, TEST_PKG and TEST_FILTER to steer the detection below,
 # and the run switches (default first; a value outside the list, or on more than
 # one line, is refused):
-#   TASK_REVIEW LANE_REVIEW PREFLIGHT STATIC_BASELINE   on | off
+#   TASK_REVIEW PREFLIGHT STATIC_BASELINE               on | off
+#   LANE_REVIEW                                          off | on
 #   PR                                                   draft | ready | off
 #   METHOD                                               tdd | plain
 #   REVIEWER_KIND                                        other | claude | codex | cursor
@@ -355,7 +356,7 @@ if [ -z "$(pane_index checks)" ]; then
 fi
 
 # --- the run switches --------------------------------------------------------
-TASK_REVIEW="${TASK_REVIEW:-on}"; LANE_REVIEW="${LANE_REVIEW:-on}"
+TASK_REVIEW="${TASK_REVIEW:-on}"; LANE_REVIEW="${LANE_REVIEW:-off}"
 PREFLIGHT="${PREFLIGHT:-on}";     STATIC_BASELINE="${STATIC_BASELINE:-on}"
 PR="${PR:-draft}"; METHOD="${METHOD:-tdd}"; REVIEWER_KIND="${REVIEWER_KIND:-other}"
 REVIEWER_MODEL="${REVIEWER_MODEL:-}"; REVIEW_AREAS="${REVIEW_AREAS:-}"

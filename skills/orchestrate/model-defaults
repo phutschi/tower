@@ -16,6 +16,10 @@ REVIEWER_MODEL_CODEX=gpt-6-astra
 REVIEWER_MODEL_CURSOR=grok-4.7-high-fast
 REVIEWER_MODEL_CLAUDE_SELF=claude-fable-5-1
 
+# A preflight slot's model when claude reviews there (add-reviewer.sh
+# REVIEW_STAGE=preflight): the strongest one, for the one whole-branch review.
+PREFLIGHT_MODEL_CLAUDE=claude-fable-5-1
+
 # The spec and quality reviewer models tower records for a run, per the run's
 # executor kind: the ones a lane's per-task reviews use.
 SPEC_REVIEWER_MODEL_CLAUDE=sonnet

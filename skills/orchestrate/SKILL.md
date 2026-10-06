@@ -6,10 +6,10 @@ description: 'Use when asked to implement a plan or a piece of work with separat
 # Orchestrating a run
 
 You are the orchestrator. You open the run, own the task list, brief each
-lane, watch, have every lane reviewed, merge, run preflight, open the PR,
-and close. **You never implement, and you never report on a lane's
-behalf.** The kit lives in this directory; every script's header is its
-manual. Vocabulary: `CONTEXT.md` at the plugin root (`../../CONTEXT.md`). Read
+lane, watch, merge each lane as it is ready, keep every lane busy, run
+preflight, send its fixes back to the lanes, open the PR, and close. **You
+never implement, and you never report on a lane's behalf.** The kit lives in
+this directory; every script's header is its manual. Vocabulary: `CONTEXT.md` at the plugin root (`../../CONTEXT.md`). Read
 `bootstrap.sh`'s header before the first command.
 
 tower is the record and the console: its board and transcript are the only
@@ -108,10 +108,14 @@ and do it in a lane anyway or suggest doing it without the kit.
    board, so run it again once the board has an open task (a review or fix
    task you add). A lane reporting ready (`ready to merge`, or lane A's
    `ALL DONE` after its last task) → verify its check gate and commits, then
-   its lane review (step 8; `LANE_REVIEW=off`: step 9). A Reviewer's
+   merge it and keep it busy (step 9; `LANE_REVIEW=on`: its lane review,
+   step 8, first). A lane idle after its note `waiting for task <M>` → the
+   merge-point wait in step 9. A Reviewer's
    `FINDINGS WRITTEN` → triage it (see "Triage"), and start the review of a
    lane waiting for a free slot.
-8. **Lane review.** Every lane, lane A included. Start it with
+8. **Lane review**, only with `LANE_REVIEW=on` (default off: the per-task
+   reviews and preflight cover it, and a lane waiting for a Reviewer is
+   idle). Every lane, lane A included. Start it with
    ```
    <kit>/add-reviewer.sh <run-dir> <R1|R2> <lane-kind> "Lane review <X>, round <n>" <run-dir>/findings/lane-<X>-<n>.json <X>
    ```
@@ -134,10 +138,38 @@ and do it in a lane anyway or suggest doing it without the kit.
    the lane reports round `<n>`, lane review round `<n>` follows with a
    fresh Reviewer: the two rounds share their number. The review is clean
    when no finding triaged fix is left → step 9.
-9. **Merge the lane** into the integration branch, note it
-   (`tower note --lane <X> 'merged into <branch>'`), and tell lane A if it
-   was waiting. Lane A is the integration branch: its clean review is its
-   merge.
+9. **Merge the lane** into the integration branch right away, note it
+   (`tower note --lane <X> 'merged into <branch>'`), and prompt every lane
+   waiting on it. Lane A is the integration branch: its ready report (with
+   `LANE_REVIEW=on`, its clean review) is its merge.
+
+   **Merge points.** A lane whose next task needs work another lane has not
+   finished does the tasks it can first, then notes
+   `tower note --lane <X> 'waiting for task <M>'` and stops. Not a block: a
+   blocked task would end every `tower wait` at once for as long as it
+   waits. Re-run `watch-lanes.sh` without that lane, and run in the
+   background, like the watch, until `<M>` is done on the board:
+
+   ```
+   until tower state --json | python3 -c 'import json,sys; sys.exit(0 if any(t["id"]=="<M>" and t.get("status")=="done" for t in json.load(sys.stdin)["tasks"]) else 1)'; do sleep 15; done
+   ```
+
+   then prompt the waiting lane: "Task <M> is done on <branch>: merge it and
+   go on with task <id>." A re-brief: it keeps the lane's report round. Add
+   the lane back to `watch-lanes.sh`.
+
+   **Keep every lane busy.** An idle lane is lost time. Once a lane is
+   merged (lane A: once it reports `ALL DONE`) and another lane still has
+   tasks nobody started (pending on the board), move some to it: from the
+   lane with the most pending tasks, from the end of its list, only tasks
+   whose dependencies are done or merged and whose files no open task of
+   another lane touches. Move them with `tower assign <X> <X's ids>,<moved ids>`
+   (the other lane loses them), tell that lane in one re-brief line ("Tasks
+   <ids> moved to lane <X>; skip them."), and send the freed lane a more-work
+   prompt (`brief-template.md`), which starts its next report round: watch
+   it as `<agent>:<n>`. Its ready report is merged like the first. Nothing
+   fits: the lane waits for preflight's fixes.
+
 10. **Merge `origin/main`.** After the last lane: `git fetch origin`, then
     `git merge origin/main` in lane A's checkout, and run the check gate.
 11. **Preflight**, in rounds `<n>` from 1, as the `preflight` skill defines
@@ -156,10 +188,13 @@ and do it in a lane anyway or suggest doing it without the kit.
     <kit>/add-reviewer.sh <run-dir> R2 <kind> "Preflight R2, round <n>" <run-dir>/findings/preflight/<n>/R2.json
     ```
 
-    `<kind>` is a lane kind, to which the script applies the Reviewer
-    order: in a single-kind run the lanes' kind, for both; in a mixed run
-    `claude` for R1 and `codex` for R2, so a codex and a claude Reviewer
-    review. Brief each with the preflight slot brief (`brief-template.md`):
+    Prefix both calls with `REVIEW_STAGE=preflight`: preflight is the one
+    review of the whole branch, so its Reviewers run on the strongest model,
+    claude on `PREFLIGHT_MODEL_CLAUDE` (Fable). Below `REVIEWER_CREDITS_MIN`
+    % of claude credits, the script picks codex or cursor on its Reviewer
+    model, and with neither, claude on `REVIEWER_MODEL_CLAUDE` (Opus); it
+    notes the skip. `<kind>` is lane A's kind (the order without claude).
+    Brief each with the preflight slot brief (`brief-template.md`):
     - R1: `look.sh` (static baseline and full suite), `spec` against the
       whole plan and its spec issue, `between-lanes`. Only R1 runs
       `look.sh`.
@@ -191,9 +226,15 @@ and do it in a lane anyway or suggest doing it without the kit.
     `<run-dir>/findings/preflight/<n>/*.json`; in round 1 also on the
     deferred lane-review findings: those in `<run-dir>/findings/lane-*.json`
     without an `outcome`. One triage table, one reply from the user. Fixes
-    become lane A tasks, sent in one fix prompt that starts lane A's next
-    report round, counting on from its last one (step 8): watch lane A as
-    `<agent>:<that round>`. After them, round `<n+1>` (step 11) on the whole
+    go back to the lanes, all at once: each fix is a task of the lane that
+    wrote the cited code (`git blame` against the run base; code no lane
+    wrote: lane A), grouped by file so no two lanes touch one file (a file
+    with fixes for two lanes goes to one of them). Each lane with fixes gets
+    one fix prompt that starts its next report round, counting on from its
+    last one (step 8): watch it as `<agent>:<that round>`. A lane other than
+    A merges the integration branch first (the fix prompt says so); merge
+    each ready lane back (step 9) as it reports. After the last, round
+    `<n+1>` (step 11) on the whole
     branch: R1 reruns `look.sh` and reviews the fix commits
     (`git diff <HEAD before the fixes>..HEAD`) against the findings they fix,
     whatever their area; the areas are the ones round `<n>` skipped (a red
@@ -230,7 +271,7 @@ call.
 | Switch                 | Default | What it changes                                                                    |
 | ---------------------- | ------- | ---------------------------------------------------------------------------------- |
 | `TASK_REVIEW`          | on      | off: briefs drop the per-task review tail                                          |
-| `LANE_REVIEW`          | on      | off: a ready lane is merged without step 8                                         |
+| `LANE_REVIEW`          | off     | on: a ready lane gets step 8, a Reviewer, before its merge                         |
 | `PREFLIGHT`            | on      | off: step 11 is skipped; act has only the deferred lane-review findings            |
 | `STATIC_BASELINE`      | on      | off: `look.sh` skips semgrep and gitleaks                                          |
 | `PR`                   | draft   | ready: a PR ready for review; off: no push, no PR                                  |
@@ -294,7 +335,7 @@ is still working. The next `FINDINGS WRITTEN` frees a slot.
   `tower add|change|remove`; the brief says so.
 - Only the executor reports its own tasks (`tower task|block|note`).
 - `tower note` is your voice on the board: merges, escalations, decisions.
-- Merging a reviewed lane is your job, right away, not lane A's.
+- Merging a ready lane is your job, right away, not lane A's.
 - Executors and Reviewers never push and never open a PR (ADR 0010). You
   push and open the PR after the user's reply to the triage table; until
   then everything stays on this machine.
@@ -314,14 +355,15 @@ is still working. The next `FINDINGS WRITTEN` frees a slot.
 | Drip-feeding one task per prompt                                 | One brief per lane with all its tasks; "do not stop between tasks" is in the template                     |
 | Briefing with the plan alone                                     | Brief = template judgement + derived part; method, other lanes, merge points, reporting                   |
 | Letting a lane `tower add`                                       | The boundary sentence stays in every brief; a discovered task goes through you                            |
-| Waiting for lane A to merge lane B                               | You merge B into the integration branch after its lane review                                             |
+| Waiting for lane A to merge lane B                               | You merge B into the integration branch as soon as it reports ready                                       |
 | Sleeping and re-reading panes                                    | The two watches in `run_in_background`; act only when one exits                                           |
 | Closing panes during teardown                                    | Nothing closes until the user says so; the console never                                                  |
 | A second run in a repo with an open one                          | tower refuses; `tower close` the old one first                                                            |
 | Briefing a codex lane with subagent review instructions          | Codex has no subagents; it reviews its own diff with the code-review skill                                |
 | Briefing a cursor lane with self-review, or with claude's models | cursor has subagents: review subagents on cursor's reviewer models (`brief-template.md`, "Executor kind") |
 | Answering a cursor lane's trust box                              | Never send it keys: the kit starts cursor with `--trust`; a trust box means check the pane                |
-| Merging a lane the moment it reports ready                       | Lane review first (unless `LANE_REVIEW=off`)                                                              |
+| Leaving a merged lane idle while others have pending tasks       | Move tasks to it (step 9, "Keep every lane busy")                                                         |
+| Telling a lane to poll for a merge point                         | It notes and stops; you wait for the task in the background and prompt it (step 9)                        |
 | Asking the user about each lane-review finding                   | Triage alone; deferred findings wait for the one preflight table                                          |
 | Reusing a Reviewer for a second review                           | `add-reviewer.sh` again: every review gets a fresh agent                                                  |
 | One findings file for every round of a lane                      | `lane-<X>-<n>.json`: a new round never overwrites deferred findings                                       |

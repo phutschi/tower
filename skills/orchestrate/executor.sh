@@ -44,7 +44,8 @@
 # start_agent_with_trust_retry NAME PANE (it returns once the agent accepts
 # input; one that exits right after its start is started once more, then the
 # start fails), kind_installed KIND and
-# reviewer_for LANE_KIND [LANE_MODEL] (the Reviewer's kind and model; see below).
+# reviewer_for LANE_KIND [LANE_MODEL] (the Reviewer's kind and model; see below),
+# preflight_reviewer LANE_KIND [LANE_MODEL] (the same, for a preflight slot).
 # START_TRIES (default 10) is how often an agent start is tried, a second apart,
 # while herdr answers agent_pane_busy (a new pane's shell is not ready yet).
 # START_SETTLE_SECONDS (default 3) is how long a started agent is given before
@@ -401,4 +402,50 @@ reviewer_for() {
   esac
   model="${REVIEWER_MODEL:-$model}"
   printf '%s\t%s\t%s\n' "$kind" "$model" "$note"
+}
+
+# Who reviews in a preflight slot (add-reviewer.sh REVIEW_STAGE=preflight).
+# Prints reviewer_for's line. Preflight is the one whole-branch review, so it
+# runs on the strongest model: claude on PREFLIGHT_MODEL_CLAUDE. claude's
+# credits are always probed here, whatever REVIEWER_BY_CREDITS says: below
+# REVIEWER_CREDITS_MIN % the first other installed kind with enough credits
+# reviews on its REVIEWER_MODEL_<kind> (codex, then cursor), and with none,
+# claude on REVIEWER_MODEL_CLAUDE. The notes are reviewer_for's. Without claude
+# installed, reviewer_for picks for LANE_KIND. REVIEWER_KIND=claude forces
+# claude on PREFLIGHT_MODEL_CLAUDE, unprobed; another forced kind is
+# reviewer_for's. REVIEWER_MODEL replaces the model either way.
+preflight_reviewer() {
+  local lane="$1" lane_model="${2:-}" c left min note="" model
+  kind_known "$lane" || die "lane kind must be $(kinds_say) (got '$lane')"
+  case "${REVIEWER_KIND:-other}" in
+    claude)
+      kind_installed claude || die "REVIEWER_KIND=claude, but claude is not installed"
+      model=$(model_default PREFLIGHT_MODEL_CLAUDE) || exit 1
+      printf '%s\t%s\t\n' claude "${REVIEWER_MODEL:-$model}"; return ;;
+    other) kind_installed claude || { reviewer_for "$lane" "$lane_model"; return; } ;;
+    *) reviewer_for "$lane" "$lane_model"; return ;;
+  esac
+  . "$KIT/credits.sh"
+  min=${REVIEWER_CREDITS_MIN:-}
+  [ -n "$min" ] || min=$(model_default REVIEWER_CREDITS_MIN) || exit 1
+  credits_min_ok "$min" || credits_min_refused "$min"
+  left=$(credits_left claude)
+  if [ -z "$left" ]; then
+    note="reviewer: claude credits unreadable, counted as enough"
+  elif [ "$left" -lt "$min" ]; then
+    note="reviewer: skipped claude, $left% credits left"
+    for c in codex cursor; do
+      kind_installed "$c" || continue
+      left=$(credits_left "$c")
+      if [ -z "$left" ]; then note="$note; reviewer: $c credits unreadable, counted as enough"
+      elif [ "$left" -lt "$min" ]; then note="$note; reviewer: skipped $c, $left% credits left"; continue; fi
+      model=$(kind_default REVIEWER_MODEL "$c") || exit 1
+      printf '%s\t%s\t%s\n' "$c" "${REVIEWER_MODEL:-$model}" "$note"; return
+    done
+    model=$(model_default REVIEWER_MODEL_CLAUDE) || exit 1
+    printf '%s\t%s\t%s\n' claude "${REVIEWER_MODEL:-$model}" "$note; fallback: no other kind has credits, so claude reviews on $model"
+    return
+  fi
+  model=$(model_default PREFLIGHT_MODEL_CLAUDE) || exit 1
+  printf '%s\t%s\t%s\n' claude "${REVIEWER_MODEL:-$model}" "$note"
 }
