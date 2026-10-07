@@ -57,12 +57,12 @@ ways, then the skills. You never need Bun to use tower.
 
 **A release binary** (macOS and Linux, arm64 or x64, no runtime needed). Each
 release carries `tower-<os>-<arch>` and a `SHA256SUMS` to check it against;
-take v0.4.0 or the latest. Set `bin` to yours (`tower-darwin-arm64`,
+take v0.5.0 or the latest. Set `bin` to yours (`tower-darwin-arm64`,
 `tower-darwin-x64`, `tower-linux-x64` or `tower-linux-arm64`); the binary is
 installed only if its checksum matches:
 
 ```sh
-v=v0.4.0; bin=tower-darwin-arm64
+v=v0.5.0; bin=tower-darwin-arm64
 curl -fLO https://github.com/phutschi/tower/releases/download/$v/$bin
 curl -fLO https://github.com/phutschi/tower/releases/download/$v/SHA256SUMS
 shasum -a 256 -c --ignore-missing SHA256SUMS &&

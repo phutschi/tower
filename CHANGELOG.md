@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-10-07
+
+### Added
+
+- A Cursor plugin manifest and marketplace (`.cursor-plugin/`) ship beside
+  the claude one: in Cursor, add the marketplace from GitHub and enable
+  **tower**.
+
 ### Changed
 
 - Lane review is off by default (`LANE_REVIEW=off`). The orchestrator merges
@@ -181,7 +189,8 @@ tower's first run was its own build.
 - Themes as JSON with `theme rules|new|check|preview`.
 - The orchestrator skill (`skills/run/SKILL.md`), experimental.
 
-[Unreleased]: https://github.com/phutschi/tower/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/phutschi/tower/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/phutschi/tower/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/phutschi/tower/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/phutschi/tower/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/phutschi/tower/compare/v0.1.0...v0.2.0

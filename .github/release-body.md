@@ -1,26 +1,14 @@
-## [0.4.0] — 2026-10-01
+## [0.5.0] — 2026-10-07
 
 ### Added
 
-- The orchestrate kit runs lanes and Reviewers in Cursor's CLI (`cursor-agent`, `EXECUTOR_KIND=cursor`, `REVIEWER_KIND=cursor`). The default model is `grok-4.7-high-fast`. A cursor agent starts trusted, without approvals or self-update, and may write the run dir and the common git dir. A run can mix claude, codex and cursor lanes. The Reviewer is the first installed of an ordered list: codex for a claude lane, claude for a codex lane, claude then codex for a cursor lane.
-- Model defaults are data: `skills/orchestrate/model-defaults`, keyed per kind (`EXECUTOR_MODEL_<KIND>`, `REVIEWER_MODEL_<KIND>`, ...). A user contract, `~/.config/tower/orchestrate`, sets one person's run defaults for every repo; the repo contract and the call's environment win over it (ADR 0012).
-- An opt-in credit guard (`REVIEWER_BY_CREDITS=on`, threshold `REVIEWER_CREDITS_MIN`, default 20%) skips a Reviewer kind nearly out of quota, read through undocumented endpoints and failing open, and notes each skip in the record (ADR 0013). It never leaves a lane unreviewed: with every candidate skipped, the lane's own kind reviews, or, with that not installed, the first candidate skipped.
-- `tower ids <ids>` prints the ids a spec expands to, one per line, as `tower assign` would record them, and refuses an id the run lacks. It records nothing. Additive: a minor version.
-- The console honours `NO_COLOR`: a non-empty value draws no colour; bold stays.
+- A Cursor plugin manifest and marketplace (`.cursor-plugin/`) ship beside the claude one: in Cursor, add the marketplace from GitHub and enable **tower**.
 
 ### Changed
 
-- An airborne row's title keeps at least 20 columns on an 80-column board; the tail (elapsed, phase, note) is cut instead.
-- The README is rewritten for a newcomer and leads with the orchestrator; the CLI reference moves to `docs/cli.md`.
-- preflight's `look.sh` refuses a repo contract (`.orchestrate`) that is untracked, differs from HEAD or is a symlink, as a setup error naming the file: it is bash look runs, and a Reviewer sees only what is committed.
-- preflight's `look.sh` looks at HEAD in a temp worktree of its own (`git worktree add --detach`, removed on every exit) under `$XDG_STATE_HOME/tower/look`, which no lane may write and only a codex Reviewer is granted (after `look.sh --dir`, the same check look makes); look's verdict files live there too, never in TMPDIR, and its verdict code is `look.py` beside it rather than a here-doc: it reads the kit, the repo contract and package.json there, installs with `INSTALL_CMD` there, and runs the scanners and the suite there. Untracked files, index bits and dirty kit files in the checkout no longer reach the look. What the suite changes is now a `should-fix` suite finding in `look.json`, and the checkout is never touched.
-- `add-lane.sh`'s rerun check reads task ids with `tower ids` instead of its own parser, so an id tower refuses is refused in tower's words.
-- `add-lane.sh` resumes a lane whose pane move failed after the worktree was created: the pane is in the pane map as `unplaced lane <X>:`, and a rerun moves it instead of creating the worktree again. The install now runs before the move.
-- `tower wait` no longer needs `--timeout`. Without it, it waits until attention, completion or close and exits 0 with the reasons; it exits 3 only when a timeout was given and passed, and 2 when the run dir disappears during a wait without a timeout. Additive: a minor version.
-- The orchestrate kit's watches wait without a time limit: `bootstrap.sh` prints `tower wait` without `--timeout`, and `watch-lanes.sh` stops after a time limit only when `ROUND_SECONDS` sets one (a whole number of seconds; anything else is refused).
-- `watch-lanes.sh` no longer reads a failing herdr call as the agent gone: gone is herdr's `agent_not_found` only. Any other failure is `unreadable`, counted as working, and attention (`attention: <agent> unreadable`) only after `UNREADABLE_POLLS` polls in a row (default 12, three minutes at the default `POLL_SECONDS`).
-- `/tower:spec-to-plan` saves plans to `$TOWER_PLANS_DIR/<repo>_<branch>/plan.md`, by default under `${XDG_STATE_HOME:-$HOME/.local/state}/tower/plans`, instead of one user's notes vault.
-- The orchestrate kit reports an agent ready only once it accepts input (herdr's `interactive_ready`): after a start it waits `START_SETTLE_SECONDS` (default 3), then reads the agent about once a second, `READY_WAIT_SECONDS` times (default 30). One that exits right after its start is started once more; one that never accepts input fails the call and is left running in its pane. codex agents start with their startup update check off.
-- `add-reviewer.sh` writes the slot's reviewer line before the start, ending in ` starting` until the Reviewer accepts input; a rerun after a failed start resumes that review under the same agent and task, waiting, as a start does, for a Reviewer that does not accept input yet. A codex Reviewer gets `<run-dir>/tmp` as `TMPDIR`, `BUN_TMPDIR`, `BUN_INSTALL_CACHE_DIR` and `npm_config_cache`. A review title with a tab, a newline or another control character is refused before anything is written.
-- `add-lane.sh` writes the lane's line before its agent starts, ending in ` starting` until the agent accepts input. A rerun of a starting lane takes an agent left running once it accepts input, starts one herdr no longer finds again, and otherwise says to answer or end it.
-- A codex lane in a worktree may write only `objects`, `refs`, `logs`, `packed-refs` and its own `worktrees/<lane>` in the common git dir, no longer its hooks or config. Lane A and Reviewers, in the main checkout, keep the whole common git dir (docs/orchestrate.md says what that exposes).
+- Lane review is off by default (`LANE_REVIEW=off`). The orchestrator merges a lane as soon as it reports ready; the per-task reviews and preflight cover what the lane review did. `LANE_REVIEW=on` brings it back.
+- The orchestrator keeps lanes busy: a merged lane takes over tasks nobody started from the busiest lane (`tower assign`, a more-work prompt).
+- A lane at a merge point no longer polls every 3 minutes: it does its other tasks, notes what it waits for and stops, and the orchestrator prompts it once the task it needs is done.
+- A lane's two per-task review subagents run in parallel.
+- Preflight's Reviewers run on claude-fable-5-1 (`PREFLIGHT_MODEL_CLAUDE`, `add-reviewer.sh` `REVIEW_STAGE=preflight`). Below `REVIEWER_CREDITS_MIN` % claude credits, codex or cursor review on their Reviewer models, and with neither, claude on claude-opus-5-5.
+- Preflight's fixes go back, in parallel, to the lanes that wrote the code, not all to lane A.
