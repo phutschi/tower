@@ -32,7 +32,7 @@
 # after shows no attention (a blocked lane that was answered). A closed run is
 # attention too (`tower: run closed`), and so is a complete board once no watched agent
 # is working (`tower: run complete`): a complete board alone is not, since a
-# lane's final review, preflight and the PR come after its last task.
+# lane's check gate and report, preflight and the PR come after its last task.
 #
 # Idle is ambiguous: a lane that was just prompted, or is waiting on its own
 # review subagent, reads idle for a moment. So idle counts only after
@@ -102,8 +102,8 @@ reason_for() {  # $1 name, $2 state, $3 round
 board()    { tower state --json --run "$RUN_DIR" 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); print("closed" if d["closed"] else "complete" if d["summary"]["complete"] else "open")' 2>/dev/null; }
 # $1: 1 while any watched agent is still working, and an idle one that has not
 # settled counts as working. $2: the board, read here when not given. A
-# complete board is not the end while an agent works on (its final review,
-# preflight, the PR); closed is.
+# complete board is not the end while an agent works on (its check gate and
+# report, preflight, the PR); closed is.
 finished() {
   local b; if [ $# -ge 2 ]; then b=$2; else b=$(board); fi
   case "$b" in
