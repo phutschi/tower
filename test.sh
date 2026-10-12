@@ -2790,6 +2790,12 @@ for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'],
   printf '%s\n' 1 two 3 4 5 "x  # $m: no cache, past 10 calls" 7 8 > "$r/f.sh"; git -C "$r" commit -qam edit
   out=$(look "$r" mid "$F"); v=$(verdict "$F/look.json")
   assert_match "look: diff.interHunkContext does not move a Shortcut's line" "$v" '^shortcuts pass 1 shortcuts, 0 with no trigger \| f\.sh:6$'
+  out=$(GIT_DIFF_OPTS=-u5 look "$r" mid "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: ... nor does GIT_DIFF_OPTS" "$v" '^shortcuts pass 1 shortcuts, 0 with no trigger \| f\.sh:6$'
+  # A text file git is told to treat as binary still shows its added lines.
+  git -C "$r" config core.bigFileThreshold 1
+  out=$(look "$r" mid "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: a file core.bigFileThreshold calls binary: its Shortcut is still listed" "$v" '^shortcuts pass 1 shortcuts, 0 with no trigger \| f\.sh:6$'
   r=$(look_repo none no-shortcuts); out=$(look "$r" base "$F"); v=$(verdict "$F/look.json")
   assert_match "look: a branch with no Shortcuts: a pass row" "$v" '^shortcuts pass 0 shortcuts, 0 with no trigger \| $'
   export XDG_STATE_HOME=$SAVED_XDG_STATE_HOME; unset SAVED_XDG_STATE_HOME LOOK_ROOT
