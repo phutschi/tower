@@ -97,13 +97,13 @@ elif mode == "shortcuts":
     # Appends the shortcuts verdict row (step, status, note, detail) to the
     # verdict file; stdout: a watchpoint finding per one that names no trigger.
     import codecs, re
-    marker = re.compile(r"(?:#|//|/\*|--|;)\s*((?:shortcut|ponytail):\s*(.*))")
+    marker = re.compile(r"(?:#|//|\*|--|;)\s*((?:shortcut|ponytail):\s*(.*))")  # \*: /* and a block's continuation
     path, line, hits, untriggered, in_hunk = None, 0, [], 0, False
     for l in sys.stdin.buffer.read().decode("utf-8", "replace").split("\n"):
         if l.startswith("diff --git "):
             in_hunk = False
         elif l.startswith("+++ ") and not in_hunk:  # in a hunk it is an added line
-            path = l[4:]
+            path = l[4:].rstrip("\t")  # git ends a name with a space with a tab
             if path.startswith('"'):  # git quotes a name with a quote, backslash or control char
                 path = codecs.escape_decode(path[1:-1])[0].decode("utf-8", "replace")
             path = path[2:] if path.startswith("b/") else None  # None: /dev/null

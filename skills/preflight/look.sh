@@ -69,7 +69,7 @@
 #             skip row when there are none
 #   shortcuts every Shortcut the lines the branch added hold: a `shortcut:`
 #             (or the older `ponytail:`) after a comment prefix (#, //, /*,
-#             --, ;), listed as file:line in the row's detail; whatever
+#             a block comment's *, --, ;), listed as file:line in the row's detail; whatever
 #             STATIC_BASELINE says. pass, or warn when one names no trigger
 #             (no ", " and text after its limit): that one is also a
 #             watchpoint finding (area shortcuts), never a failure
@@ -358,8 +358,9 @@ fi
 
 # The Shortcuts the branch added, whatever STATIC_BASELINE says: only the lines
 # it added (-U0), renames as renames, so a Shortcut already on the base is not
-# listed; the diff as git stores it (no textconv, no external diff).
-git -c core.quotepath=off diff -U0 -M --no-color --no-ext-diff --no-textconv "$MERGE_BASE" HEAD \
+# listed; the diff as git stores it (no textconv, no external diff), with the
+# a/ b/ prefixes look.py reads whatever diff.noprefix says.
+git -c core.quotepath=off diff -U0 -M --no-color --no-ext-diff --no-textconv --src-prefix=a/ --dst-prefix=b/ "$MERGE_BASE" HEAD \
   > "$WORK/added.diff" || die "look: git diff failed in look's temp worktree"
 py shortcuts "$VERDICT" < "$WORK/added.diff" >> "$FINDINGS"
 

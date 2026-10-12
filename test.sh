@@ -2347,7 +2347,7 @@ if section look; then
   # One line per finding in a look.json: "area severity file:line title | evidence".
   findings() { python3 -c "import json,sys
 for f in json.load(open(sys.argv[1]))['findings']: print('%s %s %s:%s %s | %s' % (f['area'], f['severity'], f['file'], f['line'], f['title'], f['evidence']))" "$1"; }
-  # One line per verdict row: "step status note".
+  # One line per verdict row: "step status note[ | detail]".
   verdict() { python3 -c "import json,sys
 for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'], v['status'], v['note']) + (' | ' + v['detail'] if 'detail' in v else ''))" "$1"; }
   look() { (cd "$1" && shift && "$PREFLIGHT_DIR/look.sh" "$@" 2>&1; echo "exit=$?"); }
@@ -2778,6 +2778,12 @@ for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'],
   assert_match "look: ... and the look stays green" "$out" 'exit=0$'
   out=$(STATIC_BASELINE=off look "$r" mid "$F"); v=$(verdict "$F/look.json")
   assert_match "look: STATIC_BASELINE=off still lists the Shortcuts" "$v" '^shortcuts warn 3 shortcuts, 1 with no trigger '
+  # A doc comment's continuation line, a name with a space (git ends its +++
+  # line with a tab), and a user's diff.noprefix: still found, by its name.
+  r=$(look_repo none shortcuts-odd); git -C "$r" config diff.noprefix true
+  printf '/**\n * %s: one lock, past 2 writers\n */\n' "$m" > "$r/e f.ts"; git -C "$r" add -A; git -C "$r" commit -qm doc
+  out=$(look "$r" base "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: a Shortcut in a doc comment, in a file with a space, under diff.noprefix" "$v" '^shortcuts pass 1 shortcuts, 0 with no trigger \| e f\.ts:2$'
   r=$(look_repo none no-shortcuts); out=$(look "$r" base "$F"); v=$(verdict "$F/look.json")
   assert_match "look: a branch with no Shortcuts: a pass row" "$v" '^shortcuts pass 0 shortcuts, 0 with no trigger \| $'
   export XDG_STATE_HOME=$SAVED_XDG_STATE_HOME; unset SAVED_XDG_STATE_HOME LOOK_ROOT
