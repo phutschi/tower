@@ -4,6 +4,7 @@
  * herdr-orchestrate repo) is left behind.
  */
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
@@ -293,4 +294,55 @@ test("spec-to-plan saves plans under TOWER_PLANS_DIR, outside the repo", () => {
   const skill = read("skills/spec-to-plan/SKILL.md");
   expect(skill).toContain("$TOWER_PLANS_DIR/<repo>_<branch>/plan.md");
   expect(skill).toContain("${XDG_STATE_HOME:-$HOME/.local/state}/tower/plans");
+});
+
+// The kit's copies of upstream texts: each opens with its MIT notice, its
+// source and an "In a tower run" preface, then the upstream body verbatim
+// (frontmatter dropped), pinned by its SHA-256. None is a skill.
+const ponytail = "https://github.com/DietrichGebert/ponytail";
+const kitCopy = (
+  path: string,
+  heading: string,
+  notice: string,
+  url: string,
+) => {
+  expect(path).not.toMatch(/SKILL\.md$/);
+  const text = read(path);
+  const at = text.indexOf(`\n${heading}\n`);
+  expect(at).toBeGreaterThan(0);
+  const preface = text.slice(0, at);
+  expect(preface).toContain(notice);
+  expect(preface).toContain("MIT License");
+  expect(preface).toContain(url);
+  expect(preface).toContain("In a tower run");
+  const body = text.slice(at + 1);
+  const sha = createHash("sha256").update(body).digest("hex");
+  return { preface, sha };
+};
+
+test("lanes read the lean ladder before each task", () => {
+  const { preface, sha } = kitCopy(
+    "skills/orchestrate/lean.md",
+    "# Ponytail",
+    "Copyright (c) 2026 DietrichGebert",
+    ponytail,
+  );
+  expect(sha).toBe(
+    "44ea9e95bc84ce354242e4414658289e1a7568c030f0e00ae58695be74e02ab1",
+  );
+  expect(preface).toMatch(/level is full/i);
+  expect(preface).toContain("Levels table");
+  expect(preface).toContain("ADR 0008");
+  expect(preface).toMatch(/METHOD=tdd[^.]*tdd skill decides the tests/);
+  expect(preface).toMatch(/METHOD=plain[^.]*ladder's own test rule/);
+
+  const brief = read("skills/orchestrate/brief-template.md");
+  const method = brief.match(/^METHOD: .*$/m)?.[0] ?? "";
+  expect(method).toMatch(
+    /^METHOD: \{\{e\.g\. "Before each task read \{\{KIT\}\}\/lean\.md/,
+  );
+  expect(brief).toMatch(
+    /`METHOD=plain`: METHOD keeps "Before each task read \{\{KIT\}\}\/lean\.md/,
+  );
+  expect(read("docs/orchestrate.md")).toMatch(/lean ladder[^.]*lean\.md/);
 });

@@ -146,8 +146,11 @@ Nothing is closed until you say so.
 
 ## Reviews, preflight and the PR
 
-A run ends in a pull request, a draft by default (the `PR` switch). Every
-task is reviewed inside its lane: tdd, then a spec review subagent and a
+A run ends in a pull request, a draft by default (the `PR` switch). Before
+each task, every lane, of any kind, reads the lean ladder
+(`skills/orchestrate/lean.md`, from Ponytail) and writes the smallest
+complete change; with `METHOD=tdd` the tdd skill still decides the tests.
+Every task is reviewed inside its lane: tdd, then a spec review subagent and a
 quality review subagent run in parallel. The whole branch is reviewed once,
 by preflight on the strongest model. In this order:
 
