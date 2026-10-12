@@ -35,6 +35,8 @@ frontmatter dropped.
 - The level is full, always. The "Active for the whole session" sentence and
   the Levels table do not apply in a run: a lane never pushes back on its
   tasks (ADR 0008); it reports missing work with `tower block`.
+- The closing lines on what you skipped and the risk go before the last line
+  the brief or prompt names, which stays last.
 - With METHOD=tdd the tdd skill decides the tests; the ladder removes none.
   With METHOD=plain the ladder's own test rule applies.
 
