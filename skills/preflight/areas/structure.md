@@ -39,8 +39,7 @@ dropped.
   lines, then names the remedy (from "Preferred Remedies") and the files it
   would touch, which triage needs to choose fix or follow-up.
 - Severity: the presumptive blockers under "Approval Bar" are `must-fix`;
-  everything else under "What to Flag Aggressively" is `should-fix`, except
-  "Temporary" branching likely to become permanent debt, a `watchpoint`.
+  everything else under "What to Flag Aggressively" is `should-fix`.
 - The verdict row's `detail`: each changed file's length against 1000 lines,
   the branches the diff adds, the boundaries it crosses, and the
   simplifications weighed.
