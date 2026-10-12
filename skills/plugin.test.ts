@@ -297,25 +297,21 @@ test("spec-to-plan saves plans under TOWER_PLANS_DIR, outside the repo", () => {
 });
 
 // The kit's copies of upstream texts: each opens with its MIT notice, its
-// source and an "In a tower run" preface, then the upstream body verbatim
-// (frontmatter dropped), pinned by its SHA-256. None is a skill.
+// source and an "In a tower run" preface, then, after a `---` line, the
+// upstream body verbatim (frontmatter dropped), pinned by its SHA-256. None is
+// a skill.
 const ponytail = "https://github.com/DietrichGebert/ponytail";
-const kitCopy = (
-  path: string,
-  heading: string,
-  notice: string,
-  url: string,
-) => {
+const kitCopy = (path: string, notice: string, url: string) => {
   expect(path).not.toMatch(/SKILL\.md$/);
   const text = read(path);
-  const at = text.indexOf(`\n${heading}\n`);
+  const at = text.indexOf("\n---\n\n");
   expect(at).toBeGreaterThan(0);
   const preface = text.slice(0, at);
   expect(preface).toContain(notice);
   expect(preface).toContain("MIT License");
   expect(preface).toContain(url);
   expect(preface).toContain("In a tower run");
-  const body = text.slice(at + 1);
+  const body = text.slice(at + "\n---\n\n".length);
   const sha = createHash("sha256").update(body).digest("hex");
   return { preface, sha };
 };
@@ -323,7 +319,6 @@ const kitCopy = (
 test("lanes read the lean ladder before each task", () => {
   const { preface, sha } = kitCopy(
     "skills/orchestrate/lean.md",
-    "# Ponytail",
     "Copyright (c) 2026 DietrichGebert",
     ponytail,
   );
@@ -345,4 +340,49 @@ test("lanes read the lean ladder before each task", () => {
     /`METHOD=plain`: METHOD keeps "Before each task read \{\{KIT\}\}\/lean\.md/,
   );
   expect(read("docs/orchestrate.md")).toMatch(/lean ladder[^.]*lean\.md/);
+});
+
+test("the quality review reviews with the lean review", () => {
+  const { preface, sha } = kitCopy(
+    "skills/orchestrate/lean-review.md",
+    "Copyright (c) 2026 DietrichGebert",
+    ponytail,
+  );
+  expect(sha).toBe(
+    "bee8cae2222470d353c10e1ea265c78ee9cf67af297d11690d3a2cea31e28c86",
+  );
+  expect(preface).toMatch(/the task's diff the brief names/);
+  expect(preface).toMatch(/`shortcut:` comment that names no[^.]*is a finding/);
+  expect(preface).toMatch(/fix is one clause/);
+
+  const brief = read("skills/orchestrate/brief-template.md");
+  const [, , claude, codex, cursor] = (
+    brief.match(/^\| per-task review .*$/m)?.[0] ?? ""
+  ).split("|");
+  const method = Object.fromEntries(
+    (brief.match(/^METHOD: .*$/m)?.[0] ?? "")
+      .split(" — ")
+      .slice(1)
+      .map((tail) => [tail.slice(0, tail.indexOf(": ")), tail]),
+  ) as Record<string, string>;
+  const subagent =
+    /code-quality review subagent[^;]*\{\{KIT\}\}\/lean-review\.md/;
+  const self =
+    /first against the task spec, then against `?\{\{KIT\}\}\/lean-review\.md/;
+  for (const tail of [claude, cursor, method.claude, method.cursor])
+    expect(tail).toMatch(subagent);
+  for (const tail of [codex, method.codex]) expect(tail).toMatch(self);
+  expect(brief).toContain("`spec-reviewer` and `quality-reviewer` roles");
+
+  const skill = read("skills/orchestrate/SKILL.md");
+  expect(skill).toMatch(
+    /self-review against `<kit>\/lean-review\.md` for codex/,
+  );
+  expect(skill).toMatch(/^\| Briefing a codex lane .*lean-review\.md/m);
+  expect(skill).not.toMatch(/self-review with the code-review skill/);
+  expect(read("docs/orchestrate.md")).toMatch(
+    /quality review[^.]*lean-review\.md/,
+  );
+  // The lane review's Reviewer still loads code-review.
+  expect(read("skills/orchestrate/executor.sh")).toContain("code-review");
 });

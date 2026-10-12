@@ -342,7 +342,8 @@ is still working. The next `FINDINGS WRITTEN` frees a slot.
 - Reviewers only report; their findings go through you.
 - The brief's review tail matches the lane's kind (panes.txt): review
   subagents for claude and cursor (cursor's on its own reviewer models),
-  self-review with the code-review skill for codex.
+  self-review against `<kit>/lean-review.md` for codex. The code-quality
+  review, subagent or self-review, follows `<kit>/lean-review.md`.
 - Never close a pane you did not create; never close the console pane;
   close nothing until the user says so.
 
@@ -359,7 +360,7 @@ is still working. The next `FINDINGS WRITTEN` frees a slot.
 | Sleeping and re-reading panes                                    | The two watches in `run_in_background`; act only when one exits                                           |
 | Closing panes during teardown                                    | Nothing closes until the user says so; the console never                                                  |
 | A second run in a repo with an open one                          | tower refuses; `tower close` the old one first                                                            |
-| Briefing a codex lane with subagent review instructions          | Codex has no subagents; it reviews its own diff with the code-review skill                                |
+| Briefing a codex lane with subagent review instructions          | Codex has no subagents; it reviews its own diff against the task spec, then `<kit>/lean-review.md`        |
 | Briefing a cursor lane with self-review, or with claude's models | cursor has subagents: review subagents on cursor's reviewer models (`brief-template.md`, "Executor kind") |
 | Answering a cursor lane's trust box                              | Never send it keys: the kit starts cursor with `--trust`; a trust box means check the pane                |
 | Leaving a merged lane idle while others have pending tasks       | Move tasks to it (step 9, "Keep every lane busy")                                                         |
