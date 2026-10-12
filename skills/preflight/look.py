@@ -98,11 +98,12 @@ elif mode == "shortcuts":
     # verdict file; stdout: a watchpoint finding per one that names no trigger.
     import codecs, re
     # After a comment prefix: /* (or /**), a block comment's continuation
-    # line's *, #, //, -- or ;. In markdown, where # and * are prose, only an
-    # HTML comment. l still starts with the diff's +.
+    # line's * (or SQLite's **), #, //, -- or ;. In markdown, where # and * are
+    # prose, only a comment: HTML's <!--, or MDX's {/*. l still starts with
+    # the diff's +.
     tail = r"\s*((?:shortcut|ponytail):\s*(.*))"
-    code = re.compile(r"(?:#|//|/\*+|^\+\s*\*(?!\*)|--|;)" + tail)
-    markdown = re.compile(r"<!--" + tail)
+    code = re.compile(r"(?:#|//|/\*+|^\+\s*\*+|--|;)" + tail)
+    markdown = re.compile(r"(?:<!--|/\*+)" + tail)
     path, line, hits, untriggered, in_hunk = None, 0, [], 0, False
     for l in sys.stdin.buffer.read().decode("utf-8", "replace").split("\n"):
         if l.startswith("diff --git "):

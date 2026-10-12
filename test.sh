@@ -2796,13 +2796,15 @@ for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'],
   git -C "$r" config core.bigFileThreshold 1
   out=$(look "$r" mid "$F"); v=$(verdict "$F/look.json")
   assert_match "look: a file core.bigFileThreshold calls binary: its Shortcut is still listed" "$v" '^shortcuts pass 1 shortcuts, 0 with no trigger \| f\.sh:6$'
-  # Markdown: a bullet or bold that mentions the word is prose; only an HTML
-  # comment is a Shortcut.
+  # Markdown: a bullet or bold that mentions the word is prose; only a comment
+  # (HTML, or MDX's {/* */}) is a Shortcut. In code a SQLite-style ** line is.
   r=$(look_repo none shortcuts-markdown)
   printf '* %s: a bullet\n**%s: bold**\n<!-- %s: html comment, past 3 pages -->\n' "$m" "$m" "$m" > "$r/notes.md"
+  printf '{/* %s: mdx comment, past 2 pages */}\n' "$m" > "$r/notes.mdx"
+  printf '/*\n** %s: sqlite style, past 2 writers\n*/\n' "$m" > "$r/lib.c"
   git -C "$r" add -A; git -C "$r" commit -qm notes
   out=$(look "$r" base "$F"); v=$(verdict "$F/look.json")
-  assert_match "look: in markdown only an HTML comment is a Shortcut, not a bullet or bold" "$v" '^shortcuts pass 1 shortcuts, 0 with no trigger \| notes\.md:3$'
+  assert_match "look: in markdown only a comment is a Shortcut (HTML, or MDX's /*), not a bullet or bold; in code a ** block line is" "$v" '^shortcuts pass 3 shortcuts, 0 with no trigger \| lib\.c:2, notes\.md:3, notes\.mdx:1$'
   r=$(look_repo none no-shortcuts); out=$(look "$r" base "$F"); v=$(verdict "$F/look.json")
   assert_match "look: a branch with no Shortcuts: a pass row" "$v" '^shortcuts pass 0 shortcuts, 0 with no trigger \| $'
   export XDG_STATE_HOME=$SAVED_XDG_STATE_HOME; unset SAVED_XDG_STATE_HOME LOOK_ROOT
