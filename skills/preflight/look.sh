@@ -357,10 +357,11 @@ else
 fi
 
 # The Shortcuts the branch added, whatever STATIC_BASELINE says: only the lines
-# it added (-U0), renames as renames, so a Shortcut already on the base is not
+# it added (-U0, and no context between hunks whatever diff.interHunkContext
+# says), renames as renames, so a Shortcut already on the base is not
 # listed; the diff as git stores it (no textconv, no external diff), with the
 # a/ b/ prefixes look.py reads whatever diff.noprefix says.
-git -c core.quotepath=off diff -U0 -M --no-color --no-ext-diff --no-textconv --src-prefix=a/ --dst-prefix=b/ "$MERGE_BASE" HEAD \
+git -c core.quotepath=off diff -U0 --inter-hunk-context=0 -M --no-color --no-ext-diff --no-textconv --src-prefix=a/ --dst-prefix=b/ "$MERGE_BASE" HEAD \
   > "$WORK/added.diff" || die "look: git diff failed in look's temp worktree"
 py shortcuts "$VERDICT" < "$WORK/added.diff" >> "$FINDINGS"
 

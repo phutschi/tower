@@ -2783,6 +2783,13 @@ for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'],
   printf '/**\n * %s: one lock, past 2 writers\n */\n' "$m" > "$r/e f.ts"; git -C "$r" add -A; git -C "$r" commit -qm doc
   out=$(look "$r" base "$F"); v=$(verdict "$F/look.json")
   assert_match "look: a Shortcut in a doc comment, in a file with a space, under diff.noprefix" "$v" '^shortcuts pass 1 shortcuts, 0 with no trigger \| e f\.ts:2$'
+  # A user's diff.interHunkContext merges two hunks with context lines between
+  # them: the Shortcut after them is still cited at its own line.
+  r=$(look_repo none shortcuts-inter-hunk); git -C "$r" config diff.interHunkContext 5
+  printf '%s\n' 1 2 3 4 5 6 7 8 > "$r/f.sh"; git -C "$r" add -A; git -C "$r" commit -qm lines; git -C "$r" tag mid
+  printf '%s\n' 1 two 3 4 5 "x  # $m: no cache, past 10 calls" 7 8 > "$r/f.sh"; git -C "$r" commit -qam edit
+  out=$(look "$r" mid "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: diff.interHunkContext does not move a Shortcut's line" "$v" '^shortcuts pass 1 shortcuts, 0 with no trigger \| f\.sh:6$'
   r=$(look_repo none no-shortcuts); out=$(look "$r" base "$F"); v=$(verdict "$F/look.json")
   assert_match "look: a branch with no Shortcuts: a pass row" "$v" '^shortcuts pass 0 shortcuts, 0 with no trigger \| $'
   export XDG_STATE_HOME=$SAVED_XDG_STATE_HOME; unset SAVED_XDG_STATE_HOME LOOK_ROOT
