@@ -198,9 +198,9 @@ and do it in a lane anyway or suggest doing it without the kit.
     - R1: `look.sh` (static baseline and full suite), `spec` against the
       whole plan and its spec issue, `between-lanes`. Only R1 runs
       `look.sh`.
-    - R2: `security`, `performance`, `error-handling`, `structure`. Agent review starts
-      only once the look is green, so start R2 after it: add and brief R1,
-      then wait in the background, like the watch, for R1's look to finish
+    - R2: `security`, `performance`, `error-handling`, `structure`. Agent
+      review starts only once the look is green, so start R2 after it: add
+      and brief R1, then wait in the background, like the watch, for R1's look to finish
       and its checkout to be clean again (R1 puts back what the suite
       changed):
       ```

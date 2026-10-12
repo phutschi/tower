@@ -35,8 +35,15 @@ dropped.
 - "The current branch's changes" are the diff preflight names: read it, then
   the code it touches. A finding is a record in the findings format
   (`findings.md`), not a review comment; its tone and phrases stay as below.
+  Its `title` states the problem, not a question; its `evidence` quotes the
+  lines, then names the remedy (from "Preferred Remedies") and the files it
+  would touch, which triage needs to choose fix or follow-up.
 - Severity: the presumptive blockers under "Approval Bar" are `must-fix`;
-  everything else under "What to Flag Aggressively" is `should-fix`.
+  everything else under "What to Flag Aggressively" is `should-fix`, except
+  "Temporary" branching likely to become permanent debt, a `watchpoint`.
+- The verdict row's `detail`: each changed file's length against 1000 lines,
+  the branches the diff adds, the boundaries it crosses, and the
+  simplifications weighed.
 - A Shortcut that names its limit is a decision, not a finding, unless the
   expected load already crosses that limit (`findings.md`).
 

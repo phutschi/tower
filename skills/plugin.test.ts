@@ -435,11 +435,14 @@ test("preflight reviews structure, in R2", () => {
   expect(preface).toMatch(/presumptive blockers[^.]*`must-fix`/);
   expect(preface).toMatch(/What to Flag Aggressively[^.]*`should-fix`/);
   expect(preface).toMatch(/Shortcut that names its limit is a decision/);
+  expect(preface).toMatch(/`evidence`[^.]*remedy[^.]*files it\s+would touch/);
+  expect(preface).toMatch(/verdict row's `detail`/);
+  expect(preface).toMatch(/"Temporary" branching[^.]*`watchpoint`/);
 
   const r2 = "security, performance, error-handling, structure";
   expect(read("skills/orchestrate/brief-template.md")).toContain(`R2: "${r2}"`);
   expect(read("skills/orchestrate/SKILL.md")).toContain(
-    "R2: `security`, `performance`, `error-handling`, `structure`.",
+    "R2: `security`, `performance`, `error-handling`, `structure`",
   );
 
   const skill = read("skills/preflight/SKILL.md");
