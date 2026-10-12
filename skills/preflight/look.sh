@@ -69,7 +69,8 @@
 #             skip row when there are none
 #   shortcuts every Shortcut the lines the branch added hold: a `shortcut:`
 #             (or the older `ponytail:`) after a comment prefix (#, //, /*,
-#             a block comment's *, --, ;), listed as file:line in the row's detail; whatever
+#             a block comment's continuation *, --, ;; in markdown only
+#             <!--, as # and * are prose there), listed as file:line in the row's detail; whatever
 #             STATIC_BASELINE says. pass, or warn when one names no trigger
 #             (no ", " and text after its limit): that one is also a
 #             watchpoint finding (area shortcuts), never a failure

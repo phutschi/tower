@@ -97,7 +97,12 @@ elif mode == "shortcuts":
     # Appends the shortcuts verdict row (step, status, note, detail) to the
     # verdict file; stdout: a watchpoint finding per one that names no trigger.
     import codecs, re
-    marker = re.compile(r"(?:#|//|\*|--|;)\s*((?:shortcut|ponytail):\s*(.*))")  # \*: /* and a block's continuation
+    # After a comment prefix: /* (or /**), a block comment's continuation
+    # line's *, #, //, -- or ;. In markdown, where # and * are prose, only an
+    # HTML comment. l still starts with the diff's +.
+    tail = r"\s*((?:shortcut|ponytail):\s*(.*))"
+    code = re.compile(r"(?:#|//|/\*+|^\+\s*\*(?!\*)|--|;)" + tail)
+    markdown = re.compile(r"<!--" + tail)
     path, line, hits, untriggered, in_hunk = None, 0, [], 0, False
     for l in sys.stdin.buffer.read().decode("utf-8", "replace").split("\n"):
         if l.startswith("diff --git "):
@@ -111,7 +116,7 @@ elif mode == "shortcuts":
             in_hunk = True
             line = int(re.match(r"@@ -\S+ \+(\d+)", l).group(1))
         elif l.startswith("+") and path:
-            m = marker.search(l)
+            m = (markdown if path.lower().endswith((".md", ".markdown", ".mdx")) else code).search(l)
             if m:
                 text = re.sub(r"\s*(\*/|-->)\s*$", "", m.group(1)).strip()
                 rest = re.sub(r"\s*(\*/|-->)\s*$", "", m.group(2))
