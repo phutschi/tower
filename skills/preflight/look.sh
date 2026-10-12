@@ -67,6 +67,12 @@
 #             (--baseline-commit); skip row when there are none
 #   gitleaks  the branch's commits since the merge base, secrets redacted (8.19+);
 #             skip row when there are none
+#   shortcuts every Shortcut the lines the branch added hold: a `shortcut:`
+#             (or the older `ponytail:`) after a comment prefix (#, //, /*,
+#             --, ;), listed as file:line in the row's detail; whatever
+#             STATIC_BASELINE says. pass, or warn when one names no trigger
+#             (no ", " and text after its limit): that one is also a
+#             watchpoint finding (area shortcuts), never a failure
 #   the full suite, one row per step, in order, every step even when one fails:
 #             the repo contract's `suite NAME "CMD" [DIR]` lines (run in DIR);
 #             without them the detected typecheck and test scripts
@@ -104,7 +110,8 @@
 # Writes <findings-dir>/look.json (created if missing), the shared findings
 # format (preflight/findings.md):
 #   { "review": "look",
-#     "verdict":  [ { "step", "status": pass|fail|warn|skip, "note" } ],
+#     "verdict":  [ { "step", "status": pass|fail|warn|skip, "note",
+#                     "detail" (the shortcuts row only) } ],
 #     "findings": [ { "area", "severity": must-fix|should-fix|watchpoint,
 #                     "file", "line", "title", "evidence" } ] }
 # Prints each suite step as it starts (stderr), the verdict table and the
@@ -348,6 +355,13 @@ else
       --exit-code 0 --redact --no-banner --log-level error .
   fi
 fi
+
+# The Shortcuts the branch added, whatever STATIC_BASELINE says: only the lines
+# it added (-U0), renames as renames, so a Shortcut already on the base is not
+# listed; the diff as git stores it (no textconv, no external diff).
+git -c core.quotepath=off diff -U0 -M --no-color --no-ext-diff --no-textconv "$MERGE_BASE" HEAD \
+  > "$WORK/added.diff" || die "look: git diff failed in look's temp worktree"
+py shortcuts "$VERDICT" < "$WORK/added.diff" >> "$FINDINGS"
 
 # --- the full suite ----------------------------------------------------------
 # The contract's suite lines; without them the detected typecheck and test

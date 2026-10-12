@@ -97,6 +97,10 @@ run, the `switches:` line of `panes.txt` has the values the run uses.
    as in a sandbox) or no longer has the branch, and the look ran against
    the base as last fetched.
    `base is stale`: the remote has moved on; alone, fetch and look again.
+   Its `shortcuts` row lists every Shortcut the branch added (findings.md)
+   in its `detail`, as `file:line`, whatever `STATIC_BASELINE` says; one
+   that names no trigger is also a `watchpoint` finding in area `shortcuts`,
+   and the row is `warn`. Neither makes the look red.
    Files the suite changed or left are in `look.json` as one `should-fix`
    suite finding ("the suite changed tracked files" or "the suite left
    untracked files"). They were changed in look's temp worktree, which is
@@ -184,6 +188,9 @@ must-fix finding is open; carry those outcomes into the final table. After two r
      | valid          | in-scope     | fix                 |
      | valid          | pre-existing | accept or follow-up |
 
+     A `shortcuts` finding is never a follow-up: its outcome is `fix` (add
+     the trigger clause) or `accept`. The comment is the record.
+
 3. **Tracker.** Read `docs/agents/issue-tracker.md` for where follow-ups
    go. No such file: ask where, as part of the table's question in step 4.
 4. **One table, one confirmation.** Show every finding in one table:
@@ -209,7 +216,8 @@ must-fix finding is open; carry those outcomes into the final table. After two r
    `<preflight-dir>/pr-body.md`. Its sources: every findings file act read
    in every round (inside a run also the deferred lane-review findings):
    the latest verdict row per step or area and its `detail`, the findings
-   with their outcomes, the spec, the commits. Every
+   with their outcomes, the spec, the commits. "Shortcuts taken" is the
+   latest `shortcuts` row's `detail`, each Shortcut with its comment. Every
    placeholder filled, in a merge-ready tone: a trade-off reads as decided
    and accepted, with its reason.
 8. **Push and PR**, as `PR` says. The title: the spec's title, else a

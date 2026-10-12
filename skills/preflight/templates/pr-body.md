@@ -120,6 +120,14 @@ and the full suite), then its findings with their outcomes. -->
 
 {{TRADE_OFFS}}
 
+## Shortcuts taken
+
+<!-- Every Shortcut the branch added: look.json's `shortcuts` row detail,
+one line each, file:line and the limit and trigger its comment names.
+Mark one with no trigger "(no trigger)". "None" when the branch adds none. -->
+
+{{SHORTCUTS}}
+
 ## Out of scope
 
 <!-- Deliberate exclusions, each with its reason: the spec's out-of-scope

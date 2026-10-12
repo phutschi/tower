@@ -294,3 +294,17 @@ test("spec-to-plan saves plans under TOWER_PLANS_DIR, outside the repo", () => {
   expect(skill).toContain("$TOWER_PLANS_DIR/<repo>_<branch>/plan.md");
   expect(skill).toContain("${XDG_STATE_HOME:-$HOME/.local/state}/tower/plans");
 });
+
+test("preflight lists the branch's Shortcuts and treats a named limit as a decision", () => {
+  expect(read("skills/preflight/findings.md")).toMatch(
+    /Shortcut that names its limit is a decision, not a\s+finding, unless the expected load already crosses that limit/,
+  );
+  const body = read("skills/preflight/templates/pr-body.md");
+  expect(body).toContain("## Shortcuts taken");
+  expect(body).toContain("{{SHORTCUTS}}");
+  expect(body).toMatch(/no trigger/);
+  const skill = read("skills/preflight/SKILL.md");
+  expect(skill).toMatch(/`shortcuts` row/);
+  expect(skill).toContain("Shortcuts taken");
+  expect(skill).toMatch(/never a\s+follow-up/);
+});

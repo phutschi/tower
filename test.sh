@@ -2349,7 +2349,7 @@ if section look; then
 for f in json.load(open(sys.argv[1]))['findings']: print('%s %s %s:%s %s | %s' % (f['area'], f['severity'], f['file'], f['line'], f['title'], f['evidence']))" "$1"; }
   # One line per verdict row: "step status note".
   verdict() { python3 -c "import json,sys
-for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'], v['status'], v['note']))" "$1"; }
+for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'], v['status'], v['note']) + (' | ' + v['detail'] if 'detail' in v else ''))" "$1"; }
   look() { (cd "$1" && shift && "$PREFLIGHT_DIR/look.sh" "$@" 2>&1; echo "exit=$?"); }
   r=$(look_repo none plain); F="$TMP/findings-look"; reset_stub
   out=$(look "$r" base "$F"); log=$(cat "$HERDR_STUB_LOG")
@@ -2761,6 +2761,25 @@ for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'],
   reset_stub; out=$(GIT_SSH="$TMP/ssh-stub" look "$r" origin/main "$F")
   assert_match "look: a GIT_SSH wrapper is used as it is"  "$(cat "$TMP/ssh.log")" 'git\.example\.invalid'
   assert_nomatch "look: ... without ssh's -o options"     "$(cat "$TMP/ssh.log")" 'BatchMode'
+  # Shortcuts: the marker comments the branch added, after a comment prefix.
+  # The markers are spelled through $m and $p so this file adds none of its own.
+  m=shortcut; p=ponytail; r=$(look_repo none shortcuts)
+  printf '// %s: old limit, later\n' "$m" > "$r/base.js"; git -C "$r" add -A; git -C "$r" commit -qm old; git -C "$r" tag mid
+  printf 'x = 1\ny = 2  # %s: no retry, when calls fail\n' "$m" > "$r/a.py"
+  printf '/* %s: one global lock */\n' "$p" > "$r/b.js"
+  printf 'the %s: marker in prose\n' "$m" > "$r/c.md"
+  printf -- '-- %s: full scan, past 10k rows\n' "$m" > "$r/d.sql"
+  printf 'more\n' >> "$r/base.js"
+  git -C "$r" add -A; git -C "$r" commit -qm shortcuts
+  out=$(look "$r" mid "$F"); v=$(verdict "$F/look.json"); f=$(findings "$F/look.json")
+  assert_match "look: the shortcuts row lists every Shortcut the branch added, the one with no trigger marked" "$v" '^shortcuts warn 3 shortcuts, 1 with no trigger \| a\.py:2, b\.js:1 \(no trigger\), d\.sql:1$'
+  assert_match "look: a Shortcut with no trigger is a watchpoint" "$f" "^shortcuts watchpoint b\\.js:1 Shortcut names no trigger \\| ponytail: one global lock$"
+  assert_eq "look: ... the only finding of its area" "$(printf '%s\n' "$f" | grep -c '^shortcuts ')" 1
+  assert_match "look: ... and the look stays green" "$out" 'exit=0$'
+  out=$(STATIC_BASELINE=off look "$r" mid "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: STATIC_BASELINE=off still lists the Shortcuts" "$v" '^shortcuts warn 3 shortcuts, 1 with no trigger '
+  r=$(look_repo none no-shortcuts); out=$(look "$r" base "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: a branch with no Shortcuts: a pass row" "$v" '^shortcuts pass 0 shortcuts, 0 with no trigger \| $'
   export XDG_STATE_HOME=$SAVED_XDG_STATE_HOME; unset SAVED_XDG_STATE_HOME LOOK_ROOT
   unset CHECK_CMD INSTALL_CMD SUITE_ORDER; unset -f look_repo findings verdict look
 fi
