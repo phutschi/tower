@@ -38,7 +38,8 @@ names (a Reviewer in a run). The triaging session reads every `*.json` there.
 - `detail`: an area review's account of what it checked, in a few lines of
   Markdown: each criterion, hotspot with its bound, or failure point. It
   feeds the PR body's details. `look.sh` leaves it out; its rows are the
-  detail.
+  detail, except its `shortcuts` row, whose `detail` lists every Shortcut the
+  branch added as `file:line`, `(no trigger)` after one that names none.
 
 `findings`: one record per problem.
 
@@ -52,6 +53,11 @@ names (a Reviewer in a run). The triaging session reads every `*.json` there.
 - `title`: one line.
 - `evidence`: the lines you read and what they show. Quote code. Never quote a
   secret: name its kind and place instead.
+
+A Shortcut (a `shortcut: <limit>, <trigger>` comment, or the older
+`ponytail:` form) is a deliberate limit. A Shortcut that names its limit is a decision, not a
+finding, unless the expected load already crosses that limit. Every area
+applies this.
 
 ## Added in triage
 

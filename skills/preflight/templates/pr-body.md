@@ -19,6 +19,7 @@ GitHub closes only the first of "Closes #2, #3". -->
 | Security        | {{SEC_STATUS}} | {{SEC_HEADLINE}} |
 | Performance     | {{PERF_STATUS}} | {{PERF_HEADLINE}} |
 | Error handling  | {{ERR_STATUS}} | {{ERR_HEADLINE}} |
+| Structure       | {{STRUCT_STATUS}} | {{STRUCT_HEADLINE}} |
 
 <!-- Status: ✅ pass, ⚠️ accepted findings or a warn row, ⏭️ skipped (say why).
 One row per suite step in the Full suite details. Add a row per repo area. -->
@@ -114,11 +115,30 @@ and the full suite), then its findings with their outcomes. -->
 
 </details>
 
+## Structure
+
+> **TLDR**: {{STRUCT_TLDR}}
+
+<details>
+<summary>Simplifications, file sizes, branching, boundaries</summary>
+
+{{STRUCT_DETAIL}}
+
+</details>
+
 ## Trade-offs we accept
 
 <!-- Findings triaged `accept`: what, why it is fine to merge, what limits it. -->
 
 {{TRADE_OFFS}}
+
+## Shortcuts taken
+
+<!-- Every Shortcut the branch added: look.json's `shortcuts` row detail,
+one line each, file:line and the limit and trigger its comment names.
+Mark one with no trigger "(no trigger)". "None" when the branch adds none. -->
+
+{{SHORTCUTS}}
 
 ## Out of scope
 

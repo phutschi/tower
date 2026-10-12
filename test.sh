@@ -1987,7 +1987,7 @@ if section watch; then
   assert_match "tower not runnable: watch-lanes refuses with the pointer" "$out" 'needs tower.*github\.com/phutschi/tower'
   assert_match "tower not runnable: watch-lanes fails (neither attention nor quiet)" "$out" 'exit=1$'
   # A complete board is not attention while a watched agent still works (the
-  # lane's final review comes after its last task); a closed run always is.
+  # lane's check gate and report come after its last task); a closed run always is.
   echo working > "$S/a"; out=$(ROUND=1 ON=$RUN_COMPLETE watch a)
   assert_match "complete board, lane working: exit 3"  "$out" 'exit=3$'
   assert_nomatch "complete board, lane working: no tower attention" "$out" '^tower: run'
@@ -2246,7 +2246,6 @@ if section brief-cursor; then
   assert_match "brief: the per-kind table has a cursor column" "$bt" '^\| +\| claude lane +\| codex lane +\| cursor lane +\|'
   method=$(grep '^METHOD:' "$KIT/brief-template.md")
   assert_match "brief: METHOD has a cursor variant with subagent reviews on the run's models" "$method" 'cursor: "a spec-compliance review subagent \(model \{\{SPEC_REVIEWER_MODEL\}\}\) and a code-quality review subagent \(model \{\{QUALITY_REVIEWER_MODEL\}\}\).*Pass the model explicitly on every dispatch'
-  assert_match "brief: the final review has a cursor variant" "$(grep '^WHEN YOUR LAST TASK IS DONE:' "$KIT/brief-template.md")" 'cursor: subagent, model \{\{QUALITY_REVIEWER_MODEL\}\}'
   assert_match "brief: a cursor lane loads tdd from its own skill dirs" "$bt" 'own skill dirs: ~/\.agents/skills'
   assert_match "preflight: alone on cursor, one subagent per area in parallel" "$ps" 'Alone on cursor: one subagent per area, in parallel'
   assert_match "orchestrate: EXECUTOR_KIND names cursor" "$os" 'EXECUTOR_KIND=codex` or `EXECUTOR_KIND=cursor`'
@@ -2347,9 +2346,9 @@ if section look; then
   # One line per finding in a look.json: "area severity file:line title | evidence".
   findings() { python3 -c "import json,sys
 for f in json.load(open(sys.argv[1]))['findings']: print('%s %s %s:%s %s | %s' % (f['area'], f['severity'], f['file'], f['line'], f['title'], f['evidence']))" "$1"; }
-  # One line per verdict row: "step status note".
+  # One line per verdict row: "step status note[ | detail]".
   verdict() { python3 -c "import json,sys
-for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'], v['status'], v['note']))" "$1"; }
+for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'], v['status'], v['note']) + (' | ' + v['detail'] if 'detail' in v else ''))" "$1"; }
   look() { (cd "$1" && shift && "$PREFLIGHT_DIR/look.sh" "$@" 2>&1; echo "exit=$?"); }
   r=$(look_repo none plain); F="$TMP/findings-look"; reset_stub
   out=$(look "$r" base "$F"); log=$(cat "$HERDR_STUB_LOG")
@@ -2761,6 +2760,53 @@ for v in json.load(open(sys.argv[1]))['verdict']: print('%s %s %s' % (v['step'],
   reset_stub; out=$(GIT_SSH="$TMP/ssh-stub" look "$r" origin/main "$F")
   assert_match "look: a GIT_SSH wrapper is used as it is"  "$(cat "$TMP/ssh.log")" 'git\.example\.invalid'
   assert_nomatch "look: ... without ssh's -o options"     "$(cat "$TMP/ssh.log")" 'BatchMode'
+  # Shortcuts: the marker comments the branch added, after a comment prefix.
+  # The markers are spelled through $m and $p so this file adds none of its own.
+  m=shortcut; p=ponytail; r=$(look_repo none shortcuts)
+  printf '// %s: old limit, later\n' "$m" > "$r/base.js"; git -C "$r" add -A; git -C "$r" commit -qm old; git -C "$r" tag mid
+  printf 'x = 1\ny = 2  # %s: no retry, when calls fail\n' "$m" > "$r/a.py"
+  printf '/* %s: one global lock */\n' "$p" > "$r/b.js"
+  printf 'the %s: marker in prose\n' "$m" > "$r/c.md"
+  printf -- '-- %s: full scan, past 10k rows\n' "$m" > "$r/d.sql"
+  printf 'more\n' >> "$r/base.js"
+  git -C "$r" add -A; git -C "$r" commit -qm shortcuts
+  out=$(look "$r" mid "$F"); v=$(verdict "$F/look.json"); f=$(findings "$F/look.json")
+  assert_match "look: the shortcuts row lists every Shortcut the branch added, the one with no trigger marked" "$v" '^shortcuts warn 3 shortcuts, 1 with no trigger \| a\.py:2, b\.js:1 \(no trigger\), d\.sql:1$'
+  assert_match "look: a Shortcut with no trigger is a watchpoint" "$f" "^shortcuts watchpoint b\\.js:1 Shortcut names no trigger \\| ponytail: one global lock$"
+  assert_eq "look: ... the only finding of its area" "$(printf '%s\n' "$f" | grep -c '^shortcuts ')" 1
+  assert_match "look: ... and the look stays green" "$out" 'exit=0$'
+  out=$(STATIC_BASELINE=off look "$r" mid "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: STATIC_BASELINE=off still lists the Shortcuts" "$v" '^shortcuts warn 3 shortcuts, 1 with no trigger '
+  # A doc comment's continuation line, a name with a space (git ends its +++
+  # line with a tab), and a user's diff.noprefix: still found, by its name.
+  r=$(look_repo none shortcuts-odd); git -C "$r" config diff.noprefix true
+  printf '/**\n * %s: one lock, past 2 writers\n */\n' "$m" > "$r/e f.ts"; git -C "$r" add -A; git -C "$r" commit -qm doc
+  out=$(look "$r" base "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: a Shortcut in a doc comment, in a file with a space, under diff.noprefix" "$v" '^shortcuts pass 1 shortcuts, 0 with no trigger \| e f\.ts:2$'
+  # A user's diff.interHunkContext merges two hunks with context lines between
+  # them: the Shortcut after them is still cited at its own line.
+  r=$(look_repo none shortcuts-inter-hunk); git -C "$r" config diff.interHunkContext 5
+  printf '%s\n' 1 2 3 4 5 6 7 8 > "$r/f.sh"; git -C "$r" add -A; git -C "$r" commit -qm lines; git -C "$r" tag mid
+  printf '%s\n' 1 two 3 4 5 "x  # $m: no cache, past 10 calls" 7 8 > "$r/f.sh"; git -C "$r" commit -qam edit
+  out=$(look "$r" mid "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: diff.interHunkContext does not move a Shortcut's line" "$v" '^shortcuts pass 1 shortcuts, 0 with no trigger \| f\.sh:6$'
+  out=$(GIT_DIFF_OPTS=-u5 look "$r" mid "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: ... nor does GIT_DIFF_OPTS" "$v" '^shortcuts pass 1 shortcuts, 0 with no trigger \| f\.sh:6$'
+  # A text file git is told to treat as binary still shows its added lines.
+  git -C "$r" config core.bigFileThreshold 1
+  out=$(look "$r" mid "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: a file core.bigFileThreshold calls binary: its Shortcut is still listed" "$v" '^shortcuts pass 1 shortcuts, 0 with no trigger \| f\.sh:6$'
+  # Markdown: a bullet or bold that mentions the word is prose; only a comment
+  # (HTML, or MDX's {/* */}) is a Shortcut. In code a SQLite-style ** line is.
+  r=$(look_repo none shortcuts-markdown)
+  printf '* %s: a bullet\n**%s: bold**\n<!-- %s: html comment, past 3 pages -->\n' "$m" "$m" "$m" > "$r/notes.md"
+  printf '{/* %s: mdx comment, past 2 pages */}\n' "$m" > "$r/notes.mdx"
+  printf '/*\n** %s: sqlite style, past 2 writers\n*/\n' "$m" > "$r/lib.c"
+  git -C "$r" add -A; git -C "$r" commit -qm notes
+  out=$(look "$r" base "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: in markdown only a comment is a Shortcut (HTML, or MDX's /*), not a bullet or bold; in code a ** block line is" "$v" '^shortcuts pass 3 shortcuts, 0 with no trigger \| lib\.c:2, notes\.md:3, notes\.mdx:1$'
+  r=$(look_repo none no-shortcuts); out=$(look "$r" base "$F"); v=$(verdict "$F/look.json")
+  assert_match "look: a branch with no Shortcuts: a pass row" "$v" '^shortcuts pass 0 shortcuts, 0 with no trigger \| $'
   export XDG_STATE_HOME=$SAVED_XDG_STATE_HOME; unset SAVED_XDG_STATE_HOME LOOK_ROOT
   unset CHECK_CMD INSTALL_CMD SUITE_ORDER; unset -f look_repo findings verdict look
 fi
@@ -3108,7 +3154,7 @@ if section run; then
   out=$(in_repo env XDG_STATE_HOME="$LOOK_STATE/run-xdg" "$PREFLIGHT_DIR/look.sh" base "$RUN/findings/preflight/1")
   assert_match "run: look.sh names the findings file it wrote" "$out" "$RUN/findings/preflight/1/look.json"
   steps=$(python3 -c "import json,sys; print(' '.join(v['step']+':'+v['status'] for v in json.load(open(sys.argv[1]))['verdict']))" "$RUN/findings/preflight/1/look.json" 2>&1)
-  assert_eq "run: look.json has a row for the base, each scanner and every suite step" "$steps" "base:skip semgrep:pass gitleaks:pass lint:skip test:fail build:pass"
+  assert_eq "run: look.json has a row for the base, each scanner, the shortcuts and every suite step" "$steps" "base:skip semgrep:pass gitleaks:pass shortcuts:pass lint:skip test:fail build:pass"
   unset SUITE_ORDER
 
   assert_eq "run: one switches line in the pane map" "$(grep -c '^switches:' "$RUN/panes.txt")" 1

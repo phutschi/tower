@@ -4,6 +4,7 @@
  * herdr-orchestrate repo) is left behind.
  */
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
@@ -293,4 +294,167 @@ test("spec-to-plan saves plans under TOWER_PLANS_DIR, outside the repo", () => {
   const skill = read("skills/spec-to-plan/SKILL.md");
   expect(skill).toContain("$TOWER_PLANS_DIR/<repo>_<branch>/plan.md");
   expect(skill).toContain("${XDG_STATE_HOME:-$HOME/.local/state}/tower/plans");
+});
+
+test("preflight lists the branch's Shortcuts and treats a named limit as a decision", () => {
+  expect(read("skills/preflight/findings.md")).toMatch(
+    /Shortcut that names its limit is a decision, not a\s+finding, unless the expected load already crosses that limit/,
+  );
+  const body = read("skills/preflight/templates/pr-body.md");
+  expect(body).toContain("## Shortcuts taken");
+  expect(body).toContain("{{SHORTCUTS}}");
+  expect(body).toMatch(/no trigger/);
+  const skill = read("skills/preflight/SKILL.md");
+  expect(skill).toMatch(/`shortcuts` row/);
+  expect(skill).toContain("Shortcuts taken");
+  expect(skill).toMatch(/never a\s+follow-up/);
+});
+
+// The kit's copies of upstream texts: each opens with its MIT notice, its
+// source and an "In a tower run" preface, then, after a `---` line, the
+// upstream body verbatim (frontmatter dropped), pinned by its SHA-256. None is
+// a skill.
+const ponytail = "https://github.com/DietrichGebert/ponytail";
+const kitCopy = (path: string, notice: string, url: string) => {
+  expect(path).not.toMatch(/SKILL\.md$/);
+  const text = read(path);
+  const at = text.indexOf("\n---\n\n");
+  expect(at).toBeGreaterThan(0);
+  const preface = text.slice(0, at);
+  expect(preface).toContain(notice);
+  expect(preface).toContain("MIT License");
+  expect(preface).toContain(url);
+  expect(preface).toContain("In a tower run");
+  const body = text.slice(at + "\n---\n\n".length);
+  const sha = createHash("sha256").update(body).digest("hex");
+  return { preface, sha };
+};
+
+test("lanes read the lean ladder before each task", () => {
+  const { preface, sha } = kitCopy(
+    "skills/orchestrate/lean.md",
+    "Copyright (c) 2026 DietrichGebert",
+    ponytail,
+  );
+  expect(sha).toBe(
+    "44ea9e95bc84ce354242e4414658289e1a7568c030f0e00ae58695be74e02ab1",
+  );
+  expect(preface).toMatch(/level is full/i);
+  expect(preface).toContain("Levels table");
+  expect(preface).toContain("ADR 0008");
+  expect(preface).toMatch(/METHOD=tdd[^.]*tdd skill decides the tests/);
+  expect(preface).toMatch(/METHOD=plain[^.]*ladder's own test rule/);
+
+  const brief = read("skills/orchestrate/brief-template.md");
+  const method = brief.match(/^METHOD: .*$/m)?.[0] ?? "";
+  expect(method).toMatch(
+    /^METHOD: \{\{e\.g\. "Before each task read \{\{KIT\}\}\/lean\.md/,
+  );
+  expect(brief).toMatch(
+    /`METHOD=plain`: METHOD keeps "Before each task read \{\{KIT\}\}\/lean\.md/,
+  );
+  expect(read("docs/orchestrate.md")).toMatch(/lean ladder[^.]*lean\.md/);
+});
+
+test("the quality review reviews with the lean review", () => {
+  const { preface, sha } = kitCopy(
+    "skills/orchestrate/lean-review.md",
+    "Copyright (c) 2026 DietrichGebert",
+    ponytail,
+  );
+  expect(sha).toBe(
+    "bee8cae2222470d353c10e1ea265c78ee9cf67af297d11690d3a2cea31e28c86",
+  );
+  expect(preface).toMatch(/the task's diff the brief names/);
+  expect(preface).toMatch(/`shortcut:` comment that names no[^.]*is a finding/);
+  expect(preface).toMatch(/fix\s+is one clause/);
+
+  const brief = read("skills/orchestrate/brief-template.md");
+  const [, , claude, codex, cursor] = (
+    brief.match(/^\| per-task review .*$/m)?.[0] ?? ""
+  ).split("|");
+  const method = Object.fromEntries(
+    (brief.match(/^METHOD: .*$/m)?.[0] ?? "")
+      .split(" — ")
+      .slice(1)
+      .map((tail) => [tail.slice(0, tail.indexOf(": ")), tail]),
+  ) as Record<string, string>;
+  const subagent =
+    /code-quality review subagent[^;]*\{\{KIT\}\}\/lean-review\.md/;
+  const self =
+    /first against the task spec, then against `?\{\{KIT\}\}\/lean-review\.md/;
+  for (const tail of [claude, cursor, method.claude, method.cursor])
+    expect(tail).toMatch(subagent);
+  for (const tail of [codex, method.codex]) expect(tail).toMatch(self);
+  expect(brief).toContain("`spec-reviewer` and `quality-reviewer` roles");
+
+  const skill = read("skills/orchestrate/SKILL.md");
+  expect(skill).toMatch(
+    /self-review against the task spec for codex; either way the code-quality\s+review follows `<kit>\/lean-review\.md`/,
+  );
+  expect(skill).toMatch(/^\| Briefing a codex lane .*lean-review\.md/m);
+  expect(skill).not.toMatch(/self-review with the code-review skill/);
+  expect(read("docs/orchestrate.md")).toMatch(
+    /quality review[^.]*lean-review\.md/,
+  );
+  // The lane review's Reviewer still loads code-review.
+  expect(read("skills/orchestrate/executor.sh")).toContain("code-review");
+});
+
+// Preflight reviews the whole merged branch, so lane A ends at its check gate.
+test("lane A finishes without a final review", () => {
+  const brief = read("skills/orchestrate/brief-template.md");
+  const done = brief.match(/^WHEN YOUR LAST TASK IS DONE: .*$/m)?.[0] ?? "";
+  expect(done).toContain(
+    `lane A: "run the check gate from the repo root, then  tower note --lane A 'ALL DONE - check green'  and report a summary;`,
+  );
+  expect(brief).not.toMatch(/^\| final review /m);
+  expect(brief).toMatch(
+    /`TASK_REVIEW=off`: METHOD ends at "commit"; drop the per-task review tail\s+for any kind\.\n/,
+  );
+  for (const file of [
+    "skills/orchestrate/brief-template.md",
+    "skills/orchestrate/SKILL.md",
+    "skills/orchestrate/watch-lanes.sh",
+    "docs/orchestrate.md",
+  ])
+    expect(read(file)).not.toMatch(
+      /final (whole-implementation |self-)?review/i,
+    );
+});
+
+test("preflight reviews structure, in R2", () => {
+  const { preface, sha } = kitCopy(
+    "skills/preflight/areas/structure.md",
+    "Copyright (c) 2026 Cursor",
+    "https://github.com/cursor/plugins/tree/main/cursor-team-kit/skills/thermo-nuclear-code-quality-review",
+  );
+  expect(sha).toBe(
+    "dd65e348dec998cdc5703c6d5ec6d5168ae77bba462e99e09a8f9d192a92d095",
+  );
+  expect(preface).toMatch(/presumptive blockers[^.]*`must-fix`/);
+  expect(preface).toMatch(/Shortcut that names its limit is a decision/);
+  expect(preface).toMatch(/`evidence`[^.]*remedy[^.]*files it\s+would touch/);
+  expect(preface).toMatch(/verdict row's `detail`/);
+  expect(preface).toMatch(
+    /everything else under "What to Flag Aggressively" is `should-fix`\./,
+  );
+  expect(preface).not.toContain("`watchpoint`");
+
+  const r2 = "security, performance, error-handling, structure";
+  expect(read("skills/orchestrate/brief-template.md")).toContain(`R2: "${r2}"`);
+  expect(read("skills/orchestrate/SKILL.md")).toContain(
+    "R2: `security`, `performance`, `error-handling`, `structure`",
+  );
+
+  const skill = read("skills/preflight/SKILL.md");
+  expect(skill).toMatch(
+    /`structure` finding whose fix reaches beyond the branch's\s+changed files defaults to `follow-up`/,
+  );
+  const body = read("skills/preflight/templates/pr-body.md");
+  expect(body).toContain(
+    "| Structure       | {{STRUCT_STATUS}} | {{STRUCT_HEADLINE}} |",
+  );
+  expect(body).toContain("## Structure");
+  expect(body).toContain("{{STRUCT_DETAIL}}");
 });

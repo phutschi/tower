@@ -269,6 +269,13 @@ A finding chosen to be done later. It always becomes an issue in the repo's
 issue tracker, linked from the PR.
 _Avoid_: todo, deferred finding
 
+**Shortcut**:
+A known limit an executor chose to leave in the code, marked where it lives
+with a `shortcut:` comment that names the limit and the trigger to revisit
+it. A decision, not a finding, until the expected load crosses its limit.
+_Avoid_: debt marker, todo, follow-up (a follow-up is an issue; a shortcut is
+a comment)
+
 ### The screen
 
 **Console**:

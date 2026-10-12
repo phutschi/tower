@@ -146,9 +146,14 @@ Nothing is closed until you say so.
 
 ## Reviews, preflight and the PR
 
-A run ends in a pull request, a draft by default (the `PR` switch). Every
-task is reviewed inside its lane: tdd, then a spec review subagent and a
-quality review subagent run in parallel. The whole branch is reviewed once,
+A run ends in a pull request, a draft by default (the `PR` switch). Before
+each task, every lane, of any kind, reads the lean ladder
+(`skills/orchestrate/lean.md`, from Ponytail) and writes the smallest
+complete change; with `METHOD=tdd` the tdd skill still decides the tests.
+Every task is reviewed inside its lane: tdd, then a spec review subagent and a
+quality review subagent run in parallel; the quality review follows the lean
+review (`skills/orchestrate/lean-review.md`, from Ponytail), and a codex lane
+reviews its own diff the same way. The whole branch is reviewed once,
 by preflight on the strongest model. In this order:
 
 1. **Lane review**, off by default (`LANE_REVIEW=on` turns it on). When a
@@ -182,7 +187,7 @@ by preflight on the strongest model. In this order:
 4. **Preflight** checks the whole branch: semgrep and gitleaks on the diff,
    the repo's full suite, then agent review by area. R1 runs the checks and
    reviews the spec and problems between lanes; R2 reviews security,
-   performance and error handling. Both run on claude's
+   performance, error handling and structure. Both run on claude's
    `PREFLIGHT_MODEL_CLAUDE` (claude-fable-5-1). claude's credits are always
    probed here: below `REVIEWER_CREDITS_MIN` % another installed kind with
    credits reviews on its Reviewer model (codex, then cursor), and with

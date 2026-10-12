@@ -102,8 +102,8 @@ and do it in a lane anyway or suggest doing it without the kit.
    row: check herdr, and never start a second agent beside it. A re-brief
    asks for no new end line, so it keeps the lane's report round: watch it
    as before. tower
-   wait's `complete` → keep `watch-lanes.sh` running: a lane's final review
-   comes after its last task, and the watch prints `tower: run complete` once
+   wait's `complete` → keep `watch-lanes.sh` running: a lane's check gate
+   and report come after its last task, and the watch prints `tower: run complete` once
    no watched agent is working. tower wait returns at once on a complete
    board, so run it again once the board has an open task (a review or fix
    task you add). A lane reporting ready (`ready to merge`, or lane A's
@@ -198,9 +198,9 @@ and do it in a lane anyway or suggest doing it without the kit.
     - R1: `look.sh` (static baseline and full suite), `spec` against the
       whole plan and its spec issue, `between-lanes`. Only R1 runs
       `look.sh`.
-    - R2: `security`, `performance`, `error-handling`. Agent review starts
-      only once the look is green, so start R2 after it: add and brief R1,
-      then wait in the background, like the watch, for R1's look to finish
+    - R2: `security`, `performance`, `error-handling`, `structure`. Agent
+      review starts only once the look is green, so start R2 after it: add
+      and brief R1, then wait in the background, like the watch, for R1's look to finish
       and its checkout to be clean again (R1 puts back what the suite
       changed):
       ```
@@ -342,7 +342,8 @@ is still working. The next `FINDINGS WRITTEN` frees a slot.
 - Reviewers only report; their findings go through you.
 - The brief's review tail matches the lane's kind (panes.txt): review
   subagents for claude and cursor (cursor's on its own reviewer models),
-  self-review with the code-review skill for codex.
+  self-review against the task spec for codex; either way the code-quality
+  review follows `<kit>/lean-review.md`.
 - Never close a pane you did not create; never close the console pane;
   close nothing until the user says so.
 
@@ -359,7 +360,7 @@ is still working. The next `FINDINGS WRITTEN` frees a slot.
 | Sleeping and re-reading panes                                    | The two watches in `run_in_background`; act only when one exits                                           |
 | Closing panes during teardown                                    | Nothing closes until the user says so; the console never                                                  |
 | A second run in a repo with an open one                          | tower refuses; `tower close` the old one first                                                            |
-| Briefing a codex lane with subagent review instructions          | Codex has no subagents; it reviews its own diff with the code-review skill                                |
+| Briefing a codex lane with subagent review instructions          | Codex has no subagents; it reviews its own diff against the task spec, then `<kit>/lean-review.md`        |
 | Briefing a cursor lane with self-review, or with claude's models | cursor has subagents: review subagents on cursor's reviewer models (`brief-template.md`, "Executor kind") |
 | Answering a cursor lane's trust box                              | Never send it keys: the kit starts cursor with `--trust`; a trust box means check the pane                |
 | Leaving a merged lane idle while others have pending tasks       | Move tasks to it (step 9, "Keep every lane busy")                                                         |

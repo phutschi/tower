@@ -91,9 +91,51 @@ elif mode == "changed":
         print(json.dumps({"area": "suite", "severity": "should-fix", "file": ".", "line": None,
                           "title": "the suite changed tracked files" if changed else "the suite left untracked files",
                           "evidence": "; ".join(parts)}))
+elif mode == "shortcuts":
+    # The Shortcuts the branch added: a `shortcut:` (or the older `ponytail:`)
+    # comment on a line of the -U0 diff on stdin, after a comment prefix.
+    # Appends the shortcuts verdict row (step, status, note, detail) to the
+    # verdict file; stdout: a watchpoint finding per one that names no trigger.
+    import codecs, re
+    # After a comment prefix: /* (or /**), a block comment's continuation
+    # line's * (or SQLite's **), #, //, -- or ;. In markdown, where # and * are
+    # prose, only a comment: HTML's <!--, or MDX's {/*. l still starts with
+    # the diff's +.
+    tail = r"\s*((?:shortcut|ponytail):\s*(.*))"
+    code = re.compile(r"(?:#|//|/\*+|^\+\s*\*+|--|;)" + tail)
+    markdown = re.compile(r"(?:<!--|/\*+)" + tail)
+    path, line, hits, untriggered, in_hunk = None, 0, [], 0, False
+    for l in sys.stdin.buffer.read().decode("utf-8", "replace").split("\n"):
+        if l.startswith("diff --git "):
+            in_hunk = False
+        elif l.startswith("+++ ") and not in_hunk:  # in a hunk it is an added line
+            path = l[4:].rstrip("\t")  # git ends a name with a space with a tab
+            if path.startswith('"'):  # git quotes a name with a quote, backslash or control char
+                path = codecs.escape_decode(path[1:-1])[0].decode("utf-8", "replace")
+            path = path[2:] if path.startswith("b/") else None  # None: /dev/null
+        elif l.startswith("@@ "):
+            in_hunk = True
+            line = int(re.match(r"@@ -\S+ \+(\d+)", l).group(1))
+        elif l.startswith("+") and path:
+            m = (markdown if path.lower().endswith((".md", ".markdown", ".mdx")) else code).search(l)
+            if m:
+                text = re.sub(r"\s*(\*/|-->)\s*$", "", m.group(1)).strip()
+                rest = re.sub(r"\s*(\*/|-->)\s*$", "", m.group(2))
+                triggered = ", " in rest and rest.split(", ", 1)[1].strip() != ""
+                hits.append("%s:%d%s" % (path, line, "" if triggered else " (no trigger)"))
+                if not triggered:
+                    untriggered += 1
+                    print(json.dumps({"area": "shortcuts", "severity": "watchpoint", "file": path,
+                                      "line": line, "title": "Shortcut names no trigger",
+                                      "evidence": text[:200]}))
+            line += 1
+    row = ["shortcuts", "warn" if untriggered else "pass",
+           "%d shortcuts, %d with no trigger" % (len(hits), untriggered), ", ".join(hits)]
+    with open(sys.argv[2], "a") as f:
+        f.write("\t".join(re.sub(r"[\t\r\n]", " ", c) for c in row) + "\n")
 elif mode == "write":
     verdict_file, findings_file, out = sys.argv[2:5]
-    verdict = [dict(zip(("step", "status", "note"), l.rstrip("\n").split("\t")))
+    verdict = [dict(zip(("step", "status", "note", "detail"), l.rstrip("\n").split("\t")))
                for l in open(verdict_file) if l.strip()]
     findings = [json.loads(l) for l in open(findings_file) if l.strip()]
     with open(out, "w") as f:
