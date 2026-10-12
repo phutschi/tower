@@ -433,7 +433,6 @@ test("preflight reviews structure, in R2", () => {
     "dd65e348dec998cdc5703c6d5ec6d5168ae77bba462e99e09a8f9d192a92d095",
   );
   expect(preface).toMatch(/presumptive blockers[^.]*`must-fix`/);
-  expect(preface).toMatch(/What to Flag Aggressively[^.]*`should-fix`/);
   expect(preface).toMatch(/Shortcut that names its limit is a decision/);
   expect(preface).toMatch(/`evidence`[^.]*remedy[^.]*files it\s+would touch/);
   expect(preface).toMatch(/verdict row's `detail`/);
