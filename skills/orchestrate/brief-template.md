@@ -24,7 +24,7 @@ for every kind.
 
 panes.txt says which agent runs the lane (`kind claude`, `kind codex` or
 `kind cursor`). The brief is the same for all three except the review tail of
-METHOD and of WHEN YOUR LAST TASK IS DONE. All three load the same tdd skill
+METHOD. All three load the same tdd skill
 (claude from the mattpocock plugin, codex from ~/.codex/skills/tdd, cursor
 from its own skill dirs: ~/.agents/skills, ~/.claude/skills or
 ~/.codex/skills); "load the tdd skill" is the sentence that works for all.
@@ -51,7 +51,6 @@ memory.
 |                     | claude lane                                                     | codex lane                                                        | cursor lane                                                        |
 |---------------------|-----------------------------------------------------------------|-------------------------------------------------------------------|--------------------------------------------------------------------|
 | per-task review     | spec-compliance review subagent (model sonnet) + code-quality review subagent (model opus) that reviews the task's diff with `{{KIT}}/lean-review.md`, in parallel; pass the model explicitly | review the task's diff itself, first against the task spec, then against `{{KIT}}/lean-review.md`; fix what it flags before the next task | spec-compliance review subagent (model `{{SPEC_REVIEWER_MODEL}}`) + code-quality review subagent (model `{{QUALITY_REVIEWER_MODEL}}`) that reviews the task's diff with `{{KIT}}/lean-review.md`, in parallel; pass the model explicitly on every dispatch |
-| final review        | final whole-implementation review subagent (model opus)         | final self-review of the whole lane diff with the code-review skill | final whole-implementation review subagent (model `{{QUALITY_REVIEWER_MODEL}}`) |
 | reviewer roles      | as tower prints them                                             | both reviewer roles are the lane's own model; say so in the brief | `{{SPEC_REVIEWER_MODEL}}` and `{{QUALITY_REVIEWER_MODEL}}`          |
 
 A codex lane briefed with subagent instructions will improvise; match the
@@ -66,7 +65,7 @@ Read `switches:` in panes.txt before writing the brief.
   follow it at its full level", drops the tdd sentences and goes on at
   "When green:".
 - `TASK_REVIEW=off`: METHOD ends at "commit"; drop the per-task review tail
-  for any kind. The final review of WHEN YOUR LAST TASK IS DONE stays.
+  for any kind.
 
 ## Merge points
 
@@ -101,7 +100,7 @@ PANES you may read instead of re-running suites (herdr pane read <id> --source r
 
 Do not stop between tasks to ask whether to continue. If you cannot proceed: tower block <id> "<exactly what you need>", then stop and wait.
 
-WHEN YOUR LAST TASK IS DONE: {{lane A: "run the check gate from the repo root, then a final whole-implementation review (claude: subagent, model opus; cursor: subagent, model {{QUALITY_REVIEWER_MODEL}}, passed explicitly; codex: self-review of the whole lane diff with the code-review skill), fix what it flags, then  tower note --lane A 'ALL DONE - check green'  and report a summary; end your message with a last line of ALL DONE in double square brackets."  other lanes: "run the check gate for your files, then  tower note --lane {{LANE}} 'lane {{LANE}} complete - ready to merge' , end your message with a last line of READY TO MERGE in double square brackets, and wait; the orchestrator merges you."}} Stay in this session: the orchestrator may send you more tasks, and fix tasks from the review of the whole branch, on the board and by prompt; do them like any task, and end your reply to each such prompt with the last line that prompt names.
+WHEN YOUR LAST TASK IS DONE: {{lane A: "run the check gate from the repo root, then  tower note --lane A 'ALL DONE - check green'  and report a summary; end your message with a last line of ALL DONE in double square brackets."  other lanes: "run the check gate for your files, then  tower note --lane {{LANE}} 'lane {{LANE}} complete - ready to merge' , end your message with a last line of READY TO MERGE in double square brackets, and wait; the orchestrator merges you."}} Stay in this session: the orchestrator may send you more tasks, and fix tasks from the review of the whole branch, on the board and by prompt; do them like any task, and end your reply to each such prompt with the last line that prompt names.
 
 Begin now with task {{FIRST_ID}}.
 

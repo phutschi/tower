@@ -386,3 +386,25 @@ test("the quality review reviews with the lean review", () => {
   // The lane review's Reviewer still loads code-review.
   expect(read("skills/orchestrate/executor.sh")).toContain("code-review");
 });
+
+// Preflight reviews the whole merged branch, so lane A ends at its check gate.
+test("lane A finishes without a final review", () => {
+  const brief = read("skills/orchestrate/brief-template.md");
+  const done = brief.match(/^WHEN YOUR LAST TASK IS DONE: .*$/m)?.[0] ?? "";
+  expect(done).toContain(
+    `lane A: "run the check gate from the repo root, then  tower note --lane A 'ALL DONE - check green'  and report a summary;`,
+  );
+  expect(brief).not.toMatch(/^\| final review /m);
+  expect(brief).toMatch(
+    /`TASK_REVIEW=off`: METHOD ends at "commit"; drop the per-task review tail\s+for any kind\.\n/,
+  );
+  for (const file of [
+    "skills/orchestrate/brief-template.md",
+    "skills/orchestrate/SKILL.md",
+    "skills/orchestrate/watch-lanes.sh",
+    "docs/orchestrate.md",
+  ])
+    expect(read(file)).not.toMatch(
+      /final (whole-implementation |self-)?review/i,
+    );
+});

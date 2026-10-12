@@ -102,8 +102,8 @@ and do it in a lane anyway or suggest doing it without the kit.
    row: check herdr, and never start a second agent beside it. A re-brief
    asks for no new end line, so it keeps the lane's report round: watch it
    as before. tower
-   wait's `complete` → keep `watch-lanes.sh` running: a lane's final review
-   comes after its last task, and the watch prints `tower: run complete` once
+   wait's `complete` → keep `watch-lanes.sh` running: a lane's check gate
+   and report come after its last task, and the watch prints `tower: run complete` once
    no watched agent is working. tower wait returns at once on a complete
    board, so run it again once the board has an open task (a review or fix
    task you add). A lane reporting ready (`ready to merge`, or lane A's

@@ -1987,7 +1987,7 @@ if section watch; then
   assert_match "tower not runnable: watch-lanes refuses with the pointer" "$out" 'needs tower.*github\.com/phutschi/tower'
   assert_match "tower not runnable: watch-lanes fails (neither attention nor quiet)" "$out" 'exit=1$'
   # A complete board is not attention while a watched agent still works (the
-  # lane's final review comes after its last task); a closed run always is.
+  # lane's check gate and report come after its last task); a closed run always is.
   echo working > "$S/a"; out=$(ROUND=1 ON=$RUN_COMPLETE watch a)
   assert_match "complete board, lane working: exit 3"  "$out" 'exit=3$'
   assert_nomatch "complete board, lane working: no tower attention" "$out" '^tower: run'
@@ -2246,7 +2246,6 @@ if section brief-cursor; then
   assert_match "brief: the per-kind table has a cursor column" "$bt" '^\| +\| claude lane +\| codex lane +\| cursor lane +\|'
   method=$(grep '^METHOD:' "$KIT/brief-template.md")
   assert_match "brief: METHOD has a cursor variant with subagent reviews on the run's models" "$method" 'cursor: "a spec-compliance review subagent \(model \{\{SPEC_REVIEWER_MODEL\}\}\) and a code-quality review subagent \(model \{\{QUALITY_REVIEWER_MODEL\}\}\).*Pass the model explicitly on every dispatch'
-  assert_match "brief: the final review has a cursor variant" "$(grep '^WHEN YOUR LAST TASK IS DONE:' "$KIT/brief-template.md")" 'cursor: subagent, model \{\{QUALITY_REVIEWER_MODEL\}\}'
   assert_match "brief: a cursor lane loads tdd from its own skill dirs" "$bt" 'own skill dirs: ~/\.agents/skills'
   assert_match "preflight: alone on cursor, one subagent per area in parallel" "$ps" 'Alone on cursor: one subagent per area, in parallel'
   assert_match "orchestrate: EXECUTOR_KIND names cursor" "$os" 'EXECUTOR_KIND=codex` or `EXECUTOR_KIND=cursor`'
