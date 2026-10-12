@@ -342,8 +342,8 @@ is still working. The next `FINDINGS WRITTEN` frees a slot.
 - Reviewers only report; their findings go through you.
 - The brief's review tail matches the lane's kind (panes.txt): review
   subagents for claude and cursor (cursor's on its own reviewer models),
-  self-review against `<kit>/lean-review.md` for codex. The code-quality
-  review, subagent or self-review, follows `<kit>/lean-review.md`.
+  self-review against the task spec for codex; either way the code-quality
+  review follows `<kit>/lean-review.md`.
 - Never close a pane you did not create; never close the console pane;
   close nothing until the user says so.
 

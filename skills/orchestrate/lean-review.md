@@ -35,8 +35,8 @@ frontmatter dropped.
 - What to review is the task's diff the brief names, not "what the user
   names": read it, then the code it touches, as below.
 - A `shortcut:` comment that names no upgrade trigger is a finding (Should
-  fix): its fix is one clause, the form being
-  `shortcut: <the limit>, <when to upgrade>`.
+  fix), although section 3 calls one that names its limit a decision: its fix
+  is one clause, the form being `shortcut: <the limit>, <when to upgrade>`.
 
 ---
 

@@ -353,7 +353,7 @@ test("the quality review reviews with the lean review", () => {
   );
   expect(preface).toMatch(/the task's diff the brief names/);
   expect(preface).toMatch(/`shortcut:` comment that names no[^.]*is a finding/);
-  expect(preface).toMatch(/fix is one clause/);
+  expect(preface).toMatch(/fix\s+is one clause/);
 
   const brief = read("skills/orchestrate/brief-template.md");
   const [, , claude, codex, cursor] = (
@@ -376,7 +376,7 @@ test("the quality review reviews with the lean review", () => {
 
   const skill = read("skills/orchestrate/SKILL.md");
   expect(skill).toMatch(
-    /self-review against `<kit>\/lean-review\.md` for codex/,
+    /self-review against the task spec for codex; either way the code-quality\s+review follows `<kit>\/lean-review\.md`/,
   );
   expect(skill).toMatch(/^\| Briefing a codex lane .*lean-review\.md/m);
   expect(skill).not.toMatch(/self-review with the code-review skill/);
