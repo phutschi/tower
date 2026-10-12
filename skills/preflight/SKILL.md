@@ -188,6 +188,9 @@ must-fix finding is open; carry those outcomes into the final table. After two r
      | valid          | in-scope     | fix                 |
      | valid          | pre-existing | accept or follow-up |
 
+     A valid `structure` finding whose fix reaches beyond the branch's
+     changed files defaults to `follow-up`; one whose fix stays inside them
+     follows the table.
      A `shortcuts` finding is never a follow-up: its outcome is `fix` (add
      the trigger clause) or `accept`. The comment is the record.
 

@@ -19,6 +19,7 @@ GitHub closes only the first of "Closes #2, #3". -->
 | Security        | {{SEC_STATUS}} | {{SEC_HEADLINE}} |
 | Performance     | {{PERF_STATUS}} | {{PERF_HEADLINE}} |
 | Error handling  | {{ERR_STATUS}} | {{ERR_HEADLINE}} |
+| Structure       | {{STRUCT_STATUS}} | {{STRUCT_HEADLINE}} |
 
 <!-- Status: ✅ pass, ⚠️ accepted findings or a warn row, ⏭️ skipped (say why).
 One row per suite step in the Full suite details. Add a row per repo area. -->
@@ -111,6 +112,17 @@ and the full suite), then its findings with their outcomes. -->
 <summary>Every failure point</summary>
 
 {{ERR_DETAIL}}
+
+</details>
+
+## Structure
+
+> **TLDR**: {{STRUCT_TLDR}}
+
+<details>
+<summary>Simplifications, file sizes, branching, boundaries</summary>
+
+{{STRUCT_DETAIL}}
 
 </details>
 

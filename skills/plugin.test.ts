@@ -422,3 +422,34 @@ test("lane A finishes without a final review", () => {
       /final (whole-implementation |self-)?review/i,
     );
 });
+
+test("preflight reviews structure, in R2", () => {
+  const { preface, sha } = kitCopy(
+    "skills/preflight/areas/structure.md",
+    "Copyright (c) 2026 Cursor",
+    "https://github.com/cursor/plugins/tree/main/cursor-team-kit/skills/thermo-nuclear-code-quality-review",
+  );
+  expect(sha).toBe(
+    "dd65e348dec998cdc5703c6d5ec6d5168ae77bba462e99e09a8f9d192a92d095",
+  );
+  expect(preface).toMatch(/presumptive blockers[^.]*`must-fix`/);
+  expect(preface).toMatch(/What to Flag Aggressively[^.]*`should-fix`/);
+  expect(preface).toMatch(/Shortcut that names its limit is a decision/);
+
+  const r2 = "security, performance, error-handling, structure";
+  expect(read("skills/orchestrate/brief-template.md")).toContain(`R2: "${r2}"`);
+  expect(read("skills/orchestrate/SKILL.md")).toContain(
+    "R2: `security`, `performance`, `error-handling`, `structure`.",
+  );
+
+  const skill = read("skills/preflight/SKILL.md");
+  expect(skill).toMatch(
+    /`structure` finding whose fix reaches beyond the branch's\s+changed files defaults to `follow-up`/,
+  );
+  const body = read("skills/preflight/templates/pr-body.md");
+  expect(body).toContain(
+    "| Structure       | {{STRUCT_STATUS}} | {{STRUCT_HEADLINE}} |",
+  );
+  expect(body).toContain("## Structure");
+  expect(body).toContain("{{STRUCT_DETAIL}}");
+});
