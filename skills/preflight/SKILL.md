@@ -301,14 +301,17 @@ into round 3's findings dir, so the PR shows no area was reviewed.
    as its one argument:
 
    ```sh
-   NOTIFY='<value>'
+   NOTIFY=<as written>
    sh -c "$NOTIFY \"\$1\"" notify "<message>"
    ```
 
-   The first line is needed only when `NOTIFY` is not in the environment
-   (the user contract, or the pane map's `switches:` line). It is its own
-   statement: a `NOTIFY='…'` prefix on the second line would apply after
-   `$NOTIFY` is expanded, and run the message as a command. The message is
+   Write the first line only when the value comes from the user contract
+   or the pane map's `switches:` line, not from the environment. Copy the
+   `NOTIFY=…` word exactly as that line writes it: it is already
+   shell-quoted, so add no quotes. Run both lines in one shell call. The
+   first line is its own statement: a `NOTIFY=…` prefix on the second line
+   would apply after `$NOTIFY` is expanded, and run the message as a
+   command. The message is
    `<branch>: <PR url> — <k> open decisions` (`PR=off`:
    `<branch>: ready, no PR — <k> open decisions`). Write `<branch>` as
    `$(git branch --show-current)`, never pasted: a branch name may hold

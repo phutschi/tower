@@ -540,9 +540,11 @@ test("preflight act triages alone under TRIAGE=auto", () => {
   );
   // A prefix assignment applies after $NOTIFY is expanded: assign it first.
   expect(act).toMatch(
-    /NOTIFY='<value>'\n\s*sh -c "\$NOTIFY \\"\\\$1\\"" notify "/,
+    /NOTIFY=<as written>\n\s*sh -c "\$NOTIFY \\"\\\$1\\"" notify "/,
   );
   expect(act).not.toMatch(/prefix the call/);
+  expect(act).toMatch(/already\s+shell-quoted, so add no quotes/);
+  expect(act).toMatch(/Run both lines in one shell call/);
   expect(act).toContain("<branch>: <PR url> — <k> open decisions");
   expect(act).toMatch(
     /A failing `NOTIFY` is\s+reported and changes nothing else/,
