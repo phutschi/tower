@@ -5,7 +5,8 @@
  */
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readdirSync, readFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
 
@@ -580,7 +581,7 @@ test("auto follow-ups are de-duplicated and labelled; the PR shows Decided by", 
   );
   const tracker = read("docs/agents/issue-tracker.md");
   expect(tracker).toContain("--label preflight");
-  expect(tracker).toContain("select(.title ==");
+  expect(tracker).toContain("select(.title == $t)");
   // Create the label only when it is missing; --force would recolour it.
   expect(tracker).toContain(`select(.name=="preflight")`);
   expect(tracker).not.toContain("--force");
@@ -626,4 +627,43 @@ test("orchestrate runs preflight act alone under TRIAGE=auto", () => {
   expect(read("CHANGELOG.md").split("## [0.5.0]")[0]).toMatch(
     /`TRIAGE=auto`[\s\S]*`NOTIFY`/,
   );
+});
+
+// The tracker file's commands take the title as data: a title holding ' and "
+// reaches gh as one argument and matches by exact title, never as shell or jq
+// source. gh is stubbed; jq is real.
+test("the tracker commands pass a quoted title through intact", () => {
+  const dir = mkdtempSync(join(tmpdir(), "tracker-"));
+  const title = `Spec is silent on a locked account's "401" response`;
+  writeFileSync(join(dir, "title.txt"), title);
+  writeFileSync(join(dir, "body.md"), "evidence `$(id)`");
+  writeFileSync(
+    join(dir, "gh"),
+    '#!/bin/sh\nfor a in "$@"; do printf "[%s]\\n" "$a"; done >> "$LOG"\necho --- >> "$LOG"\n[ "$1 $2" = "issue list" ] && printf "%s" "$STUB_JSON"\nexit 0\n',
+    { mode: 0o755 },
+  );
+  const blocks = [
+    ...read("docs/agents/issue-tracker.md").matchAll(/```bash\n([\s\S]*?)```/g),
+  ]
+    .map((m) => m[1]!.replace(/^ {2}/gm, ""))
+    .join("\n")
+    .replaceAll("<title-file>", join(dir, "title.txt"))
+    .replaceAll("<body-file>", join(dir, "body.md"));
+  const log = join(dir, "log");
+  const out = execFileSync("bash", ["-euc", blocks], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      PATH: `${dir}:${process.env.PATH}`,
+      LOG: log,
+      STUB_JSON: JSON.stringify([
+        { title: `${title} too`, url: "https://example.com/1" },
+        { title, url: "https://example.com/2" },
+      ]),
+    },
+  });
+  expect(out.trim()).toBe("https://example.com/2");
+  const calls = readFileSync(log, "utf8");
+  expect(calls).toContain(`[--search]\n["${title}" in:title]\n`);
+  expect(calls.split(`[--title]\n[${title}]\n`).length).toBe(3);
 });
