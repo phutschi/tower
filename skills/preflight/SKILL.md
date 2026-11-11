@@ -213,7 +213,7 @@ and go on to act step 6.
      `watchpoint`.
 
    - **Decided by**: write `decided_by` on every finding with an outcome:
-     the row or rule that chose it, such as `valid × in-scope → fix` or
+     the rule that chose it, such as `valid × in-scope → fix` or
      `valid × pre-existing × watchpoint → accept`. With `ask`, an outcome
      the human's reply confirmed or changed is `you`.
 
@@ -255,14 +255,17 @@ and go on to act step 6.
    still triaged `fix` is not fixed: it is listed as
    unresolved and counts as an escalation; go on to step 6.
 6. **Follow-ups.** One issue per follow-up of every round, in the tracker.
-   Keep each issue's link for the PR body. With `TRIAGE=auto`, file them
-   once step 8 has opened the PR, then update its body with their links
-   (`gh pr edit --body-file`). Before filing one, search the tracker for an
-   open issue with the same title (`gh issue list --state open --search
-"<title> in:title"`); a match is linked from the PR instead of filed
-   again. Each new issue carries the `preflight` label (create it when the
-   tracker lacks it: `gh label create preflight`), the PR link (the branch
-   with `PR=off`) and the finding's evidence.
+   Keep each issue's link for the PR body. With `TRIAGE=auto`:
+   - File them after step 8 (with `PR=off`, after step 7), so each can link
+     the PR, or the branch with `PR=off`.
+   - Before filing one, search the tracker for an open issue with the same
+     title, with the tracker file's commands; a match is linked from the PR
+     instead of filed again.
+   - Each new issue carries the `preflight` label (create it when the
+     tracker lacks it), the PR link and the finding's evidence.
+   - Then fill "Follow-ups" in `<preflight-dir>/pr-body.md` with their
+     links and, with a PR, run
+     `gh pr edit --body-file <preflight-dir>/pr-body.md`.
 7. **PR body.** Fill `PR_TEMPLATE`, else `templates/pr-body.md`, into
    `<preflight-dir>/pr-body.md`. Its sources: every findings file act read
    in every round (inside a run also the deferred lane-review findings):
@@ -273,7 +276,8 @@ and go on to act step 6.
    and accepted, with its reason. "Open decisions" lists every escalation
    still unanswered, "Unresolved" every fix still open after round 3; leave
    out a section with nothing in it. A `PR_TEMPLATE` without these sections
-   gets them added at the top.
+   gets them added at the top. With `TRIAGE=auto`, "Follow-ups" lists titles
+   only until step 6 adds the links.
 8. **Push and PR**, as `PR` says. The title: the spec's title, else a
    summary of the commits.
    - `draft`: `git push -u origin HEAD`, then
