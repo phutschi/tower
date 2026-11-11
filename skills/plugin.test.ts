@@ -546,3 +546,28 @@ test("preflight act triages alone under TRIAGE=auto", () => {
   expect(body).toContain("## Unresolved");
   expect(body).toContain("{{UNRESOLVED}}");
 });
+
+// Follow-ups filed without a confirmation stay clean, and the PR shows what
+// decided every finding.
+test("auto follow-ups are de-duplicated and labelled; the PR shows Decided by", () => {
+  const act = read("skills/preflight/SKILL.md").split("## Act")[1]!;
+  expect(act).toMatch(
+    /\*\*Decided\s+by\*\*:\s+write\s+`decided_by`\s+on\s+every\s+finding/,
+  );
+  expect(act).toMatch(
+    /With `ask`, an outcome\s+the human's reply confirmed or changed is `you`/,
+  );
+  expect(act).toMatch(
+    /search\s+the\s+tracker\s+for\s+an\s+open\s+issue\s+with\s+the\s+same\s+title/,
+  );
+  expect(act).toMatch(
+    /a\s+match\s+is\s+linked\s+from\s+the\s+PR\s+instead\s+of\s+filed\s+again/,
+  );
+  expect(act).toMatch(
+    /the\s+`preflight`\s+label[^.]*create\s+it\s+when\s+the\s+tracker\s+lacks\s+it/,
+  );
+  expect(read("skills/preflight/templates/pr-body.md")).toContain(
+    "| Severity | File:line | Finding | Outcome | Decided by |",
+  );
+  expect(read("docs/agents/issue-tracker.md")).toContain("--label preflight");
+});

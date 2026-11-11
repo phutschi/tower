@@ -49,7 +49,9 @@ One row per suite step in the Full suite details. Add a row per repo area. -->
 
 <!-- One section per area, in the Verdict's order. TLDR: one line. DETAIL:
 the area's verdict row `detail` (look.json's rows for the static baseline
-and the full suite), then its findings with their outcomes. -->
+and the full suite), then its findings with their outcomes, in one table:
+| Severity | File:line | Finding | Outcome | Decided by |
+"Decided by" is the finding's `decided_by`: the rule that decided, or "you". -->
 
 ## Static baseline
 

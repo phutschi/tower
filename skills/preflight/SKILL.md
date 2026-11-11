@@ -212,6 +212,11 @@ and go on to act step 6.
      `follow-up` when `must-fix` or `should-fix`, `accept` when a
      `watchpoint`.
 
+   - **Decided by**: write `decided_by` on every finding with an outcome:
+     the row or rule that chose it, such as `valid × in-scope → fix` or
+     `valid × pre-existing × watchpoint → accept`. With `ask`, an outcome
+     the human's reply confirmed or changed is `you`.
+
 3. **Tracker.** Read `docs/agents/issue-tracker.md` for where follow-ups
    go. No such file: ask where, as part of the table's question in step 4.
    With `TRIAGE=auto`, each follow-up then escalates as a missing fact.
@@ -250,12 +255,19 @@ and go on to act step 6.
    still triaged `fix` is not fixed: it is listed as
    unresolved and counts as an escalation; go on to step 6.
 6. **Follow-ups.** One issue per follow-up of every round, in the tracker.
-   Keep each issue's link for the PR body.
+   Keep each issue's link for the PR body. With `TRIAGE=auto`, file them
+   once step 8 has opened the PR, then update its body with their links
+   (`gh pr edit --body-file`). Before filing one, search the tracker for an
+   open issue with the same title (`gh issue list --state open --search
+"<title> in:title"`); a match is linked from the PR instead of filed
+   again. Each new issue carries the `preflight` label (create it when the
+   tracker lacks it: `gh label create preflight`), the PR link (the branch
+   with `PR=off`) and the finding's evidence.
 7. **PR body.** Fill `PR_TEMPLATE`, else `templates/pr-body.md`, into
    `<preflight-dir>/pr-body.md`. Its sources: every findings file act read
    in every round (inside a run also the deferred lane-review findings):
    the latest verdict row per step or area and its `detail`, the findings
-   with their outcomes, the spec, the commits. "Shortcuts taken" is the
+   with their outcomes and `decided_by`, the spec, the commits. "Shortcuts taken" is the
    latest `shortcuts` row's `detail`, each Shortcut with its comment. Every
    placeholder filled, in a merge-ready tone: a trade-off reads as decided
    and accepted, with its reason. "Open decisions" lists every escalation
