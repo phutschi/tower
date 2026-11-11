@@ -13,7 +13,8 @@ names (a Reviewer in a run). The triaging session reads every `*.json` there.
       "status": "fail",
       "note": "1 finding",
       "detail": "Read every changed route: 3 new handlers, all behind requireUser; ..."
-    }
+    },
+    { "step": "spec", "status": "fail", "note": "1 finding" }
   ],
   "findings": [
     {
@@ -84,4 +85,4 @@ never write them.
   - plus the check, e.g. `"in-scope: git blame L42 is commit abc1234 on this branch"`.
 - `outcome`: `fix`, `accept`, `follow-up` or `reject`.
 - `decided_by`: what chose the outcome: the rule that decided, such as
-  `valid × in-scope → fix`, or `you` when the human chose or changed it.
+  `valid × in-scope → fix`, or `you` when the human confirmed, chose or changed it.

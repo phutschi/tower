@@ -476,7 +476,7 @@ test("a finding may carry decision options, and triage records decided_by", () =
   const choice = example.findings.find((f) => f.decision);
   expect(choice?.decision?.length).toBeGreaterThanOrEqual(2);
   expect(findings).toMatch(/`decision`[^.]*two or more options/);
-  expect(findings).toMatch(
+  expect(findings.split("## Added in triage")[1]).toMatch(
     /`decided_by`[^.]*`valid × in-scope → fix`[^.]*`you`/,
   );
   const brief = read("skills/orchestrate/brief-template.md");
