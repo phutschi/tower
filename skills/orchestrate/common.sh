@@ -38,7 +38,7 @@ credits_min_ok() {
 }
 credits_min_refused() { die "REVIEWER_CREDITS_MIN must be a whole number from 0 to 100 (got '$1')"; }
 # The run switches' names (detect-stack.sh gives them their values).
-SWITCHES="TASK_REVIEW LANE_REVIEW PREFLIGHT STATIC_BASELINE PR METHOD REVIEWER_KIND REVIEWER_MODEL REVIEWER_BY_CREDITS REVIEWER_CREDITS_MIN REVIEW_AREAS SUITE_SKIP PR_TEMPLATE"
+SWITCHES="TASK_REVIEW LANE_REVIEW PREFLIGHT STATIC_BASELINE PR METHOD REVIEWER_KIND REVIEWER_MODEL REVIEWER_BY_CREDITS REVIEWER_CREDITS_MIN REVIEW_AREAS SUITE_SKIP PR_TEMPLATE TRIAGE NOTIFY"
 if [ "${DRY_RUN:-0}" = 1 ]; then
   # A broken or non-executable stub would otherwise fall through silently to
   # whatever herdr/tower is next on PATH — the real ones. Refuse instead.
