@@ -639,7 +639,7 @@ test("the tracker commands pass a quoted title through intact", () => {
   writeFileSync(join(dir, "body.md"), "evidence `$(id)`");
   writeFileSync(
     join(dir, "gh"),
-    '#!/bin/sh\nfor a in "$@"; do printf "[%s]\\n" "$a"; done >> "$LOG"\necho --- >> "$LOG"\n[ "$1 $2" = "issue list" ] && printf "%s" "$STUB_JSON"\nexit 0\n',
+    '#!/bin/sh\nfor a in "$@"; do printf "[%s]\\n" "$a"; [ "$prev" = --body-file ] && cat "$a"; prev=$a; done >> "$LOG"\necho --- >> "$LOG"\n[ "$1 $2" = "issue list" ] || exit 0\n[ -n "$STUB_FAIL" ] && exit 1\nprintf "%s" "$STUB_JSON"\n',
     { mode: 0o755 },
   );
   const blocks = [
@@ -650,20 +650,35 @@ test("the tracker commands pass a quoted title through intact", () => {
     .replaceAll("<title-file>", join(dir, "title.txt"))
     .replaceAll("<body-file>", join(dir, "body.md"));
   const log = join(dir, "log");
-  const out = execFileSync("bash", ["-euc", blocks], {
-    encoding: "utf8",
-    env: {
-      ...process.env,
-      PATH: `${dir}:${process.env.PATH}`,
-      LOG: log,
-      STUB_JSON: JSON.stringify([
-        { title: `${title} too`, url: "https://example.com/1" },
-        { title, url: "https://example.com/2" },
-      ]),
-    },
-  });
+  const env = {
+    ...process.env,
+    PATH: `${dir}:${process.env.PATH}`,
+    LOG: log,
+    STUB_JSON: JSON.stringify([
+      { title: `${title} too`, url: "https://example.com/1" },
+      { title, url: "https://example.com/2" },
+    ]),
+  };
+  const out = execFileSync("bash", ["-euc", blocks], { encoding: "utf8", env });
   expect(out.trim()).toBe("https://example.com/2");
   const calls = readFileSync(log, "utf8");
-  expect(calls).toContain(`[--search]\n["${title}" in:title]\n`);
+  // A " would end the search phrase early: the search drops it, jq does not.
+  expect(calls).toContain(
+    `[--search]\n["${title.replaceAll('"', "")}" in:title]\n`,
+  );
   expect(calls.split(`[--title]\n[${title}]\n`).length).toBe(3);
+  expect(calls).toContain("evidence `$(id)`");
+  // A failed lookup is not "no duplicate": the block stops.
+  expect(() =>
+    execFileSync("bash", ["-euc", blocks], {
+      env: { ...env, STUB_FAIL: "1" },
+      stdio: "pipe",
+    }),
+  ).toThrow();
+  // The PR title is data too.
+  const step8 = read("skills/preflight/SKILL.md").split(
+    "8. **Push and PR**",
+  )[1]!;
+  expect(step8).toContain('--title "$title"');
+  expect(step8).not.toContain('"<title>"');
 });

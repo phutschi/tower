@@ -287,9 +287,11 @@ into round 3's findings dir, so the PR shows no area was reviewed.
    gets them added at the top. With `TRIAGE=auto`, "Follow-ups" lists titles
    only until step 6 adds the links.
 8. **Push and PR**, as `PR` says. The title: the spec's title, else a
-   summary of the commits.
+   summary of the commits. Write it to `<preflight-dir>/pr-title.txt`, and
+   read it back with `title=$(cat <preflight-dir>/pr-title.txt)` in the same
+   shell call: a title may hold `'`, `"` or `$(…)`, so it is never pasted.
    - `draft`: `git push -u origin HEAD`, then
-     `gh pr create --draft --base <base> --title "<title>" --body-file <preflight-dir>/pr-body.md`.
+     `gh pr create --draft --base <base> --title "$title" --body-file <preflight-dir>/pr-body.md`.
    - `ready`: the same without `--draft`.
    - `off`: push nothing, open nothing; report the branch ready. `off`
      with `auto`: show the open decisions in the session.
