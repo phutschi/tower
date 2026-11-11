@@ -10,6 +10,7 @@ REVIEWER_MODEL=claude-fable-5-1
 REVIEW_AREAS=security,spec
 SUITE_SKIP=build
 PR_TEMPLATE=.github/pull_request_template.md
+TRIAGE=auto
 suite lint  "make lint"
 suite test  "make test" pkg/core
 suite build "make build"

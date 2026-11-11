@@ -283,6 +283,8 @@ call.
 | `REVIEW_AREAS`         | empty   | preflight's areas, comma-separated; empty: all                                     |
 | `SUITE_SKIP`           | empty   | suite steps `look.sh` skips                                                        |
 | `PR_TEMPLATE`          | empty   | the PR body template; empty: preflight's own                                       |
+| `TRIAGE`               | ask     | auto: the orchestrator applies every triage outcome itself; only escalations wait  |
+| `NOTIFY`               | empty   | the user contract's one-line command, run with a message as its one argument       |
 
 ## Reviewer order
 

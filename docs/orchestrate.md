@@ -267,7 +267,11 @@ syntax. It may set:
 - `EXECUTOR_KIND`, `STALE`, and the per-kind model keys and
   `REVIEWER_CREDITS_MIN`;
 - the switches `TASK_REVIEW`, `LANE_REVIEW`, `PREFLIGHT`, `STATIC_BASELINE`,
-  `METHOD`, `REVIEWER_KIND` and `REVIEWER_BY_CREDITS`.
+  `METHOD`, `REVIEWER_KIND`, `REVIEWER_BY_CREDITS` and `TRIAGE`;
+- `NOTIFY`, a one-line command the kit runs with a message as its one
+  argument, e.g. `NOTIFY='~/bin/notify'`. Only the user contract (or the
+  environment of a kit call) sets it: it runs on your machine, so
+  `.orchestrate` naming it is noted on stderr and ignored.
 
 Anything else is the repo's (the check gate, install, panes, suite and
 toolchain, the unsuffixed `EXECUTOR_MODEL` and friends, `PR`,
@@ -307,6 +311,8 @@ line of the pane map and in the record.
 | `REVIEW_AREAS`         | every area     | e.g. `security,spec`                            |
 | `SUITE_SKIP`           | none           | suite steps to skip, e.g. `build`               |
 | `PR_TEMPLATE`          | preflight's    | a PR body template in the repo                  |
+| `TRIAGE`               | ask            | auto: the orchestrator triages alone            |
+| `NOTIFY`               | none           | a command, set in the user contract (above)     |
 
 A value outside the list is refused at bootstrap.
 
