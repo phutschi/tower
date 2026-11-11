@@ -8,6 +8,19 @@ To close issues on merge, give each number its own keyword: "Closes #2, closes #
 GitHub closes only the first of "Closes #2, #3". -->
 {{SPEC_LINK}}
 
+<!-- With TRIAGE=auto only. Leave a section out when it has nothing in it.
+Open decisions: each escalation still unanswered: the finding, its options
+or the missing fact, and the question. Unresolved: each finding still
+triaged fix after round 3, and what was tried. -->
+
+## Open decisions
+
+{{OPEN_DECISIONS}}
+
+## Unresolved
+
+{{UNRESOLVED}}
+
 ## Verdict
 
 | Check           | Status | Headline |

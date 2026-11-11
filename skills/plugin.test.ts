@@ -489,3 +489,54 @@ test("a finding may carry decision options, and triage records decided_by", () =
     /silent[^.]*`decision`/,
   );
 });
+
+// TRIAGE=ask keeps the one confirmation; TRIAGE=auto applies every outcome,
+// escalates only three kinds of finding, and pushes without asking.
+test("preflight act triages alone under TRIAGE=auto", () => {
+  const skill = read("skills/preflight/SKILL.md");
+  const settings = skill.split("## Settings")[1]!.split("\n## ")[0]!;
+  expect(settings).toMatch(/`TRIAGE=ask\|auto`, default `ask`/);
+  expect(settings).toMatch(/`NOTIFY=/);
+  expect(skill).toMatch(
+    /The human's one reply decides\s+every outcome and approves the fixes, the follow-up issues, the push and\s+the PR\. Until that reply, everything stays on this machine\./,
+  );
+  expect(skill).toMatch(
+    /With `TRIAGE=auto`, an `uncertain` or valid `pre-existing` finding is\s+`follow-up` when `must-fix` or `should-fix`, `accept` when a\s+`watchpoint`/,
+  );
+  const act = skill.split("## Act")[1]!;
+  expect(act).toMatch(
+    /With `TRIAGE=auto`, ask nothing: apply each suggested outcome/,
+  );
+  expect(act).toMatch(
+    /\*\*a choice\*\*: it has `decision`, or the spec is silent/,
+  );
+  expect(act).toMatch(
+    /\*\*a missing fact\*\*: no `docs\/agents\/issue-tracker\.md`/,
+  );
+  expect(act).toMatch(
+    /\*\*a contract\*\*: its fix would change something a contract doc/,
+  );
+  expect(act).toMatch(
+    /It blocks only\s+itself: the other fixes, the rounds and the push go on\./,
+  );
+  expect(act).toMatch(/With `auto`, start round `<n\+1>` yourself/);
+  expect(act).toMatch(
+    /still triaged `fix` is listed as\s+unresolved and counts as an escalation/,
+  );
+  expect(act).toMatch(
+    /With `TRIAGE=auto`, push and open the PR as `PR` says without asking/,
+  );
+  expect(act).toMatch(
+    /`off`\s+with `auto`: show the open decisions in the session/,
+  );
+  expect(act).toContain('sh -c "$NOTIFY \\"\\$1\\"" notify "<message>"');
+  expect(act).toContain("<branch>: <PR url> — <k> open decisions");
+  expect(act).toMatch(
+    /A failing `NOTIFY` is\s+reported and changes nothing else/,
+  );
+  const body = read("skills/preflight/templates/pr-body.md");
+  expect(body).toContain("## Open decisions");
+  expect(body).toContain("{{OPEN_DECISIONS}}");
+  expect(body).toContain("## Unresolved");
+  expect(body).toContain("{{UNRESOLVED}}");
+});
