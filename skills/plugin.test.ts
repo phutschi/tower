@@ -535,7 +535,11 @@ test("preflight act triages alone under TRIAGE=auto", () => {
   expect(act).toMatch(
     /`off`\s+with `auto`: show the open decisions in the session/,
   );
-  expect(act).toContain('sh -c "$NOTIFY \\"\\$1\\"" notify "<message>"');
+  // A prefix assignment applies after $NOTIFY is expanded: assign it first.
+  expect(act).toMatch(
+    /NOTIFY='<value>'\n\s*sh -c "\$NOTIFY \\"\\\$1\\"" notify "/,
+  );
+  expect(act).not.toMatch(/prefix the call/);
   expect(act).toContain("<branch>: <PR url> — <k> open decisions");
   expect(act).toMatch(
     /A failing `NOTIFY` is\s+reported and changes nothing else/,

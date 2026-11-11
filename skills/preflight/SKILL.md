@@ -295,10 +295,19 @@ act step 6.
    `gh pr edit --body-file <preflight-dir>/pr-body.md`.
 
 9. **Notify.** With `NOTIFY` set, run it once after step 8, with one line
-   as its one argument: `sh -c "$NOTIFY \"\$1\"" notify "<message>"`,
-   the message `<branch>: <PR url> — <k> open decisions` (`PR=off`:
-   `<branch>: ready, no PR — <k> open decisions`). `$NOTIFY` must hold the
-   setting's value: when it is not in the environment, prefix the call with
-   `NOTIFY='<value>'`. Write `<branch>` as `$(git branch --show-current)`,
-   never pasted: a branch name may hold `$(…)`. A failing `NOTIFY` is
-   reported and changes nothing else. Empty `NOTIFY`: run nothing.
+   as its one argument:
+
+   ```sh
+   NOTIFY='<value>'
+   sh -c "$NOTIFY \"\$1\"" notify "<message>"
+   ```
+
+   The first line is needed only when `NOTIFY` is not in the environment
+   (the user contract, or the pane map's `switches:` line). It is its own
+   statement: a `NOTIFY='…'` prefix on the second line would apply after
+   `$NOTIFY` is expanded, and run the message as a command. The message is
+   `<branch>: <PR url> — <k> open decisions` (`PR=off`:
+   `<branch>: ready, no PR — <k> open decisions`). Write `<branch>` as
+   `$(git branch --show-current)`, never pasted: a branch name may hold
+   `$(…)`. A failing `NOTIFY` is reported and changes nothing else. Empty
+   `NOTIFY`: run nothing.
