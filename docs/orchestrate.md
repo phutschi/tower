@@ -176,8 +176,8 @@ by preflight on the strongest model. In this order:
    that carries the round's number; the orchestrator then watches the lane
    as `watch-lanes.sh <run-dir> <agent>:<n>`, so an earlier report
    still on the screen never reads as done. A fix loop stops after the
-   second re-review and comes to you. With `TRIAGE=auto` it is deferred to
-   preflight instead, and the lane merges.
+   second re-review and comes to you. With `TRIAGE=auto` the open finding is
+   deferred to preflight instead, and the lane merges.
 2. **The review tab.** The first review opens a second tab with two
    slots, R1 and R2 (`add-reviewer.sh`). Every review starts a new agent in
    a slot and becomes a task on the board owned by that slot. The tab
@@ -209,8 +209,8 @@ by preflight on the strongest model. In this order:
    a contract doc or an ADR decided. The PR lists it under "Open
    decisions", and a fix still open after round 3 under "Unresolved";
    `NOTIFY` tells you the PR and how many decisions are open. Answer in the
-   orchestrator's pane; the run stays open until you do, or until it
-   closes and files them as follow-ups. Each round's tally is a tower note,
+   orchestrator's pane; the run stays open until you do, or until you tell
+   it to close, which files them as follow-ups. Each round's tally is a tower note,
    and the PR's findings say who decided each one (ADR 0015).
 
 6. **The PR.** The orchestrator pushes and opens the PR (a draft unless

@@ -587,18 +587,22 @@ test("orchestrate runs preflight act alone under TRIAGE=auto", () => {
     'tower note "preflight round <n> auto-triaged: <a> fix, <b> accept, <c> follow-up, <d> reject, <k> open decisions"',
   );
   expect(skill).toMatch(/recorded\s+`decided_by: you`/);
+  expect(skill).toMatch(/Run no watch meanwhile: end your turn/);
   expect(skill).toMatch(
-    /With open decisions still unanswered, file each as a\s+follow-up first/,
+    /also leave it out for a finding\s+that would escalate/,
   );
   expect(skill).toMatch(
-    /With\s+`TRIAGE=auto`,\s+it\s+is\s+deferred\s+to\s+preflight\s+instead/,
+    /With `TRIAGE=auto` and open decisions still unanswered,\s+file each as a follow-up first/,
+  );
+  expect(skill).toMatch(
+    /With\s+`TRIAGE=auto`,\s+the\s+open\s+finding\s+is\s+deferred\s+to\s+preflight\s+instead/,
   );
   expect(skill).toMatch(
     /after the user's reply to the triage table with\s+`TRIAGE=ask`, after act's last round with `TRIAGE=auto`/,
   );
   const docs = read("docs/orchestrate.md");
   expect(docs).toMatch(
-    /With\s+`TRIAGE=auto`\s+it\s+is\s+deferred\s+to\s+preflight/,
+    /With\s+`TRIAGE=auto`\s+the\s+open\s+finding\s+is\s+deferred\s+to\s+preflight/,
   );
   expect(docs).toMatch(/With `TRIAGE=auto`, nobody asks you/);
   expect(read("CHANGELOG.md").split("## [0.5.0]")[0]).toMatch(

@@ -256,19 +256,26 @@ and do it in a lane anyway or suggest doing it without the kit.
     file act read.
     With `TRIAGE=auto`, act runs without the one reply: you apply every
     outcome and escalate only what the skill's act step 4 names. Fixes go
-    to the lanes as above, and round `<n+1>` starts on its own. After each
-    round's triage:
-    `tower note "preflight round <n> auto-triaged: <a> fix, <b> accept, <c> follow-up, <d> reject, <k> open decisions"`.
-    A finding round 3 (or `fix-2`) still triages `fix` is listed as
-    unresolved, not handed to the user. Then the push, the PR, the
-    follow-ups after it and `NOTIFY`, as the skill's act steps 6 to 9 say,
-    with no reply. With open decisions after the push, the run stays open,
-    with no timeout. The user answers in your pane: the answer is recorded
-    `decided_by: you` on its finding and becomes fixes (round `<n+1>`,
-    pushed to the same PR, its body updated) or a follow-up.
-13. **Close.** With open decisions still unanswered, file each as a
-    follow-up first (the skill's act step 6) and update the PR body. Then
-    `tower close "<how it ended>"`. Tear nothing down until the user says so; the
+    to the lanes as above, and round `<n+1>` (`PREFLIGHT=off`: the next
+    `fix-` re-review) starts on its own. After each round's triage:
+    `tower note "preflight round <n> auto-triaged: <a> fix, <b> accept, <c> follow-up, <d> reject, <k> open decisions"`
+    (`PREFLIGHT=off`: `fix-1`, `fix-2` in place of `<n>`; `<k>` counts the
+    unresolved findings too). A finding round 3 (or `fix-2`) still triages
+    `fix` is listed as unresolved, not handed to the user, and round 3
+    goes on even with skipped areas: the PR's verdict table shows them
+    skipped. Then the push, the PR, the follow-ups after it and `NOTIFY`,
+    as the skill's act steps 6 to 9 say, with no reply (`PR=off`: no push;
+    show the open decisions in the session). With open decisions, the run
+    stays open, with no timeout. Run no watch meanwhile: end your turn; the
+    user's answer in your pane, or their word to close, is your next
+    prompt. An answer is recorded `decided_by: you` on its finding and
+    becomes fixes (the next round, pushed to the same PR, its body updated)
+    or a follow-up. A round after round 3 ends as round 3 does: a fix still
+    open is listed as unresolved.
+13. **Close.** With `TRIAGE=auto` and open decisions still unanswered,
+    file each as a follow-up first (the skill's act step 6; no tracker:
+    leave it listed in the PR) and update the PR body, if there is one.
+    Then `tower close "<how it ended>"`. Tear nothing down until the user says so; the
     console, the review tab and its panes stay open, the human quits them.
 
 ## Switches
@@ -332,12 +339,13 @@ preflight table. Per finding, in its findings file (the fields of
 - `outcome`: `fix` for a valid in-scope finding: a fix task for the lane
   that wrote the code (`tower add … --lane <X>`, then tell the lane);
   `reject` for a false positive. Leave `outcome` out to defer a finding to
-  the preflight table.
+  the preflight table. With `TRIAGE=auto`, also leave it out for a finding
+  that would escalate (the preflight skill's act step 4).
 
 A fix loop stops after two rounds: a finding still open after the second
 re-review (lane review round 3) goes to the user, and the lane waits
-unmerged for the answer. With `TRIAGE=auto`, it is deferred to preflight
-instead (its `outcome` left out), and the lane merges.
+unmerged for the answer. With `TRIAGE=auto`, the open finding is deferred
+to preflight instead (its `outcome` left out), and the lane merges.
 
 Two review slots, R1 and R2. A lane that reports ready while both hold a
 working Reviewer waits idle; `add-reviewer.sh` refuses a slot whose Reviewer
