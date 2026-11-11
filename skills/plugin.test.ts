@@ -503,6 +503,12 @@ test("preflight act triages alone under TRIAGE=auto", () => {
   expect(skill).toMatch(
     /With `TRIAGE=auto`, an `uncertain` or valid `pre-existing` finding is\s+`follow-up` when `must-fix` or `should-fix`, `accept` when a\s+`watchpoint`/,
   );
+  expect(skill).toMatch(
+    /a finding an earlier round escalated\s+is not open either/,
+  );
+  expect(skill).toMatch(
+    /With `TRIAGE=auto`, list the open must-fix findings as unresolved instead/,
+  );
   const act = skill.split("## Act")[1]!;
   expect(act).toMatch(
     /With `TRIAGE=auto`, ask nothing: apply each suggested outcome/,
@@ -521,7 +527,7 @@ test("preflight act triages alone under TRIAGE=auto", () => {
   );
   expect(act).toMatch(/With `auto`, start round `<n\+1>` yourself/);
   expect(act).toMatch(
-    /still triaged `fix` is listed as\s+unresolved and counts as an escalation/,
+    /still triaged `fix` is not fixed: it is listed as\s+unresolved and counts as an escalation/,
   );
   expect(act).toMatch(
     /With `TRIAGE=auto`, push and open the PR as `PR` says without asking/,

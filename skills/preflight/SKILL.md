@@ -26,7 +26,8 @@ findings dir, `<preflight-dir>/<n>/`. A look is **red** while it has an
 **open** must-fix finding: one not triaged `accept`, `follow-up` or
 `reject` in an earlier round (the same area, file and title). A finding
 triaged `fix` stays open until a later round that reviews its area no
-longer finds it. `look.sh`
+longer finds it. With `TRIAGE=auto`, a finding an earlier round escalated
+is not open either, and later rounds leave it out as if triaged. `look.sh`
 exits 1 on any must-fix finding; it does not know the triage.
 
 ## Who does what
@@ -63,8 +64,8 @@ run, the `switches:` line of `panes.txt` has the values the run uses.
   (`${XDG_CONFIG_HOME:-~/.config}/tower/orchestrate`) may set it too; the
   repo's `.orchestrate` wins over it.
 - `NOTIFY=<command>`: one line, from the environment or the user contract
-  only, never the repo's `.orchestrate`. Act runs it once after the push
-  (act step 8). Empty: nothing runs.
+  only, never the repo's `.orchestrate`. Act runs it once at its end (act
+  step 9). Empty: nothing runs.
 
 ## Look
 
@@ -174,10 +175,12 @@ run, the `switches:` line of `panes.txt` has the values the run uses.
 Alone, when the look is red: triage its open must-fix findings (act steps
 2 and 4), show them in one table, and ask the human. This early round
 approves fixes only. With `TRIAGE=auto`, ask nothing: an escalation (act
-step 4) waits as an open decision and does not keep the look red. Fix the
+step 4) waits as an open decision. Fix the
 ones marked `fix`, commit, and look again as
 round `<n+1>`, in its own findings dir. Go on to agent review once no
 must-fix finding is open; carry those outcomes into the final table. After two red looks, stop and hand the branch to the human.
+With `TRIAGE=auto`, list the open must-fix findings as unresolved instead,
+and go on to act step 6.
 
 ## Act
 
@@ -243,9 +246,9 @@ must-fix finding is open; carry those outcomes into the final table. After two r
    ones and fixes that did not hold, get a new table and a new
    confirmation. When round 3's triage still has a finding triaged `fix`,
    stop and hand it to the human. With `auto`, start round `<n+1>` yourself
-   when a round has a fix, with no confirmation. After round 3, a finding
-   still triaged `fix` is listed as unresolved and counts as an escalation;
-   go on to step 6.
+   when round 1 or 2 has a fix, with no confirmation. A finding round 3
+   still triaged `fix` is not fixed: it is listed as
+   unresolved and counts as an escalation; go on to step 6.
 6. **Follow-ups.** One issue per follow-up of every round, in the tracker.
    Keep each issue's link for the PR body.
 7. **PR body.** Fill `PR_TEMPLATE`, else `templates/pr-body.md`, into
@@ -257,7 +260,8 @@ must-fix finding is open; carry those outcomes into the final table. After two r
    placeholder filled, in a merge-ready tone: a trade-off reads as decided
    and accepted, with its reason. "Open decisions" lists every escalation
    still unanswered, "Unresolved" every fix still open after round 3; leave
-   out a section with nothing in it.
+   out a section with nothing in it. A `PR_TEMPLATE` without these sections
+   gets them added at the top.
 8. **Push and PR**, as `PR` says. The title: the spec's title, else a
    summary of the commits.
    - `draft`: `git push -u origin HEAD`, then
@@ -276,5 +280,8 @@ must-fix finding is open; carry those outcomes into the final table. After two r
 9. **Notify.** With `NOTIFY` set, run it once after step 8, with one line
    as its one argument: `sh -c "$NOTIFY \"\$1\"" notify "<message>"`,
    the message `<branch>: <PR url> — <k> open decisions` (`PR=off`:
-   `<branch>: ready, no PR — <k> open decisions`). A failing `NOTIFY` is
+   `<branch>: ready, no PR — <k> open decisions`). `$NOTIFY` must hold the
+   setting's value: when it is not in the environment, prefix the call with
+   `NOTIFY='<value>'`. Write `<branch>` as `$(git branch --show-current)`,
+   never pasted: a branch name may hold `$(…)`. A failing `NOTIFY` is
    reported and changes nothing else. Empty `NOTIFY`: run nothing.
