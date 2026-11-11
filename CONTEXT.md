@@ -143,7 +143,7 @@ _Avoid_: update, status update, progress, ping
 
 **Note**:
 A free-text event spoken in a voice: the tower's, a lane's, or a task's. The
-narrative channel — merges, escalations, decisions.
+narrative channel — merges, hand-offs to the human, decisions.
 _Avoid_: comment, message, log line, remark
 
 **Close**:
@@ -273,16 +273,18 @@ _Avoid_: todo, deferred finding
 A finding the triaging session does not decide under `TRIAGE=auto`: a choice
 (its `decision` lists the valid answers, or the spec is silent), a missing
 fact (no tracker file, an unknown owner, a credential), or a fix that would
-change something a contract doc or an ADR decided. It gets no outcome and
-becomes an open decision. A finding still triaged fix after round 3 is
-listed as unresolved and counts as one.
+change something a contract doc (a public API, a protocol, a schema) or an
+ADR decided. It gets no outcome and becomes an open decision. A finding
+still triaged `fix` after preflight round 3 keeps that outcome, is listed as
+unresolved and counts as one too.
 _Avoid_: blocker, question
 
 **Open decision**:
-An escalation waiting for the human's answer, listed in the draft PR. It
-blocks only itself: the other fixes, the rounds and the push go on. The
-answer becomes fixes or a follow-up; closing the run with one still open
-files it as a follow-up.
+An escalation waiting for the human's answer, listed in the PR (in the
+session with `PR=off`). It blocks only itself: the other fixes, the rounds
+and the push go on. The answer becomes fixes or a follow-up; closing the run
+with one still open files it as a follow-up, or lists it in the PR when
+there is no tracker.
 _Avoid_: pending decision, blocked finding
 
 **Decided by**:
@@ -369,17 +371,18 @@ _Avoid_: config, override file
 **User contract**:
 `${XDG_CONFIG_HOME:-~/.config}/tower/orchestrate`: one person's run defaults
 for every repo. It may set only the executor and Reviewer kinds, the per-kind
-models, the stale threshold, the method and review switches, the triage policy,
-the notify command and the credit guard; anything else it names and ignores. The repo contract wins over it.
+models, the stale threshold, the method and review switches, the triage
+policy, the notify command and the credit guard; anything else it names and
+ignores. The repo contract wins over it.
 _Avoid_: global config, user config, dotfile
 
 **Run switch**:
 One setting that turns a stage or choice of the run on, off or to a variant:
 per-task review, lane review, preflight, static baseline, PR mode, method,
-reviewer kind and model, Reviewer by credits, review areas, skipped suite steps, PR template,
-triage policy. The
-repo contract sets its default, the user's message overrides it, and the pane
-map records the value the run used.
+reviewer kind and model, Reviewer by credits, review areas, skipped suite
+steps, PR template, triage policy, notify command. The repo contract sets
+its default, the user's message overrides it, and the pane map records the
+value the run used.
 _Avoid_: flag, option, profile
 
 ### Airport words (rendering only)
