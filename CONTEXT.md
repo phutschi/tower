@@ -269,6 +269,28 @@ A finding chosen to be done later. It always becomes an issue in the repo's
 issue tracker, linked from the PR.
 _Avoid_: todo, deferred finding
 
+**Escalation**:
+A finding the triaging session does not decide under `TRIAGE=auto`: a choice
+(its `decision` lists the valid answers, or the spec is silent), a missing
+fact (no tracker file, an unknown owner, a credential), or a fix that would
+change something a contract doc or an ADR decided. It gets no outcome and
+becomes an open decision. A finding still triaged fix after round 3 is
+listed as unresolved and counts as one.
+_Avoid_: blocker, question
+
+**Open decision**:
+An escalation waiting for the human's answer, listed in the draft PR. It
+blocks only itself: the other fixes, the rounds and the push go on. The
+answer becomes fixes or a follow-up; closing the run with one still open
+files it as a follow-up.
+_Avoid_: pending decision, blocked finding
+
+**Decided by**:
+What chose a finding's outcome, written on it as `decided_by` and shown in
+the PR: the triage rule that decided (`valid × in-scope → fix`) or `you`,
+the human.
+_Avoid_: approver, owner
+
 **Shortcut**:
 A known limit an executor chose to leave in the code, marked where it lives
 with a `shortcut:` comment that names the limit and the trigger to revisit
@@ -347,14 +369,15 @@ _Avoid_: config, override file
 **User contract**:
 `${XDG_CONFIG_HOME:-~/.config}/tower/orchestrate`: one person's run defaults
 for every repo. It may set only the executor and Reviewer kinds, the per-kind
-models, the stale threshold, the method and review switches and the credit
-guard; anything else it names and ignores. The repo contract wins over it.
+models, the stale threshold, the method and review switches, the triage policy,
+the notify command and the credit guard; anything else it names and ignores. The repo contract wins over it.
 _Avoid_: global config, user config, dotfile
 
 **Run switch**:
 One setting that turns a stage or choice of the run on, off or to a variant:
 per-task review, lane review, preflight, static baseline, PR mode, method,
-reviewer kind and model, Reviewer by credits, review areas, skipped suite steps, PR template. The
+reviewer kind and model, Reviewer by credits, review areas, skipped suite steps, PR template,
+triage policy. The
 repo contract sets its default, the user's message overrides it, and the pane
 map records the value the run used.
 _Avoid_: flag, option, profile

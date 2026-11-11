@@ -458,3 +458,18 @@ test("preflight reviews structure, in R2", () => {
   expect(body).toContain("## Structure");
   expect(body).toContain("{{STRUCT_DETAIL}}");
 });
+
+// TRIAGE=auto amends ADR 0010 without superseding it: skills still cite 0010.
+test("ADR 0015 amends ADR 0010 and the glossary names the triage terms", () => {
+  const adr = read(
+    "docs/adr/0010-reviewers-report-the-orchestrator-decides.md",
+  );
+  expect(adr).toMatch(/^status: accepted/m);
+  expect(adr).toMatch(/ADR 0015[^\n]*TRIAGE=auto/);
+  expect(read("docs/adr/0015-the-orchestrator-triages-alone.md")).toMatch(
+    /^status: accepted/m,
+  );
+  const glossary = read("CONTEXT.md");
+  for (const term of ["Escalation", "Open decision", "Decided by"])
+    expect(glossary).toContain(`**${term}**:`);
+});
