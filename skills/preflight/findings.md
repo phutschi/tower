@@ -23,6 +23,15 @@ names (a Reviewer in a run). The triaging session reads every `*.json` there.
       "line": 42,
       "title": "Password compared with ==",
       "evidence": "L40-44: `if (hash == input)`; timing-safe compare missing"
+    },
+    {
+      "area": "spec",
+      "severity": "should-fix",
+      "file": "src/api/login.ts",
+      "line": 57,
+      "title": "Spec is silent on a locked account's response",
+      "evidence": "L55-58 returns 401 for a locked account; the spec names no status",
+      "decision": ["401, as for a wrong password", "423 with a retry hint"]
     }
   ]
 }
@@ -53,6 +62,9 @@ names (a Reviewer in a run). The triaging session reads every `*.json` there.
 - `title`: one line.
 - `evidence`: the lines you read and what they show. Quote code. Never quote a
   secret: name its kind and place instead.
+- `decision` (optional): two or more options, each one line, when the finding
+  has more than one valid answer or the spec is silent on the behaviour. Name
+  the options; do not pick one. Leave it out when one answer is right.
 
 A Shortcut (a `shortcut: <limit>, <trigger>` comment, or the older
 `ponytail:` form) is a deliberate limit. A Shortcut that names its limit is a decision, not a
@@ -71,3 +83,5 @@ never write them.
   - `in-scope` (the branch introduced it) or `pre-existing`,
   - plus the check, e.g. `"in-scope: git blame L42 is commit abc1234 on this branch"`.
 - `outcome`: `fix`, `accept`, `follow-up` or `reject`.
+- `decided_by`: what chose the outcome: the rule that decided, such as
+  `valid × in-scope → fix`, or `you` when the human chose or changed it.

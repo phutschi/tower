@@ -473,3 +473,27 @@ test("ADR 0015 amends ADR 0010 and the glossary names the triage terms", () => {
   for (const term of ["Escalation", "Open decision", "Decided by"])
     expect(glossary).toContain(`**${term}**:`);
 });
+
+// A Reviewer names the options of a choice; the triaging session records
+// what decided each outcome.
+test("a finding may carry decision options, and triage records decided_by", () => {
+  const findings = read("skills/preflight/findings.md");
+  const example = JSON.parse(findings.match(/```json\n([\s\S]*?)```/)![1]!) as {
+    findings: { decision?: string[] }[];
+  };
+  const choice = example.findings.find((f) => f.decision);
+  expect(choice?.decision?.length).toBeGreaterThanOrEqual(2);
+  expect(findings).toMatch(/`decision`[^.]*two or more options/);
+  expect(findings).toMatch(
+    /`decided_by`[^.]*`valid × in-scope → fix`[^.]*`you`/,
+  );
+  const brief = read("skills/orchestrate/brief-template.md");
+  const sentence = "add `decision` with its options instead of picking one";
+  expect(brief.split("### Lane review")[1]!.split("###")[0]).toContain(
+    sentence,
+  );
+  expect(brief.split("### Preflight")[1]!).toContain(sentence);
+  expect(read("skills/preflight/areas/spec.md")).toMatch(
+    /silent[^.]*`decision`/,
+  );
+});
