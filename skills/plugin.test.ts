@@ -584,6 +584,7 @@ test("auto follow-ups are de-duplicated and labelled; the PR shows Decided by", 
   // Create the label only when it is missing; --force would recolour it.
   expect(tracker).toContain(`select(.name=="preflight")`);
   expect(tracker).not.toContain("--force");
+  expect(tracker).toMatch(/A failed lookup is not a missing label/);
   expect(tracker).not.toMatch(/--body "/);
   // The skill stays tracker-neutral: the gh calls live in the tracker file.
   expect(act).not.toMatch(/gh (issue|label) /);
