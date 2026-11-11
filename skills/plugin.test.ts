@@ -581,6 +581,9 @@ test("auto follow-ups are de-duplicated and labelled; the PR shows Decided by", 
   const tracker = read("docs/agents/issue-tracker.md");
   expect(tracker).toContain("--label preflight");
   expect(tracker).toContain("select(.title ==");
+  // Create the label only when it is missing; --force would recolour it.
+  expect(tracker).toContain(`select(.name=="preflight")`);
+  expect(tracker).not.toContain("--force");
   expect(tracker).not.toMatch(/--body "/);
   // The skill stays tracker-neutral: the gh calls live in the tracker file.
   expect(act).not.toMatch(/gh (issue|label) /);
