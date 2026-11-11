@@ -254,7 +254,21 @@ and do it in a lane anyway or suggest doing it without the kit.
     the PR as `PR` says, its body in `<run-dir>/findings/preflight/pr-body.md`
     from the skill's template or `PR_TEMPLATE`, drawn from every findings
     file act read.
-13. **Close.** `tower close "<how it ended>"`. Tear nothing down until the user says so; the
+    With `TRIAGE=auto`, act runs without the one reply: you apply every
+    outcome and escalate only what the skill's act step 4 names. Fixes go
+    to the lanes as above, and round `<n+1>` starts on its own. After each
+    round's triage:
+    `tower note "preflight round <n> auto-triaged: <a> fix, <b> accept, <c> follow-up, <d> reject, <k> open decisions"`.
+    A finding round 3 (or `fix-2`) still triages `fix` is listed as
+    unresolved, not handed to the user. Then the push, the PR, the
+    follow-ups after it and `NOTIFY`, as the skill's act steps 6 to 9 say,
+    with no reply. With open decisions after the push, the run stays open,
+    with no timeout. The user answers in your pane: the answer is recorded
+    `decided_by: you` on its finding and becomes fixes (round `<n+1>`,
+    pushed to the same PR, its body updated) or a follow-up.
+13. **Close.** With open decisions still unanswered, file each as a
+    follow-up first (the skill's act step 6) and update the PR body. Then
+    `tower close "<how it ended>"`. Tear nothing down until the user says so; the
     console, the review tab and its panes stay open, the human quits them.
 
 ## Switches
@@ -322,7 +336,8 @@ preflight table. Per finding, in its findings file (the fields of
 
 A fix loop stops after two rounds: a finding still open after the second
 re-review (lane review round 3) goes to the user, and the lane waits
-unmerged for the answer.
+unmerged for the answer. With `TRIAGE=auto`, it is deferred to preflight
+instead (its `outcome` left out), and the lane merges.
 
 Two review slots, R1 and R2. A lane that reports ready while both hold a
 working Reviewer waits idle; `add-reviewer.sh` refuses a slot whose Reviewer
@@ -339,7 +354,8 @@ is still working. The next `FINDINGS WRITTEN` frees a slot.
 - `tower note` is your voice on the board: merges, escalations, decisions.
 - Merging a ready lane is your job, right away, not lane A's.
 - Executors and Reviewers never push and never open a PR (ADR 0010). You
-  push and open the PR after the user's reply to the triage table; until
+  push and open the PR after the user's reply to the triage table with
+  `TRIAGE=ask`, after act's last round with `TRIAGE=auto` (ADR 0015); until
   then everything stays on this machine.
 - Reviewers only report; their findings go through you.
 - The brief's review tail matches the lane's kind (panes.txt): review

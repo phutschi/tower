@@ -576,3 +576,32 @@ test("auto follow-ups are de-duplicated and labelled; the PR shows Decided by", 
   // The skill stays tracker-neutral: the gh calls live in the tracker file.
   expect(act).not.toMatch(/gh (issue|label) /);
 });
+
+// With TRIAGE=auto the run goes from the last merge to a pushed PR without a
+// reply, notes each round's tally, and waits only on open decisions.
+test("orchestrate runs preflight act alone under TRIAGE=auto", () => {
+  const skill = read("skills/orchestrate/SKILL.md");
+  expect(skill).toMatch(/One triage table, one reply from the user\./);
+  expect(skill).toMatch(/With `TRIAGE=auto`, act runs without the one reply/);
+  expect(skill).toContain(
+    'tower note "preflight round <n> auto-triaged: <a> fix, <b> accept, <c> follow-up, <d> reject, <k> open decisions"',
+  );
+  expect(skill).toMatch(/recorded\s+`decided_by: you`/);
+  expect(skill).toMatch(
+    /With open decisions still unanswered, file each as a\s+follow-up first/,
+  );
+  expect(skill).toMatch(
+    /With\s+`TRIAGE=auto`,\s+it\s+is\s+deferred\s+to\s+preflight\s+instead/,
+  );
+  expect(skill).toMatch(
+    /after the user's reply to the triage table with\s+`TRIAGE=ask`, after act's last round with `TRIAGE=auto`/,
+  );
+  const docs = read("docs/orchestrate.md");
+  expect(docs).toMatch(
+    /With\s+`TRIAGE=auto`\s+it\s+is\s+deferred\s+to\s+preflight/,
+  );
+  expect(docs).toMatch(/With `TRIAGE=auto`, nobody asks you/);
+  expect(read("CHANGELOG.md").split("## [0.5.0]")[0]).toMatch(
+    /`TRIAGE=auto`[\s\S]*`NOTIFY`/,
+  );
+});
