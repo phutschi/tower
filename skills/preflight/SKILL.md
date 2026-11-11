@@ -181,7 +181,10 @@ round `<n+1>`, in its own findings dir. Go on to agent review once no
 must-fix finding is open; carry those outcomes into the final table. After two red looks, stop and hand the branch to the human.
 With `TRIAGE=auto`, look again up to round 3 instead; when round 3's look
 is still red, list its open must-fix findings as unresolved and go on to
-act step 6.
+act step 6. Triage them first and fix nothing: a finding triaged `fix` is
+listed as unresolved and counts as an escalation (act step 5); the rest
+take their outcome. Write one `skip` row per area, note `look is red`,
+into round 3's findings dir, so the PR shows no area was reviewed.
 
 ## Act
 

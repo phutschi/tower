@@ -509,6 +509,9 @@ test("preflight act triages alone under TRIAGE=auto", () => {
   expect(skill).toMatch(
     /After two red looks, stop and hand the branch to the human\.\s+With `TRIAGE=auto`, look again up to round 3 instead; when round 3's look\s+is still red, list its open must-fix findings as unresolved and go on to\s+act step 6\./,
   );
+  expect(skill).toMatch(
+    /Triage them first and fix nothing: a finding triaged `fix` is\s+listed as unresolved and counts as an escalation/,
+  );
   const act = skill.split("## Act")[1]!;
   expect(act).toMatch(
     /With `TRIAGE=auto`, ask nothing: apply each suggested outcome/,
