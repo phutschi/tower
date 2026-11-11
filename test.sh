@@ -1057,11 +1057,10 @@ if section add-reviewer; then
   # A mid-run edit of the user contract to values detect-stack.sh refuses:
   # the pane map's TRIAGE and NOTIFY win, so the Reviewer still starts.
   ART="$TMP/ar-uc"; mkdir -p "$ART/tower"; printf '%s\n' TRIAGE=auto 'NOTIFY=~/bin/notify' > "$ART/tower/orchestrate"
-  RUNT="$TMP/run-review-triage"; r=$(fixture_repo bun-vitest); (cd "$r" && XDG_CONFIG_HOME="$ART" "$KIT/bootstrap.sh" "$RUNT" "Triage" main >/dev/null 2>&1)
+  RUNT="$TMP/run-review-triage"; rt=$(fixture_repo bun-vitest); (cd "$rt" && XDG_CONFIG_HOME="$ART" "$KIT/bootstrap.sh" "$RUNT" "Triage" main >/dev/null 2>&1)
   printf '%s\n' TRIAGE=maybe "NOTIFY='a" "b'" > "$ART/tower/orchestrate"; reset_stub
-  out=$(cd "$r" && XDG_CONFIG_HOME="$ART" "$KIT/add-reviewer.sh" "$RUNT" R1 claude "Triage" "$RUNT/findings/a.json" 2>&1; echo "exit=$?")
+  out=$(cd "$rt" && XDG_CONFIG_HOME="$ART" "$KIT/add-reviewer.sh" "$RUNT" R1 claude "Triage" "$RUNT/findings/a.json" 2>&1; echo "exit=$?")
   assert_match "TRIAGE and NOTIFY come from the pane map: a mid-run contract edit does not reach the Reviewer" "$out" 'exit=0$'
-  r=$(fixture_repo bun-vitest)
   sed -i.bak "s/^switches: .*/switches:       PR_TEMPLATE='open/" "$RUNQ/panes.txt"
   out=$(cd "$r" && "$KIT/add-reviewer.sh" "$RUNQ" R2 claude "Bad" "$RUNQ/findings/b.json" 2>&1; echo "exit=$?")
   assert_match "a switches: line that cannot be read back is refused" "$out" "switches: line in $RUNQ/panes.txt cannot be read back"

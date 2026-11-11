@@ -11,10 +11,11 @@
 # REVIEWER_KIND REVIEWER_BY_CREDITS TRIAGE NOTIFY. NOTIFY is its alone: a
 # repo contract that sets it has it named on stderr and ignored. The rest is
 # the repo's: its check gate, panes, suite and toolchain, the unsuffixed
-# models (they would give every kind one model), and the switches PR, REVIEW_AREAS, SUITE_SKIP and PR_TEMPLATE. Such a name,
-# an unknown one, or a pane or suite line is named on stderr and ignored; a
-# file that fails to load (a failing command, an exit) is refused; a missing
-# file is silent. The file itself is never pinned, but its run switches,
+# models (they would give every kind one model), and the switches PR,
+# REVIEW_AREAS, SUITE_SKIP and PR_TEMPLATE. Such a name, an unknown one, or
+# a pane or suite line is named on stderr and ignored; a file that fails to
+# load (a failing command, an exit) is refused; a missing file is silent.
+# The file itself is never pinned, but its run switches,
 # REVIEWER_CREDITS_MIN among them, are fixed at bootstrap: the pane map's
 # switches: line records them, and add-reviewer.sh takes them from there, so
 # a switch changed mid-run does not reach the rest of the run (STALE, too, is
@@ -252,7 +253,7 @@ if [ -n "$_kit_contract" ]; then
   # Unknown names in the file are left alone but named, so a typo does not
   # pass silently.
   _before="$(compgen -v | sort)"
-  # NOTIFY runs a command on this machine: only the user contract sets it.
+  # NOTIFY is the user's own setting, not the repo's (a convention: the file is bash).
   _notify=${NOTIFY-}; unset NOTIFY
   # shellcheck source=/dev/null  # the repo's own file
   . "$_kit_contract"

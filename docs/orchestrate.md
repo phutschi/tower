@@ -270,7 +270,7 @@ syntax. It may set:
   `METHOD`, `REVIEWER_KIND`, `REVIEWER_BY_CREDITS` and `TRIAGE`;
 - `NOTIFY`, a one-line command the kit runs with a message as its one
   argument, e.g. `NOTIFY='~/bin/notify'`. Only the user contract (or the
-  environment of a kit call) sets it: it runs on your machine, so
+  environment of a kit call) sets it: it is your setting, not the repo's, so
   `.orchestrate` naming it is noted on stderr and ignored.
 
 Anything else is the repo's (the check gate, install, panes, suite and
