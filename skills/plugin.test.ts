@@ -589,7 +589,7 @@ test("auto follow-ups are de-duplicated and labelled; the PR shows Decided by", 
   expect(tracker).not.toMatch(/file the issue without the label/);
   expect(tracker).toMatch(/never filed without the label/i);
   expect(act).toMatch(
-    /label cannot be looked up or created[^.]*is not filed: it escalates as a\s+missing fact/,
+    /label cannot be looked up or created, each follow-up still to file is\s+not filed: it escalates as a missing fact \(step 4\)\. Move its title from\s+"Follow-ups" to "Open decisions"/,
   );
   expect(tracker).not.toMatch(/--body "/);
   // The skill stays tracker-neutral: the gh calls live in the tracker file.

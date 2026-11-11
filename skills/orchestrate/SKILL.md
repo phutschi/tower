@@ -273,8 +273,8 @@ and do it in a lane anyway or suggest doing it without the kit.
     or a follow-up. A round after round 3 ends as round 3 does: a fix still
     open is listed as unresolved.
 13. **Close.** With `TRIAGE=auto` and open decisions still unanswered,
-    file each as a follow-up first (the skill's act step 6; no tracker:
-    leave it listed in the PR) and update the PR body, if there is one.
+    file each as a follow-up first (the skill's act step 6; no tracker, or
+    its label fails: leave it listed in the PR) and update the PR body, if there is one.
     Then `tower close "<how it ended>"`. Tear nothing down until the user says so; the
     console, the review tab and its panes stay open, the human quits them.
 

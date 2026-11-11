@@ -266,9 +266,11 @@ into round 3's findings dir, so the PR shows no area was reviewed.
      title, with the tracker file's commands; a match is linked from the PR
      instead of filed again.
    - Each new issue carries the `preflight` label (create it when the
-     tracker lacks it), the PR link and the finding's evidence. A follow-up
-     whose label cannot be looked up or created is not filed: it escalates as a
-     missing fact (step 4), and the rest go on.
+     tracker lacks it), the PR link and the finding's evidence. When the
+     label cannot be looked up or created, each follow-up still to file is
+     not filed: it escalates as a missing fact (step 4). Move its title from
+     "Follow-ups" to "Open decisions" in `pr-body.md`; the rest of act goes
+     on.
    - Then fill "Follow-ups" in `<preflight-dir>/pr-body.md` with their
      links and, with a PR, run
      `gh pr edit --body-file <preflight-dir>/pr-body.md`.

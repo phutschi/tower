@@ -19,8 +19,8 @@ Issues for this repo live in GitHub issues on `phutschi/tower`.
   the same title; a match is a URL this prints. It then looks up the
   `preflight` label and creates it only when the lookup prints nothing.
   Each new issue gets that label. A failed lookup is not a missing label. A
-  lookup or a create that fails is a missing fact (a credential): that
-  follow-up becomes an open decision and is never filed without the label.
+  lookup or a create that fails is a missing fact: each follow-up still to
+  file becomes an open decision, and is never filed without the label.
   A create that fails because the label already exists is not a failure.
 
   ```bash
