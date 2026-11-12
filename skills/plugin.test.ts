@@ -631,7 +631,14 @@ test("orchestrate runs preflight act alone under TRIAGE=auto", () => {
 
 // The tracker file's commands take the title as data: a title holding ' and "
 // reaches gh as one argument and matches by exact title, never as shell or jq
-// source. gh is stubbed; jq is real.
+// source. gh is stubbed; jq is real, so the setup docs name it.
+test("the tracker test's jq is a declared requirement", () => {
+  expect(read("CONTRIBUTING.md")).toMatch(
+    /you need Bun, Node ≥ 22\.12[^\n]*\n?[^\n]*jq/,
+  );
+  expect(read("AGENTS.md")).toMatch(/`bun run check`[\s\S]{0,200}needs jq/);
+});
+
 test("the tracker commands pass a quoted title through intact", () => {
   const dir = mkdtempSync(join(tmpdir(), "tracker-"));
   const title = `Spec is silent on a locked account's "401" response`;
