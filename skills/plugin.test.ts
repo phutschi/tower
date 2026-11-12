@@ -647,9 +647,8 @@ test("the tracker test's jq is a declared requirement", () => {
 // The tracker file's commands take the title as data: a title holding ' and "
 // reaches gh as one argument and matches by exact title, never as shell or jq
 // source. gh is stubbed; jq is real.
-let trackerDir = "";
 test("the tracker commands pass a quoted title through intact", () => {
-  const dir = (trackerDir = mkdtempSync(join(tmpdir(), "tracker-")));
+  const dir = mkdtempSync(join(tmpdir(), "tracker-"));
   try {
     const title = `Spec is silent on a locked account's "401" response`;
     writeFileSync(join(dir, "title.txt"), title);
@@ -706,9 +705,6 @@ test("the tracker commands pass a quoted title through intact", () => {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
-});
-
-test("the tracker test leaves no temp dir behind", () => {
-  expect(trackerDir).not.toBe("");
-  expect(existsSync(trackerDir)).toBe(false);
+  // The test leaves no temp dir behind, a failed assertion included.
+  expect(existsSync(dir)).toBe(false);
 });
