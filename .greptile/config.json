@@ -21,7 +21,23 @@
     "defaultOpen": false
   },
   "sequenceDiagramSection": { "included": false },
-  "autoApprove": { "enabled": false },
+  "autoApprove": {
+    "enabled": true,
+    "riskCeiling": "medium",
+    "filters": {
+      "excludePaths": [
+        ".greptile",
+        ".github",
+        "install.sh",
+        "scripts",
+        "package.json",
+        "bun.lock",
+        "skills/orchestrate/credits.sh",
+        ".claude-plugin",
+        ".cursor-plugin"
+      ]
+    }
+  },
   "instructions": "tower is an open-source CLI (src/, TypeScript on Node) and an agent-skills plugin (skills/, bash and markdown). Review for correctness, security and the repo's recorded decisions (docs/adr/). Formatting and lint are enforced by prettier, eslint, tsc and shellcheck in CI: do not comment on style. Report a finding only with the lines that show it and a concrete failure: an input, the wrong output or the crash. Name the ADR or doc a finding rests on.",
   "rules": [
     {
