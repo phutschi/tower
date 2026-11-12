@@ -6,6 +6,20 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `TRIAGE=auto` (default `ask`): preflight, alone or in an orchestrate run,
+  triages every finding itself, runs its rounds, pushes, opens the PR and
+  files follow-ups (de-duplicated, labelled `preflight`) with no reply. Only
+  a choice, a missing fact or a fix against a contract doc or an ADR
+  escalates; the PR lists them under "Open decisions", and a fix still open
+  after round 3 under "Unresolved" (ADR 0015).
+- `NOTIFY`, a one-line command only the environment or the user contract
+  sets: preflight runs
+  it once at its end with the PR link and the number of open decisions.
+- A Reviewer marks a choice with a finding's `decision` options; triage
+  writes `decided_by`, and the PR's findings tables show it.
+
 ## [0.5.0] — 2026-10-07
 
 ### Added

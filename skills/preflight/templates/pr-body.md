@@ -8,6 +8,19 @@ To close issues on merge, give each number its own keyword: "Closes #2, closes #
 GitHub closes only the first of "Closes #2, #3". -->
 {{SPEC_LINK}}
 
+<!-- With TRIAGE=auto only. Leave a section out when it has nothing in it.
+Open decisions: each escalation still unanswered: its trigger, the finding, its options
+or the missing fact, and the question. Unresolved: each finding still
+triaged fix after round 3, and what was tried. -->
+
+## Open decisions
+
+{{OPEN_DECISIONS}}
+
+## Unresolved
+
+{{UNRESOLVED}}
+
 ## Verdict
 
 | Check           | Status | Headline |
@@ -36,7 +49,9 @@ One row per suite step in the Full suite details. Add a row per repo area. -->
 
 <!-- One section per area, in the Verdict's order. TLDR: one line. DETAIL:
 the area's verdict row `detail` (look.json's rows for the static baseline
-and the full suite), then its findings with their outcomes. -->
+and the full suite), then its findings with their outcomes, in one table:
+| Severity | File:line | Finding | Outcome | Decided by |
+"Decided by" is the finding's `decided_by`: the rule that decided, or "you". -->
 
 ## Static baseline
 

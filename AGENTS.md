@@ -11,7 +11,8 @@ read docs/agents.md instead.
 - Runtime: `src/` uses `node:*` APIs only. No `Bun.*` (ESLint enforces it).
   Node ≥ 22.12 and Bun must both run the built CLI. Users never need Bun.
 - Toolchain: Bun. `bun run check` = format + lint + typecheck + test, and is
-  what CI runs. Run it before every push.
+  what CI runs. Run it before every push. It needs jq: one test runs the
+  tracker commands of `docs/agents/issue-tracker.md` with the real jq.
 - The kit's check: `./test.sh [section…]` (`--fast` skips the slow sections),
   then `shellcheck -S warning *.sh skills/*/*.sh skills/orchestrate/tests/stub/*`.
   Run both when you touch `skills/` or a root script. The tests fake herdr,
