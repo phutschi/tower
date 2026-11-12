@@ -11,7 +11,7 @@ Vocabulary is in `CONTEXT.md`: use its terms (Run, Lane, Orchestrator, Executor,
 
 What is trusted, so not a finding by itself:
 
-- Sourcing the repo contract (`.orchestrate`) and the user contract (`~/.config/tower/orchestrate`). Both are shell files their owner writes, the same trust as a Makefile. Flag new code that runs values from anywhere else.
+- Sourcing the repo contract (`.orchestrate`) and the user contract (`~/.config/tower/orchestrate`), and running their command fields (CHECK_CMD, INSTALL_CMD, `pane`, `suite`, NOTIFY), with `eval` where the kit does. Both are shell files their owner writes, the same trust as a Makefile. Flag new code that runs values from anywhere else.
 - Writing the run pointer into the git common dir (`<git common dir>/tower-run`, ADR 0006). It is the one place every worktree agrees on.
 - The kit driving local agent CLIs and herdr. That is its job; the CLI in `src/` never does it.
 

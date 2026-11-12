@@ -83,7 +83,7 @@
     },
     {
       "id": "shell-data-not-code",
-      "rule": "In the kit and the scripts, values that come from outside the script (task and plan titles, branch names, PR titles, issue text, Reviewer findings, contract values, file contents) are data: pass them as quoted arguments, through files or `jq --arg`, never into eval, `sh -c` strings, jq program text, unquoted expansions or command names. Flag any path where such a value can run as code or split into words.",
+      "rule": "In the kit and the scripts, values that come from outside the script (task and plan titles, branch names, PR titles, issue text, Reviewer findings, file contents) are data: pass them as quoted arguments, through files or `jq --arg`, never into eval, `sh -c` strings, jq program text, unquoted expansions or command names. Flag any path where such a value can run as code or split into words. Exempt: the command fields the repo contract (`.orchestrate`) and the user contract (`~/.config/tower/orchestrate`) define as commands (CHECK_CMD, INSTALL_CMD, `pane`, `suite`, NOTIFY). Their owner writes them to be run, so running them is the feature; a contract's switch values (on/off, kinds, models, areas) are still data.",
       "scope": ["**/*.sh", "skills/**/*.md", "docs/agents/**"],
       "severity": "high"
     },
