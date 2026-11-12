@@ -1,0 +1,146 @@
+{
+  "strictness": 2,
+  "commentTypes": ["logic", "syntax"],
+  "autoReview": ["open", "push"],
+  "statusCheck": true,
+  "excludeAuthors": ["dependabot[bot]"],
+  "ignorePatterns": "dist/\nnode_modules/\nbun.lock\n*.tsbuildinfo\n*.gif\nskills/orchestrate/lean.md\nskills/orchestrate/lean-review.md\nskills/preflight/areas/structure.md",
+  "summarySection": {
+    "included": true,
+    "collapsible": true,
+    "defaultOpen": false
+  },
+  "issuesTableSection": {
+    "included": true,
+    "collapsible": true,
+    "defaultOpen": true
+  },
+  "confidenceScoreSection": {
+    "included": true,
+    "collapsible": true,
+    "defaultOpen": false
+  },
+  "sequenceDiagramSection": { "included": false },
+  "autoApprove": {
+    "enabled": true,
+    "riskCeiling": "medium",
+    "filters": {
+      "excludePaths": [
+        ".greptile",
+        ".github",
+        "install.sh",
+        "scripts",
+        "package.json",
+        "bun.lock",
+        "skills/orchestrate/credits.sh",
+        ".claude-plugin",
+        ".cursor-plugin"
+      ]
+    }
+  },
+  "instructions": "tower is an open-source CLI (src/, TypeScript on Node) and an agent-skills plugin (skills/, bash and markdown). Review for correctness, security and the repo's recorded decisions (docs/adr/). Formatting and lint are enforced by prettier, eslint, tsc and shellcheck in CI: do not comment on style. Report a finding only with the lines that show it and a concrete failure: an input, the wrong output or the crash. Name the ADR or doc a finding rests on.",
+  "rules": [
+    {
+      "id": "cli-read-only",
+      "rule": "The CLI observes and never acts on a run (ADR 0003): code in src/ must not start processes for a run, send input to an agent, read an agent's screen, or decide what happens next. It reads and appends to the record only.",
+      "scope": ["src/**"],
+      "severity": "high"
+    },
+    {
+      "id": "harness-neutral",
+      "rule": "Nothing in src/, skills/run, skills/spec-to-plan or skills/preflight names a harness or a runner (herdr, tmux, a specific agent CLI) or depends on one (ADR 0005). Only skills/orchestrate may name herdr. Flag any new mention or dependency outside it.",
+      "scope": [
+        "src/**",
+        "skills/run/**",
+        "skills/spec-to-plan/**",
+        "skills/preflight/**"
+      ],
+      "severity": "high"
+    },
+    {
+      "id": "append-only-record",
+      "rule": "The record is append-only (ADR 0001): each event is one line written to events.ndjson with a single O_APPEND write; nothing rewrites, truncates or reorders that file, and run.json is written once. State is a pure fold of the log. Flag read-modify-write of the record, multi-call writes of one event, or edits to past events.",
+      "scope": ["src/**"],
+      "severity": "high"
+    },
+    {
+      "id": "order-by-position",
+      "rule": "Events are ordered by their position in the record, never by timestamp (ADR 0002). Flag any sort, comparison or dedupe of events by `ts`; `ts` is for display only.",
+      "scope": ["src/**"],
+      "severity": "high"
+    },
+    {
+      "id": "public-contracts",
+      "rule": "The event line, `tower state --json`, `tower wait` and the exit codes are public contracts (docs/protocol.md). A PR that changes any of them must change docs/protocol.md and CHANGELOG.md in the same PR, and a breaking change needs a major version. Flag a contract change without both.",
+      "scope": ["src/**"],
+      "severity": "high"
+    },
+    {
+      "id": "node-runtime",
+      "rule": "src/ runs on Node >= 22.12 and on Bun: it uses node:* APIs only and nothing added to Node after 22.12. Users never need Bun. Flag APIs that need a newer Node or Bun at runtime.",
+      "scope": ["src/**"],
+      "severity": "medium"
+    },
+    {
+      "id": "shell-data-not-code",
+      "rule": "In the kit and the scripts, values that come from outside the script (task and plan titles, branch names, PR titles, issue text, Reviewer findings, file contents) are data: pass them as quoted arguments, through files or `jq --arg`, never into eval, `sh -c` strings, jq program text, unquoted expansions or command names. Flag any path where such a value can run as code or split into words. Exempt: the command fields the repo contract (`.orchestrate`) and the user contract (`~/.config/tower/orchestrate`) define as commands (CHECK_CMD, INSTALL_CMD, `pane`, `suite`, NOTIFY). Their owner writes them to be run, so running them is the feature; a contract's switch values (on/off, kinds, models, areas) are still data.",
+      "scope": ["**/*.sh", "skills/**/*.md", "docs/agents/**"],
+      "severity": "high"
+    },
+    {
+      "id": "secrets-stay-local",
+      "rule": "The credit probes read OAuth tokens from the keychain (ADR 0013). A token must never be printed, logged, written to a file, put on a command line (visible in ps), or sent anywhere but its own vendor's endpoint. The probes stay opt-in and live only in skills/orchestrate.",
+      "scope": ["skills/orchestrate/**"],
+      "severity": "high"
+    },
+    {
+      "id": "verified-install",
+      "rule": "install.sh downloads only over HTTPS (no redirect to http), verifies every binary against the release's SHA256SUMS before it is moved into place or run, and removes anything that fails. Flag any path that installs or executes an unverified download.",
+      "scope": ["install.sh"],
+      "severity": "high"
+    },
+    {
+      "id": "workflow-hardening",
+      "rule": "GitHub workflows pin every action to a full commit SHA with a version comment, grant the least permissions a job needs, never expose secrets to pull_request jobs from forks, and never use pull_request_target to check out or run a PR's code.",
+      "scope": [".github/workflows/**"],
+      "severity": "high"
+    },
+    {
+      "id": "portable-shell",
+      "rule": "The kit runs on macOS's bash 3.2 and on Linux: no bash 4+ features (mapfile, readarray, associative arrays, ${x,,}), and only flags common to BSD and GNU tools (sed -i, date, stat, mktemp, xargs). Flag code that works on one OS only.",
+      "scope": ["**/*.sh"],
+      "severity": "medium"
+    },
+    {
+      "id": "neutral-fixtures",
+      "rule": "Fixtures and examples are neutral: repo `acme`, people `rex` and `sam`, `someone@example.com`. Flag real names, real home paths, real emails, hostnames, tokens or customer data in tests, fixtures, examples and docs.",
+      "scope": [
+        "**/*.test.ts",
+        "skills/orchestrate/tests/**",
+        "test.sh",
+        "docs/**",
+        "skills/**/*.md",
+        "demo/**"
+      ],
+      "severity": "medium"
+    },
+    {
+      "id": "themes-are-data",
+      "rule": "Themes are JSON lookup tables that rename the fixed states and nothing else (ADR 0004); only `airport` ships. A theme must never reach `state --json`, `wait`, errors or the brief. Flag a new built-in theme or theme logic outside the rename.",
+      "scope": ["themes/**", "src/**"],
+      "severity": "medium"
+    },
+    {
+      "id": "tested-behaviour",
+      "rule": "A behaviour change in src/ comes with a colocated bun:test (`*.test.ts`) through the existing seams: the pure fold (src/state.ts), pure rows (src/ui/rows.ts), and commands given the injected Io fake (src/testing.ts). A kit change comes with a test.sh case. Flag a behaviour change no test would catch.",
+      "scope": ["src/**", "skills/**/*.sh"],
+      "severity": "medium"
+    },
+    {
+      "id": "guarded-skill-text",
+      "rule": "Skill and template text is load-bearing: skills/plugin.test.ts, skills/run/SKILL.test.ts and test.sh assert exact phrases, and agents follow the words literally. When a SKILL.md, brief or template changes meaning, check that the guarding test changed with it and that the text does not contradict another skill, docs/orchestrate.md or CONTEXT.md.",
+      "scope": ["skills/**/*.md"],
+      "severity": "medium"
+    }
+  ]
+}
