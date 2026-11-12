@@ -17,6 +17,8 @@ Does the branch do what its spec asks, all of it, with tests?
    - A criterion not met: `must-fix`, cite where it should live.
    - Met but untested: `should-fix`, cite the code.
    - The diff does something the spec does not ask for: `watchpoint`.
+   - The spec is silent on a behaviour the diff had to choose: a `should-fix`
+     finding with `decision`, its options the valid answers (`findings.md`).
 
 Done when every criterion has a code citation and a test citation, or a
 finding.

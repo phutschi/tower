@@ -74,7 +74,7 @@ unset CREDITS_TIMEOUT CODEX_STUB_RATE_LIMITS CLAUDE_CONFIG_DIR
 # not the shell test.sh is started from (a codex lane exports EXECUTOR_KIND).
 unset EXECUTOR_KIND EXECUTOR_MODEL SPEC_REVIEWER_MODEL QUALITY_REVIEWER_MODEL STALE PM TYPECHECK_TASK \
   CHECK_CMD INSTALL_CMD TEST_PKG TEST_FILTER LANES TASK_REVIEW LANE_REVIEW PREFLIGHT STATIC_BASELINE PR METHOD \
-  REVIEWER_KIND REVIEWER_MODEL REVIEW_AREAS SUITE_SKIP PR_TEMPLATE
+  REVIEWER_KIND REVIEWER_MODEL REVIEW_AREAS SUITE_SKIP PR_TEMPLATE TRIAGE NOTIFY
 # The model defaults (model-defaults): the kit's file, never the calling shell's keys.
 # shellcheck disable=SC2046  # the file's keys, one word each
 unset CURSOR_STUB REVIEWER_BY_CREDITS CREDITS_FAKES MODEL_DEFAULTS_FILE $(sed -n 's/^\([A-Z_]*\)=.*/\1/p' "$KIT/model-defaults")
@@ -328,14 +328,14 @@ if section detect; then
   r=$(fixture_repo none)
   assert_eq "switches: defaults when neither file nor environment sets them" \
     "$(detect_in "$r" 'switches_line')" \
-    "TASK_REVIEW=on LANE_REVIEW=off PREFLIGHT=on STATIC_BASELINE=on PR=draft METHOD=tdd REVIEWER_KIND=other REVIEWER_MODEL= REVIEWER_BY_CREDITS=off REVIEWER_CREDITS_MIN=20 REVIEW_AREAS= SUITE_SKIP= PR_TEMPLATE="
+    "TASK_REVIEW=on LANE_REVIEW=off PREFLIGHT=on STATIC_BASELINE=on PR=draft METHOD=tdd REVIEWER_KIND=other REVIEWER_MODEL= REVIEWER_BY_CREDITS=off REVIEWER_CREDITS_MIN=20 REVIEW_AREAS= SUITE_SKIP= PR_TEMPLATE= TRIAGE=ask NOTIFY="
   r=$(fixture_repo contract-switches)
   assert_eq "switches: the file's values are used" \
     "$(detect_in "$r" 'switches_line')" \
-    "TASK_REVIEW=off LANE_REVIEW=off PREFLIGHT=off STATIC_BASELINE=off PR=ready METHOD=plain REVIEWER_KIND=claude REVIEWER_MODEL=claude-fable-5-1 REVIEWER_BY_CREDITS=off REVIEWER_CREDITS_MIN=20 REVIEW_AREAS=security,spec SUITE_SKIP=build PR_TEMPLATE=.github/pull_request_template.md"
+    "TASK_REVIEW=off LANE_REVIEW=off PREFLIGHT=off STATIC_BASELINE=off PR=ready METHOD=plain REVIEWER_KIND=claude REVIEWER_MODEL=claude-fable-5-1 REVIEWER_BY_CREDITS=off REVIEWER_CREDITS_MIN=20 REVIEW_AREAS=security,spec SUITE_SKIP=build PR_TEMPLATE=.github/pull_request_template.md TRIAGE=auto NOTIFY="
   assert_eq "switches: the environment wins over the file" \
-    "$(PR=off METHOD=tdd SUITE_SKIP=lint,test REVIEWER_KIND=codex detect_in "$r" 'echo "$PR $METHOD $SUITE_SKIP $REVIEWER_KIND $TASK_REVIEW"')" \
-    "off tdd lint,test codex off"
+    "$(PR=off METHOD=tdd SUITE_SKIP=lint,test REVIEWER_KIND=codex TRIAGE=ask detect_in "$r" 'echo "$PR $METHOD $SUITE_SKIP $REVIEWER_KIND $TASK_REVIEW $TRIAGE"')" \
+    "off tdd lint,test codex off ask"
   assert_nomatch "switches: not reported as unknown settings" "$(detect_in "$r" 'true')" "not a setting the kit reads"
   assert_eq "switches: an environment value with spaces wins whole" \
     "$(CHECK_CMD='make it all' PR_TEMPLATE='my template.md' detect_in "$r" 'echo "$CHECK_CMD|$PR_TEMPLATE"')" "make it all|my template.md"
@@ -353,6 +353,12 @@ if section detect; then
   assert_match "switches: METHOD=fast is refused"          "$(METHOD=fast detect_in "$(fixture_repo none)" 'true')" "METHOD must be tdd or plain \(got 'fast'\)"
   assert_match "switches: an unknown REVIEWER_KIND is refused" "$(REVIEWER_KIND=gemini detect_in "$(fixture_repo none)" 'true')" "REVIEWER_KIND must be other, claude, codex or cursor \(got 'gemini'\)"
   assert_match "switches: a value on two lines is refused" "$(PR_TEMPLATE=$'a\nb' detect_in "$(fixture_repo none)" 'true')" "PR_TEMPLATE must be one line"
+  assert_match "switches: NOTIFY on two lines is refused" "$(NOTIFY=$'a\nb' detect_in "$(fixture_repo none)" 'true')" "NOTIFY must be one line"
+  nr="$TMP/repos/repo-notify"; mkdir -p "$nr"; echo 'NOTIFY="~/bin/notify --repo"' > "$nr/.orchestrate"
+  assert_match "switches: a repo contract's NOTIFY is named" "$(detect_in "$nr" 'true')" "^\.orchestrate: 'NOTIFY' is a user contract setting; ignored here$"
+  assert_eq "switches: ... and ignored" "$(detect_in "$nr" 'echo "[$NOTIFY]"' 2>/dev/null | tail -1)" "[]"
+  assert_eq "switches: NOTIFY from the environment wins" "$(NOTIFY='/opt/bin/notify --env' detect_in "$nr" 'echo "[$NOTIFY]"' | tail -1)" "[/opt/bin/notify --env]"
+  assert_match "switches: TRIAGE=maybe is refused"         "$(TRIAGE=maybe detect_in "$(fixture_repo none)" 'true')" "TRIAGE must be ask or auto \(got 'maybe'\)"
   assert_match "switches: LANE_REVIEW=yes is refused"      "$(LANE_REVIEW=yes detect_in "$(fixture_repo none)" 'true')" "LANE_REVIEW must be on or off \(got 'yes'\)"
   tr_="$TMP/repos/suite-typo"; mkdir -p "$tr_"; echo 'SUITE_SKP=build' > "$tr_/.orchestrate"
   assert_match "suite: a mistyped SUITE_ setting is named" "$(detect_in "$tr_" 'true')" "'SUITE_SKP' is not a setting"
@@ -403,8 +409,8 @@ if section bootstrap; then
   assert_eq "output: no test runner detected, said once" "$(printf '%s\n' "$out" | grep -c '^info: no test runner detected')" 1
   assert_nomatch "output: the note is on stderr, not stdout" "$(cd "$(fixture_repo pnpm-notest)" && "$KIT/bootstrap.sh" "$TMP/run-norunner2" "No runner" main 2>/dev/null)" '^info: no test runner detected'
   assert_match "output: the note says how to declare one" "$out" '^info: no test runner detected: the checks pane has nothing to run; declare  pane checks "<cmd>"  in \.orchestrate$'
-  assert_match "switches: pane map has every switch"    "$map" '^switches: +TASK_REVIEW=on LANE_REVIEW=off PREFLIGHT=on STATIC_BASELINE=on PR=draft METHOD=tdd REVIEWER_KIND=other REVIEWER_MODEL= REVIEWER_BY_CREDITS=off REVIEWER_CREDITS_MIN=20 REVIEW_AREAS= SUITE_SKIP= PR_TEMPLATE=$'
-  assert_match "switches: the record gets a tower note" "$(notes "$TMP/run-empty")" '^switches: TASK_REVIEW=on LANE_REVIEW=off .* PR_TEMPLATE=$'
+  assert_match "switches: pane map has every switch"    "$map" '^switches: +TASK_REVIEW=on LANE_REVIEW=off PREFLIGHT=on STATIC_BASELINE=on PR=draft METHOD=tdd REVIEWER_KIND=other REVIEWER_MODEL= REVIEWER_BY_CREDITS=off REVIEWER_CREDITS_MIN=20 REVIEW_AREAS= SUITE_SKIP= PR_TEMPLATE= TRIAGE=ask NOTIFY=$'
+  assert_match "switches: the record gets a tower note" "$(notes "$TMP/run-empty")" '^switches: TASK_REVIEW=on LANE_REVIEW=off .* PR_TEMPLATE= TRIAGE=ask NOTIFY=$'
   assert_match "switches: printed with the pane map"    "$out" '^switches: +TASK_REVIEW=on '
   assert_match "reviewer: pane map has kind and model"  "$map" '^reviewer: +kind codex, model gpt-6-astra$'
   assert_match "reviewer: the record gets a tower note" "$(notes "$TMP/run-empty")" '^reviewer: kind codex, model gpt-6-astra$'
@@ -1047,7 +1053,14 @@ if section add-reviewer; then
   out=$(cd "$r" && "$KIT/add-reviewer.sh" "$RUNQ" R1 claude "Spaces" "$RUNQ/findings/a.json" 2>&1; echo "exit=$?")
   assert_match "a switch value with spaces: the Reviewer starts" "$out" 'exit=0$'
   assert_match "a switch value with spaces and a glob reaches the Reviewer whole" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-r1-1 --kind claude --pane [^ ]+ -- --model it.s my model \*$'
-  assert_match "a switch value with spaces: the pane map quotes it" "$(cat "$RUNQ/panes.txt")" "^switches: .* REVIEWER_MODEL='it'\\\\''s my model \\*' .* PR_TEMPLATE='it'\\\\''s my template.md'\$"
+  assert_match "a switch value with spaces: the pane map quotes it" "$(cat "$RUNQ/panes.txt")" "^switches: .* REVIEWER_MODEL='it'\\\\''s my model \\*' .* PR_TEMPLATE='it'\\\\''s my template.md' TRIAGE=ask NOTIFY=\$"
+  # A mid-run edit of the user contract to values detect-stack.sh refuses:
+  # the pane map's TRIAGE and NOTIFY win, so the Reviewer still starts.
+  ART="$TMP/ar-uc"; mkdir -p "$ART/tower"; printf '%s\n' TRIAGE=auto 'NOTIFY=~/bin/notify' > "$ART/tower/orchestrate"
+  RUNT="$TMP/run-review-triage"; rt=$(fixture_repo bun-vitest); (cd "$rt" && XDG_CONFIG_HOME="$ART" "$KIT/bootstrap.sh" "$RUNT" "Triage" main >/dev/null 2>&1)
+  printf '%s\n' TRIAGE=maybe "NOTIFY='a" "b'" > "$ART/tower/orchestrate"; reset_stub
+  out=$(cd "$rt" && XDG_CONFIG_HOME="$ART" "$KIT/add-reviewer.sh" "$RUNT" R1 claude "Triage" "$RUNT/findings/a.json" 2>&1; echo "exit=$?")
+  assert_match "TRIAGE and NOTIFY come from the pane map: a mid-run contract edit does not reach the Reviewer" "$out" 'exit=0$'
   sed -i.bak "s/^switches: .*/switches:       PR_TEMPLATE='open/" "$RUNQ/panes.txt"
   out=$(cd "$r" && "$KIT/add-reviewer.sh" "$RUNQ" R2 claude "Bad" "$RUNQ/findings/b.json" 2>&1; echo "exit=$?")
   assert_match "a switches: line that cannot be read back is refused" "$out" "switches: line in $RUNQ/panes.txt cannot be read back"
@@ -1361,6 +1374,17 @@ if section user-contract; then
   out=$(boot "$r" "$RUN" "User" main)
   assert_eq "user contract: its EXECUTOR_KIND makes the lanes codex" "$(lane_a "$RUN")" "codex gpt-6-astra"
   assert_match "user contract: its run switch is in the switches: line" "$(cat "$RUN/panes.txt")" '^switches: .* LANE_REVIEW=on '
+  uc TRIAGE=auto "NOTIFY='~/bin/notify --run'"
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-uc-triage"
+  out=$(boot "$r" "$RUN" "User" main)
+  assert_match "user contract: its TRIAGE and NOTIFY are in the switches: line, NOTIFY quoted" "$(cat "$RUN/panes.txt")" "^switches: .* TRIAGE=auto NOTIFY='~/bin/notify --run'\$"
+  assert_match "user contract: ... and in the record's note" "$(notes "$RUN")" "^switches: .* TRIAGE=auto NOTIFY='~/bin/notify --run'\$"
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-uc-triage-repo"; printf '%s\n' TRIAGE=ask 'NOTIFY=~/bin/repo-notify' > "$r/.orchestrate"
+  out=$(boot "$r" "$RUN" "User" main)
+  assert_match "user contract: the repo contract's TRIAGE wins, its NOTIFY does not" "$(cat "$RUN/panes.txt")" "^switches: .* TRIAGE=ask NOTIFY='~/bin/notify --run'\$"
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-uc-triage-env"; printf '%s\n' TRIAGE=ask > "$r/.orchestrate"
+  out=$(TRIAGE=auto NOTIFY=/opt/bin/env-notify boot "$r" "$RUN" "User" main)
+  assert_match "user contract: bootstrap's TRIAGE and NOTIFY win over both" "$(cat "$RUN/panes.txt")" "^switches: .* TRIAGE=auto NOTIFY=/opt/bin/env-notify\$"
   uc REVIEWER_MODEL_CODEX=rev-user
   r=$(fixture_repo bun-vitest); RUN="$TMP/run-uc-rev"
   out=$(boot "$r" "$RUN" "User" main)
