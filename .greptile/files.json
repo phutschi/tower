@@ -1,0 +1,56 @@
+{
+  "files": [
+    {
+      "path": "AGENTS.md",
+      "description": "Contributor rules: the two halves, runtime, toolchain, tests, fixtures, public contracts, commits"
+    },
+    {
+      "path": "CONTEXT.md",
+      "description": "The domain glossary: the terms code, docs and skills must use"
+    },
+    {
+      "path": "docs/protocol.md",
+      "description": "The public contracts: run dir, run.json, events, state --json, wait, exit codes",
+      "scope": ["src/**", "docs/**"]
+    },
+    {
+      "path": "docs/adr/0001-append-only-record.md",
+      "description": "The record is append-only; state is a pure fold",
+      "scope": ["src/**"]
+    },
+    {
+      "path": "docs/adr/0002-order-by-file-position.md",
+      "description": "Events order by file position, never timestamp",
+      "scope": ["src/**"]
+    },
+    {
+      "path": "docs/adr/0003-tower-is-read-only.md",
+      "description": "The CLI observes, never acts",
+      "scope": ["src/**"]
+    },
+    {
+      "path": "docs/adr/0005-harness-and-runner-neutral.md",
+      "description": "Harness and runner neutrality; orchestrate is the one herdr-only skill"
+    },
+    {
+      "path": "docs/adr/0010-reviewers-report-the-orchestrator-decides.md",
+      "description": "Reviewers report, the orchestrator decides and is the only one to push",
+      "scope": ["skills/**"]
+    },
+    {
+      "path": "docs/adr/0013-credits-steer-the-reviewer.md",
+      "description": "Opt-in credit probes that read OAuth tokens",
+      "scope": ["skills/orchestrate/**"]
+    },
+    {
+      "path": "docs/orchestrate.md",
+      "description": "How the orchestrate kit runs, step by step, and its switches",
+      "scope": ["skills/**"]
+    },
+    {
+      "path": "skills/orchestrate/example.orchestrate",
+      "description": "The repo contract format and every switch",
+      "scope": ["skills/orchestrate/**"]
+    }
+  ]
+}
