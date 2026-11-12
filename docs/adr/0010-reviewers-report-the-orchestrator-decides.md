@@ -1,5 +1,6 @@
 ---
 status: accepted
+amended-by: ADR 0015 supersedes the "one confirmation from the human" sentence under TRIAGE=auto
 ---
 
 # Reviewers report, the orchestrator decides

@@ -5,7 +5,15 @@
  */
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readdirSync, readFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
 
@@ -457,4 +465,246 @@ test("preflight reviews structure, in R2", () => {
   );
   expect(body).toContain("## Structure");
   expect(body).toContain("{{STRUCT_DETAIL}}");
+});
+
+// Under TRIAGE=auto ADR 0015 replaces one sentence of ADR 0010; the rest holds.
+test("ADR 0010 points to ADR 0015 for TRIAGE=auto", () => {
+  expect(
+    read("docs/adr/0010-reviewers-report-the-orchestrator-decides.md"),
+  ).toMatch(/ADR 0015[^\n]*TRIAGE=auto/);
+});
+
+// A Reviewer names the options of a choice; the triaging session records
+// what decided each outcome.
+test("a finding may carry decision options, and triage records decided_by", () => {
+  const findings = read("skills/preflight/findings.md");
+  const example = JSON.parse(findings.match(/```json\n([\s\S]*?)```/)![1]!) as {
+    findings: { decision?: string[] }[];
+  };
+  const choice = example.findings.find((f) => f.decision);
+  expect(choice?.decision?.length).toBeGreaterThanOrEqual(2);
+  expect(findings).toMatch(/`decision`[^.]*two or more options/);
+  expect(findings.split("## Added in triage")[1]).toMatch(
+    /`decided_by`[^.]*`valid × in-scope → fix`[^.]*`you`/,
+  );
+  const brief = read("skills/orchestrate/brief-template.md");
+  const sentence = "add `decision` with its options instead of picking one";
+  expect(brief.split("### Lane review")[1]!.split("###")[0]).toContain(
+    sentence,
+  );
+  expect(brief.split("### Preflight")[1]!).toContain(sentence);
+  expect(read("skills/preflight/areas/spec.md")).toMatch(
+    /silent[^.]*`decision`/,
+  );
+});
+
+// TRIAGE=ask keeps the one confirmation; TRIAGE=auto applies every outcome,
+// escalates only three kinds of finding, and pushes without asking.
+test("preflight act triages alone under TRIAGE=auto", () => {
+  const skill = read("skills/preflight/SKILL.md");
+  const settings = skill.split("## Settings")[1]!.split("\n## ")[0]!;
+  expect(settings).toMatch(/`TRIAGE=ask\|auto`, default `ask`/);
+  expect(settings).toMatch(/`NOTIFY=/);
+  expect(skill).toMatch(
+    /The human's one reply decides\s+every outcome and approves the fixes, the follow-up issues, the push and\s+the PR\. Until that reply, everything stays on this machine\./,
+  );
+  expect(skill).toMatch(
+    /With `TRIAGE=auto`, an `uncertain` or valid `pre-existing` finding is\s+`follow-up` when `must-fix` or `should-fix`, `accept` when a\s+`watchpoint`/,
+  );
+  expect(skill).toMatch(
+    /a finding an earlier round escalated\s+is not open either/,
+  );
+  expect(skill).toMatch(
+    /After two red looks, stop and hand the branch to the human\.\s+With `TRIAGE=auto`, look again up to round 3 instead; when round 3's look\s+is still red, list its open must-fix findings as unresolved and go on to\s+act step 6\./,
+  );
+  expect(skill).toMatch(
+    /Triage them first and fix nothing: a finding triaged `fix` is\s+listed as unresolved and counts as an escalation/,
+  );
+  const act = skill.split("## Act")[1]!;
+  expect(act).toMatch(
+    /With `TRIAGE=auto`, ask nothing: apply each suggested outcome/,
+  );
+  expect(act).toMatch(
+    /\*\*a choice\*\*: it has `decision`, or the spec is silent/,
+  );
+  expect(act).toMatch(
+    /\*\*a missing fact\*\*: no `docs\/agents\/issue-tracker\.md`/,
+  );
+  expect(act).toMatch(
+    /\*\*a contract\*\*: its fix would change something a contract doc/,
+  );
+  expect(act).toMatch(
+    /It blocks only\s+itself: the other fixes, the rounds and the push go on\./,
+  );
+  expect(act).toMatch(/With `auto`, start round `<n\+1>` yourself/);
+  expect(act).toMatch(
+    /still triaged `fix` is not fixed: it is listed as\s+unresolved and counts as an escalation/,
+  );
+  expect(act).toMatch(
+    /With `TRIAGE=auto`, push and open the PR as `PR` says without asking/,
+  );
+  expect(act).toMatch(
+    /`off`\s+with `auto`: show the open decisions in the session/,
+  );
+  // A prefix assignment applies after $NOTIFY is expanded: assign it first.
+  expect(act).toMatch(
+    /NOTIFY=<as written>\n\s*sh -c "\$NOTIFY \\"\\\$1\\"" notify "/,
+  );
+  expect(act).not.toMatch(/prefix the call/);
+  expect(act).toMatch(/already\s+shell-quoted, so add no quotes/);
+  expect(act).toMatch(/Run both lines in one shell call/);
+  expect(act).toContain("<branch>: <PR url> — <k> open decisions");
+  expect(act).toMatch(
+    /A failing `NOTIFY` is\s+reported and changes nothing else/,
+  );
+  const body = read("skills/preflight/templates/pr-body.md");
+  expect(body).toContain("## Open decisions");
+  expect(body).toContain("{{OPEN_DECISIONS}}");
+  expect(body).toContain("## Unresolved");
+  expect(body).toContain("{{UNRESOLVED}}");
+});
+
+// Follow-ups filed without a confirmation stay clean, and the PR shows what
+// decided every finding.
+test("auto follow-ups are de-duplicated and labelled; the PR shows Decided by", () => {
+  const act = read("skills/preflight/SKILL.md").split("## Act")[1]!;
+  expect(act).toMatch(
+    /\*\*Decided\s+by\*\*:\s+write\s+`decided_by`\s+on\s+every\s+finding/,
+  );
+  expect(act).toMatch(
+    /With `ask`, an outcome\s+the human's reply confirmed or changed is `you`/,
+  );
+  expect(act).toMatch(
+    /search\s+the\s+tracker\s+for\s+an\s+open\s+issue\s+with\s+the\s+same\s+title/,
+  );
+  expect(act).toMatch(
+    /a\s+match\s+is\s+linked\s+from\s+the\s+PR\s+instead\s+of\s+filed\s+again/,
+  );
+  expect(act).toMatch(
+    /the\s+`preflight`\s+label[^.]*create\s+it\s+when\s+the\s+tracker\s+lacks\s+it/,
+  );
+  expect(read("skills/preflight/templates/pr-body.md")).toContain(
+    "| Severity | File:line | Finding | Outcome | Decided by |",
+  );
+  const tracker = read("docs/agents/issue-tracker.md");
+  expect(tracker).toContain("--label preflight");
+  expect(tracker).toContain("select(.title == $t)");
+  // Create the label only when it is missing; --force would recolour it.
+  expect(tracker).toContain(`select(.name=="preflight")`);
+  expect(tracker).not.toContain("--force");
+  expect(tracker).toMatch(/A failed lookup is not a missing label/);
+  expect(tracker).not.toMatch(/file the issue without the label/);
+  expect(tracker).toMatch(/never filed without the label/i);
+  expect(act).toMatch(
+    /label cannot be looked up or created, each follow-up still to file is\s+not filed: it escalates as a missing fact \(step 4\)\. Move its title from\s+"Follow-ups" to "Open decisions"/,
+  );
+  expect(tracker).not.toMatch(/--body "/);
+  // The skill stays tracker-neutral: the gh calls live in the tracker file.
+  expect(act).not.toMatch(/gh (issue|label) /);
+});
+
+// With TRIAGE=auto the run goes from the last merge to a pushed PR without a
+// reply, notes each round's tally, and waits only on open decisions.
+test("orchestrate runs preflight act alone under TRIAGE=auto", () => {
+  const skill = read("skills/orchestrate/SKILL.md");
+  expect(skill).toMatch(/One triage table, one reply from the user\./);
+  expect(skill).toMatch(/With `TRIAGE=auto`, act runs without the one reply/);
+  expect(skill).toContain(
+    'tower note "preflight round <n> auto-triaged: <a> fix, <b> accept, <c> follow-up, <d> reject, <k> open decisions"',
+  );
+  expect(skill).toMatch(/recorded\s+`decided_by: you`/);
+  expect(skill).toMatch(/Run no watch meanwhile: end your turn/);
+  expect(skill).toMatch(
+    /also leave it out for a finding\s+that would escalate/,
+  );
+  expect(skill).toMatch(
+    /With `TRIAGE=auto` and open decisions still unanswered,\s+file each as a follow-up first/,
+  );
+  expect(skill).toMatch(
+    /With\s+`TRIAGE=auto`,\s+the\s+open\s+finding\s+is\s+deferred\s+to\s+preflight\s+instead/,
+  );
+  expect(skill).toMatch(
+    /after the user's reply to the triage table with\s+`TRIAGE=ask`, after act's last round with `TRIAGE=auto`/,
+  );
+  const docs = read("docs/orchestrate.md");
+  expect(docs).toMatch(
+    /With\s+`TRIAGE=auto`\s+the\s+open\s+finding\s+is\s+deferred\s+to\s+preflight/,
+  );
+  expect(docs).toMatch(/With `TRIAGE=auto`, nobody asks you/);
+  expect(read("CHANGELOG.md").split("## [0.5.0]")[0]).toMatch(
+    /`TRIAGE=auto`[\s\S]*`NOTIFY`/,
+  );
+});
+
+// The tracker test below runs the real jq, so the setup docs name it.
+test("the tracker test's jq is a declared requirement", () => {
+  expect(read("CONTRIBUTING.md")).toMatch(
+    /you need Bun, Node ≥ 22\.12[^\n]*\n?[^\n]*jq/,
+  );
+  expect(read("AGENTS.md")).toMatch(/`bun run check`[\s\S]{0,200}needs jq/);
+});
+
+// The tracker file's commands take the title as data: a title holding ' and "
+// reaches gh as one argument and matches by exact title, never as shell or jq
+// source. gh is stubbed; jq is real.
+test("the tracker commands pass a quoted title through intact", () => {
+  const dir = mkdtempSync(join(tmpdir(), "tracker-"));
+  try {
+    const title = `Spec is silent on a locked account's "401" response`;
+    writeFileSync(join(dir, "title.txt"), title);
+    writeFileSync(join(dir, "body.md"), "evidence `$(id)`");
+    writeFileSync(
+      join(dir, "gh"),
+      '#!/bin/sh\nfor a in "$@"; do printf "[%s]\\n" "$a"; [ "$prev" = --body-file ] && cat "$a"; prev=$a; done >> "$LOG"\necho --- >> "$LOG"\n[ "$1 $2" = "issue list" ] || exit 0\n[ -n "$STUB_FAIL" ] && exit 1\nprintf "%s" "$STUB_JSON"\n',
+      { mode: 0o755 },
+    );
+    const blocks = [
+      ...read("docs/agents/issue-tracker.md").matchAll(
+        /```bash\n([\s\S]*?)```/g,
+      ),
+    ]
+      .map((m) => m[1]!.replace(/^ {2}/gm, ""))
+      .join("\n")
+      .replaceAll("<title-file>", join(dir, "title.txt"))
+      .replaceAll("<body-file>", join(dir, "body.md"));
+    const log = join(dir, "log");
+    const env = {
+      ...process.env,
+      PATH: `${dir}:${process.env.PATH}`,
+      LOG: log,
+      STUB_JSON: JSON.stringify([
+        { title: `${title} too`, url: "https://example.com/1" },
+        { title, url: "https://example.com/2" },
+      ]),
+    };
+    const out = execFileSync("bash", ["-euc", blocks], {
+      encoding: "utf8",
+      env,
+    });
+    expect(out.trim()).toBe("https://example.com/2");
+    const calls = readFileSync(log, "utf8");
+    // A " would end the search phrase early: the search drops it, jq does not.
+    expect(calls).toContain(
+      `[--search]\n["${title.replaceAll('"', "")}" in:title]\n`,
+    );
+    expect(calls.split(`[--title]\n[${title}]\n`).length).toBe(3);
+    expect(calls).toContain("evidence `$(id)`");
+    // A failed lookup is not "no duplicate": the block stops.
+    expect(() =>
+      execFileSync("bash", ["-euc", blocks], {
+        env: { ...env, STUB_FAIL: "1" },
+        stdio: "pipe",
+      }),
+    ).toThrow();
+    // The PR title is data too.
+    const step8 = read("skills/preflight/SKILL.md").split(
+      "8. **Push and PR**",
+    )[1]!;
+    expect(step8).toContain('--title "$title"');
+    expect(step8).not.toContain('"<title>"');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+  // The test leaves no temp dir behind, a failed assertion included.
+  expect(existsSync(dir)).toBe(false);
 });

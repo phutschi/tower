@@ -11,7 +11,9 @@ Preflight checks a whole branch before its PR, in two halves:
   Every result is a finding in the shared format (`findings.md`, next to
   this file).
 - **Act**: triage every finding into one table, get the human's one
-  confirmation, then fix, file follow-ups, push and open the PR.
+  confirmation, then fix, file follow-ups, push and open the PR. With
+  `TRIAGE=auto` there is no confirmation: act applies every outcome itself
+  and escalates only what it cannot decide.
 
 Words: a **Finding** is one problem with the file and line it cites. A
 **Follow-up** is a finding chosen for later; it becomes an issue. The
@@ -24,7 +26,8 @@ findings dir, `<preflight-dir>/<n>/`. A look is **red** while it has an
 **open** must-fix finding: one not triaged `accept`, `follow-up` or
 `reject` in an earlier round (the same area, file and title). A finding
 triaged `fix` stays open until a later round that reviews its area no
-longer finds it. `look.sh`
+longer finds it. With `TRIAGE=auto`, a finding an earlier round escalated
+is not open either, and later rounds leave it out as if triaged. `look.sh`
 exits 1 on any must-fix finding; it does not know the triage.
 
 ## Who does what
@@ -55,6 +58,14 @@ run, the `switches:` line of `panes.txt` has the values the run uses.
   push, no PR.
 - `PR_TEMPLATE=<path>`: the PR body template in the repo. Empty:
   `templates/pr-body.md` next to this file.
+- `TRIAGE=ask|auto`, default `ask`: who confirms the outcomes. `ask`: the
+  human, in one reply (act step 4). `auto`: you alone; only escalations wait
+  for the human (ADR 0015). Alone, the user contract
+  (`${XDG_CONFIG_HOME:-~/.config}/tower/orchestrate`) may set it too; the
+  repo's `.orchestrate` wins over it.
+- `NOTIFY=<command>`: one line, from the environment or the user contract
+  only, never the repo's `.orchestrate`. Act runs it once at its end (act
+  step 9). Empty: nothing runs.
 
 ## Look
 
@@ -163,9 +174,17 @@ run, the `switches:` line of `panes.txt` has the values the run uses.
 
 Alone, when the look is red: triage its open must-fix findings (act steps
 2 and 4), show them in one table, and ask the human. This early round
-approves fixes only. Fix the ones marked `fix`, commit, and look again as
+approves fixes only. With `TRIAGE=auto`, ask nothing: an escalation (act
+step 4) waits as an open decision. Fix the
+ones marked `fix`, commit, and look again as
 round `<n+1>`, in its own findings dir. Go on to agent review once no
 must-fix finding is open; carry those outcomes into the final table. After two red looks, stop and hand the branch to the human.
+With `TRIAGE=auto`, look again up to round 3 instead; when round 3's look
+is still red, list its open must-fix findings as unresolved and go on to
+act step 6. Triage them first and fix nothing: a finding triaged `fix` is
+listed as unresolved and counts as an escalation (act step 5); the rest
+take their outcome. Write one `skip` row per area, note `look is red`,
+into round 3's findings dir, so the PR shows no area was reviewed.
 
 ## Act
 
@@ -193,14 +212,37 @@ must-fix finding is open; carry those outcomes into the final table. After two r
      follows the table.
      A `shortcuts` finding is never a follow-up: its outcome is `fix` (add
      the trigger clause) or `accept`. The comment is the record.
+     With `TRIAGE=auto`, an `uncertain` or valid `pre-existing` finding is
+     `follow-up` when `must-fix` or `should-fix`, `accept` when a
+     `watchpoint`.
+
+   - **Decided by**: write `decided_by` on every finding with an outcome:
+     the rule that chose it, such as `valid × in-scope → fix` or
+     `valid × pre-existing × watchpoint → accept`. With `ask`, an outcome
+     the human's reply confirmed or changed is `you`.
 
 3. **Tracker.** Read `docs/agents/issue-tracker.md` for where follow-ups
    go. No such file: ask where, as part of the table's question in step 4.
+   With `TRIAGE=auto`, each follow-up then escalates as a missing fact.
 4. **One table, one confirmation.** Show every finding in one table:
    number, area, severity, file:line, title, suggested outcome, validity
    and scope with their evidence. Ask once. The human's one reply decides
    every outcome and approves the fixes, the follow-up issues, the push and
    the PR. Until that reply, everything stays on this machine.
+
+   With `TRIAGE=auto`, ask nothing: apply each suggested outcome yourself
+   and show the table for the record. A finding escalates instead, with no
+   outcome, when it is:
+   - **a choice**: it has `decision`, or the spec is silent on it;
+   - **a missing fact**: no `docs/agents/issue-tracker.md` for a follow-up,
+     an owner you cannot name, a credential;
+   - **a contract**: its fix would change something a contract doc (a
+     public API, a protocol, a schema) or an ADR decided.
+
+   Each escalation is an open decision: its trigger, the finding, its
+   options or the missing fact, and the question to answer. It blocks only
+   itself: the other fixes, the rounds and the push go on.
+
 5. **Fix.** The next round looks at the whole branch again, at the areas
    of this round's findings triaged `fix` (those among the areas of look
    step 4), and at the fix commits (`git diff <HEAD before the fixes>..HEAD`)
@@ -212,23 +254,72 @@ must-fix finding is open; carry those outcomes into the final table. After two r
    ones this round skipped (a red look or a setup error). Its findings, new
    ones and fixes that did not hold, get a new table and a new
    confirmation. When round 3's triage still has a finding triaged `fix`,
-   stop and hand it to the human.
+   stop and hand it to the human. With `auto`, start round `<n+1>` yourself
+   when round 1 or 2 has a fix, with no confirmation. A finding round 3
+   still triaged `fix` is not fixed: it is listed as
+   unresolved and counts as an escalation; go on to step 6.
 6. **Follow-ups.** One issue per follow-up of every round, in the tracker.
-   Keep each issue's link for the PR body.
+   Keep each issue's link for the PR body. With `TRIAGE=auto`:
+   - File them after step 8 (with `PR=off`, after step 7), so each can link
+     the PR, or the branch with `PR=off`.
+   - Before filing one, search the tracker for an open issue with the same
+     title, with the tracker file's commands; a match is linked from the PR
+     instead of filed again.
+   - Each new issue carries the `preflight` label (create it when the
+     tracker lacks it), the PR link and the finding's evidence. When the
+     label cannot be looked up or created, each follow-up still to file is
+     not filed: it escalates as a missing fact (step 4). Move its title from
+     "Follow-ups" to "Open decisions" in `pr-body.md`; the rest of act goes
+     on.
+   - Then fill "Follow-ups" in `<preflight-dir>/pr-body.md` with their
+     links and, with a PR, run
+     `gh pr edit --body-file <preflight-dir>/pr-body.md`.
 7. **PR body.** Fill `PR_TEMPLATE`, else `templates/pr-body.md`, into
    `<preflight-dir>/pr-body.md`. Its sources: every findings file act read
    in every round (inside a run also the deferred lane-review findings):
    the latest verdict row per step or area and its `detail`, the findings
-   with their outcomes, the spec, the commits. "Shortcuts taken" is the
+   with their outcomes and `decided_by`, the spec, the commits. "Shortcuts taken" is the
    latest `shortcuts` row's `detail`, each Shortcut with its comment. Every
    placeholder filled, in a merge-ready tone: a trade-off reads as decided
-   and accepted, with its reason.
+   and accepted, with its reason. "Open decisions" lists every escalation
+   still unanswered, "Unresolved" every fix still open after round 3; leave
+   out a section with nothing in it. A `PR_TEMPLATE` without these sections
+   gets them added at the top. With `TRIAGE=auto`, "Follow-ups" lists titles
+   only until step 6 adds the links.
 8. **Push and PR**, as `PR` says. The title: the spec's title, else a
-   summary of the commits.
+   summary of the commits. Write it to `<preflight-dir>/pr-title.txt`, and
+   read it back with `title=$(cat <preflight-dir>/pr-title.txt)` in the same
+   shell call: a title may hold `'`, `"` or `$(…)`, so it is never pasted.
    - `draft`: `git push -u origin HEAD`, then
-     `gh pr create --draft --base <base> --title "<title>" --body-file <preflight-dir>/pr-body.md`.
+     `gh pr create --draft --base <base> --title "$title" --body-file <preflight-dir>/pr-body.md`.
    - `ready`: the same without `--draft`.
-   - `off`: push nothing, open nothing; report the branch ready.
+   - `off`: push nothing, open nothing; report the branch ready. `off`
+     with `auto`: show the open decisions in the session.
+
+   With `TRIAGE=auto`, push and open the PR as `PR` says without asking,
+   once a round leaves nothing to fix or round 3 is done. With `ask`, the
+   human's reply in step 4 approved it.
 
    A PR already open for the branch: push, then
    `gh pr edit --body-file <preflight-dir>/pr-body.md`.
+
+9. **Notify.** With `NOTIFY` set, run it once after step 8, with one line
+   as its one argument:
+
+   ```sh
+   NOTIFY=<as written>
+   sh -c "$NOTIFY \"\$1\"" notify "<message>"
+   ```
+
+   Write the first line only when the value comes from the user contract
+   or the pane map's `switches:` line, not from the environment. Copy the
+   `NOTIFY=…` word exactly as that line writes it: it is already
+   shell-quoted, so add no quotes. Run both lines in one shell call. The
+   first line is its own statement: a `NOTIFY=…` prefix on the second line
+   would apply after `$NOTIFY` is expanded, and run the message as a
+   command. The message is
+   `<branch>: <PR url> — <k> open decisions` (`PR=off`:
+   `<branch>: ready, no PR — <k> open decisions`). Write `<branch>` as
+   `$(git branch --show-current)`, never pasted: a branch name may hold
+   `$(…)`. A failing `NOTIFY` is reported and changes nothing else. Empty
+   `NOTIFY`: run nothing.

@@ -5,10 +5,13 @@
 #
 # Your own run defaults for every repo go in the user contract,
 # ${XDG_CONFIG_HOME:-~/.config}/tower/orchestrate, in the same syntax. It may
-# set only the kinds, the per-kind models, STALE, the method and review
-# switches and the credit guard; anything else it names on stderr and
-# ignores. Precedence: the call's environment, then this file, then the user
-# contract, then the kit's model-defaults.
+# set only the kinds, the per-kind models, STALE, the method, review and
+# triage switches, the credit guard and NOTIFY; anything else it names on
+# stderr and ignores. NOTIFY is the user contract's alone: set here, it is
+# named on stderr and ignored. It is a one-line command the kit runs with a
+# message as its one argument, e.g. NOTIFY='~/bin/notify'. Precedence: the
+# call's environment, then this file, then the user contract, then the kit's
+# model-defaults.
 
 # The check gate: one command every lane must pass before it commits a task.
 CHECK_CMD="bun run check"
@@ -75,6 +78,9 @@ pane checks "bun test --watch"
 # STATIC_BASELINE=on    on | off    preflight scans the diff with semgrep and gitleaks
 # PR=draft              draft | ready | off    how the run's PR is opened, or no PR
 # METHOD=tdd            tdd | plain    plain briefs lanes without the tdd loop
+# TRIAGE=ask            ask | auto     ask: preflight's triage waits for your reply
+#                       each round; auto: the orchestrator applies every
+#                       outcome itself and only escalations wait for you
 # REVIEWER_KIND=other   other | claude | codex | cursor
 #                       other: the first installed of the lane's candidates
 #                       (claude lane: codex; codex lane: claude; cursor lane:

@@ -254,7 +254,28 @@ and do it in a lane anyway or suggest doing it without the kit.
     the PR as `PR` says, its body in `<run-dir>/findings/preflight/pr-body.md`
     from the skill's template or `PR_TEMPLATE`, drawn from every findings
     file act read.
-13. **Close.** `tower close "<how it ended>"`. Tear nothing down until the user says so; the
+    With `TRIAGE=auto`, act runs without the one reply: you apply every
+    outcome and escalate only what the skill's act step 4 names. Fixes go
+    to the lanes as above, and round `<n+1>` (`PREFLIGHT=off`: the next
+    `fix-` re-review) starts on its own. After each round's triage:
+    `tower note "preflight round <n> auto-triaged: <a> fix, <b> accept, <c> follow-up, <d> reject, <k> open decisions"`
+    (`PREFLIGHT=off`: `fix-1`, `fix-2` in place of `<n>`; `<k>` counts the
+    unresolved findings too). A finding round 3 (or `fix-2`) still triages
+    `fix` is listed as unresolved, not handed to the user, and round 3
+    goes on even with skipped areas: the PR's verdict table shows them
+    skipped. Then the push, the PR, the follow-ups after it and `NOTIFY`,
+    as the skill's act steps 6 to 9 say, with no reply (`PR=off`: no push;
+    show the open decisions in the session). With open decisions, the run
+    stays open, with no timeout. Run no watch meanwhile: end your turn; the
+    user's answer in your pane, or their word to close, is your next
+    prompt. An answer is recorded `decided_by: you` on its finding and
+    becomes fixes (the next round, pushed to the same PR, its body updated)
+    or a follow-up. A round after round 3 ends as round 3 does: a fix still
+    open is listed as unresolved.
+13. **Close.** With `TRIAGE=auto` and open decisions still unanswered,
+    file each as a follow-up first (the skill's act step 6; no tracker, or
+    its label fails: leave it listed in the PR) and update the PR body, if there is one.
+    Then `tower close "<how it ended>"`. Tear nothing down until the user says so; the
     console, the review tab and its panes stay open, the human quits them.
 
 ## Switches
@@ -283,6 +304,8 @@ call.
 | `REVIEW_AREAS`         | empty   | preflight's areas, comma-separated; empty: all                                     |
 | `SUITE_SKIP`           | empty   | suite steps `look.sh` skips                                                        |
 | `PR_TEMPLATE`          | empty   | the PR body template; empty: preflight's own                                       |
+| `TRIAGE`               | ask     | auto: the orchestrator applies every triage outcome itself; only escalations wait  |
+| `NOTIFY`               | empty   | the user contract's one-line command, run with a message as its one argument       |
 
 ## Reviewer order
 
@@ -316,11 +339,13 @@ preflight table. Per finding, in its findings file (the fields of
 - `outcome`: `fix` for a valid in-scope finding: a fix task for the lane
   that wrote the code (`tower add … --lane <X>`, then tell the lane);
   `reject` for a false positive. Leave `outcome` out to defer a finding to
-  the preflight table.
+  the preflight table. With `TRIAGE=auto`, also leave it out for a finding
+  that would escalate (the preflight skill's act step 4).
 
 A fix loop stops after two rounds: a finding still open after the second
 re-review (lane review round 3) goes to the user, and the lane waits
-unmerged for the answer.
+unmerged for the answer. With `TRIAGE=auto`, the open finding is deferred
+to preflight instead (its `outcome` left out), and the lane merges.
 
 Two review slots, R1 and R2. A lane that reports ready while both hold a
 working Reviewer waits idle; `add-reviewer.sh` refuses a slot whose Reviewer
@@ -337,7 +362,8 @@ is still working. The next `FINDINGS WRITTEN` frees a slot.
 - `tower note` is your voice on the board: merges, escalations, decisions.
 - Merging a ready lane is your job, right away, not lane A's.
 - Executors and Reviewers never push and never open a PR (ADR 0010). You
-  push and open the PR after the user's reply to the triage table; until
+  push and open the PR after the user's reply to the triage table with
+  `TRIAGE=ask`, after act's last round with `TRIAGE=auto` (ADR 0015); until
   then everything stays on this machine.
 - Reviewers only report; their findings go through you.
 - The brief's review tail matches the lane's kind (panes.txt): review
