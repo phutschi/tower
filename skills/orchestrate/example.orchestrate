@@ -5,8 +5,8 @@
 #
 # Your own run defaults for every repo go in the user contract,
 # ${XDG_CONFIG_HOME:-~/.config}/tower/orchestrate, in the same syntax. It may
-# set only the kinds, the per-kind models, STALE, the method, review and
-# triage switches, the credit guard and NOTIFY; anything else it names on
+# set only the kinds, the per-kind models, STALE, the method, review,
+# triage and guided-review switches, the credit guard and NOTIFY; anything else it names on
 # stderr and ignores. NOTIFY is the user contract's alone: set here, it is
 # named on stderr and ignored. It is a one-line command the kit runs with a
 # message as its one argument, e.g. NOTIFY='~/bin/notify'. Precedence: the
@@ -81,6 +81,10 @@ pane checks "bun test --watch"
 # TRIAGE=ask            ask | auto     ask: preflight's triage waits for your reply
 #                       each round; auto: the orchestrator applies every
 #                       outcome itself and only escalations wait for you
+# GUIDED_REVIEW=off     off | on     on: once the PR is open, the orchestrator
+#                       sends you a guided review of the branch through its
+#                       session's submit_guide tool (the Plannotator Inbox);
+#                       a session without that tool skips it with a note
 # REVIEWER_KIND=other   other | claude | codex | cursor
 #                       other: the first installed of the lane's candidates
 #                       (claude lane: codex; codex lane: claude; cursor lane:

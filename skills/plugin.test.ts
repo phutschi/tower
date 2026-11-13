@@ -636,6 +636,33 @@ test("orchestrate runs preflight act alone under TRIAGE=auto", () => {
   );
 });
 
+// GUIDED_REVIEW=on: one guided review of the branch once the PR is open,
+// sent through the session's submit_guide tool; without the tool, a note.
+test("orchestrate sends a guided review under GUIDED_REVIEW=on", () => {
+  const skill = read("skills/orchestrate/SKILL.md");
+  const switches = skill.split("## Switches")[1]!.split("\n## ")[0]!;
+  expect(switches).toMatch(/\| `GUIDED_REVIEW` +\| off +\| on: /);
+  const step12 = skill.split("12. **Act.**")[1]!.split("13. **Close.**")[0]!;
+  expect(step12).toMatch(
+    /\*\*Guided review\.\*\* With `GUIDED_REVIEW=on`, once the PR is open/,
+  );
+  expect(step12).toMatch(/`submit_guide`/);
+  expect(step12).toMatch(/`get_guide_brief`/);
+  expect(step12).toMatch(/pass the PR's URL as `pulls`/);
+  expect(step12).toMatch(
+    /tower note "guided review skipped: no submit_guide tool"/,
+  );
+  const docs = read("docs/orchestrate.md");
+  expect(docs).toMatch(/\| `GUIDED_REVIEW` +\| off +\|/);
+  expect(docs).toMatch(/With `GUIDED_REVIEW=on`, once the PR is open/);
+  expect(read("skills/orchestrate/example.orchestrate")).toMatch(
+    /^# GUIDED_REVIEW=off +off \| on/m,
+  );
+  expect(read("CHANGELOG.md").split("## [0.5.0]")[0]).toMatch(
+    /`GUIDED_REVIEW=on`/,
+  );
+});
+
 // The tracker test below runs the real jq, so the setup docs name it.
 test("the tracker test's jq is a declared requirement", () => {
   expect(read("CONTRIBUTING.md")).toMatch(

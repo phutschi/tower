@@ -14,6 +14,11 @@ All notable changes to this project are documented here. The format follows
   a choice, a missing fact or a fix against a contract doc or an ADR
   escalates; the PR lists them under "Open decisions", and a fix still open
   after round 3 under "Unresolved" (ADR 0015).
+- `GUIDED_REVIEW=on` (default `off`): once an orchestrate run's PR is open,
+  the orchestrator sends one guided review of the branch through its
+  session's `submit_guide` tool (the Plannotator Inbox), with the PR on the
+  thread. A comment there becomes a fix for the lane that wrote the line; a
+  session without the tool skips it with a tower note.
 - `NOTIFY`, a one-line command only the environment or the user contract
   sets: preflight runs
   it once at its end with the PR link and the number of open decisions.

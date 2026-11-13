@@ -213,6 +213,14 @@ by preflight on the strongest model. In this order:
    it to close, which files them as follow-ups. Each round's tally is a tower note,
    and the PR's findings say who decided each one (ADR 0015).
 
+   With `GUIDED_REVIEW=on`, once the PR is open the orchestrator writes a
+   guided review of the branch: chapters ordered by importance, each with
+   what changed and why, beside its diff. It sends it through its
+   session's `submit_guide` tool (the Plannotator Inbox, with the PR on the
+   thread). Your comments there come back to the orchestrator and become
+   fix tasks, like an answer to the table. A session without the tool
+   skips it and says so in a tower note.
+
 6. **The PR.** The orchestrator pushes and opens the PR (a draft unless
    `PR=ready`; `PR=off`: no push, no PR), with a verdict table, the review
    of each area and the follow-ups in its body.
@@ -280,7 +288,8 @@ syntax. It may set:
 - `EXECUTOR_KIND`, `STALE`, and the per-kind model keys and
   `REVIEWER_CREDITS_MIN`;
 - the switches `TASK_REVIEW`, `LANE_REVIEW`, `PREFLIGHT`, `STATIC_BASELINE`,
-  `METHOD`, `REVIEWER_KIND`, `REVIEWER_BY_CREDITS` and `TRIAGE`;
+  `METHOD`, `REVIEWER_KIND`, `REVIEWER_BY_CREDITS`, `TRIAGE` and
+  `GUIDED_REVIEW`;
 - `NOTIFY`, a one-line command the kit runs with a message as its one
   argument, e.g. `NOTIFY='~/bin/notify'`. Only the user contract (or the
   environment of a kit call) sets it: it is your setting, not the repo's, so
@@ -325,6 +334,7 @@ line of the pane map and in the record.
 | `SUITE_SKIP`           | none           | suite steps to skip, e.g. `build`               |
 | `PR_TEMPLATE`          | preflight's    | a PR body template in the repo                  |
 | `TRIAGE`               | ask            | auto: the orchestrator triages alone            |
+| `GUIDED_REVIEW`        | off            | on: a guided review of the PR (below)           |
 | `NOTIFY`               | none           | a command, set in the user contract (above)     |
 
 A value outside the list is refused at bootstrap.
