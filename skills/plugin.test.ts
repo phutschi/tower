@@ -649,6 +649,11 @@ test("orchestrate sends a guided review under GUIDED_REVIEW=on", () => {
   expect(step12).toMatch(/`submit_guide`/);
   expect(step12).toMatch(/`get_guide_brief`/);
   expect(step12).toMatch(/`thread_pulls` with the\s+returned `thread_id`/);
+  // The guide covers the PR's diff: the merge base, as preflight reviews it.
+  expect(step12).toMatch(
+    /The patch is\s+`git diff \$\(git merge-base origin\/<base> HEAD\)`/,
+  );
+  expect(step12).not.toMatch(/The patch is `git diff <run base>`/);
   expect(step12).toMatch(
     /tower note "guided review skipped: no submit_guide tool"/,
   );
