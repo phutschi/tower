@@ -648,7 +648,7 @@ test("orchestrate sends a guided review under GUIDED_REVIEW=on", () => {
   );
   expect(step12).toMatch(/`submit_guide`/);
   expect(step12).toMatch(/`get_guide_brief`/);
-  expect(step12).toMatch(/pass the PR's URL as `pulls`/);
+  expect(step12).toMatch(/`thread_pulls` with the\s+returned `thread_id`/);
   expect(step12).toMatch(
     /tower note "guided review skipped: no submit_guide tool"/,
   );

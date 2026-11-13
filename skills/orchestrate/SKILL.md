@@ -277,7 +277,8 @@ and do it in a lane anyway or suggest doing it without the kit.
     guided review of the whole branch. Your session's `submit_guide` tool
     takes it (the Plannotator Inbox's `plannotator_inbox`); `get_guide_brief`
     gives its method and shape. The patch is `git diff <run base>` in lane
-    A's checkout; pass the PR's URL as `pulls`. Then run no watch: end your
+    A's checkout. Then put the PR on its thread: `thread_pulls` with the
+    returned `thread_id` and the PR's URL in `add`. Then run no watch: end your
     turn, as with open decisions. The user's reply is your next prompt: a
     comment on a line is a fix for the lane that wrote it (`git blame`, as
     above), and the fixes start round `<n+1>`, pushed to the same PR; a
