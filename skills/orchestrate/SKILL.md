@@ -272,6 +272,23 @@ and do it in a lane anyway or suggest doing it without the kit.
     becomes fixes (the next round, pushed to the same PR, its body updated)
     or a follow-up. A round after round 3 ends as round 3 does: a fix still
     open is listed as unresolved.
+    **Guided review.** With `GUIDED_REVIEW=on`, once the PR is open (once
+    per run: a later round's push to it sends none), send the user a
+    guided review of the whole branch. Your session's `submit_guide` tool
+    takes it (the Plannotator Inbox's `plannotator_inbox`); `get_guide_brief`
+    gives its method and shape. The patch is
+    `git diff $(git merge-base origin/<base> HEAD)` in lane A's checkout,
+    the PR's whole diff as preflight reviews it. Then put the PR on its
+    thread: `thread_pulls` with the returned `thread_id` and the PR's URL in
+    `add`. Then run no watch: end your turn, as with open decisions. The
+    user's reply is your next prompt: a comment on a line is a fix for the
+    lane that wrote it (`git blame`, as above), and the fixes start round
+    `<n+1>`, pushed to the same PR; an answer to an open decision is handled
+    as above, not as a close; a reply with no comment and no answer, or
+    their word to close, is step 13. A session
+    with no `submit_guide` tool skips it:
+    `tower note "guided review skipped: no submit_guide tool"`. `PR=off`:
+    no PR, no guided review.
 13. **Close.** With `TRIAGE=auto` and open decisions still unanswered,
     file each as a follow-up first (the skill's act step 6; no tracker, or
     its label fails: leave it listed in the PR) and update the PR body, if there is one.
@@ -305,6 +322,7 @@ call.
 | `SUITE_SKIP`           | empty   | suite steps `look.sh` skips                                                        |
 | `PR_TEMPLATE`          | empty   | the PR body template; empty: preflight's own                                       |
 | `TRIAGE`               | ask     | auto: the orchestrator applies every triage outcome itself; only escalations wait  |
+| `GUIDED_REVIEW`        | off     | on: step 12's guided review of the branch, once the PR is open                     |
 | `NOTIFY`               | empty   | the user contract's one-line command, run with a message as its one argument       |
 
 ## Reviewer order

@@ -8,8 +8,8 @@
 # only USER_CONTRACT_VARS: EXECUTOR_KIND, the per-kind model keys and the
 # credit guard's REVIEWER_CREDITS_MIN (model-defaults' keys), STALE, and the
 # switches TASK_REVIEW LANE_REVIEW PREFLIGHT STATIC_BASELINE METHOD
-# REVIEWER_KIND REVIEWER_BY_CREDITS TRIAGE NOTIFY. NOTIFY is its alone: a
-# repo contract that sets it has it named on stderr and ignored. The rest is
+# REVIEWER_KIND REVIEWER_BY_CREDITS TRIAGE GUIDED_REVIEW NOTIFY. NOTIFY is its
+# alone: a repo contract that sets it has it named on stderr and ignored. The rest is
 # the repo's: its check gate, panes, suite and toolchain, the unsuffixed
 # models (they would give every kind one model), and the switches PR,
 # REVIEW_AREAS, SUITE_SKIP and PR_TEMPLATE. Such a name, an unknown one, or
@@ -47,6 +47,7 @@
 #   PR                                                   draft | ready | off
 #   METHOD                                               tdd | plain
 #   TRIAGE                                               ask | auto
+#   GUIDED_REVIEW                                        off | on
 #   REVIEWER_KIND                                        other | claude | codex | cursor
 #   REVIEWER_BY_CREDITS                                  off | on  (the credit guard, ADR 0013)
 #   REVIEWER_CREDITS_MIN                                 0-100, % left; default model-defaults' (20)
@@ -87,7 +88,7 @@
 MODEL_KEYS=$({ sed -n 's/^\([A-Z_]*\)=.*/\1/p' "${MODEL_DEFAULTS_FILE:-$KIT/model-defaults}" 2>/dev/null || true; } | tr '\n' ' ')
 CONTRACT_VARS="EXECUTOR_KIND EXECUTOR_MODEL SPEC_REVIEWER_MODEL QUALITY_REVIEWER_MODEL STALE PM TYPECHECK_TASK CHECK_CMD INSTALL_CMD TEST_PKG TEST_FILTER $SWITCHES $MODEL_KEYS"
 USER_CONTRACT_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/tower/orchestrate"
-USER_CONTRACT_VARS="EXECUTOR_KIND STALE TASK_REVIEW LANE_REVIEW PREFLIGHT STATIC_BASELINE METHOD REVIEWER_KIND REVIEWER_BY_CREDITS TRIAGE NOTIFY $MODEL_KEYS"
+USER_CONTRACT_VARS="EXECUTOR_KIND STALE TASK_REVIEW LANE_REVIEW PREFLIGHT STATIC_BASELINE METHOD REVIEWER_KIND REVIEWER_BY_CREDITS TRIAGE GUIDED_REVIEW NOTIFY $MODEL_KEYS"
 PANE_NAMES=(); PANE_CMDS=(); PANE_DIRS=()
 SUITE_NAMES=(); SUITE_CMDS=(); SUITE_DIRS=()
 # The contract file; the kit's old name for it still works, with a note.
@@ -381,6 +382,7 @@ if [ -z "${REVIEWER_CREDITS_MIN:-}" ]; then
 fi
 SUITE_SKIP="${SUITE_SKIP:-}";         PR_TEMPLATE="${PR_TEMPLATE:-}"
 TRIAGE="${TRIAGE:-ask}";              NOTIFY="${NOTIFY:-}"
+GUIDED_REVIEW="${GUIDED_REVIEW:-off}"
 switch_allows() {  # NAME "a, b or c" VALUE...: refuse NAME unless its value is one of VALUE...
   local name="$1" say="$2" v; shift 2
   for v in "$@"; do [ "${!name}" = "$v" ] && return 0; done
@@ -390,6 +392,7 @@ for _v in TASK_REVIEW LANE_REVIEW PREFLIGHT STATIC_BASELINE; do switch_allows "$
 switch_allows PR            "draft, ready or off"     draft ready off
 switch_allows METHOD        "tdd or plain"            tdd plain
 switch_allows TRIAGE        "ask or auto"             ask auto
+switch_allows GUIDED_REVIEW "off or on"              off on
 switch_allows REVIEWER_BY_CREDITS "on or off"         on off
 credits_min_ok "$REVIEWER_CREDITS_MIN" || credits_min_refused "$REVIEWER_CREDITS_MIN"
 # shellcheck disable=SC2086  # KINDS: one word per kind

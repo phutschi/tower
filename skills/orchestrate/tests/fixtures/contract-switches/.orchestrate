@@ -11,6 +11,7 @@ REVIEW_AREAS=security,spec
 SUITE_SKIP=build
 PR_TEMPLATE=.github/pull_request_template.md
 TRIAGE=auto
+GUIDED_REVIEW=on
 suite lint  "make lint"
 suite test  "make test" pkg/core
 suite build "make build"
