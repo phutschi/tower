@@ -654,6 +654,11 @@ test("orchestrate sends a guided review under GUIDED_REVIEW=on", () => {
     /The patch is\s+`git diff \$\(git merge-base origin\/<base> HEAD\)`/,
   );
   expect(step12).not.toMatch(/The patch is `git diff <run base>`/);
+  // An answer to an open decision is not the word to close.
+  const guided = step12.split("**Guided review.**")[1]!;
+  expect(guided).toMatch(
+    /an\s+answer\s+to\s+an\s+open\s+decision\s+is\s+handled\s+as\s+above,\s+not\s+as\s+a\s+close/,
+  );
   expect(step12).toMatch(
     /tower note "guided review skipped: no submit_guide tool"/,
   );

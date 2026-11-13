@@ -278,12 +278,14 @@ and do it in a lane anyway or suggest doing it without the kit.
     takes it (the Plannotator Inbox's `plannotator_inbox`); `get_guide_brief`
     gives its method and shape. The patch is
     `git diff $(git merge-base origin/<base> HEAD)` in lane A's checkout,
-    the PR's whole diff as preflight reviews it. Then put the PR on its thread: `thread_pulls` with the
-    returned `thread_id` and the PR's URL in `add`. Then run no watch: end your
-    turn, as with open decisions. The user's reply is your next prompt: a
-    comment on a line is a fix for the lane that wrote it (`git blame`, as
-    above), and the fixes start round `<n+1>`, pushed to the same PR; a
-    reply with no comment, or their word to close, is step 13. A session
+    the PR's whole diff as preflight reviews it. Then put the PR on its
+    thread: `thread_pulls` with the returned `thread_id` and the PR's URL in
+    `add`. Then run no watch: end your turn, as with open decisions. The
+    user's reply is your next prompt: a comment on a line is a fix for the
+    lane that wrote it (`git blame`, as above), and the fixes start round
+    `<n+1>`, pushed to the same PR; an answer to an open decision is handled
+    as above, not as a close; a reply with no comment and no answer, or
+    their word to close, is step 13. A session
     with no `submit_guide` tool skips it:
     `tower note "guided review skipped: no submit_guide tool"`. `PR=off`:
     no PR, no guided review.
