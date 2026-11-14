@@ -745,3 +745,13 @@ test("the tracker commands pass a quoted title through intact", () => {
   // The test leaves no temp dir behind, a failed assertion included.
   expect(existsSync(dir)).toBe(false);
 });
+
+// spec-to-plan is harness-neutral (ADR 0005): a plan is data any runner can
+// read, so its skill and template name no agent CLI, runner or launcher.
+test("spec-to-plan names no harness or runner", () => {
+  for (const file of [
+    "skills/spec-to-plan/SKILL.md",
+    "skills/spec-to-plan/plan-template.md",
+  ])
+    expect(read(file)).not.toMatch(/claude|codex|cursor|herdr|tmux|launcher/i);
+});
