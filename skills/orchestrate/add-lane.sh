@@ -23,7 +23,8 @@
 #
 # In a run with session roles (the pane map's  roles: on , roles.sh), a claude
 # lane starts with --role, the one role its tasks name (code when none does),
-# and --topic <lane letter>-<its first task's title as a slug>; tasks that
+# and --topic <lane letter>-<its first task's title as a slug> (a rerun keeps
+# the topic in the lane's pane map line); tasks that
 # name different roles are refused before anything is created. The pane map's
 # lane line then holds  role <role>, topic <topic>,  after its kind.
 #
@@ -104,7 +105,11 @@ if roles_on "$MAP"; then
     || die "add-lane: $(tower ids -- "$TASKS" 2>&1 >/dev/null | sed -e '1s/^tower: //' -e '2,$s/^/   /')"
   _role=$(lane_role "$TASKS" "$(cat "$RUN_DIR/roles.tsv" 2>/dev/null || true)" 2>&1) || die "add-lane: lane $LANE's $_role"
   if [ "$EXECUTOR_KIND" = claude ]; then
-    SESSION_ROLE=$_role; SESSION_TOPIC=$(lane_topic "$LANE" "$(tasks_first_title "$_ids")")
+    SESSION_ROLE=$_role
+    # A rerun keeps the topic the lane's line already has: its first task may
+    # have been renamed since (tower change).
+    SESSION_TOPIC=$(grep -E "^(unplaced )?lane $LANE: " "$MAP" | sed -nE 's/.*, topic ([^,]+), branch .*/\1/p' | head -1 || true)
+    [ -n "$SESSION_TOPIC" ] || SESSION_TOPIC=$(lane_topic "$LANE" "$(tasks_first_title "$_ids")")
     LANE_SESSION="role $SESSION_ROLE, topic $SESSION_TOPIC, "
   fi
   unset _ids _role

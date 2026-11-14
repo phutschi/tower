@@ -3280,6 +3280,12 @@ EOF
   reset_stub; lane B feat/b main 2 >/dev/null
   assert_match "lane B: its task's Role, a long title cut at a word" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-lane-b --kind claude --pane pane-[0-9]+ -- --model [^ ]+ --role data --topic b-ship-to-fix-for-the$'
   assert_match "pane map: lane B's role and topic" "$(cat "$RUN/panes.txt")" '^lane B: .*kind claude, role data, topic b-ship-to-fix-for-the, branch feat/b, '
+  # A rerun keeps the topic the lane started with, though its task was renamed.
+  TOWER_RUN="$RUN" "$KIT/tests/stub/tower" change 2 --title "Something else entirely" >/dev/null
+  echo gone > "$S/bun-vitest-lane-b"; mkdir -p "$r/.worktrees/feat/b"   # the stub makes no worktree
+  reset_stub; out=$(lane B feat/b main 2; echo "exit=$?")
+  assert_match "rerun after a rename: the lane starts again" "$out" 'exit=0$'
+  assert_match "rerun after a rename: ... under its first topic" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-lane-b .* --role data --topic b-ship-to-fix-for-the$'
   reset_stub; lane C feat/c main 3 >/dev/null
   assert_match "lane C: code-research" "$(cat "$HERDR_STUB_LOG")" ' --role code-research --topic c-research-the-widget-api$'
   reset_stub; out=$(lane D feat/d main 5,6; echo "exit=$?")
