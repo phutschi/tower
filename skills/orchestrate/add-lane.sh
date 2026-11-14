@@ -21,6 +21,13 @@
 # switch with a value outside its list (see detect-stack.sh) is refused here
 # as in bootstrap.sh; the run's values are the pane map's  switches:  line.
 #
+# In a run with session roles (the pane map's  roles: on , roles.sh), a claude
+# lane starts with --role, the one role its tasks name (code when none does),
+# and --topic <lane letter>-<its first task's title as a slug> (a rerun keeps
+# the topic in the lane's pane map line); tasks that
+# name different roles are refused before anything is created. The pane map's
+# lane line then holds  role <role>, topic <topic>,  after its kind.
+#
 # START_TRIES (environment, default 10): how often an agent start is tried,
 # a second apart, while its new pane's shell is not ready yet (executor.sh).
 # The agent is reported ready only once it accepts input (herdr's
@@ -87,8 +94,28 @@ CONTRACT_RUN="$RUN_DIR" . "$KIT/detect-stack.sh"   # the run's pinned contract: 
 cd "$_here"; unset _here
 . "$KIT/executor.sh"       # EXECUTOR_KIND, EXECUTOR_MODEL, agent_name, start_agent*
 NAME="$(agent_name "-lane-$(echo "$LANE" | tr 'A-Z' 'a-z')")"
-lane_line() { printf 'lane %s:         %s   (agent "%s", kind %s, branch %s, checkout %s, model %s)\n' \
-  "$LANE" "$1" "$NAME" "$EXECUTOR_KIND" "$BRANCH" "$WT" "$EXECUTOR_MODEL"; }
+# Session roles (roles.sh), when the pane map says the run has them: the role
+# the lane's tasks name (<run-dir>/roles.tsv), code when none does, refused
+# before anything is created when they name more than one; the topic is the
+# lane's letter and its first task's title. Only a claude lane starts with them.
+. "$KIT/roles.sh"
+SESSION_ROLE=""; SESSION_TOPIC=""; LANE_SESSION=""
+if roles_on "$MAP"; then
+  _ids=$(tower ids -- "$TASKS" 2>/dev/null) \
+    || die "add-lane: $(tower ids -- "$TASKS" 2>&1 >/dev/null | sed -e '1s/^tower: //' -e '2,$s/^/   /')"
+  _role=$(lane_role "$TASKS" "$(cat "$RUN_DIR/roles.tsv" 2>/dev/null || true)" 2>&1) || die "add-lane: lane $LANE's $_role"
+  if [ "$EXECUTOR_KIND" = claude ]; then
+    SESSION_ROLE=$_role
+    # A rerun keeps the topic the lane's line already has: its first task may
+    # have been renamed since (tower change).
+    SESSION_TOPIC=$(grep -E "^(unplaced )?lane $LANE: " "$MAP" | sed -nE 's/.*, topic ([^,]+), branch .*/\1/p' | head -1 || true)
+    [ -n "$SESSION_TOPIC" ] || SESSION_TOPIC=$(lane_topic "$LANE" "$(tasks_first_title "$_ids")")
+    LANE_SESSION="role $SESSION_ROLE, topic $SESSION_TOPIC, "
+  fi
+  unset _ids _role
+fi
+lane_line() { printf 'lane %s:         %s   (agent "%s", kind %s, %sbranch %s, checkout %s, model %s)\n' \
+  "$LANE" "$1" "$NAME" "$EXECUTOR_KIND" "$LANE_SESSION" "$BRANCH" "$WT" "$EXECUTOR_MODEL"; }
 
 # A rerun's checks. $1 is the lane's line in the pane map as the first call
 # wrote it, $2 its pane, $3 what that line is called in a message.

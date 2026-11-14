@@ -8,7 +8,8 @@
 # claude's --json does. CLAUDE_STUB_FAIL=<command> makes that command fail:
 # install, uninstall, update or list, or marketplace add, remove, update or
 # list. CLAUDE_STUB_GARBAGE=1 makes the lists print something that is not JSON, and
-# CLAUDE_STUB_GARBAGE=list a JSON list of numbers.
+# CLAUDE_STUB_GARBAGE=list a JSON list of numbers. --help lists --role (as a
+# Claude launcher's does) only with CLAUDE_STUB_ROLE=1.
 [ "${CLAUDE_STUB:-}" = absent ] && { echo "claude: not installed (stub)" >&2; exit 127; }
 printf 'claude %s\n' "$*" >> "${HERDR_STUB_LOG:-/dev/null}"
 state="${CLAUDE_STUB_STATE:-${HERDR_STUB_COUNTER:-${TMPDIR:-/tmp}/herdr-stub-counter}.claude}"
@@ -44,6 +45,9 @@ esac
 [ -n "${CLAUDE_STUB_FAIL:-}" ] && [ "$verb" = "$CLAUDE_STUB_FAIL" ] && { echo "claude: $verb failed (stub)" >&2; exit 1; }
 case "$cmd" in
   --version*)                        echo "claude (stub)" ;;
+  --help*)                           echo "Usage: claude [options] [prompt]"
+                                     echo "  --model <model>      Model for the session"
+                                     [ "${CLAUDE_STUB_ROLE:-}" != 1 ] || echo "  --role <role>        Launcher role for the session" ;;
   "plugin marketplace list")         case "${CLAUDE_STUB_GARBAGE:-}" in
                                        "") json marketplace ;;
                                        list) echo "[1, 2]" ;;

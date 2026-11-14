@@ -86,6 +86,10 @@ Anyone who keeps plans elsewhere, a notes folder for example, sets
 - **Interfaces**: only the signatures another task consumes, so tasks agree
   on names. Types and function signatures, never bodies.
 - **Depends on**: task ids, or "none".
+- **Role** (optional): the session role the task's lane runs in (`data`,
+  `code-research`, …); leave it out for `code`, the default. Every task in
+  one lane names the same role or none. A runner that knows no roles
+  ignores the line.
 - **Decisions**: links to the ADRs and spec sections that bind this task.
 
 Repo conventions every task must follow is the section tower lifts verbatim

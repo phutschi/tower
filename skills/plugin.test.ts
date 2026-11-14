@@ -745,3 +745,41 @@ test("the tracker commands pass a quoted title through intact", () => {
   // The test leaves no temp dir behind, a failed assertion included.
   expect(existsSync(dir)).toBe(false);
 });
+
+// spec-to-plan is harness-neutral (ADR 0005): a plan is data any runner can
+// read, so its skill and template name no agent CLI, runner or launcher.
+test("spec-to-plan names no harness or runner", () => {
+  for (const file of [
+    "skills/spec-to-plan/SKILL.md",
+    "skills/spec-to-plan/plan-template.md",
+  ])
+    expect(read(file)).not.toMatch(/claude|codex|cursor|herdr|tmux|launcher/i);
+});
+
+// A session role is fixed when a claude lane's agent starts: "Keep every
+// lane busy" moves a task only to a claude lane in a role that task can run
+// in; codex and cursor lanes have no role and take any task.
+test("orchestrate moves a task only to a claude lane in its role", () => {
+  const busy =
+    /\*\*Keep every lane busy\.\*\*((?:(?!\n\n)[\s\S])*)/.exec(
+      read("skills/orchestrate/SKILL.md"),
+    )?.[1] ?? "";
+  expect(busy).toMatch(
+    /to\s+a\s+claude\s+lane,\s+move\s+only\s+tasks\s+that\s+name\s+no\s+`Role:`\s+or\s+its\s+role/,
+  );
+  expect(busy).toMatch(
+    /A\s+codex\s+or\s+cursor\s+lane\s+has\s+no\s+role\s+and\s+takes\s+any\s+task/,
+  );
+});
+
+// A plan task may name its lane's session role; the template and the skill
+// say it is optional, defaults to code, and is one per lane.
+test("spec-to-plan documents the optional Role field", () => {
+  expect(read("skills/spec-to-plan/plan-template.md")).toMatch(
+    /^\*\*Role:\*\* <optional: .*leave the line out for code>$/m,
+  );
+  const skill = read("skills/spec-to-plan/SKILL.md");
+  expect(skill).toMatch(/\*\*Role\*\* \(optional\)/);
+  expect(skill).toMatch(/leave it out for `code`, the default/);
+  expect(skill).toMatch(/Every task in\s+one lane names the same role or none/);
+});

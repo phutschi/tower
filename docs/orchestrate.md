@@ -393,6 +393,24 @@ check) refuse a
 `tower/look/` that is a symlink, is not yours, or resolves under a checkout
 or worktree of the repo, its git dir, the run dir, `/tmp` or `$TMPDIR`.
 
+### Session roles
+
+With a Claude launcher installed (`CLAUDE_ROUTER_ROLE` is set, or `claude`
+takes `--role`), bootstrap opens a run only from an orchestrator session
+(`CLAUDE_ROUTER_ROLE=orchestrator`, started with `claude --role orchestrator`)
+and refuses any other before it creates anything. Every claude session the
+kit starts then gets `--role` and `--topic`:
+
+- a lane: the role its plan tasks name (`**Role:** data` in a task), `code`
+  when none does; tasks naming different roles in one lane are refused. Its
+  topic is the lane's letter and its first task's title, e.g. `b-shipto-fix`.
+- a Reviewer, in a lane review or a preflight slot: `review`, topic `r1` or
+  `r2`.
+
+`--model` is passed as before, and must be one the role allows. Codex and
+cursor sessions get neither flag. Without the launcher a run is as before;
+the pane map's `roles:` line and one tower note say `off` and why.
+
 ## The credit guard
 
 With `REVIEWER_BY_CREDITS=on` (off by default), the Reviewer's kind also

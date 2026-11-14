@@ -82,6 +82,9 @@
 # fell back ("reviewer: fallback: ..."), and the task id with the next step:
 # brief the Reviewer (brief-template.md) and add its agent to watch-lanes.sh.
 #
+# In a run with session roles (the pane map's  roles: on , roles.sh), a claude
+# Reviewer starts with --role review and --topic r1 or r2 (its slot).
+#
 # START_TRIES (environment, default 10): how often an agent start is tried,
 # a second apart, while its new pane's shell is not ready yet (executor.sh).
 # The agent is reported ready only once it accepts input (herdr's
@@ -172,6 +175,14 @@ esac
 IFS=$'\t' read -r R_KIND R_MODEL R_NOTE <<< "$_rev"; unset _rev
 # start_agent starts EXECUTOR_KIND on EXECUTOR_MODEL: here, the Reviewer.
 EXECUTOR_KIND=$R_KIND; EXECUTOR_MODEL=$R_MODEL
+# In a run with session roles (roles.sh), a claude Reviewer starts in the
+# review role, its topic the slot (r1, r2), in a lane review and a preflight
+# slot alike.
+. "$KIT/roles.sh"
+SESSION_ROLE=""; SESSION_TOPIC=""
+if roles_on "$MAP" && [ "$R_KIND" = claude ]; then
+  SESSION_ROLE=review; SESSION_TOPIC=$(echo "$SLOT" | tr 'A-Z' 'a-z')
+fi
 # A codex Reviewer is handed <run-dir>/tmp as a TOML string, which cannot
 # hold a control character: refused before anything is written.
 case "$R_KIND:$RUN_DIR" in

@@ -8,7 +8,8 @@
 # same key in the call's environment, the repo contract or the user contract
 # replaces, in that order (detect-stack.sh loads the two contracts; ADR 0012).
 #
-#   claude: started with --model.
+#   claude: started with --model; in a run with session roles (roles.sh),
+#           also with --role SESSION_ROLE and --topic SESSION_TOPIC.
 #   cursor: cursor-agent, started with --model, trusted (--trust), without
 #           approvals (--force) or self-update (--disable-auto-update), no
 #           sandbox flag; the run dir and the common git dir are added dirs.
@@ -126,7 +127,10 @@ agent_checkout() {
 start_agent() {
   local name="$1" pane="$2"
   case "$EXECUTOR_KIND" in
-    claude) herdr agent start "$name" --kind claude --pane "$pane" -- --model "$EXECUTOR_MODEL" ;;
+    # SESSION_ROLE and SESSION_TOPIC (roles.sh; set by the caller only when
+    # the run has roles) go to the Claude launcher.
+    claude) herdr agent start "$name" --kind claude --pane "$pane" -- --model "$EXECUTOR_MODEL" \
+      ${SESSION_ROLE:+--role "$SESSION_ROLE"} ${SESSION_TOPIC:+--topic "$SESSION_TOPIC"} ;;
     cursor)
       # --trust is the only guard against cursor's trust box: herdr reports
       # that box as idle and ready, so a brief would be typed into it, and
