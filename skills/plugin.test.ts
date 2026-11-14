@@ -763,3 +763,15 @@ test("orchestrate moves a task only to a lane in its role", () => {
     /\*\*Keep every lane busy\.\*\*(?:(?!\n\n)[\s\S])*name no `Role:` or the\s+freed lane's role/,
   );
 });
+
+// A plan task may name its lane's session role; the template and the skill
+// say it is optional, defaults to code, and is one per lane.
+test("spec-to-plan documents the optional Role field", () => {
+  expect(read("skills/spec-to-plan/plan-template.md")).toMatch(
+    /^\*\*Role:\*\* <optional: .*leave the line out for code>$/m,
+  );
+  const skill = read("skills/spec-to-plan/SKILL.md");
+  expect(skill).toMatch(/\*\*Role\*\* \(optional\)/);
+  expect(skill).toMatch(/leave it out for `code`, the default/);
+  expect(skill).toMatch(/Every task in\s+one lane names the same role or none/);
+});
