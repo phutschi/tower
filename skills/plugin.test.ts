@@ -756,11 +756,19 @@ test("spec-to-plan names no harness or runner", () => {
     expect(read(file)).not.toMatch(/claude|codex|cursor|herdr|tmux|launcher/i);
 });
 
-// A session role is fixed when a lane's agent starts: "Keep every lane busy"
-// moves a task only to a lane in a role that task can run in.
-test("orchestrate moves a task only to a lane in its role", () => {
-  expect(read("skills/orchestrate/SKILL.md")).toMatch(
-    /\*\*Keep every lane busy\.\*\*(?:(?!\n\n)[\s\S])*name no `Role:` or the\s+freed lane's role/,
+// A session role is fixed when a claude lane's agent starts: "Keep every
+// lane busy" moves a task only to a claude lane in a role that task can run
+// in; codex and cursor lanes have no role and take any task.
+test("orchestrate moves a task only to a claude lane in its role", () => {
+  const busy =
+    /\*\*Keep every lane busy\.\*\*((?:(?!\n\n)[\s\S])*)/.exec(
+      read("skills/orchestrate/SKILL.md"),
+    )?.[1] ?? "";
+  expect(busy).toMatch(
+    /to\s+a\s+claude\s+lane,\s+move\s+only\s+tasks\s+that\s+name\s+no\s+`Role:`\s+or\s+its\s+role/,
+  );
+  expect(busy).toMatch(
+    /A\s+codex\s+or\s+cursor\s+lane\s+has\s+no\s+role\s+and\s+takes\s+any\s+task/,
   );
 });
 

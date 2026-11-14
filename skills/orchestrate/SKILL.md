@@ -178,13 +178,15 @@ and do it in a lane anyway or suggest doing it without the kit.
    lane with the most pending tasks, from the end of its list, only tasks
    whose dependencies are done or merged and whose files no open task of
    another lane touches. With session roles (the pane map's `roles: on`), a
-   lane's role is fixed when its agent starts: move only tasks that
-   name no `Role:` or the freed lane's role (its pane map line). Move them
-   with `tower assign <X> <X's ids>,<moved ids>` (the other lane loses them), tell that lane in one re-brief line ("Tasks
-   <ids> moved to lane <X>; skip them."), and send the freed lane a more-work
-   prompt (`brief-template.md`), which starts its next report round: watch
-   it as `<agent>:<n>`. Its ready report is merged like the first. Nothing
-   fits: the lane waits for preflight's fixes.
+   claude lane's role is fixed when its agent starts: to a claude lane, move
+   only tasks that name no `Role:` or its role (its pane map line). A codex
+   or cursor lane has no role and takes any task. Move them with
+   `tower assign <X> <X's ids>,<moved ids>` (the other lane loses them), tell
+   that lane in one re-brief line ("Tasks <ids> moved to lane <X>; skip
+   them."), and send the freed lane a more-work prompt (`brief-template.md`),
+   which starts its next report round: watch it as `<agent>:<n>`. Its ready
+   report is merged like the first. Nothing fits: the lane waits for
+   preflight's fixes.
 
 10. **Merge `origin/main`.** After the last lane: `git fetch origin`, then
     `git merge origin/main` in lane A's checkout, and run the check gate.
