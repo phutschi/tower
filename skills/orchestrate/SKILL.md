@@ -23,6 +23,18 @@ in a herdr pane (`HERDR_ENV=1`) and that `herdr` runs. If not, stop: tell the
 user the skill needs herdr, and that `/tower:run` does the same job with any
 runner. Every script refuses the same way, before it creates anything.
 
+## Then: an orchestrator session
+
+With a Claude launcher installed (`CLAUDE_ROUTER_ROLE` is set, or `claude`
+takes `--role`), orchestration runs only in an orchestrator session:
+`CLAUDE_ROUTER_ROLE=orchestrator`. If this session is not one, stop and tell
+the user to start one with `claude --role orchestrator` and run the skill
+there; `bootstrap.sh` refuses the same way, before it creates anything.
+Every claude session the kit then starts gets a session role and a topic:
+a lane the role its plan tasks name in `Role: <role>` lines (`code` when none
+does), a Reviewer `review` (`roles.sh`). Without the launcher nothing changes:
+the pane map's `roles:` line and one tower note say `off`.
+
 ## Two openings
 
 **With a plan.** The user points to a plan (`.md` with `### Task <id>:`
@@ -58,7 +70,9 @@ and do it in a lane anyway or suggest doing it without the kit.
    <kit>/bootstrap.sh <run-dir> "<title>" <branch> [plan.md | tasks.tsv]
    ```
    With a source, every task goes to lane A unless `LANES="A=1-4 B=5,6"` is
-   set (`A=all`: every task, and the only spec). It builds the layout, starts lane A's executor and writes
+   set (`A=all`: every task, and the only spec). With session roles, a lane
+   runs in one role: tasks that name different `Role:`s go in different
+   lanes, or bootstrap and add-lane refuse them. It builds the layout, starts lane A's executor and writes
    `<run-dir>/panes.txt`, the pane map for the whole run. Read it: the
    `check gate:` line is what every lane runs before a commit, `switches:`
    holds the switch values this run uses, `reviewer:` who reviews a lane of

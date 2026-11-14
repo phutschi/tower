@@ -119,6 +119,15 @@ A named part in the workflow that a model fills — implementer, spec reviewer,
 quality reviewer, or anything a run declares. A run maps roles to models.
 _Avoid_: tier, seat
 
+**Session role**:
+The role a Claude launcher starts a claude session in (`claude --role <role>`):
+its models, MCP servers and permissions. The orchestrate kit passes one to
+every claude session it starts when the launcher is installed — a lane's from
+its plan tasks' `Role:` lines (else `code`), `review` for a Reviewer — and
+runs only in an `orchestrator` session. Not a **Role**, which maps a part of
+the workflow to a model.
+_Avoid_: role (alone), persona
+
 **Model**:
 The language model on a task right now. The **implementer** model is sticky:
 the last one to hold a task in progress or done.

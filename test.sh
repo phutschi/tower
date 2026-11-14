@@ -70,6 +70,9 @@ unset TOWER_RUN
 # The credit probes' knobs (credits.sh, the codex stub's app-server; the
 # claude probe reads nothing under a CLAUDE_CONFIG_DIR).
 unset CREDITS_TIMEOUT CODEX_STUB_RATE_LIMITS CLAUDE_CONFIG_DIR
+# Session roles (roles.sh): no launcher unless a test says so, whatever
+# session test.sh is started from.
+unset CLAUDE_ROUTER_ROLE CLAUDE_STUB_ROLE
 # The repo contract's names and the run switches: the fixtures decide them,
 # not the shell test.sh is started from (a codex lane exports EXECUTOR_KIND).
 unset EXECUTOR_KIND EXECUTOR_MODEL SPEC_REVIEWER_MODEL QUALITY_REVIEWER_MODEL STALE PM TYPECHECK_TASK \
@@ -3187,6 +3190,149 @@ if section run; then
   assert_eq "run: one switches note in the record"   "$(notes "$RUN" | grep -c '^switches:')" 1
   assert_eq "run: one reviewer note in the record"   "$(notes "$RUN" | grep -c '^reviewer:')" 1
   unset -f in_repo review
+fi
+
+# --- roles -------------------------------------------------------------------
+if section roles; then
+  S="$HERDR_STUB_STATES_DIR"
+  PLAN="$TMP/roles-plan.md"
+  cat > "$PLAN" <<'EOF'
+---
+repo: acme
+branch: feature/widgets
+---
+
+# Widgets for acme
+
+## Repo conventions every task must follow
+
+Role: Not A Role!
+
+## Tasks
+
+### Task 1: The widget model
+
+**Delivers:** a widget.
+
+### Task 2: Ship-to fix for the widget export pipeline
+
+**Role:** data
+
+### Task 3: Research the widget API
+
+Role: code-research
+
+```md
+### Task 9: a sample inside a fence
+Role: Bad!
+```
+
+### Task 4: A widget can be renamed
+
+### Task 5: Mixed one
+
+Role: data
+
+### Task 6: Mixed two
+
+- **Role**: `web-research`
+EOF
+  boot() { (cd "$1" && shift && "$KIT/bootstrap.sh" "$@" 2>&1; echo "exit=$?"); }
+
+  # Without the launcher: as before roles, with one note.
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-roles-off"; reset_stub
+  out=$(boot "$r" "$RUN" "Roles off" main "$PLAN")
+  assert_match "no launcher: bootstrap runs" "$out" 'exit=0$'
+  assert_match "no launcher: lane A starts as before" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-lane-a --kind claude --pane pane-2 -- --model claude-opus-5-5\[1m\]$'
+  assert_eq "no launcher: one roles note" "$(notes "$RUN" | grep -c '^roles: ')" 1
+  assert_match "no launcher: the note says roles are off, and why" "$(notes "$RUN")" '^roles: off \(no Claude launcher: CLAUDE_ROUTER_ROLE is not set and claude takes no --role\)$'
+  assert_match "no launcher: the pane map says so" "$(cat "$RUN/panes.txt")" '^roles: +off \(no Claude launcher'
+  assert_match "no launcher: the lane A line is as before" "$(cat "$RUN/panes.txt")" '^lane A: +pane-2 +\(agent "bun-vitest-lane-a", kind claude, branch main, '
+  assert_eq "no launcher: no roles file" "$([ -e "$RUN/roles.tsv" ] && echo made || echo none)" none
+  reset_stub; (cd "$r" && "$KIT/add-lane.sh" "$RUN" B feat/b main 5,6 >/dev/null 2>&1)
+  assert_match "no launcher: a lane with mixed Roles starts as before" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-lane-b --kind claude --pane pane-[0-9]+ -- --model [^ ]+$'
+  reset_stub; (cd "$r" && REVIEW_STAGE=preflight "$KIT/add-reviewer.sh" "$RUN" R1 claude "Preflight R1" "$RUN/findings/p1.json" >/dev/null 2>&1)
+  assert_match "no launcher: a claude Reviewer starts as before" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-r1-1 --kind claude --pane pane-[0-9]+ -- --model [^ ]+$'
+
+  # The launcher there, and this session not an orchestrator: refused first.
+  for who in CLAUDE_ROUTER_ROLE=code CLAUDE_STUB_ROLE=1; do
+    r=$(fixture_repo bun-vitest); RUN="$TMP/run-roles-${who%%=*}"; reset_stub
+    out=$(env "$who" bash -c 'cd "$1" && shift && "$KIT/bootstrap.sh" "$@" 2>&1; echo "exit=$?"' _ "$r" "$RUN" "Not orch" main "$PLAN")
+    assert_match "not an orchestrator ($who): refused, saying how to start one" "$out" 'orchestrate runs only in an orchestrator session.*claude --role orchestrator'
+    assert_match "not an orchestrator ($who): ... and fails" "$out" 'exit=1$'
+    assert_eq "not an orchestrator ($who): no run dir" "$([ -e "$RUN" ] && echo made || echo none)" none
+    assert_nomatch "not an orchestrator ($who): no pane, no agent" "$(cat "$HERDR_STUB_LOG")" '^herdr (pane|agent|tab|worktree) '
+  done
+  assert_match "not an orchestrator: the message names this session's role" "$(cd "$r" && CLAUDE_ROUTER_ROLE=code "$KIT/bootstrap.sh" "$TMP/run-roles-x" "x" main 2>&1)" 'this one is code'
+
+  # An orchestrator session: every claude session gets a role and a topic.
+  export CLAUDE_ROUTER_ROLE=orchestrator
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-roles"; reset_stub
+  out=$(LANES="A=1,4 B=2 C=3" boot "$r" "$RUN" "Roles" main "$PLAN")
+  assert_match "orchestrator: bootstrap runs" "$out" 'exit=0$'
+  assert_match "lane A: tasks naming no Role run as code, topic from the first task" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-lane-a --kind claude --pane pane-2 -- --model claude-opus-5-5\[1m\] --role code --topic a-the-widget-model$'
+  map=$(cat "$RUN/panes.txt")
+  assert_match "pane map: lane A's role and topic" "$map" '^lane A: +pane-2 +\(agent "bun-vitest-lane-a", kind claude, role code, topic a-the-widget-model, branch main, checkout '"$r"', model '
+  assert_match "pane map: roles on" "$map" '^roles: +on$'
+  assert_match "record: roles on" "$(notes "$RUN")" '^roles: on$'
+  assert_eq "roles file: the plan's tasks with a Role, fences and other sections left out" "$(tr '\t\n' ': ' < "$RUN/roles.tsv")" "2:data 3:code-research 5:data 6:web-research "
+  lane() { (cd "$r" && "$KIT/add-lane.sh" "$RUN" "$@" 2>&1); }
+  reset_stub; lane B feat/b main 2 >/dev/null
+  assert_match "lane B: its task's Role, a long title cut at a word" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-lane-b --kind claude --pane pane-[0-9]+ -- --model [^ ]+ --role data --topic b-ship-to-fix-for-the$'
+  assert_match "pane map: lane B's role and topic" "$(cat "$RUN/panes.txt")" '^lane B: .*kind claude, role data, topic b-ship-to-fix-for-the, branch feat/b, '
+  reset_stub; lane C feat/c main 3 >/dev/null
+  assert_match "lane C: code-research" "$(cat "$HERDR_STUB_LOG")" ' --role code-research --topic c-research-the-widget-api$'
+  reset_stub; out=$(lane D feat/d main 5,6; echo "exit=$?")
+  assert_match "mixed Roles in a lane: refused, naming them" "$out" "lane D's tasks 5,6 name different Roles \(data: task 5; web-research: task 6\)"
+  assert_match "mixed Roles in a lane: ... and fails" "$out" 'exit=1$'
+  assert_nomatch "mixed Roles in a lane: no worktree" "$(cat "$HERDR_STUB_LOG")" '^herdr worktree create'
+  assert_eq "mixed Roles in a lane: nothing assigned" "$(board "$RUN" '"D" in d["lanes"]')" False
+  reset_stub; (cd "$r" && EXECUTOR_KIND=codex "$KIT/add-lane.sh" "$RUN" D feat/d main 5 >/dev/null 2>&1)
+  assert_match "a codex lane: no role" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-lane-d --kind codex '
+  assert_nomatch "a codex lane: ... no role, no topic" "$(cat "$HERDR_STUB_LOG")" '--role|--topic'
+  assert_match "pane map: a codex lane's line has no role" "$(cat "$RUN/panes.txt")" '^lane D: .*kind codex, branch feat/d, '
+  review() { (cd "$r" && "$KIT/add-reviewer.sh" "$RUN" "$@" 2>&1); }
+  reset_stub; REVIEW_STAGE=preflight review R1 claude "Preflight R1" "$RUN/findings/p1.json" >/dev/null
+  assert_match "preflight slot: review, topic the slot" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-r1-1 --kind claude --pane pane-[0-9]+ -- --model [^ ]+ --role review --topic r1$'
+  reset_stub; review R2 codex "Lane review D" "$RUN/findings/d.json" D >/dev/null
+  assert_match "lane review by claude: review, topic the slot" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-r2-1 --kind claude --pane pane-[0-9]+ -- --model [^ ]+ --role review --topic r2$'
+  echo gone > "$S/bun-vitest-r1-1"
+  reset_stub; review R1 claude "Lane review A" "$RUN/findings/a.json" A >/dev/null
+  assert_match "a codex Reviewer: no role" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-r1-2 --kind codex '
+  assert_nomatch "a codex Reviewer: ... no role, no topic" "$(cat "$HERDR_STUB_LOG")" '--role|--topic'
+
+  # Lane A in a role its tasks name; a lane that mixes them refused at bootstrap.
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-roles-a2"; reset_stub
+  LANES="A=2" boot "$r" "$RUN" "Roles A" main "$PLAN" >/dev/null
+  assert_match "lane A: its tasks' Role" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-lane-a .* --role data --topic a-ship-to-fix-for-the$'
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-roles-mixed"; reset_stub
+  out=$(LANES="A=1,2 B=5-6" boot "$r" "$RUN" "Mixed" main "$PLAN")
+  assert_match "bootstrap: a LANES spec with mixed Roles is refused" "$out" "LANES: lane B's tasks 5-6 name different Roles \(data: task 5; web-research: task 6\)"
+  assert_match "bootstrap: ... and fails" "$out" 'exit=1$'
+  assert_eq "bootstrap: ... before the run exists" "$([ -e "$RUN" ] && echo made || echo none)" none
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-roles-all"; reset_stub
+  out=$(boot "$r" "$RUN" "All" main "$PLAN")
+  assert_match "bootstrap: A=all with mixed Roles is refused" "$out" "LANES: lane A's tasks all name different Roles"
+  bad_plan="$TMP/roles-bad.md"; printf '# Bad\n\n### Task 1: One\n\nRole: Data!\n' > "$bad_plan"
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-roles-bad"; reset_stub
+  out=$(boot "$r" "$RUN" "Bad" main "$bad_plan")
+  assert_match "a Role that is not a role name: refused, naming the task" "$out" "plan: task 1's Role 'Data!' is not a role name"
+  assert_eq "a Role that is not a role name: no run dir" "$([ -e "$RUN" ] && echo made || echo none)" none
+  twice="$TMP/roles-twice.md"; printf '# Twice\n\n### Task 1: One\n\nRole: data\nRole: code\n' > "$twice"
+  assert_match "a task with two Roles: refused" "$(boot "$(fixture_repo bun-vitest)" "$TMP/run-roles-twice" "Twice" main "$twice")" 'plan: task 1 names a Role twice \(data, code\)'
+
+  # No plan: lane A is code; a task file names no roles.
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-roles-empty"; reset_stub
+  boot "$r" "$RUN" "Empty" main >/dev/null
+  assert_match "empty opening: lane A is code, topic its letter" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-lane-a .* --role code --topic a$'
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-roles-tsv"; reset_stub
+  boot "$r" "$RUN" "TSV" main "$KIT/example-tasks.tsv" >/dev/null
+  assert_match "task file: lane A is code" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-lane-a .* --role code --topic a-[a-z0-9-]+$'
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-roles-codex"; reset_stub
+  EXECUTOR_KIND=codex boot "$r" "$RUN" "Codex" main "$KIT/example-tasks.tsv" >/dev/null
+  assert_nomatch "a codex lane A: no role, no topic" "$(cat "$HERDR_STUB_LOG")" '--role|--topic'
+  assert_match "a codex lane A: roles are still on" "$(cat "$RUN/panes.txt")" '^roles: +on$'
+  unset CLAUDE_ROUTER_ROLE
 fi
 
 # --- runner ------------------------------------------------------------------

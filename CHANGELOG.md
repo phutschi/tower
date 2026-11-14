@@ -8,6 +8,14 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Session roles for a Claude launcher: when `CLAUDE_ROUTER_ROLE` is set or
+  `claude` takes `--role`, `/tower:orchestrate` runs only in an orchestrator
+  session (`claude --role orchestrator`), and every claude session it starts
+  gets `--role` and `--topic`: a lane the role its plan tasks name
+  (`Role: <role>`, else `code`; a lane whose tasks name different roles is
+  refused), a Reviewer or preflight slot `review`. Without the launcher a run
+  is unchanged, with one `roles: off` tower note. Codex and cursor sessions
+  are unchanged.
 - `TRIAGE=auto` (default `ask`): preflight, alone or in an orchestrate run,
   triages every finding itself, runs its rounds, pushes, opens the PR and
   files follow-ups (de-duplicated, labelled `preflight`) with no reply. Only

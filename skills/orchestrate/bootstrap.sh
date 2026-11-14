@@ -50,6 +50,17 @@
 # stays open after the run: it is the record, and the human quits it with q.
 # Nothing is torn down until the user says so.
 #
+# Session roles (roles.sh): with a Claude launcher (CLAUDE_ROUTER_ROLE set, or
+# claude listing --role), bootstrap refuses to open a run anywhere but in an
+# orchestrator session (CLAUDE_ROUTER_ROLE=orchestrator), before it creates
+# anything, and says how to start one. A claude lane A then starts with
+# --role (the role its plan tasks name in  Role: <role>  lines, code when
+# none does) and --topic a-<its first task's title as a slug>; a LANES spec
+# whose tasks name different roles is refused before the run exists. The plan's
+# roles go to <run-dir>/roles.tsv for add-lane. Without the launcher none of
+# this happens. Either way the pane map's  roles:  line says on, or off and
+# why, and goes to the record as a  tower note .
+#
 # START_TRIES (environment, default 10): how often an agent start is tried,
 # a second apart, while its new pane's shell is not ready yet (executor.sh).
 # The agent is reported ready only once it accepts input (herdr's
@@ -70,6 +81,10 @@ in_herdr; need git python3 node
 [ $# -ge 3 ] || die 'usage: bootstrap.sh <run-dir> "<title>" <branch> [plan.md | tasks.tsv]'
 RUN_DIR="$1"; TITLE="$2"; BRANCH="$3"; SOURCE="${4:-}"
 [ -z "$SOURCE" ] || [ -f "$SOURCE" ] || die "no such plan or task file: $SOURCE"
+# Session roles (roles.sh): with a Claude launcher, only an orchestrator
+# session opens a run, refused here before anything exists.
+. "$KIT/roles.sh"
+roles_gate
 [ -z "${LANES:-}" ] || [ -n "$SOURCE" ] || die 'LANES needs a plan or task file; in the empty opening assign lanes with  tower add "<title>" --lane <X>'
 # LANES: specs <lane>=<ids> for lanes A-D, or one <lane>=all (every task, and
 # then the whole of LANES). With a source and no LANES, it is A=all. Split
@@ -101,6 +116,18 @@ for _spec in ${LANE_SPECS[@]+"${LANE_SPECS[@]}"}; do
   fi
 done
 unset _seen _spec
+# With roles, each lane's tasks name one role at most: a plan whose lane mixes
+# them is refused here, before the run exists. Lane A's role is its tasks'
+# (code without a plan, with a task file, or with tasks that name none).
+PLAN_ROLES=""; LANE_A_ROLE=code
+if [ "$ROLES" = on ] && [ "${SOURCE##*.}" = md ]; then
+  PLAN_ROLES=$(plan_roles "$SOURCE") || exit 1
+  for _spec in ${LANE_SPECS[@]+"${LANE_SPECS[@]}"}; do
+    _role=$(lane_role "${_spec#*=}" "$PLAN_ROLES" 2>&1) || die "LANES: lane ${_spec%%=*}'s $_role"
+    [ "${_spec%%=*}" != A ] || LANE_A_ROLE=$_role
+  done
+  unset _spec _role
+fi
 # Lane A, checks, and dev all belong in the directory bootstrap runs in, which
 # is often a herdr worktree of the checkout, not repo_root() (that resolves to
 # the main checkout — the same resolution agent_name inlines for naming, and
@@ -155,6 +182,20 @@ chmod 444 "$PIN.$$"; mv -f "$PIN.$$" "$PIN"
 [ -z "$LANE_ALL" ] || tower assign "$LANE_ALL" "$(tower state --json | jsonq '",".join(t["id"] for t in d["tasks"])')"
 tower note "switches: $(switches_line)"
 tower note "reviewer: $REVIEWER"
+# Roles: the plan's for add-lane, and lane A's role and topic (a claude lane
+# only; roles.sh). Without the launcher, one note says roles are skipped.
+SESSION_ROLE=""; SESSION_TOPIC=""
+if [ "$ROLES" = on ]; then
+  printf '%s\n' "$PLAN_ROLES" | sed '/^$/d' > "$RUN_DIR/roles.tsv"
+  ROLES_LINE=on
+  if [ "$EXECUTOR_KIND" = claude ]; then
+    SESSION_ROLE=$LANE_A_ROLE; SESSION_TOPIC=$(lane_topic A "$(lane_first_title A)")
+  fi
+else
+  ROLES_LINE="off ($ROLES_WHY)"
+fi
+tower note "roles: $ROLES_LINE"
+LANE_A_SESSION=""; [ -z "$SESSION_ROLE" ] || LANE_A_SESSION="role $SESSION_ROLE, topic $SESSION_TOPIC, "
 
 # --- the layout --------------------------------------------------------------
 split() { herdr pane split "$@" --cwd "$REPO" --no-focus | pane_id; }
@@ -180,7 +221,7 @@ herdr pane run "$CONSOLE_PANE" "tower --stale $STALE" >/dev/null
 {
   echo "run dir:        $RUN_DIR"
   echo "orchestrator:   $HERDR_PANE_ID"
-  echo "lane A:         $LANE_A_PANE   (agent \"$LANE_A\", kind $EXECUTOR_KIND, branch $BRANCH, checkout $REPO, model $EXECUTOR_MODEL)"
+  echo "lane A:         $LANE_A_PANE   (agent \"$LANE_A\", kind $EXECUTOR_KIND, ${LANE_A_SESSION}branch $BRANCH, checkout $REPO, model $EXECUTOR_MODEL)"
   echo "checks:         $CHECKS_PANE   (${PANE_CMDS[$CHECKS_I]} in ${PANE_DIRS[$CHECKS_I]})"
   [ -z "$DEV_PANE" ] || echo "dev:            $DEV_PANE   (${PANE_CMDS[$DEV_I]} in ${PANE_DIRS[$DEV_I]})"
   echo "console:        $CONSOLE_PANE   (tower; the record — stays open, the human quits it with q)"
@@ -188,6 +229,7 @@ herdr pane run "$CONSOLE_PANE" "tower --stale $STALE" >/dev/null
   echo "contract:       $PIN"
   echo "switches:       $(switches_line)"
   echo "reviewer:       $REVIEWER"
+  echo "roles:          $ROLES_LINE"
   echo "toolchain:      $PM"
   echo "read a pane:    herdr pane read <id> --source recent-unwrapped --lines 60"
 } > "$RUN_DIR/panes.txt"

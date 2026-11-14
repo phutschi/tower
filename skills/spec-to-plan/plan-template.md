@@ -48,6 +48,8 @@ export function name(arg: Type): Result
 
 **Depends on:** none
 
+**Role:** <optional: the session role its lane runs in, e.g. data or code-research; leave the line out for code>
+
 **Decisions:** [[ADR 000x]], spec § <section>
 
 ### Task 2: <title>
