@@ -755,3 +755,11 @@ test("spec-to-plan names no harness or runner", () => {
   ])
     expect(read(file)).not.toMatch(/claude|codex|cursor|herdr|tmux|launcher/i);
 });
+
+// A session role is fixed when a lane's agent starts: "Keep every lane busy"
+// moves a task only to a lane in a role that task can run in.
+test("orchestrate moves a task only to a lane in its role", () => {
+  expect(read("skills/orchestrate/SKILL.md")).toMatch(
+    /\*\*Keep every lane busy\.\*\*(?:(?!\n\n)[\s\S])*name no `Role:` or the\s+freed lane's role/,
+  );
+});

@@ -177,8 +177,10 @@ and do it in a lane anyway or suggest doing it without the kit.
    tasks nobody started (pending on the board), move some to it: from the
    lane with the most pending tasks, from the end of its list, only tasks
    whose dependencies are done or merged and whose files no open task of
-   another lane touches. Move them with `tower assign <X> <X's ids>,<moved ids>`
-   (the other lane loses them), tell that lane in one re-brief line ("Tasks
+   another lane touches. With session roles (the pane map's `roles: on`), a
+   lane's role is fixed when its agent starts: move only tasks that
+   name no `Role:` or the freed lane's role (its pane map line). Move them
+   with `tower assign <X> <X's ids>,<moved ids>` (the other lane loses them), tell that lane in one re-brief line ("Tasks
    <ids> moved to lane <X>; skip them."), and send the freed lane a more-work
    prompt (`brief-template.md`), which starts its next report round: watch
    it as `<agent>:<n>`. Its ready report is merged like the first. Nothing
