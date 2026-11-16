@@ -1,5 +1,5 @@
 # The tabs of an orchestrate run and the grid inside each. Sourced after
-# common.sh by bootstrap.sh, add-lane.sh and add-reviewer.sh.
+# common.sh by add-lane.sh.
 #
 # A lane's pane map line ends its parenthesis with  tab <label> : the tab it
 # is in. A line without one (a pane map written before the lanes tab) is a

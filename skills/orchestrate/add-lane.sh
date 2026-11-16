@@ -15,8 +15,8 @@
 #        │ 3rd      │ 4th      │ R2
 #
 # The lane's line ends with  tab lanes . A pane map from before the lanes tab
-# (no  lanes tab:  line) has its lanes in the orchestrator's tab, and the new
-# lane goes there.
+# (no  lanes tab:  line) has its lanes in the orchestrator's tab: the new lane
+# goes there, and its line has no tab, as the others.
 #
 # The kind is per lane (executor.sh). Worktrees live at
 # <repo>/.worktrees/<branch>; INSTALL_CMD installs (from here, log in
@@ -118,9 +118,12 @@ if roles_on "$MAP"; then
   fi
   unset _ids _role
 fi
-TAB_LABEL=$(lane_tab "$SESSION_ROLE")
-lane_line() { printf 'lane %s:         %s   (agent "%s", kind %s, %sbranch %s, checkout %s, model %s, tab %s)\n' \
-  "$LANE" "$1" "$NAME" "$EXECUTOR_KIND" "$LANE_SESSION" "$BRANCH" "$WT" "$EXECUTOR_MODEL" "$TAB_LABEL"; }
+# The lane's tab ends its line; a pane map from before the lanes tab (no
+# lanes tab: line) keeps its lines without one, so its reruns still match.
+TAB_LABEL=$(lane_tab "$SESSION_ROLE"); TAB_FIELD=", tab $TAB_LABEL"
+grep -q '^lanes tab:' "$MAP" || TAB_FIELD=""
+lane_line() { printf 'lane %s:         %s   (agent "%s", kind %s, %sbranch %s, checkout %s, model %s%s)\n' \
+  "$LANE" "$1" "$NAME" "$EXECUTOR_KIND" "$LANE_SESSION" "$BRANCH" "$WT" "$EXECUTOR_MODEL" "$TAB_FIELD"; }
 
 # A rerun's checks. $1 is the lane's line in the pane map as the first call
 # wrote it, $2 its pane, $3 what that line is called in a message.

@@ -935,6 +935,13 @@ if section add-lane; then
   reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNO" B feat/b main 2 2>&1; echo "exit=$?")
   assert_match "older pane map: lane B is added"       "$out" 'exit=0$'
   assert_match "older pane map: right of lane A, in the orchestrator's tab" "$(cat "$HERDR_STUB_LOG")" '^herdr pane move pane-[0-9]+ --tab tab-0 --split right --target-pane pane-3 '
+  assert_match "older pane map: the new lane's line keeps the old shape, no tab" "$(cat "$RUNO/panes.txt")" '^lane B: .*, model [^,]+\)$'
+  reset_stub; out=$(cd "$r" && HERDR_STUB_BUSY_STARTS=99 START_TRIES=1 "$KIT/add-lane.sh" "$RUNO" C feat/c main 3 2>&1; echo "exit=$?")
+  assert_match "older pane map: a failed start ..."    "$out" 'exit=1$'
+  sed -i.bak 's/, tab lanes) starting$/) starting/' "$RUNO/panes.txt"   # as a kit from before the lanes tab wrote it
+  echo gone > "$HERDR_STUB_STATES_DIR/bun-vitest-lane-c"; mkdir -p "$r/.worktrees/feat/c"
+  reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNO" C feat/c main 3 2>&1; echo "exit=$?"); rm -f "$HERDR_STUB_STATES_DIR/bun-vitest-lane-c"
+  assert_match "older pane map: ... and its rerun resumes the lane" "$out" 'exit=0$'
   # A lane's line keeps its place in the pane map when it is rewritten, so the
   # grid follows the order the lanes were placed: B's start fails, C is
   # added, B is started again, and D still goes under B.

@@ -131,9 +131,9 @@ the orchestrator's tab             lanes
   added: the second right of the first, the third under the first, the
   fourth under the second. Four at most. When anything reviews
   (`LANE_REVIEW` or `PREFLIGHT` on), the right third of the lanes tab is a
-  full-height column for the Reviewer slots, R1 over R2. A lane that needs another lane's work merges it at its own
-  merge point; until that work is done it does its other tasks, then
-  stops, and the orchestrator prompts it the moment the task is done. A
+  full-height column for the Reviewer slots, R1 over R2. A lane that needs
+  another lane's work merges it at its own merge point; until that work is
+  done it does its other tasks, then stops, and the orchestrator prompts it the moment the task is done. A
   _finished_ lane is merged into the integration branch by the orchestrator,
   right away — never by lane A — and, while other lanes still have tasks
   nobody started, the orchestrator moves some to it, so no lane sits idle.

@@ -17,7 +17,7 @@
 # refuses before it creates anything and says how to install it.
 #
 # The layout, two tabs in the orchestrator pane's workspace (the lane grid
-# grows with add-lane.sh and layout.sh):
+# grows with add-lane.sh):
 #
 #   the orchestrator's tab             lanes  (opened with --no-focus)
 #   ┌──────────────┬──────────────┐    ┌──────────┬──────────┬──────────┐
@@ -42,8 +42,9 @@
 #
 # Writes <run-dir>/panes.txt, the pane map for the whole run, then prints it
 # with the next step. Its  lanes tab:  line holds the tab's id and the R1 and
-# R2 panes, or  (no Reviewer column) ; lane A's line ends with  tab lanes . The pane map's  switches:  line holds every run switch
-# and the value this run uses (detect-stack.sh). Its  contract:  line names
+# R2 panes, or  (no Reviewer column) ; lane A's line ends with  tab lanes .
+# The pane map's  switches:  line holds every run switch and the value this
+# run uses (detect-stack.sh). Its  contract:  line names
 # the pin: the .orchestrate read here, written read-only outside the run dir
 # and the repo (detect-stack.sh), is what add-lane and add-reviewer read for
 # the whole run; for them this line is only a pointer, never read. The
