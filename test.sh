@@ -1208,6 +1208,7 @@ if section add-reviewer; then
   assert_match "no Reviewer column: a reviews tab"     "$log" "^herdr tab create --workspace ws-0 --cwd $r --label reviews --no-focus$"
   assert_match "no Reviewer column: R2 right of R1"    "$log" '^herdr pane split --pane pane-1 --direction right --ratio 0.5 '
   assert_match "no Reviewer column: the review tab line" "$(cat "$RUNN/panes.txt")" '^review tab: +tab-1 +\(R1 pane-1, R2 pane-2\)$'
+  assert_match "no Reviewer column: the lanes tab stays without one" "$(cat "$RUNN/panes.txt")" '^lanes tab: +tab-[0-9]+ +\(no Reviewer column\)$'
   RUNF="$TMP/run-review-failed"; reset_stub
   r=$(fixture_repo bun-vitest); (cd "$r" && "$KIT/bootstrap.sh" "$RUNF" "Failed" main >/dev/null 2>&1)
   out=$(cd "$r" && HERDR_STUB_BUSY_STARTS=99 START_TRIES=1 "$KIT/add-reviewer.sh" "$RUNF" R1 claude "Try" "$RUNF/findings/a.json" 2>&1; echo "exit=$?")

@@ -51,8 +51,10 @@ All notable changes to this project are documented here. The format follows
 - Reviewers R1 and R2 run in the lanes tab's right column, not in a
   `reviews` tab of their own. A run whose lanes tab is not open yet gets it
   from the first review, the column alone; a code lane added after that goes
-  under R2. A run whose lanes tab has no column (reviews off at bootstrap),
-  and a run opened before this change, get or keep a reviews tab.
+  under R2. One case gets a reviews tab: a run opened with `LANE_REVIEW` and
+  `PREFLIGHT` both off has no column, so a later review (the re-review of
+  the fixes with `PREFLIGHT=off`) opens one. A run opened before this change
+  keeps its reviews tab.
 - With session roles, a lane whose tasks name a role other than `code` or
   `review` (data, research, any later one) goes to a third tab,
   `research`, of any executor kind; lane A too. The tab opens with its

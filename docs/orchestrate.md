@@ -142,17 +142,21 @@ or review lane, or Reviewer. Without roles, every lane is in the lanes tab.
   added: the second right of the first, the third under the first, the
   fourth under the second. Four at most. When anything reviews
   (`LANE_REVIEW` or `PREFLIGHT` on), the right third of the lanes tab is a
-  full-height column for the Reviewer slots, R1 over R2. A lane that needs
-  another lane's work merges it at its own merge point; until that work is
-  done it does its other tasks, then stops, and the orchestrator prompts it the moment the task is done. A
-  _finished_ lane is merged into the integration branch by the orchestrator,
-  right away — never by lane A — and, while other lanes still have tasks
-  nobody started, the orchestrator moves some to it, so no lane sits idle.
+  full-height column for the Reviewer slots, R1 over R2. A run opened with
+  both off has no column: a Reviewer it starts all the same (the re-review
+  of the fixes, with `PREFLIGHT=off`) gets a `reviews` tab for the slots,
+  the one case with a reviews tab. A lane that needs another lane's work
+  merges it at its own merge point; until that work is done it does its
+  other tasks, then stops, and the orchestrator prompts it the moment the
+  task is done. A _finished_ lane is merged into the integration branch by
+  the orchestrator, right away — never by lane A — and, while other lanes
+  still have tasks nobody started, the orchestrator moves some to it, so no
+  lane sits idle.
 - **dev** runs your development server if you declare one, in lane A's
   checkout. **shell** is an empty shell in the same checkout, for you;
-  without dev it takes the whole space under the console. There is no checks pane:
-  each lane runs the check gate itself, and a `pane checks` line in
-  `.orchestrate` is ignored with one `info:` line.
+  without dev it takes the whole space under the console. There is no
+  checks pane: each lane runs the check gate itself, and a `pane checks`
+  line in `.orchestrate` is ignored with one `info:` line.
 - **console** is tower's live board, the record of the run. It stays open
   after the run; you quit it with `q`. The run dir is no second record: it
   holds the pane map, the briefs, the findings and tower's own run files.
