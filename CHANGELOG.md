@@ -50,7 +50,8 @@ All notable changes to this project are documented here. The format follows
 - Reviewers R1 and R2 run in the lanes tab's right column, not in a
   `reviews` tab of their own. A run whose lanes tab is not open yet gets it
   from the first review, the column alone; a code lane added after that goes
-  under R2. A run opened before this change keeps its reviews tab.
+  under R2. A run whose lanes tab has no column (reviews off at bootstrap),
+  and a run opened before this change, get or keep a reviews tab.
 
 ## [0.5.0] — 2026-10-07
 

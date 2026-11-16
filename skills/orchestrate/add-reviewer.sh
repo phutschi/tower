@@ -32,11 +32,11 @@
 #        ├──────────┼──────────┼──────────┤
 #        │ lane C   │ lane D   │ R2       │
 #
-# With no  lanes tab:  line (lane A is in another tab) the first call opens the
-# lanes tab, the column alone, R1 its root and R2 under it; a code lane added
-# later goes under R2 (layout.sh). With a lanes tab but no column (LANE_REVIEW
-# and PREFLIGHT off at bootstrap) the first call opens a  reviews  tab, R2
-# right of R1. Either opens in the run's workspace (the orchestrator pane's,
+# With no  lanes tab:  line and lane A in another tab (its line names one) the
+# first call opens the lanes tab, the column alone, R1 its root and R2 under
+# it; a code lane added later goes under R2 (layout.sh). With a lanes tab but
+# no column (LANE_REVIEW and PREFLIGHT off at bootstrap), or a pane map from
+# before the lanes tab, the first call opens a  reviews  tab, R2 right of R1. Either opens in the run's workspace (the orchestrator pane's,
 # from the pane map; an orchestrator pane herdr no longer knows is refused
 # before anything is written). Later calls reuse the slots. Every call starts a new agent,
 # <repo>-r1-<n> with n counting the reviews in that slot, so each review starts
@@ -323,12 +323,16 @@ if [ "$REUSED" = 1 ] && [ "$KEEP" = 1 ]; then echo "reusing task $ID: the review
 elif [ "$REUSED" = 1 ]; then echo "reusing task $ID: an earlier call for $SLOT added it, but its Reviewer did not start"; fi
 
 # --- the slots' tab, on the first call that has none ---------------------------
-# No lanes tab yet (lane A is in another tab): it opens here, the column alone,
-# R2 under R1; a code lane added later goes under R2 (layout.sh). A lanes tab
-# without a column (nothing reviewed at bootstrap): a reviews tab, R2 right of R1.
+# No lanes tab yet, lane A in another tab (its line names one): it opens here,
+# the column alone, R2 under R1; a code lane added later goes under R2
+# (layout.sh). Else a reviews tab, R2 right of R1: a lanes tab without a
+# column (nothing reviewed at bootstrap), or a pane map from before the lanes
+# tab (lane lines without a tab), whose lanes are in the orchestrator's tab.
 if [ -z "$TAB_LINE" ]; then
   LABEL=reviews; SPLIT=right; KEY="review tab:    "
-  [ -n "$LANES_LINE" ] || { LABEL=lanes; SPLIT=down; KEY="lanes tab:     "; }
+  if [ -z "$LANES_LINE" ] && grep -qE '^lane A: .*, tab [a-z]+\)( starting)?$' "$MAP"; then
+    LABEL=lanes; SPLIT=down; KEY="lanes tab:     "
+  fi
   out=$(herdr tab create --workspace "$WS" --cwd "$REPO" --label "$LABEL" --no-focus)
   TAB=$(echo "$out" | jsonq 'd["result"]["tab"]["tab_id"]')
   R1_PANE=$(echo "$out" | jsonq 'd["result"]["root_pane"]["pane_id"]')

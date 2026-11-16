@@ -1190,6 +1190,12 @@ if section add-reviewer; then
   assert_match "review tab line: the review finishes"  "$out" 'exit=0$'
   assert_nomatch "review tab line: no tab is opened"   "$log" '^herdr (tab create|pane split) '
   assert_match "review tab line: the Reviewer starts in its R2" "$log" '^herdr agent start bun-vitest-r2-1 --kind codex --pane pane-22 '
+  # The same run before its first review: a reviews tab, never a lanes tab
+  # (its lanes sit in the orchestrator's tab).
+  sed -i.bak '/^review tab:/d' "$RUNO/panes.txt"
+  reset_stub; out=$(cd "$r" && "$KIT/add-reviewer.sh" "$RUNO" R1 claude "Old first" "$RUNO/findings/f.json" 2>&1; echo "exit=$?")
+  assert_match "older pane map, first review: a reviews tab" "$(cat "$HERDR_STUB_LOG")" "^herdr tab create --workspace ws-0 --cwd $r --label reviews --no-focus$"
+  assert_nomatch "older pane map, first review: no lanes tab line" "$(cat "$RUNO/panes.txt")" '^lanes tab:'
   # A lanes tab without a Reviewer column (reviews off at bootstrap): the
   # review opens a reviews tab of its own, as before the lanes tab.
   r=$(fixture_repo bun-vitest); RUNN="$TMP/run-review-nocolumn"

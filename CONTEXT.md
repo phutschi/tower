@@ -99,9 +99,9 @@ inside a lane)
 
 **Reviewer slot**:
 One of two places a Reviewer runs, R1 and R2: the lanes tab's right column,
-R1 over R2 (a run opened before the lanes tab: its reviews tab). Each review in a slot is a task
-on the board, `R<n>-<k>` in lane `R<n>` with area `review`. A lane that
-reports ready while both slots are busy waits.
+R1 over R2 (a run opened before the lanes tab: its reviews tab). Each review
+in a slot is a task on the board, `R<n>-<k>` in lane `R<n>` with area
+`review`. A lane that reports ready while both slots are busy waits.
 _Avoid_: review lane, reviewer pane
 
 **Runner**:
