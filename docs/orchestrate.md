@@ -114,7 +114,8 @@ board — the gate.
 ## The layout
 
 Up to three tabs in the orchestrator's workspace, each opened without
-moving your focus: the orchestrator's own, `lanes`, and `research`.
+moving your focus: the orchestrator's own, `lanes`, and `research` (and
+`reviews` in the one case under **Lanes** below).
 
 ```
 the orchestrator's tab             lanes
@@ -142,10 +143,10 @@ or review lane, or Reviewer. Without roles, every lane is in the lanes tab.
   added: the second right of the first, the third under the first, the
   fourth under the second. Four at most. When anything reviews
   (`LANE_REVIEW` or `PREFLIGHT` on), the right third of the lanes tab is a
-  full-height column for the Reviewer slots, R1 over R2. A run opened with
-  both off has no column: a Reviewer it starts all the same (the re-review
-  of the fixes, with `PREFLIGHT=off`) gets a `reviews` tab for the slots,
-  the one case with a reviews tab. A lane that needs another lane's work
+  full-height column for the Reviewer slots, R1 over R2. A lanes tab opened
+  with both off has no column, and gets none later: a Reviewer started in
+  that run all the same gets a `reviews` tab for the slots, the one case
+  with a reviews tab. A lane that needs another lane's work
   merges it at its own merge point; until that work is done it does its
   other tasks, then stops, and the orchestrator prompts it the moment the
   task is done. A _finished_ lane is merged into the integration branch by
