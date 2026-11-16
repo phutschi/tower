@@ -345,7 +345,7 @@ The fixed pane arrangement of an orchestrate run on herdr tabs of the
 orchestrator's workspace: the orchestrator's tab (orchestrator left; console,
 dev and shell right), the `lanes` tab (the lane grid left, the Reviewer slots
 right), and with session roles the `research` tab (a lane grid for lanes of
-any role but code). A tab opens with its first pane.
+any role but code or review). A tab opens with its first pane.
 
 **Lane grid**:
 The 2x2 area for lane panes in the lanes tab. It grows in the order lanes are

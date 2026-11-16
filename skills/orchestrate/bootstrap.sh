@@ -30,10 +30,10 @@
 # under the console. The console has half the tab, for its 60 columns. Lane
 # A is the lanes tab's root. The R1/R2 column, a third of the tab, held for
 # the Reviewer slots, is there only when LANE_REVIEW or PREFLIGHT is on.
-# With session roles on and lane A's tasks in a role other than code (data,
-# research, …; layout.sh lane_tab), lane A is the root of a  research  tab
-# instead, its pane map line  research tab: <tab-id> , and the lanes tab opens
-# with the first code lane (add-lane.sh) or Reviewer (add-reviewer.sh).
+# With session roles on and lane A's tasks in a role other than code or review
+# (data, research, …; layout.sh lane_tab), lane A is the root of a  research
+# tab instead, its pane map line  research tab: <tab-id> , and the lanes tab
+# opens with the first code lane (add-lane.sh) or Reviewer (add-reviewer.sh).
 #
 # dev comes from .orchestrate (see example.orchestrate) and runs in lane A's
 # checkout; only its command is shell code: a checkout path with an
@@ -229,7 +229,8 @@ fi
 herdr pane run "$CONSOLE_PANE" "tower --stale $STALE" >/dev/null
 # Lane A's tab, lane A its root: the lanes tab, with the Reviewer column when
 # anything reviews; with roles, the research tab for a lane A of a role other
-# than code (layout.sh lane_tab), and the lanes tab waits for its first pane.
+# than code or review (layout.sh lane_tab), and the lanes tab waits for its
+# first pane.
 LANE_A_TAB=lanes; [ "$ROLES" != on ] || LANE_A_TAB=$(lane_tab "$LANE_A_ROLE")
 out=$(herdr tab create --workspace "$WS" --cwd "$REPO" --label "$LANE_A_TAB" --no-focus)
 TAB_ID=$(echo "$out" | jsonq 'd["result"]["tab"]["tab_id"]')

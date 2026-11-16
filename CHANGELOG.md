@@ -52,8 +52,8 @@ All notable changes to this project are documented here. The format follows
   from the first review, the column alone; a code lane added after that goes
   under R2. A run whose lanes tab has no column (reviews off at bootstrap),
   and a run opened before this change, get or keep a reviews tab.
-- With session roles, a lane whose tasks name a role other than `code`
-  (data, research, any later one) goes to a third tab, `research`, of any
+- With session roles, a lane whose tasks name a role other than `code` or
+  `review` (data, research, any later one) goes to a third tab, `research`, of any
   executor kind; lane A too. The tab opens with its first such lane, and its
   lanes fill a grid of their own. A run with only code lanes, or without
   roles, has no research tab.

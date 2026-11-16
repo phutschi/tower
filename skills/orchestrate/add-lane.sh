@@ -15,7 +15,7 @@
 #        │ 3rd      │ 4th      │ R2
 #
 # With session roles on, a lane of any kind whose tasks name a role other than
-# code goes to the  research  tab instead, its grid of its own. A tab not open
+# code or review goes to the  research  tab instead, its grid of its own. A tab not open
 # yet opens with the lane: its pane moves into a new tab in the orchestrator
 # pane's workspace, unfocused, and the pane map gets its  research tab:  or
 # lanes tab:  line (the lanes tab with its Reviewer column when anything
