@@ -344,8 +344,8 @@ if section detect; then
     "$(detect_in "$r" 'for i in 0 1 2; do printf "%s|%s|%s;" "${SUITE_NAMES[$i]}" "${SUITE_CMDS[$i]}" "${SUITE_DIRS[$i]}"; done')" \
     "lint|make lint|.;test|make test|pkg/core;build|make build|.;"
   assert_match "this repo's contract: the check gate runs tower's check, the fast tests and shellcheck" "$(detect_in "$ROOT" 'echo "$CHECK_CMD"')" '^bun run check && \./test\.sh --fast && shellcheck '
-  assert_eq "this repo's contract: the full suite is tower's check, every test, then shellcheck" "$(detect_in "$ROOT" 'echo "${SUITE_NAMES[*]}|${SUITE_CMDS[0]}|${SUITE_CMDS[1]}|${SUITE_CMDS[2]}"' | tail -1)" "check tests shellcheck|bun run check|./test.sh|shellcheck -S warning *.sh skills/*/*.sh skills/orchestrate/tests/stub/*"
-  assert_nomatch "this repo's contract: no unknown settings" "$(detect_in "$ROOT" 'true')" 'not a setting'
+  assert_eq "this repo's contract: the full suite is tower's check, every test, then shellcheck" "$(detect_in "$ROOT" 'echo "${SUITE_NAMES[*]}|${SUITE_CMDS[0]}|${SUITE_CMDS[1]}|${SUITE_CMDS[2]}"')" "check tests shellcheck|bun run check|./test.sh|shellcheck -S warning *.sh skills/*/*.sh skills/orchestrate/tests/stub/*"
+  assert_nomatch "this repo's contract: no pane checks line, no unknown settings" "$(detect_in "$ROOT" 'true')" 'pane checks is ignored|not a setting'
   assert_eq "suite: none without suite lines" "$(detect_in "$(fixture_repo none)" 'echo ${#SUITE_NAMES[@]}')" 0
   r=$(fixture_repo contract-switches-bad)
   assert_match "switches: a bad value is refused with the allowed values" "$(detect_in "$r" 'echo reached')" "PR must be draft, ready or off \(got 'maybe'\)"
