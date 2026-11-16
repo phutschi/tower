@@ -64,7 +64,8 @@ briefs and its findings there. None of them is a second record.
 
 **Pane map**:
 `panes.txt` in the run dir: every pane of an orchestrate run by role and id,
-and a `switches:` line with the run switches the run used.
+each tab the run opened by label and id (`lanes tab:`), and a `switches:`
+line with the run switches the run used. Each lane's line names its tab.
 
 ### The people and programs
 
@@ -338,26 +339,28 @@ _Avoid_: skin, mode, style, language
 ### The orchestrate layout
 
 **Layout**:
-The fixed pane arrangement of an orchestrate run on one herdr tab:
-orchestrator left, the lane grid right, and a bottom row of dev, shell and
-console.
+The fixed pane arrangement of an orchestrate run on herdr tabs of the
+orchestrator's workspace: the orchestrator's tab (orchestrator left; console,
+dev and shell right), and the `lanes` tab (the lane grid left, the Reviewer
+slots right).
 
 **Lane grid**:
-The 2x2 area for lane panes: A and B on top, C and D below. It grows as lanes
-are added and is capped at four.
+The 2x2 area for lane panes in the lanes tab. It grows in the order lanes are
+added: the second right of the first, the third under the first, the fourth
+under the second; capped at four.
 
 **Console pane**:
-The bottom-right pane that runs the console. It stays open after the run until
+The pane right of the orchestrator that runs the console. It stays open after the run until
 the human quits it.
 _Avoid_: tower pane
 
 **Shell pane**:
-An empty bottom pane in the orchestrator's checkout, for the human. It runs
+An empty pane under the console, in the orchestrator's checkout, for the human. It runs
 nothing.
 _Avoid_: spare pane, terminal pane
 
 **Dev pane**:
-An optional bottom pane running the repo's development server in lane A's
+An optional pane under the console running the repo's development server in lane A's
 checkout. One per run, never per lane.
 
 **Check gate**:

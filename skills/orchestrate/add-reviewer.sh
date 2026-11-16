@@ -162,7 +162,7 @@ if [ -n "$LANE" ]; then
 else
   _line=$(grep -E "^lane [A-D]: +[^ ]+ +\(agent \"[^\"]*\", kind $LANE_KIND, " "$MAP" | head -1 || true)
 fi
-LANE_MODEL=$(echo "$_line" | sed -nE 's/.*, model (.*)\)( starting)?$/\1/p')   # a lane still starting too; unset _line _kind
+LANE_MODEL=$(echo "$_line" | sed -nE -e 's/, tab [a-z]+\)/)/' -e 's/.*, model (.*)\)( starting)?$/\1/p')   # a lane still starting too, its tab dropped; unset _line _kind
 
 _here="$PWD"; cd "$REPO"
 CONTRACT_RUN="$RUN_DIR" . "$KIT/detect-stack.sh"   # the run's pinned contract: REVIEWER_KIND, REVIEWER_MODEL (the environment wins)

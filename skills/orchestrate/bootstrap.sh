@@ -16,15 +16,20 @@
 # tower is the record and the console. When tower does not run, bootstrap
 # refuses before it creates anything and says how to install it.
 #
-# The layout, one tab (the lane grid grows with add-lane.sh):
+# The layout, two tabs in the orchestrator pane's workspace (the lane grid
+# grows with add-lane.sh and layout.sh):
 #
-#        ┌──────────────┬──────────┬──────────┐
-#        │ orchestrator │ lane A   │ lane B   │
-#        │              ├──────────┼──────────┤
-#        │              │ lane C   │ lane D   │
-#        ├────────┬─────┴──┬───────┴──────────┤
-#        │ dev    │ shell  │ console          │   ← dev only when the repo declares it;
-#        └────────┴────────┴──────────────────┘     without it the shell takes the left half
+#   the orchestrator's tab             lanes  (opened with --no-focus)
+#   ┌──────────────┬──────────────┐    ┌──────────┬──────────┬──────────┐
+#   │ orchestrator │ console      │    │ lane A   │ lane B   │ R1       │
+#   │              ├───────┬──────┤    ├──────────┼──────────┼──────────┤
+#   │              │ dev   │ shell│    │ lane C   │ lane D   │ R2       │
+#   └──────────────┴───────┴──────┘    └──────────┴──────────┴──────────┘
+#
+# dev only when the repo declares it; without it the shell takes the space
+# under the console. The console has half the tab, for its 60 columns. Lane
+# A is the lanes tab's root. The R1/R2 column, a third of the tab, held for
+# the Reviewer slots, is there only when LANE_REVIEW or PREFLIGHT is on.
 #
 # dev comes from .orchestrate (see example.orchestrate) and runs in lane A's
 # checkout; only its command is shell code: a checkout path with an
@@ -36,7 +41,8 @@
 # the environment of this call overrides it (executor.sh).
 #
 # Writes <run-dir>/panes.txt, the pane map for the whole run, then prints it
-# with the next step. The pane map's  switches:  line holds every run switch
+# with the next step. Its  lanes tab:  line holds the tab's id and the R1 and
+# R2 panes, or  (no Reviewer column) ; lane A's line ends with  tab lanes . The pane map's  switches:  line holds every run switch
 # and the value this run uses (detect-stack.sh). Its  contract:  line names
 # the pin: the .orchestrate read here, written read-only outside the run dir
 # and the repo (detect-stack.sh), is what add-lane and add-reviewer read for
@@ -201,24 +207,37 @@ LANE_A_SESSION=""; [ -z "$SESSION_ROLE" ] || LANE_A_SESSION="role $SESSION_ROLE,
 # --- the layout --------------------------------------------------------------
 split() { herdr pane split "$@" --cwd "$REPO" --no-focus | pane_id; }
 run_in() { herdr pane run "$1" "cd $(printf %q "$REPO/$2") && $3" >/dev/null; }
-BOTTOM=$(split --current --direction down --ratio 0.7)
-LANE_A_PANE=$(split --current --direction right --ratio 0.3)
-# The console takes the right half of the bottom row (its 60 columns); dev,
-# when declared, and the shell share the left half.
-CONSOLE_PANE=$(split --pane "$BOTTOM" --direction right --ratio 0.5)
-DEV_I=$(pane_index dev); DEV_PANE=""; SHELL_PANE=$BOTTOM
+WS=$(herdr pane get "$HERDR_PANE_ID" | jsonq 'd["result"]["pane"]["workspace_id"]') \
+  || die "bootstrap: no workspace for the orchestrator pane $HERDR_PANE_ID (herdr pane get)"
+# The orchestrator's tab: the console right of the orchestrator, half the tab
+# (its 60 columns); under it the shell, and dev left of the shell when declared.
+CONSOLE_PANE=$(split --current --direction right --ratio 0.5)
+SHELL_PANE=$(split --pane "$CONSOLE_PANE" --direction down --ratio 0.6)
+DEV_I=$(pane_index dev); DEV_PANE=""
 if [ -n "$DEV_I" ]; then
-  DEV_PANE=$BOTTOM
-  SHELL_PANE=$(split --pane "$BOTTOM" --direction right --ratio 0.5)
+  DEV_PANE=$SHELL_PANE
+  SHELL_PANE=$(split --pane "$DEV_PANE" --direction right --ratio 0.5)
   run_in "$DEV_PANE" "${PANE_DIRS[$DEV_I]}" "${PANE_CMDS[$DEV_I]}"
 fi
 herdr pane run "$CONSOLE_PANE" "tower --stale $STALE" >/dev/null
+# The lanes tab: lane A as its root and, when anything reviews, a full-height
+# column on the right for the Reviewer slots, R1 over R2.
+out=$(herdr tab create --workspace "$WS" --cwd "$REPO" --label lanes --no-focus)
+LANES_TAB=$(echo "$out" | jsonq 'd["result"]["tab"]["tab_id"]')
+LANE_A_PANE=$(echo "$out" | jsonq 'd["result"]["root_pane"]["pane_id"]')
+COLUMN="(no Reviewer column)"
+if [ "$LANE_REVIEW" = on ] || [ "$PREFLIGHT" = on ]; then
+  R1_PANE=$(split --pane "$LANE_A_PANE" --direction right --ratio 0.67)
+  R2_PANE=$(split --pane "$R1_PANE" --direction down --ratio 0.5)
+  COLUMN="(R1 $R1_PANE, R2 $R2_PANE)"
+fi
 
 # --- the pane map, before the agent start so add-lane and the brief have it even if that fails
 {
   echo "run dir:        $RUN_DIR"
   echo "orchestrator:   $HERDR_PANE_ID"
-  echo "lane A:         $LANE_A_PANE   (agent \"$LANE_A\", kind $EXECUTOR_KIND, ${LANE_A_SESSION}branch $BRANCH, checkout $REPO, model $EXECUTOR_MODEL)"
+  echo "lanes tab:      $LANES_TAB   $COLUMN"
+  echo "lane A:         $LANE_A_PANE   (agent \"$LANE_A\", kind $EXECUTOR_KIND, ${LANE_A_SESSION}branch $BRANCH, checkout $REPO, model $EXECUTOR_MODEL, tab lanes)"
   [ -z "$DEV_PANE" ] || echo "dev:            $DEV_PANE   (${PANE_CMDS[$DEV_I]} in ${PANE_DIRS[$DEV_I]})"
   echo "shell:          $SHELL_PANE   (a shell in $REPO, for the human)"
   echo "console:        $CONSOLE_PANE   (tower; the record — stays open, the human quits it with q)"

@@ -4,12 +4,19 @@
 #
 #   [EXECUTOR_KIND=claude|codex|cursor] add-lane.sh <run-dir> <B|C|D> <branch> <base-branch> <task-ids>
 #
-# Four lanes at most. Lane A is started by bootstrap.sh in the main checkout;
-# B goes right of A, C under A, D under B:
+# Four lanes at most. Lane A is started by bootstrap.sh in the main checkout.
+# The new lane goes into the lanes tab (the pane map's  lanes tab:  line;
+# layout.sh), left of its Reviewer column, by its place among the lanes
+# already there, whatever their letters: the second right of the first, the
+# third under the first, the fourth under the second.
 #
-#        │ lane A   │ lane B   │
+#        │ 1st      │ 2nd      │ R1
 #        ├──────────┼──────────┤
-#        │ lane C   │ lane D   │
+#        │ 3rd      │ 4th      │ R2
+#
+# The lane's line ends with  tab lanes . A pane map from before the lanes tab
+# (no  lanes tab:  line) has its lanes in the orchestrator's tab, and the new
+# lane goes there.
 #
 # The kind is per lane (executor.sh). Worktrees live at
 # <repo>/.worktrees/<branch>; INSTALL_CMD installs (from here, log in
@@ -63,6 +70,7 @@
 set -euo pipefail
 KIT="$(cd "$(dirname "$0")" && pwd)"
 . "$KIT/common.sh"
+. "$KIT/layout.sh"
 in_herdr; need git python3 node
 need_tower
 [ $# -eq 5 ] || die 'usage: add-lane.sh <run-dir> <B|C|D> <branch> <base-branch> <task-ids>'
@@ -74,16 +82,12 @@ RUN_DIR="$(cd "$RUN_DIR" && pwd)"; MAP="$RUN_DIR/panes.txt"; export TOWER_RUN="$
 lane_pane() { sed -nE "s/^lane $1: +([^ ]+).*/\1/p" "$MAP"; }
 
 case "$LANE" in
-  B) ANCHOR=A; SPLIT=right ;;
-  C) ANCHOR=A; SPLIT=down ;;
-  D) ANCHOR=B; SPLIT=down ;;
+  B|C|D) ;;
   A) die "lane A is started by bootstrap.sh" ;;
   *) die "lane must be B, C or D (four lanes at most)" ;;
 esac
 PANE=$(lane_pane "$LANE")   # set: a rerun, the lane is already in the map
 UNPLACED=$(sed -nE "s/^unplaced lane $LANE: +([^ ]+).*/\1/p" "$MAP")   # set: a rerun after a failed move
-TARGET=$(lane_pane "$ANCHOR")
-[ -n "$TARGET" ] || die "lane $LANE goes under lane $ANCHOR, which does not exist yet"
 
 REPO_ROOT="$(repo_root)"
 WT="$REPO_ROOT/.worktrees/$BRANCH"
@@ -114,8 +118,9 @@ if roles_on "$MAP"; then
   fi
   unset _ids _role
 fi
-lane_line() { printf 'lane %s:         %s   (agent "%s", kind %s, %sbranch %s, checkout %s, model %s)\n' \
-  "$LANE" "$1" "$NAME" "$EXECUTOR_KIND" "$LANE_SESSION" "$BRANCH" "$WT" "$EXECUTOR_MODEL"; }
+TAB_LABEL=$(lane_tab "$SESSION_ROLE")
+lane_line() { printf 'lane %s:         %s   (agent "%s", kind %s, %sbranch %s, checkout %s, model %s, tab %s)\n' \
+  "$LANE" "$1" "$NAME" "$EXECUTOR_KIND" "$LANE_SESSION" "$BRANCH" "$WT" "$EXECUTOR_MODEL" "$TAB_LABEL"; }
 
 # A rerun's checks. $1 is the lane's line in the pane map as the first call
 # wrote it, $2 its pane, $3 what that line is called in a message.
@@ -149,9 +154,9 @@ check_rerun() {
   [ -d "$WT" ] || die "lane $LANE's checkout $WT is gone: close its pane $2 and remove its $3 from $MAP, then add the lane again"
 }
 
-# Replaces the pane map's line matching $1 (a grep pattern) with $2, through a
-# scratch file of this call's own; on failure the map is kept whole and the
-# call dies with $3.
+# Replaces the pane map's line matching $1 (a grep pattern) with $2 at the
+# end of the map, through a scratch file of this call's own; on failure the
+# map is kept whole and the call dies with $3.
 replace_map_line() {
   local tmp rc=0
   tmp=$(mktemp "$MAP.XXXXXX") || die "$3"
@@ -159,7 +164,15 @@ replace_map_line() {
   { [ "$rc" -le 1 ] && echo "$2" >> "$tmp"; } || { rm -f "$tmp"; die "$3"; }
   mv "$tmp" "$MAP"
 }
-set_lane_line() { replace_map_line "^lane $LANE:" "$1" "add-lane: could not rewrite $MAP; set lane $LANE's line to  $1  and rerun"; }
+# Rewrites lane $LANE's line as $1 where it is: its place is its place in the
+# grid (layout.sh).
+set_lane_line() {
+  local tmp failed="add-lane: could not rewrite $MAP; set lane $LANE's line to  $1  and rerun"
+  tmp=$(mktemp "$MAP.XXXXXX") || die "$failed"
+  NEW="$1" awk -v pat="^lane $LANE:" '$0 ~ pat { print ENVIRON["NEW"]; next } { print }' "$MAP" > "$tmp" \
+    || { rm -f "$tmp"; die "$failed"; }
+  mv "$tmp" "$MAP"
+}
 RERUN="$KIT/add-lane.sh $RUN_DIR $LANE $BRANCH $BASE $TASKS"
 STARTED_AGAIN="started again"
 
@@ -225,7 +238,13 @@ elif ! ( cd "$WT" && eval "$INSTALL_CMD" ) >"$INSTALL_LOG" 2>&1; then
   tail -n 5 "$INSTALL_LOG" >&2
 fi
 
-moved=$(herdr pane move "$WT_PANE" --tab "$HERDR_TAB_ID" --split "$SPLIT" --target-pane "$TARGET" --ratio 0.5 --no-focus) \
+# Into the lane's tab, by its place among the lanes already there. A pane map
+# with no lanes tab line is from before the lanes tab: its lanes are in the
+# orchestrator's tab.
+read -r TARGET SPLIT <<< "$(grid_anchor "$MAP" "$TAB_LABEL")" || true
+[ -n "$TARGET" ] || die "add-lane: the $TAB_LABEL tab has no lane to place lane $LANE beside (see $MAP)"
+TAB=$(tab_line "$MAP" "$TAB_LABEL"); [ -n "$TAB" ] || TAB=$HERDR_TAB_ID
+moved=$(herdr pane move "$WT_PANE" --tab "$TAB" --split "$SPLIT" --target-pane "$TARGET" --ratio 0.5 --no-focus) \
   || die "add-lane: herdr could not move lane $LANE's pane $WT_PANE into the grid; it is in the pane map as unplaced: rerun  $KIT/add-lane.sh $RUN_DIR $LANE $BRANCH $BASE $TASKS  to place it"
 PANE=$(echo "$moved" | jsonq 'd["result"].get("move_result", d["result"])["pane"]["pane_id"]' 2>/dev/null) \
   || die "add-lane: herdr moved lane $LANE's pane $WT_PANE but its answer names no pane: find the lane's pane in the grid (checkout $WT), turn  unplaced lane $LANE: $WT_PANE  in $MAP into  lane $LANE: <that pane's id>  (the rest as it is), and rerun  $KIT/add-lane.sh $RUN_DIR $LANE $BRANCH $BASE $TASKS"

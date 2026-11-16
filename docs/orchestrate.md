@@ -113,22 +113,25 @@ board — the gate.
 
 ## The layout
 
-One tab:
+Two tabs in the orchestrator's workspace: the orchestrator's own, and
+`lanes`, which bootstrap opens without moving your focus.
 
 ```
-┌──────────────┬──────────┬──────────┐
-│ orchestrator │ lane A   │ lane B   │
-│              ├──────────┼──────────┤
-│              │ lane C   │ lane D   │
-├────────┬─────┴──┬───────┴──────────┤
-│ dev    │ shell  │ console          │
-└────────┴────────┴──────────────────┘
+the orchestrator's tab             lanes
+┌──────────────┬──────────────┐    ┌──────────┬──────────┬──────────┐
+│ orchestrator │ console      │    │ lane A   │ lane B   │ R1       │
+│              ├───────┬──────┤    ├──────────┼──────────┼──────────┤
+│              │ dev   │ shell│    │ lane C   │ lane D   │ R2       │
+└──────────────┴───────┴──────┘    └──────────┴──────────┴──────────┘
 ```
 
 - **Lanes** are the executors. Lane A works in your checkout on the feature
   branch (the integration branch); B to D get worktrees under `.worktrees/`.
-  The grid grows one lane at a time: B right of A, C under A, D under B.
-  Four at most. A lane that needs another lane's work merges it at its own
+  The grid in the lanes tab grows one lane at a time, in the order they are
+  added: the second right of the first, the third under the first, the
+  fourth under the second. Four at most. When anything reviews
+  (`LANE_REVIEW` or `PREFLIGHT` on), the right third of the lanes tab is a
+  full-height column for the Reviewer slots, R1 over R2. A lane that needs another lane's work merges it at its own
   merge point; until that work is done it does its other tasks, then
   stops, and the orchestrator prompts it the moment the task is done. A
   _finished_ lane is merged into the integration branch by the orchestrator,
@@ -136,14 +139,14 @@ One tab:
   nobody started, the orchestrator moves some to it, so no lane sits idle.
 - **dev** runs your development server if you declare one, in lane A's
   checkout. **shell** is an empty shell in the same checkout, for you;
-  without dev it takes the left half of the row. There is no checks pane:
+  without dev it takes the whole space under the console. There is no checks pane:
   each lane runs the check gate itself, and a `pane checks` line in
   `.orchestrate` is ignored with one `info:` line.
 - **console** is tower's live board, the record of the run. It stays open
   after the run; you quit it with `q`. The run dir is no second record: it
   holds the pane map, the briefs, the findings and tower's own run files.
   Console is tower's minimum width, 60
-  columns; the bottom row always spans the full tab so it always gets them.
+  columns; it takes half the orchestrator's tab so it always gets them.
 
 Nothing is closed until you say so.
 
