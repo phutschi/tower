@@ -314,7 +314,7 @@ if section detect; then
   assert_eq "install: the environment wins, even empty" "$(INSTALL_CMD='' detect_in "$ir" 'echo "[$INSTALL_CMD]"')" "[]"
   r=$(fixture_repo contract)
   assert_eq "contract: CHECK_CMD"                   "$(detect_in "$r" 'echo "$CHECK_CMD"')" "make check"
-  assert_eq "contract: panes in order with dirs"    "$(detect_in "$r" 'echo "${PANE_NAMES[*]}|${PANE_CMDS[0]}|${PANE_DIRS[0]}"' | tail -1)" "dev|make dev|web"
+  assert_eq "contract: panes in order with dirs"    "$(detect_in "$r" 'echo "${PANE_NAMES[*]}|${PANE_CMDS[0]}|${PANE_DIRS[0]}"')" "dev|make dev|web"
   assert_eq "contract: harness, models and stale"   "$(detect_in "$r" 'echo "$EXECUTOR_KIND $EXECUTOR_MODEL $SPEC_REVIEWER_MODEL $QUALITY_REVIEWER_MODEL $STALE"')" "codex gpt-6-astra-mini haiku sonnet 45"
   assert_eq "contract: the environment wins over the file" "$(EXECUTOR_KIND=claude STALE=5 detect_in "$r" 'echo "$EXECUTOR_KIND $STALE $EXECUTOR_MODEL"')" "claude 5 gpt-6-astra-mini"
   assert_match "contract: an unknown setting is named" "$(detect_in "$(fixture_repo contract-typo)" 'echo reached')" "'MODEL' is not a setting"
@@ -387,7 +387,7 @@ if section bootstrap; then
   assert_match "layout: console right of the shell, half the row" "$log" '^herdr pane split --pane pane-1 --direction right --ratio 0.5 '
   assert_nomatch "layout: the shell runs nothing"       "$log" '^herdr pane run pane-1 '
   assert_match "layout: the shell opens in the checkout" "$log" "^herdr pane split --current --direction down --ratio 0.7 --cwd $r --no-focus$"
-  assert_eq "layout: no checks pane, so four splits at most" "$(grep -c '^herdr pane split ' <<< "$log")" 3
+  assert_eq "layout: no checks pane, so three splits" "$(grep -c '^herdr pane split ' <<< "$log")" 3
   assert_match "layout: console runs tower"             "$log" '^herdr pane run pane-3 tower --stale 30$'
   assert_match "lane A: agent named and started"        "$log" '^herdr agent start bun-vitest-lane-a --kind claude --pane pane-2 -- --model claude-opus-5-5\[1m\]$'
   map=$(cat "$RUN/panes.txt")
@@ -506,7 +506,6 @@ if section bootstrap; then
   out=$(boot "$r" "$RUN" "Dev" main)
   log=$(cat "$HERDR_STUB_LOG")
   assert_match "dev: console takes the right half of the bottom row" "$log" '^herdr pane split --pane pane-1 --direction right --ratio 0.5 '
-  assert_match "dev: the shell right of dev"            "$log" '^herdr pane split --pane pane-1 --direction right --ratio 0.5 .*$'
   assert_eq "dev: dev split twice (console, then shell)" "$(grep -c '^herdr pane split --pane pane-1 --direction right --ratio 0.5 ' <<< "$log")" 2
   assert_match "dev: dev pane runs in its dir"          "$log" "^herdr pane run pane-1 cd $r/web && make dev$"
   assert_nomatch "dev: the shell runs nothing"          "$log" '^herdr pane run pane-4 '
