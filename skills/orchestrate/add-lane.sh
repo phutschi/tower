@@ -14,9 +14,15 @@
 #        ├──────────┼──────────┤
 #        │ 3rd      │ 4th      │ R2
 #
-# The lane's line ends with  tab lanes . A pane map from before the lanes tab
-# (no  lanes tab:  line) has its lanes in the orchestrator's tab: the new lane
-# goes there, and its line has no tab, as the others.
+# With session roles on, a lane of any kind whose tasks name a role other than
+# code goes to the  research  tab instead, its grid of its own. A tab not open
+# yet opens with the lane: its pane moves into a new tab in the orchestrator
+# pane's workspace, unfocused, and the pane map gets its  research tab:  or
+# lanes tab:  line (the lanes tab with its Reviewer column when anything
+# reviews). The lane's line ends with its tab ( tab lanes  or  tab research ).
+# A pane map from before the lanes tab (no  lanes tab:  or  research tab:
+# line) has its lanes in the orchestrator's tab: the new lane goes there, and
+# its line has no tab, as the others.
 #
 # The kind is per lane (executor.sh). Worktrees live at
 # <repo>/.worktrees/<branch>; INSTALL_CMD installs (from here, log in
@@ -101,27 +107,29 @@ NAME="$(agent_name "-lane-$(echo "$LANE" | tr 'A-Z' 'a-z')")"
 # Session roles (roles.sh), when the pane map says the run has them: the role
 # the lane's tasks name (<run-dir>/roles.tsv), code when none does, refused
 # before anything is created when they name more than one; the topic is the
-# lane's letter and its first task's title. Only a claude lane starts with them.
+# lane's letter and its first task's title. Only a claude lane starts with them;
+# the role picks the tab of a lane of any kind (layout.sh lane_tab).
 . "$KIT/roles.sh"
-SESSION_ROLE=""; SESSION_TOPIC=""; LANE_SESSION=""
+SESSION_ROLE=""; SESSION_TOPIC=""; LANE_SESSION=""; LANE_ROLE=""
 if roles_on "$MAP"; then
   _ids=$(tower ids -- "$TASKS" 2>/dev/null) \
     || die "add-lane: $(tower ids -- "$TASKS" 2>&1 >/dev/null | sed -e '1s/^tower: //' -e '2,$s/^/   /')"
-  _role=$(lane_role "$TASKS" "$(cat "$RUN_DIR/roles.tsv" 2>/dev/null || true)" 2>&1) || die "add-lane: lane $LANE's $_role"
+  LANE_ROLE=$(lane_role "$TASKS" "$(cat "$RUN_DIR/roles.tsv" 2>/dev/null || true)" 2>&1) || die "add-lane: lane $LANE's $LANE_ROLE"
   if [ "$EXECUTOR_KIND" = claude ]; then
-    SESSION_ROLE=$_role
+    SESSION_ROLE=$LANE_ROLE
     # A rerun keeps the topic the lane's line already has: its first task may
     # have been renamed since (tower change).
     SESSION_TOPIC=$(grep -E "^(unplaced )?lane $LANE: " "$MAP" | sed -nE 's/.*, topic ([^,]+), branch .*/\1/p' | head -1 || true)
     [ -n "$SESSION_TOPIC" ] || SESSION_TOPIC=$(lane_topic "$LANE" "$(tasks_first_title "$_ids")")
     LANE_SESSION="role $SESSION_ROLE, topic $SESSION_TOPIC, "
   fi
-  unset _ids _role
+  unset _ids
 fi
 # The lane's tab ends its line; a pane map from before the lanes tab (no
-# lanes tab: line) keeps its lines without one, so its reruns still match.
-TAB_LABEL=$(lane_tab "$SESSION_ROLE"); TAB_FIELD=", tab $TAB_LABEL"
-grep -q '^lanes tab:' "$MAP" || TAB_FIELD=""
+# lanes or research tab: line) keeps its lanes in the orchestrator's tab and
+# its lines without a tab, so its reruns still match.
+TAB_LABEL=$(lane_tab "$LANE_ROLE"); TAB_FIELD=", tab $TAB_LABEL"
+grep -qE '^(lanes|research) tab:' "$MAP" || { TAB_LABEL=lanes; TAB_FIELD=""; }
 lane_line() { printf 'lane %s:         %s   (agent "%s", kind %s, %sbranch %s, checkout %s, model %s%s)\n' \
   "$LANE" "$1" "$NAME" "$EXECUTOR_KIND" "$LANE_SESSION" "$BRANCH" "$WT" "$EXECUTOR_MODEL" "$TAB_FIELD"; }
 
@@ -241,16 +249,22 @@ elif ! ( cd "$WT" && eval "$INSTALL_CMD" ) >"$INSTALL_LOG" 2>&1; then
   tail -n 5 "$INSTALL_LOG" >&2
 fi
 
-# Into the lane's tab, by its place among the lanes already there. A pane map
-# with no lanes tab line is from before the lanes tab: its lanes are in the
-# orchestrator's tab.
+# Into the lane's tab, by its place among the lanes already there; a tab not
+# open yet opens with this lane as its root (layout.sh open_tab_with). A pane
+# map from before the lanes tab has its lanes in the orchestrator's tab.
 read -r TARGET SPLIT <<< "$(grid_anchor "$MAP" "$TAB_LABEL")" || true
-[ -n "$TARGET" ] || die "add-lane: the $TAB_LABEL tab has no lane to place lane $LANE beside (see $MAP)"
-TAB=$(tab_line "$MAP" "$TAB_LABEL"); [ -n "$TAB" ] || TAB=$HERDR_TAB_ID
-moved=$(herdr pane move "$WT_PANE" --tab "$TAB" --split "$SPLIT" --target-pane "$TARGET" --ratio 0.5 --no-focus) \
-  || die "add-lane: herdr could not move lane $LANE's pane $WT_PANE into the grid; it is in the pane map as unplaced: rerun  $KIT/add-lane.sh $RUN_DIR $LANE $BRANCH $BASE $TASKS  to place it"
-PANE=$(echo "$moved" | jsonq 'd["result"].get("move_result", d["result"])["pane"]["pane_id"]' 2>/dev/null) \
-  || die "add-lane: herdr moved lane $LANE's pane $WT_PANE but its answer names no pane: find the lane's pane in the grid (checkout $WT), turn  unplaced lane $LANE: $WT_PANE  in $MAP into  lane $LANE: <that pane's id>  (the rest as it is), and rerun  $KIT/add-lane.sh $RUN_DIR $LANE $BRANCH $BASE $TASKS"
+TAB=$(tab_line "$MAP" "$TAB_LABEL")
+if [ -z "$TARGET" ] && [ -z "$TAB" ]; then
+  PANE=$(open_tab_with "$MAP" "$TAB_LABEL" "$WT_PANE") \
+    || die "add-lane: lane $LANE's pane $WT_PANE is not in a $TAB_LABEL tab of its own (see above); it is in the pane map as unplaced: when it was not moved, rerun  $KIT/add-lane.sh $RUN_DIR $LANE $BRANCH $BASE $TASKS  to place it; else turn  unplaced lane $LANE: $WT_PANE  in $MAP into  lane $LANE: <its pane's id>  (the rest as it is), add  $TAB_LABEL tab: <its tab's id>, and rerun"
+else
+  [ -n "$TARGET" ] || die "add-lane: the $TAB_LABEL tab has no lane to place lane $LANE beside (see $MAP)"
+  [ -n "$TAB" ] || TAB=$HERDR_TAB_ID
+  moved=$(herdr pane move "$WT_PANE" --tab "$TAB" --split "$SPLIT" --target-pane "$TARGET" --ratio 0.5 --no-focus) \
+    || die "add-lane: herdr could not move lane $LANE's pane $WT_PANE into the grid; it is in the pane map as unplaced: rerun  $KIT/add-lane.sh $RUN_DIR $LANE $BRANCH $BASE $TASKS  to place it"
+  PANE=$(echo "$moved" | jsonq 'd["result"].get("move_result", d["result"])["pane"]["pane_id"]' 2>/dev/null) \
+    || die "add-lane: herdr moved lane $LANE's pane $WT_PANE but its answer names no pane: find the lane's pane in the grid (checkout $WT), turn  unplaced lane $LANE: $WT_PANE  in $MAP into  lane $LANE: <that pane's id>  (the rest as it is), and rerun  $KIT/add-lane.sh $RUN_DIR $LANE $BRANCH $BASE $TASKS"
+fi
 
 # The lane goes into the map, in place of its unplaced line, before its agent
 # starts, as bootstrap's does: a start that fails leaves a lane a rerun can

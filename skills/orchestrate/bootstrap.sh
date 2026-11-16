@@ -30,6 +30,10 @@
 # under the console. The console has half the tab, for its 60 columns. Lane
 # A is the lanes tab's root. The R1/R2 column, a third of the tab, held for
 # the Reviewer slots, is there only when LANE_REVIEW or PREFLIGHT is on.
+# With session roles on and lane A's tasks in a role other than code (data,
+# research, …; layout.sh lane_tab), lane A is the root of a  research  tab
+# instead, its pane map line  research tab: <tab-id> , and the lanes tab opens
+# with the first code lane (add-lane.sh) or Reviewer (add-reviewer.sh).
 #
 # dev comes from .orchestrate (see example.orchestrate) and runs in lane A's
 # checkout; only its command is shell code: a checkout path with an
@@ -85,6 +89,7 @@
 set -euo pipefail
 KIT="$(cd "$(dirname "$0")" && pwd)"
 . "$KIT/common.sh"
+. "$KIT/layout.sh"
 in_herdr; need git python3 node
 [ $# -ge 3 ] || die 'usage: bootstrap.sh <run-dir> "<title>" <branch> [plan.md | tasks.tsv]'
 RUN_DIR="$1"; TITLE="$2"; BRANCH="$3"; SOURCE="${4:-}"
@@ -221,24 +226,21 @@ if [ -n "$DEV_I" ]; then
   run_in "$DEV_PANE" "${PANE_DIRS[$DEV_I]}" "${PANE_CMDS[$DEV_I]}"
 fi
 herdr pane run "$CONSOLE_PANE" "tower --stale $STALE" >/dev/null
-# The lanes tab: lane A as its root and, when anything reviews, a full-height
-# column on the right for the Reviewer slots, R1 over R2.
-out=$(herdr tab create --workspace "$WS" --cwd "$REPO" --label lanes --no-focus)
-LANES_TAB=$(echo "$out" | jsonq 'd["result"]["tab"]["tab_id"]')
+# Lane A's tab, lane A its root: the lanes tab, with the Reviewer column when
+# anything reviews; with roles, the research tab for a lane A of a role other
+# than code (layout.sh lane_tab), and the lanes tab waits for its first pane.
+LANE_A_TAB=lanes; [ "$ROLES" != on ] || LANE_A_TAB=$(lane_tab "$LANE_A_ROLE")
+out=$(herdr tab create --workspace "$WS" --cwd "$REPO" --label "$LANE_A_TAB" --no-focus)
+TAB_ID=$(echo "$out" | jsonq 'd["result"]["tab"]["tab_id"]')
 LANE_A_PANE=$(echo "$out" | jsonq 'd["result"]["root_pane"]["pane_id"]')
-COLUMN="(no Reviewer column)"
-if [ "$LANE_REVIEW" = on ] || [ "$PREFLIGHT" = on ]; then
-  R1_PANE=$(split --pane "$LANE_A_PANE" --direction right --ratio 0.67)
-  R2_PANE=$(split --pane "$R1_PANE" --direction down --ratio 0.5)
-  COLUMN="(R1 $R1_PANE, R2 $R2_PANE)"
-fi
+COLUMN=""; [ "$LANE_A_TAB" != lanes ] || COLUMN="   $(reviewer_column "$REPO" "$LANE_A_PANE")"
 
 # --- the pane map, before the agent start so add-lane and the brief have it even if that fails
 {
   echo "run dir:        $RUN_DIR"
   echo "orchestrator:   $HERDR_PANE_ID"
-  echo "lanes tab:      $LANES_TAB   $COLUMN"
-  echo "lane A:         $LANE_A_PANE   (agent \"$LANE_A\", kind $EXECUTOR_KIND, ${LANE_A_SESSION}branch $BRANCH, checkout $REPO, model $EXECUTOR_MODEL, tab lanes)"
+  printf '%-16s%s%s\n' "$LANE_A_TAB tab:" "$TAB_ID" "$COLUMN"
+  echo "lane A:         $LANE_A_PANE   (agent \"$LANE_A\", kind $EXECUTOR_KIND, ${LANE_A_SESSION}branch $BRANCH, checkout $REPO, model $EXECUTOR_MODEL, tab $LANE_A_TAB)"
   [ -z "$DEV_PANE" ] || echo "dev:            $DEV_PANE   (${PANE_CMDS[$DEV_I]} in ${PANE_DIRS[$DEV_I]})"
   echo "shell:          $SHELL_PANE   (a shell in $REPO, for the human)"
   echo "console:        $CONSOLE_PANE   (tower; the record — stays open, the human quits it with q)"

@@ -122,7 +122,7 @@ if [ -z "$ONLY" ] && [ "$LIST" = 0 ]; then
   echo "$pass passed, $fail failed"
   [ "$fail" = 0 ]; exit
 fi
-reset_stub() { : > "$HERDR_STUB_LOG"; rm -f "$HERDR_STUB_COUNTER" "$HERDR_STUB_COUNTER.busy" "$HERDR_STUB_COUNTER.enters" "$HERDR_STUB_COUNTER.trust" "$HERDR_STUB_COUNTER.started"; }
+reset_stub() { : > "$HERDR_STUB_LOG"; rm -f "$HERDR_STUB_COUNTER" "$HERDR_STUB_COUNTER.busy" "$HERDR_STUB_COUNTER.enters" "$HERDR_STUB_COUNTER.trust" "$HERDR_STUB_COUNTER.started" "$HERDR_STUB_COUNTER.tabs"; }
 # A new git repo built from tests/fixtures/<name> (or empty), named <name>, in
 # a directory of its own: every call is a fresh repo, so tower's run pointer
 # (in the repo's git dir) is never shared between two runs. Prints its path.
@@ -380,7 +380,8 @@ if section bootstrap; then
   printf '%s\n' 'orchestrator:   pane-0' 'lanes tab:      tab-5   (R1 pane-6, R2 pane-7)' > "$M"
   assert_eq "layout: tab_line reads a tab's id"          "$(tab_line "$M" lanes)" tab-5
   assert_eq "layout: tab_line is empty for a tab not open" "$(tab_line "$M" research)" ""
-  assert_eq "layout: lane_tab of code is lanes"          "$(lane_tab code)" lanes
+  for role in code review ""; do assert_eq "layout: lane_tab '$role' is lanes" "$(lane_tab "$role")" lanes; done
+  for role in data research code-research; do assert_eq "layout: lane_tab '$role' is research" "$(lane_tab "$role")" research; done
   assert_eq "layout: no lane in the tab, the first goes under R2" "$(grid_anchor "$M" lanes)" "pane-7 down"
   assert_eq "layout: no lane and no Reviewer column, no anchor" "$(grid_anchor "$M" research)" ""
   echo 'lane A:         pane-5   (agent "acme-lane-a", kind claude, branch main, checkout /x, model m, tab lanes)' >> "$M"
@@ -3349,9 +3350,11 @@ EOF
   assert_match "no launcher: the note says roles are off, and why" "$(notes "$RUN")" '^roles: off \(no Claude launcher: CLAUDE_ROUTER_ROLE is not set and claude takes no --role\)$'
   assert_match "no launcher: the pane map says so" "$(cat "$RUN/panes.txt")" '^roles: +off \(no Claude launcher'
   assert_match "no launcher: the lane A line is as before" "$(cat "$RUN/panes.txt")" '^lane A: +pane-3 +\(agent "bun-vitest-lane-a", kind claude, branch main, '
+  assert_match "no launcher: lane A of a plan naming Role data is in the lanes tab" "$(cat "$RUN/panes.txt")" '^lane A: .*, tab lanes\)$'
   assert_eq "no launcher: no roles file" "$([ -e "$RUN/roles.tsv" ] && echo made || echo none)" none
   reset_stub; (cd "$r" && "$KIT/add-lane.sh" "$RUN" B feat/b main 5,6 >/dev/null 2>&1)
   assert_match "no launcher: a lane with mixed Roles starts as before" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-lane-b --kind claude --pane pane-[0-9]+ -- --model [^ ]+$'
+  assert_match "no launcher: ... in the lanes tab"   "$(cat "$RUN/panes.txt")" '^lane B: .*, tab lanes\)$'
   reset_stub; (cd "$r" && REVIEW_STAGE=preflight "$KIT/add-reviewer.sh" "$RUN" R1 claude "Preflight R1" "$RUN/findings/p1.json" >/dev/null 2>&1)
   assert_match "no launcher: a claude Reviewer starts as before" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-r1-1 --kind claude --pane pane-[0-9]+ -- --model [^ ]+$'
 
@@ -3381,6 +3384,11 @@ EOF
   reset_stub; lane B feat/b main 2 >/dev/null
   assert_match "lane B: its task's Role, a long title cut at a word" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-lane-b --kind claude --pane pane-[0-9]+ -- --model [^ ]+ --role data --topic b-ship-to-fix-for-the$'
   assert_match "pane map: lane B's role and topic" "$(cat "$RUN/panes.txt")" '^lane B: .*kind claude, role data, topic b-ship-to-fix-for-the, branch feat/b, '
+  assert_match "a data lane, no research tab yet: its pane moves into a new one, unfocused" "$(cat "$HERDR_STUB_LOG")" '^herdr pane move pane-[0-9]+ --new-tab --workspace ws-0 --tab-label research --no-focus$'
+  bpane=$(sed -nE 's/^lane B: +([^ ]+).*/\1/p' "$RUN/panes.txt")
+  assert_match "a data lane: the research tab line" "$(cat "$RUN/panes.txt")" "^research tab: +tab-${bpane#pane-}\$"
+  assert_match "a data lane: its line ends with tab research" "$(cat "$RUN/panes.txt")" '^lane B: .*, tab research\)$'
+  assert_nomatch "a data lane: no Reviewer column in the research tab" "$(cat "$HERDR_STUB_LOG")" '^herdr pane split '
   # A rerun keeps the topic the lane started with, though its task was renamed.
   TOWER_RUN="$RUN" "$KIT/tests/stub/tower" change 2 --title "Something else entirely" >/dev/null
   echo gone > "$S/bun-vitest-lane-b"; mkdir -p "$r/.worktrees/feat/b"   # the stub makes no worktree
@@ -3389,6 +3397,7 @@ EOF
   assert_match "rerun after a rename: ... under its first topic" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-lane-b .* --role data --topic b-ship-to-fix-for-the$'
   reset_stub; lane C feat/c main 3 >/dev/null
   assert_match "lane C: code-research" "$(cat "$HERDR_STUB_LOG")" ' --role code-research --topic c-research-the-widget-api$'
+  assert_match "lane C, another role: right of lane B in the research tab, lane A not counted" "$(cat "$HERDR_STUB_LOG")" "^herdr pane move pane-[0-9]+ --tab tab-${bpane#pane-} --split right --target-pane $bpane "
   reset_stub; out=$(lane D feat/d main 5,6; echo "exit=$?")
   assert_match "mixed Roles in a lane: refused, naming them" "$out" "lane D's tasks 5,6 name different Roles \(data: task 5; web-research: task 6\)"
   assert_match "mixed Roles in a lane: ... and fails" "$out" 'exit=1$'
@@ -3398,6 +3407,8 @@ EOF
   assert_match "a codex lane: no role" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-lane-d --kind codex '
   assert_nomatch "a codex lane: ... no role, no topic" "$(cat "$HERDR_STUB_LOG")" '--role|--topic'
   assert_match "pane map: a codex lane's line has no role" "$(cat "$RUN/panes.txt")" '^lane D: .*kind codex, branch feat/d, '
+  assert_match "a codex lane whose tasks name data: under lane B in the research tab" "$(cat "$HERDR_STUB_LOG")" "^herdr pane move pane-[0-9]+ --tab tab-${bpane#pane-} --split down --target-pane $bpane "
+  assert_match "a codex lane in data: its line ends with tab research" "$(cat "$RUN/panes.txt")" '^lane D: .*, tab research\)$'
   review() { (cd "$r" && "$KIT/add-reviewer.sh" "$RUN" "$@" 2>&1); }
   reset_stub; REVIEW_STAGE=preflight review R1 claude "Preflight R1" "$RUN/findings/p1.json" >/dev/null
   assert_match "preflight slot: review, topic the slot" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-r1-1 --kind claude --pane pane-[0-9]+ -- --model [^ ]+ --role review --topic r1$'
@@ -3412,6 +3423,23 @@ EOF
   r=$(fixture_repo bun-vitest); RUN="$TMP/run-roles-a2"; reset_stub
   LANES="A=2" boot "$r" "$RUN" "Roles A" main "$PLAN" >/dev/null
   assert_match "lane A: its tasks' Role" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-lane-a .* --role data --topic a-ship-to-fix-for-the$'
+  assert_match "lane A in data: the research tab, unfocused, lane A its root" "$(cat "$HERDR_STUB_LOG")" "^herdr tab create --workspace ws-0 --cwd $r --label research --no-focus$"
+  assert_match "lane A in data: ... started there" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-lane-a --kind claude --pane pane-3 '
+  assert_nomatch "lane A in data: no lanes tab, no Reviewer column" "$(cat "$HERDR_STUB_LOG")" '--label lanes|^herdr pane split --pane pane-3 '
+  assert_match "lane A in data: the research tab line" "$(cat "$RUN/panes.txt")" '^research tab: +tab-3$'
+  assert_nomatch "lane A in data: no lanes tab line" "$(cat "$RUN/panes.txt")" '^lanes tab:'
+  assert_match "lane A in data: its line ends with tab research" "$(cat "$RUN/panes.txt")" '^lane A: +pane-3 .*, tab research\)$'
+  # A code lane with lane A in research and no lanes tab: the lanes tab opens
+  # with it as root, and the Reviewer column.
+  reset_stub; (cd "$r" && "$KIT/add-lane.sh" "$RUN" B feat/b main 1 >/dev/null 2>&1); log=$(cat "$HERDR_STUB_LOG")
+  assert_match "a code lane, no lanes tab yet: its pane moves into a new one" "$log" '^herdr pane move pane-[0-9]+ --new-tab --workspace ws-0 --tab-label lanes --no-focus$'
+  bpane=$(sed -nE 's/^lane B: +([^ ]+).*/\1/p' "$RUN/panes.txt")
+  assert_match "a code lane, no lanes tab yet: the Reviewer column right of it" "$log" "^herdr pane split --pane $bpane --direction right --ratio 0.67 --cwd $r --no-focus$"
+  assert_match "a code lane, no lanes tab yet: the lanes tab line" "$(cat "$RUN/panes.txt")" "^lanes tab: +tab-${bpane#pane-} +\\(R1 pane-[0-9]+, R2 pane-[0-9]+\\)$"
+  assert_match "a code lane: its line ends with tab lanes" "$(cat "$RUN/panes.txt")" '^lane B: .*, tab lanes\)$'
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-roles-a2-codex"; reset_stub
+  LANES="A=2" EXECUTOR_KIND=codex boot "$r" "$RUN" "Roles A codex" main "$PLAN" >/dev/null
+  assert_match "a codex lane A in data: the research tab too" "$(cat "$RUN/panes.txt")" '^lane A: .*kind codex, .*, tab research\)$'
   r=$(fixture_repo bun-vitest); RUN="$TMP/run-roles-mixed"; reset_stub
   out=$(LANES="A=1,2 B=5-6" boot "$r" "$RUN" "Mixed" main "$PLAN")
   assert_match "bootstrap: a LANES spec with mixed Roles is refused" "$out" "LANES: lane B's tasks 5-6 name different Roles \(data: task 5; web-research: task 6\)"

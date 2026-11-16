@@ -64,8 +64,9 @@ briefs and its findings there. None of them is a second record.
 
 **Pane map**:
 `panes.txt` in the run dir: every pane of an orchestrate run by role and id,
-each tab the run opened by label and id (`lanes tab:`), and a `switches:`
-line with the run switches the run used. Each lane's line names its tab.
+each tab the run opened by label and id (`lanes tab:`, `research tab:`), and
+a `switches:` line with the run switches the run used. Each lane's line names
+its tab.
 
 ### The people and programs
 
@@ -342,8 +343,9 @@ _Avoid_: skin, mode, style, language
 **Layout**:
 The fixed pane arrangement of an orchestrate run on herdr tabs of the
 orchestrator's workspace: the orchestrator's tab (orchestrator left; console,
-dev and shell right), and the `lanes` tab (the lane grid left, the Reviewer
-slots right).
+dev and shell right), the `lanes` tab (the lane grid left, the Reviewer slots
+right), and with session roles the `research` tab (a lane grid for lanes of
+any role but code). A tab opens with its first pane.
 
 **Lane grid**:
 The 2x2 area for lane panes in the lanes tab. It grows in the order lanes are

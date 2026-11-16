@@ -89,7 +89,9 @@ and do it in a lane anyway or suggest doing it without the kit.
    the lane gets a worktree under `.worktrees/`, and the pane goes into the
    grid of the `lanes` tab, in the order lanes are added (the second right
    of the first, the third under the first, the fourth under the second),
-   left of the Reviewer column. When the pane's move into
+   left of the Reviewer column. With session roles, a lane whose tasks name
+   a role other than `code` goes to the `research` tab's grid instead; a tab
+   opens with its first lane. When the pane's move into
    the grid or its agent's start fails, rerun the same call: it moves the
    pane, starts the agent again, or takes the agent left running once it
    accepts input, and creates nothing again. Any other failure prints what
