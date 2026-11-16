@@ -134,7 +134,7 @@ With session roles on (see [Session roles](#session-roles)), a lane whose
 tasks name a role other than `code` or `review` (data, research, any other)
 goes to the `research` tab, which opens with the first such lane and has a
 grid of its own. Lane A too: then the lanes tab opens with the first code
-lane or Reviewer. Without roles, every lane is in the lanes tab.
+or review lane, or Reviewer. Without roles, every lane is in the lanes tab.
 
 - **Lanes** are the executors. Lane A works in your checkout on the feature
   branch (the integration branch); B to D get worktrees under `.worktrees/`.

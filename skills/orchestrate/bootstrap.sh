@@ -33,7 +33,8 @@
 # With session roles on and lane A's tasks in a role other than code or review
 # (data, research, …; layout.sh lane_tab), lane A is the root of a  research
 # tab instead, its pane map line  research tab: <tab-id> , and the lanes tab
-# opens with the first code lane (add-lane.sh) or Reviewer (add-reviewer.sh).
+# opens with the first code or review lane (add-lane.sh) or Reviewer
+# (add-reviewer.sh).
 #
 # dev comes from .orchestrate (see example.orchestrate) and runs in lane A's
 # checkout; only its command is shell code: a checkout path with an

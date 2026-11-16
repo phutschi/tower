@@ -15,14 +15,14 @@
 #        │ 3rd      │ 4th      │ R2
 #
 # With session roles on, a lane of any kind whose tasks name a role other than
-# code or review goes to the  research  tab instead, its grid of its own. A tab not open
-# yet opens with the lane: its pane moves into a new tab in the orchestrator
-# pane's workspace, unfocused, and the pane map gets its  research tab:  or
-# lanes tab:  line (the lanes tab with its Reviewer column when anything
-# reviews). The lane's line ends with its tab ( tab lanes  or  tab research ).
-# A pane map from before the lanes tab (no  lanes tab:  or  research tab:
-# line) has its lanes in the orchestrator's tab: the new lane goes there, and
-# its line has no tab, as the others.
+# code or review goes to the  research  tab instead, its grid of its own. A
+# tab not open yet opens with the lane: its pane moves into a new tab in the
+# orchestrator pane's workspace, unfocused, and the pane map gets its
+# research tab:  or  lanes tab:  line (the lanes tab with its Reviewer column
+# when anything reviews). The lane's line ends with its tab ( tab lanes  or
+# tab research ). A pane map from before the lanes tab (no  lanes tab:  or
+# research tab:  line) has its lanes in the orchestrator's tab: the new lane
+# goes there, and its line has no tab, as the others.
 #
 # The kind is per lane (executor.sh). Worktrees live at
 # <repo>/.worktrees/<branch>; INSTALL_CMD installs (from here, log in

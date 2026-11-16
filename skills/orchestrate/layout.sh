@@ -1,7 +1,8 @@
 # The tabs of an orchestrate run and the grid inside each. Sourced after
 # common.sh by bootstrap.sh and add-lane.sh. The lanes tab holds lanes of
-# session role code (or every lane, without roles) and the Reviewer column;
-# the research tab, lanes of any other role. Each opens with its first pane.
+# session role code or review (or every lane, without roles) and the Reviewer
+# column; the research tab, lanes of any other role. Each opens with its first
+# pane.
 #
 # A lane's pane map line ends its parenthesis with  tab <label> : the tab it
 # is in. A line without one (a pane map written before the lanes tab) is a
