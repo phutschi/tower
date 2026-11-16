@@ -421,8 +421,8 @@ if section bootstrap; then
   assert_match "pane map: console line"                 "$map" '^console: +pane-1 '
   assert_match "pane map: check gate"                   "$map" '^check gate: +bun run typecheck && bun run test$'
   assert_nomatch "pane map: no dev line by default"     "$map" '^dev:'
-  assert_nomatch "code only: no research tab line"      "$map" '^research tab:'
-  assert_nomatch "code only: no research tab opened"    "$log" '(--label|--tab-label) research '
+  assert_nomatch "pane map: no research tab line"       "$map" '^research tab:'
+  assert_nomatch "layout: no research tab opened"       "$log" '(--label|--tab-label) research( |$)'
   assert_match "output: the pane map is printed"        "$out" '^lane A: '
   assert_match "output: next step for the empty opening" "$out" 'tower add'
   assert_nomatch "output: no info line without a pane checks line" "$out" '^info:'
@@ -3354,11 +3354,11 @@ EOF
   assert_match "no launcher: the lane A line is as before" "$(cat "$RUN/panes.txt")" '^lane A: +pane-3 +\(agent "bun-vitest-lane-a", kind claude, branch main, '
   assert_match "no launcher: lane A of a plan naming Role data is in the lanes tab" "$(cat "$RUN/panes.txt")" '^lane A: .*, tab lanes\)$'
   assert_eq "no launcher: no roles file" "$([ -e "$RUN/roles.tsv" ] && echo made || echo none)" none
-  assert_nomatch "no launcher: no research tab opened" "$(cat "$HERDR_STUB_LOG")" '(--label|--tab-label) research '
+  assert_nomatch "no launcher: no research tab opened" "$(cat "$HERDR_STUB_LOG")" '(--label|--tab-label) research( |$)'
   reset_stub; (cd "$r" && "$KIT/add-lane.sh" "$RUN" B feat/b main 5,6 >/dev/null 2>&1)
   assert_match "no launcher: a lane with mixed Roles starts as before" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-lane-b --kind claude --pane pane-[0-9]+ -- --model [^ ]+$'
   assert_match "no launcher: ... in the lanes tab"   "$(cat "$RUN/panes.txt")" '^lane B: .*, tab lanes\)$'
-  assert_nomatch "no launcher: ... no research tab opened" "$(cat "$HERDR_STUB_LOG")" '(--label|--tab-label) research '
+  assert_nomatch "no launcher: ... no research tab opened" "$(cat "$HERDR_STUB_LOG")" '(--label|--tab-label) research( |$)'
   assert_nomatch "no launcher: no research tab line" "$(cat "$RUN/panes.txt")" '^research tab:'
   reset_stub; (cd "$r" && REVIEW_STAGE=preflight "$KIT/add-reviewer.sh" "$RUN" R1 claude "Preflight R1" "$RUN/findings/p1.json" >/dev/null 2>&1)
   assert_match "no launcher: a claude Reviewer starts as before" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-r1-1 --kind claude --pane pane-[0-9]+ -- --model [^ ]+$'
@@ -3385,7 +3385,7 @@ EOF
   assert_match "pane map: roles on" "$map" '^roles: +on$'
   assert_match "record: roles on" "$(notes "$RUN")" '^roles: on$'
   assert_eq "roles file: the plan's tasks with a Role, fences and other sections left out" "$(tr '\t\n' ': ' < "$RUN/roles.tsv")" "2:data 3:code-research 5:data 6:web-research "
-  assert_nomatch "lane A in code, no other lane yet: no research tab opened" "$(cat "$HERDR_STUB_LOG")" '(--label|--tab-label) research '
+  assert_nomatch "lane A in code, no other lane yet: no research tab opened" "$(cat "$HERDR_STUB_LOG")" '(--label|--tab-label) research( |$)'
   assert_nomatch "lane A in code, no other lane yet: no research tab line" "$map" '^research tab:'
   lane() { (cd "$r" && "$KIT/add-lane.sh" "$RUN" "$@" 2>&1); }
   reset_stub; lane B feat/b main 2 >/dev/null
