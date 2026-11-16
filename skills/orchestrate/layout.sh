@@ -56,18 +56,25 @@ reviewer_column() {  # CWD PANE: when anything reviews (LANE_REVIEW or PREFLIGHT
 open_tab_with() {  # MAP LABEL PANE: moves PANE into a new tab LABEL in the orchestrator
   # pane's workspace, unfocused; writes "<LABEL> tab:" to MAP, for the lanes tab
   # with its Reviewer column (reviewer_column, in lane A's checkout); prints
-  # the pane's new id. Dies saying what went wrong.
-  local orch ws moved pane tab column=""
+  # the pane's new id. Dies saying what went wrong. The column follows the
+  # run's LANE_REVIEW and PREFLIGHT, from MAP's switches: line.
+  local orch ws moved pane tab column="" LANE_REVIEW PREFLIGHT
   orch=$(sed -nE 's/^orchestrator: +([^ ]+).*/\1/p' "$1")
   ws=$(herdr pane get "$orch" 2>/dev/null | jsonq 'd["result"]["pane"]["workspace_id"]' 2>/dev/null) \
     || die "no workspace for the orchestrator pane $orch (herdr pane get): is it still open?"
   moved=$(herdr pane move "$3" --new-tab --workspace "$ws" --tab-label "$2" --no-focus) \
     || die "herdr could not move pane $3 into a new $2 tab"
-  pane=$(echo "$moved" | jsonq 'd["result"]["move_result"]["pane"]["pane_id"]' 2>/dev/null) \
+  pane=$(echo "$moved" | jsonq 'd["result"].get("move_result", d["result"])["pane"]["pane_id"]' 2>/dev/null) \
     || die "herdr moved pane $3 into a new $2 tab, but its answer names no pane"
   tab=$(herdr pane get "$pane" 2>/dev/null | jsonq 'd["result"]["pane"]["tab_id"]' 2>/dev/null) \
     || die "herdr moved pane $3 into a new $2 tab as $pane, but does not say which tab (herdr pane get $pane)"
-  [ "$2" != lanes ] || column="   $(reviewer_column "$(sed -nE 's/^lane A: .* checkout (.*), model .*/\1/p' "$1")" "$pane")"
+  if [ "$2" = lanes ]; then
+    LANE_REVIEW=$(sed -nE 's/^switches: .* LANE_REVIEW=([a-z]+).*/\1/p' "$1")
+    PREFLIGHT=$(sed -nE 's/^switches: .* PREFLIGHT=([a-z]+).*/\1/p' "$1")
+    column=$(reviewer_column "$(sed -nE 's/^lane A: .* checkout (.*), model .*/\1/p' "$1")" "$pane") \
+      || die "herdr moved pane $3 into a new lanes tab $tab as $pane, but could not open its Reviewer column"
+    column="   $column"
+  fi
   printf '%-16s%s%s\n' "$2 tab:" "$tab" "$column" >> "$1"
   echo "$pane"
 }

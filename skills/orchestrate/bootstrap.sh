@@ -46,7 +46,8 @@
 #
 # Writes <run-dir>/panes.txt, the pane map for the whole run, then prints it
 # with the next step. Its  lanes tab:  line holds the tab's id and the R1 and
-# R2 panes, or  (no Reviewer column) ; lane A's line ends with  tab lanes .
+# R2 panes, or  (no Reviewer column) ; or, with lane A in research, its
+#  research tab:  line holds that tab's id. Lane A's line ends with its tab.
 # The pane map's  switches:  line holds every run switch and the value this
 # run uses (detect-stack.sh). Its  contract:  line names
 # the pin: the .orchestrate read here, written read-only outside the run dir

@@ -3437,6 +3437,25 @@ EOF
   assert_match "a code lane, no lanes tab yet: the Reviewer column right of it" "$log" "^herdr pane split --pane $bpane --direction right --ratio 0.67 --cwd $r --no-focus$"
   assert_match "a code lane, no lanes tab yet: the lanes tab line" "$(cat "$RUN/panes.txt")" "^lanes tab: +tab-${bpane#pane-} +\\(R1 pane-[0-9]+, R2 pane-[0-9]+\\)$"
   assert_match "a code lane: its line ends with tab lanes" "$(cat "$RUN/panes.txt")" '^lane B: .*, tab lanes\)$'
+  # The column follows the run's switches (the pane map), not add-lane's own
+  # environment; a data lane whose move into a new tab fails stays unplaced,
+  # and a rerun opens the tab.
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-roles-a2-off"; reset_stub
+  LANES="A=2" LANE_REVIEW=off PREFLIGHT=off boot "$r" "$RUN" "Roles A off" main "$PLAN" >/dev/null
+  reset_stub; (cd "$r" && "$KIT/add-lane.sh" "$RUN" B feat/b main 1 >/dev/null 2>&1)
+  assert_match "a code lane opening the lanes tab: no column when the run's switches say so" "$(cat "$RUN/panes.txt")" '^lanes tab: +tab-[0-9]+ +\(no Reviewer column\)$'
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-roles-movefail"; reset_stub
+  LANES="A=1" boot "$r" "$RUN" "Move fail" main "$PLAN" >/dev/null
+  reset_stub; out=$(cd "$r" && HERDR_STUB_MOVE_FAIL=1 "$KIT/add-lane.sh" "$RUN" B feat/b main 2 2>&1; echo "exit=$?")
+  assert_match "a data lane, its move into a new tab failing: fails" "$out" 'exit=1$'
+  assert_match "... saying a rerun places it"          "$out" "rerun  .*/add-lane\.sh .* B feat/b main 2  to place it"
+  assert_match "... the lane stays unplaced"           "$(cat "$RUN/panes.txt")" '^unplaced lane B: '
+  assert_nomatch "... no research tab line"            "$(cat "$RUN/panes.txt")" '^research tab:'
+  mkdir -p "$r/.worktrees/feat/b"
+  reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUN" B feat/b main 2 2>&1; echo "exit=$?")
+  assert_match "... a rerun places it"                 "$out" 'exit=0$'
+  assert_match "... a rerun opens the research tab"    "$(cat "$HERDR_STUB_LOG")" '^herdr pane move pane-[0-9]+ --new-tab --workspace ws-0 --tab-label research --no-focus$'
+  assert_match "... and writes its line"               "$(cat "$RUN/panes.txt")" '^research tab: +tab-[0-9]+$'
   r=$(fixture_repo bun-vitest); RUN="$TMP/run-roles-a2-codex"; reset_stub
   LANES="A=2" EXECUTOR_KIND=codex boot "$r" "$RUN" "Roles A codex" main "$PLAN" >/dev/null
   assert_match "a codex lane A in data: the research tab too" "$(cat "$RUN/panes.txt")" '^lane A: .*kind codex, .*, tab research\)$'
