@@ -47,6 +47,10 @@ All notable changes to this project are documented here. The format follows
   dev and the shell. When anything reviews, the lanes tab keeps a
   full-height column on the right for R1 and R2. The pane map gains a
   `lanes tab:` line, and each lane's line names its tab.
+- Reviewers R1 and R2 run in the lanes tab's right column, not in a
+  `reviews` tab of their own. A run whose lanes tab is not open yet gets it
+  from the first review, the column alone; a code lane added after that goes
+  under R2. A run opened before this change keeps its reviews tab.
 
 ## [0.5.0] — 2026-10-07
 

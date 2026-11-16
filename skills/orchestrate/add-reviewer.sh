@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Start a review: a fresh Reviewer in a slot of the review tab, and the review
+# Start a review: a fresh Reviewer in a Reviewer slot, and the review
 # on the board as a task owned by that slot.
 #
 #   [REVIEW_STAGE=lane|preflight] [REVIEWER_KIND=other|claude|codex|cursor] \
@@ -24,13 +24,21 @@
 # called. The title must not hold a tab, a newline or another control
 # character: one that does is refused before anything is written.
 #
-# The first call opens the review tab with two panes, slots R1 and R2, in the
-# run's workspace (the orchestrator pane's, from the pane map; an orchestrator
-# pane herdr no longer knows is refused before anything is written):
+# The slots R1 and R2 are the lanes tab's right column, from its  lanes tab:
+# line (bootstrap.sh); a run opened before the lanes tab has its own  review
+# tab:  line, and its slots are there:
 #
-#        │ R1       │ R2       │
+#        │ lane A   │ lane B   │ R1       │
+#        ├──────────┼──────────┼──────────┤
+#        │ lane C   │ lane D   │ R2       │
 #
-# Later calls reuse the tab and its slots. Every call starts a new agent,
+# With no  lanes tab:  line (lane A is in another tab) the first call opens the
+# lanes tab, the column alone, R1 its root and R2 under it; a code lane added
+# later goes under R2 (layout.sh). With a lanes tab but no column (LANE_REVIEW
+# and PREFLIGHT off at bootstrap) the first call opens a  reviews  tab, R2
+# right of R1. Either opens in the run's workspace (the orchestrator pane's,
+# from the pane map; an orchestrator pane herdr no longer knows is refused
+# before anything is written). Later calls reuse the slots. Every call starts a new agent,
 # <repo>-r1-<n> with n counting the reviews in that slot, so each review starts
 # with a fresh context. The slot's previous Reviewer is refused while it is
 # still working, sent /exit and Enter when idle (Enter again about every 3
@@ -49,7 +57,9 @@
 #   simply be run again. A task someone worked on (not pending on the board)
 #   is refused instead;
 #   the pane map (<run-dir>/panes.txt):
-#     review tab:     <tab-id>   (R1 <pane-id>, R2 <pane-id>)   once, on the first call
+#     lanes tab:      <tab-id>   (R1 <pane-id>, R2 <pane-id>)   once, when the call opened
+#                                                                 the lanes tab (review tab:
+#                                                                 for a reviews tab)
 #     reviewer R1:    <pane-id>   (agent "<name>", kind <kind>, model <model>, review "<title>", findings <file>)
 #   one reviewer line per slot, replaced by each new review in that slot. It
 #   is written before the agent starts, ending in " starting" until the agent
@@ -75,10 +85,10 @@
 #   or  reviewer: <kind> credits unreadable, counted as enough
 #
 # The Reviewer ends its report with  [[FINDINGS WRITTEN]] <findings-file>;
-# watch-lanes.sh then reads it as idle-after-final-report. The review tab and
-# its panes stay open after the run, like every pane.
+# watch-lanes.sh then reads it as idle-after-final-report. The slots stay open
+# after the run, like every pane.
 #
-# Prints the slot ids (on the first call), the fallback note when reviewer_for
+# Prints the slot ids (when it opened their tab), the fallback note when reviewer_for
 # fell back ("reviewer: fallback: ..."), and the task id with the next step:
 # brief the Reviewer (brief-template.md) and add its agent to watch-lanes.sh.
 #
@@ -199,7 +209,13 @@ if [ "$R_KIND" = codex ]; then
     || die "add-reviewer: a codex Reviewer is not granted look's worktree dir (see above); fix it, then rerun"
 fi
 
+# The slots: the lanes tab's Reviewer column, or the reviews tab of a run
+# opened before the lanes tab (or of one whose lanes tab has no column).
+LANES_LINE=$(sed -nE 's/^lanes tab: +(.*)$/\1/p' "$MAP")
 TAB_LINE=$(sed -nE 's/^review tab: +(.*)$/\1/p' "$MAP")
+case "$TAB_LINE$LANES_LINE" in
+  *"(R1 "*) [ -n "$TAB_LINE" ] || TAB_LINE=$LANES_LINE ;;
+esac
 slot_pane() { echo "$TAB_LINE" | sed -nE "s/.*[(, ]$1 ([^,)]+).*/\\1/p"; }
 
 # --- end the slot's previous Reviewer ----------------------------------------
@@ -279,8 +295,8 @@ if [ -n "$PREV" ]; then
 fi
 ID="$SLOT-$N"
 
-# The review tab opens in the run's workspace, the orchestrator pane's; not
-# whichever workspace the human is looking at.
+# A tab for the slots opens in the run's workspace, the orchestrator pane's;
+# not whichever workspace the human is looking at.
 if [ -z "$TAB_LINE" ]; then
   ORCH=$(sed -nE 's/^orchestrator: +([^ ]+).*/\1/p' "$MAP")
   [ -n "$ORCH" ] || die "no orchestrator line in $MAP: run bootstrap.sh first"
@@ -306,15 +322,20 @@ fi
 if [ "$REUSED" = 1 ] && [ "$KEEP" = 1 ]; then echo "reusing task $ID: the review resumed below"
 elif [ "$REUSED" = 1 ]; then echo "reusing task $ID: an earlier call for $SLOT added it, but its Reviewer did not start"; fi
 
-# --- the review tab, on the first call ----------------------------------------
+# --- the slots' tab, on the first call that has none ---------------------------
+# No lanes tab yet (lane A is in another tab): it opens here, the column alone,
+# R2 under R1; a code lane added later goes under R2 (layout.sh). A lanes tab
+# without a column (nothing reviewed at bootstrap): a reviews tab, R2 right of R1.
 if [ -z "$TAB_LINE" ]; then
-  out=$(herdr tab create --workspace "$WS" --cwd "$REPO" --label reviews --no-focus)
+  LABEL=reviews; SPLIT=right; KEY="review tab:    "
+  [ -n "$LANES_LINE" ] || { LABEL=lanes; SPLIT=down; KEY="lanes tab:     "; }
+  out=$(herdr tab create --workspace "$WS" --cwd "$REPO" --label "$LABEL" --no-focus)
   TAB=$(echo "$out" | jsonq 'd["result"]["tab"]["tab_id"]')
   R1_PANE=$(echo "$out" | jsonq 'd["result"]["root_pane"]["pane_id"]')
-  R2_PANE=$(herdr pane split --pane "$R1_PANE" --direction right --ratio 0.5 --cwd "$REPO" --no-focus | pane_id)
+  R2_PANE=$(herdr pane split --pane "$R1_PANE" --direction "$SPLIT" --ratio 0.5 --cwd "$REPO" --no-focus | pane_id)
   TAB_LINE="$TAB   (R1 $R1_PANE, R2 $R2_PANE)"
-  echo "review tab:     $TAB_LINE" >> "$MAP"
-  echo "review tab: $TAB — slots R1 $R1_PANE, R2 $R2_PANE"
+  echo "$KEY $TAB_LINE" >> "$MAP"
+  echo "$LABEL tab: $TAB — slots R1 $R1_PANE, R2 $R2_PANE"
 fi
 PANE=$(slot_pane "$SLOT")
 

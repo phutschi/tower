@@ -381,7 +381,8 @@ if section bootstrap; then
   assert_eq "layout: tab_line reads a tab's id"          "$(tab_line "$M" lanes)" tab-5
   assert_eq "layout: tab_line is empty for a tab not open" "$(tab_line "$M" research)" ""
   assert_eq "layout: lane_tab of code is lanes"          "$(lane_tab code)" lanes
-  assert_eq "layout: no lane in the tab, no anchor"      "$(grid_anchor "$M" lanes)" ""
+  assert_eq "layout: no lane in the tab, the first goes under R2" "$(grid_anchor "$M" lanes)" "pane-7 down"
+  assert_eq "layout: no lane and no Reviewer column, no anchor" "$(grid_anchor "$M" research)" ""
   echo 'lane A:         pane-5   (agent "acme-lane-a", kind claude, branch main, checkout /x, model m, tab lanes)' >> "$M"
   assert_eq "layout: the second lane goes right of the first" "$(grid_anchor "$M" lanes)" "pane-5 right"
   echo 'lane C:         pane-9   (agent "acme-lane-c", kind codex, branch c, checkout /x/c, model m, tab lanes) starting' >> "$M"
@@ -973,14 +974,12 @@ if section add-reviewer; then
   review() { (cd "$r" && EXIT_WAIT_SECONDS=3 "$KIT/add-reviewer.sh" "$RUN" "$@" 2>&1); }
   line_of() { grep -nE -- "$1" "$HERDR_STUB_LOG" | head -1 | cut -d: -f1; }
   reset_stub; out=$(review R1 claude "Lane review A" "$RUN/findings/lane-a.json"); log=$(cat "$HERDR_STUB_LOG")
-  assert_match "first call: a new tab in the run's workspace" "$log" "^herdr tab create --workspace ws-0 --cwd $r --label reviews --no-focus$"
-  assert_match "the workspace is the orchestrator pane's" "$log" '^herdr pane get pane-0$'
-  assert_match "first call: R2 split right of R1"     "$log" '^herdr pane split --pane pane-1 --direction right --ratio 0.5 '
-  assert_match "first call: prints both slot ids"     "$out" 'R1 pane-1, R2 pane-2'
+  assert_nomatch "first call: no tab is opened, no pane split" "$log" '^herdr (tab create|pane split) '
   map=$(cat "$RUN/panes.txt")
-  assert_match "pane map: review tab line"            "$map" '^review tab: +tab-1 +\(R1 pane-1, R2 pane-2\)$'
-  assert_match "pane map: reviewer R1 line"           "$map" '^reviewer R1: +pane-1 +\(agent "bun-vitest-r1-1", kind codex, model gpt-6-astra, review "Lane review A", findings '"$RUN"'/findings/lane-a.json\)$'
-  assert_match "R1: a claude lane gets a codex Reviewer" "$log" '^herdr agent start bun-vitest-r1-1 --kind codex --pane pane-1 -- -m gpt-6-astra '
+  assert_nomatch "pane map: no review tab line"       "$map" '^review tab:'
+  assert_match "pane map: the lanes tab line as bootstrap wrote it" "$map" '^lanes tab: +tab-3 +\(R1 pane-4, R2 pane-5\)$'
+  assert_match "pane map: reviewer R1 line"           "$map" '^reviewer R1: +pane-4 +\(agent "bun-vitest-r1-1", kind codex, model gpt-6-astra, review "Lane review A", findings '"$RUN"'/findings/lane-a.json\)$'
+  assert_match "R1: a claude lane gets a codex Reviewer" "$log" '^herdr agent start bun-vitest-r1-1 --kind codex --pane pane-4 -- -m gpt-6-astra '
   reviews() { board "$1" '" ".join(t["id"]+"@"+t["lane"]+":"+t["title"] for t in d["tasks"] if t["area"] == "review")'; }
   assert_eq "R1: the review is a board task owned by the slot" "$(reviews "$RUN")" "R1-1@R1:Lane review A"
   assert_match "R1: prints the task id and the next step" "$out" 'reviewer R1 ready \(task R1-1\): agent bun-vitest-r1-1'
@@ -998,7 +997,7 @@ if section add-reviewer; then
   reset_stub; out=$(review R2 codex "Lane review B" "$RUN/findings/lane-b.json"); log=$(cat "$HERDR_STUB_LOG")
   assert_nomatch "second call: no new tab"            "$log" '^herdr tab create'
   assert_nomatch "second call: no new pane"           "$log" '^herdr pane split'
-  assert_match "R2: a codex lane gets a claude Reviewer in the R2 pane" "$log" '^herdr agent start bun-vitest-r2-1 --kind claude --pane pane-2 -- --model claude-opus-5-5$'
+  assert_match "R2: a codex lane gets a claude Reviewer in the R2 pane" "$log" '^herdr agent start bun-vitest-r2-1 --kind claude --pane pane-5 -- --model claude-opus-5-5$'
   assert_nomatch "claude Reviewer: no codex environment" "$log" 'shell_environment_policy'
   assert_nomatch "claude Reviewer: no look dir grant" "$log" 'tower/look'
   assert_match "brief: the Reviewer's look command names the run dir" "$(grep 'look.sh origin/main' "$KIT/brief-template.md")" 'TOWER_RUN=\{\{RUN_DIR\}\} '
@@ -1034,7 +1033,7 @@ if section add-reviewer; then
   unset -f grant_refused
   rm -f "$S/bun-vitest-r1-1"
   assert_eq "R2: board task owned by R2"              "$(reviews "$RUN")" "R1-1@R1:Lane review A R2-1@R2:Lane review B"
-  assert_eq "pane map: one review tab line"           "$(grep -c '^review tab:' "$RUN/panes.txt")" 1
+  assert_eq "pane map: no review tab line, one lanes tab line" "$(grep -c '^review tab:' "$RUN/panes.txt")|$(grep -c '^lanes tab:' "$RUN/panes.txt")" "0|1"
 
   printf 'working\n' > "$S/bun-vitest-r1-1"; reset_stub
   out=$(review R1 claude "Lane review A, round 2" "$RUN/findings/lane-a-2.json")
@@ -1043,19 +1042,19 @@ if section add-reviewer; then
   assert_eq "that refusal adds no board task"         "$(reviews "$RUN")" "R1-1@R1:Lane review A R2-1@R2:Lane review B"
   printf 'idle\ngone\n' > "$S/bun-vitest-r1-1"; reset_stub
   out=$(review R1 claude "Lane review A, round 2" "$RUN/findings/lane-a-2.json"); log=$(cat "$HERDR_STUB_LOG")
-  assert_match "again in R1: the previous Reviewer is sent /exit" "$log" '^herdr pane send-text pane-1 /exit$'
-  assert_match "again in R1: and Enter"               "$log" '^herdr pane send-keys pane-1 Enter$'
-  assert_eq "again in R1: one Enter when the first one ends it" "$(grep -c '^herdr pane send-keys pane-1 Enter$' "$HERDR_STUB_LOG")" 1
-  [ "$(line_of '^herdr pane send-keys pane-1 Enter')" -lt "$(line_of '^herdr agent start')" ] && ok "again in R1: ended before the new agent starts" || bad "again in R1: ended before the new agent starts" "$log"
-  assert_match "again in R1: a new agent in the same pane" "$log" '^herdr agent start bun-vitest-r1-2 --kind codex --pane pane-1 '
+  assert_match "again in R1: the previous Reviewer is sent /exit" "$log" '^herdr pane send-text pane-4 /exit$'
+  assert_match "again in R1: and Enter"               "$log" '^herdr pane send-keys pane-4 Enter$'
+  assert_eq "again in R1: one Enter when the first one ends it" "$(grep -c '^herdr pane send-keys pane-4 Enter$' "$HERDR_STUB_LOG")" 1
+  [ "$(line_of '^herdr pane send-keys pane-4 Enter')" -lt "$(line_of '^herdr agent start')" ] && ok "again in R1: ended before the new agent starts" || bad "again in R1: ended before the new agent starts" "$log"
+  assert_match "again in R1: a new agent in the same pane" "$log" '^herdr agent start bun-vitest-r1-2 --kind codex --pane pane-4 '
   assert_eq "pane map: one line per slot"             "$(grep -c '^reviewer R1:' "$RUN/panes.txt")" 1
-  assert_match "pane map: the slot line is the new review" "$(cat "$RUN/panes.txt")" '^reviewer R1: +pane-1 +\(agent "bun-vitest-r1-2", .*review "Lane review A, round 2"'
-  assert_match "pane map: R2 line kept"               "$(cat "$RUN/panes.txt")" '^reviewer R2: +pane-2 +\(agent "bun-vitest-r2-1"'
+  assert_match "pane map: the slot line is the new review" "$(cat "$RUN/panes.txt")" '^reviewer R1: +pane-4 +\(agent "bun-vitest-r1-2", .*review "Lane review A, round 2"'
+  assert_match "pane map: R2 line kept"               "$(cat "$RUN/panes.txt")" '^reviewer R2: +pane-5 +\(agent "bun-vitest-r2-1"'
 
   printf 'idle\n' > "$S/bun-vitest-r1-2"; reset_stub
   out=$(review R1 claude "Preflight R1" "$RUN/findings/preflight-r1.json")
-  assert_match "a Reviewer that does not exit is refused" "$out" 'bun-vitest-r1-2 did not exit; end it in pane-1 and rerun'
-  assert_eq "within 3 checks, one Enter: no retry storm" "$(grep -c '^herdr pane send-keys pane-1 Enter$' "$HERDR_STUB_LOG")" 1
+  assert_match "a Reviewer that does not exit is refused" "$out" 'bun-vitest-r1-2 did not exit; end it in pane-4 and rerun'
+  assert_eq "within 3 checks, one Enter: no retry storm" "$(grep -c '^herdr pane send-keys pane-4 Enter$' "$HERDR_STUB_LOG")" 1
   assert_nomatch "that refusal starts no agent"       "$(cat "$HERDR_STUB_LOG")" '^herdr agent start'
   assert_nomatch "that refusal adds no board task"    "$(reviews "$RUN")" 'R1-3'
   # herdr failing for another reason than agent_not_found is not the previous
@@ -1067,19 +1066,19 @@ if section add-reviewer; then
   assert_nomatch "herdr failing: no board task"       "$(reviews "$RUN")" 'R1-3'
   printf 'idle\nunreachable\n' > "$S/bun-vitest-r1-2"; reset_stub
   out=$(EXIT_WAIT_SECONDS=2 review R1 claude "Preflight R1" "$RUN/findings/preflight-r1.json")
-  assert_match "herdr failing after /exit: /exit was sent" "$(cat "$HERDR_STUB_LOG")" '^herdr pane send-text pane-1 /exit$'
+  assert_match "herdr failing after /exit: /exit was sent" "$(cat "$HERDR_STUB_LOG")" '^herdr pane send-text pane-4 /exit$'
   assert_match "herdr failing after /exit: not read as exited, herdr named" "$out" 'herdr cannot say whether Reviewer bun-vitest-r1-2 exited'
   assert_nomatch "herdr failing after /exit: no agent start" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start'
   # herdr's own unknown status is an agent it cannot classify: it is there,
   # and is sent /exit like an idle one.
   echo unknown > "$S/bun-vitest-r1-2"; reset_stub
   out=$(EXIT_WAIT_SECONDS=2 review R1 claude "Preflight R1" "$RUN/findings/preflight-r1.json")
-  assert_match "herdr's unknown: the previous Reviewer is sent /exit" "$(cat "$HERDR_STUB_LOG")" '^herdr pane send-text pane-1 /exit$'
+  assert_match "herdr's unknown: the previous Reviewer is sent /exit" "$(cat "$HERDR_STUB_LOG")" '^herdr pane send-text pane-4 /exit$'
   assert_match "herdr's unknown: ... and waited for"  "$out" 'bun-vitest-r1-2 did not exit'
   echo gone > "$S/bun-vitest-r1-2"; reset_stub
   out=$(REVIEWER_MODEL=gpt-6-astra-pro review R1 claude "Preflight R1" "$RUN/findings/preflight-r1.json"); log=$(cat "$HERDR_STUB_LOG")
   assert_nomatch "an exited Reviewer is not sent /exit" "$log" '^herdr pane send-text'
-  assert_match "REVIEWER_MODEL reaches the agent start" "$log" '^herdr agent start bun-vitest-r1-3 --kind codex --pane pane-1 -- -m gpt-6-astra-pro '
+  assert_match "REVIEWER_MODEL reaches the agent start" "$log" '^herdr agent start bun-vitest-r1-3 --kind codex --pane pane-4 -- -m gpt-6-astra-pro '
   echo gone > "$S/bun-vitest-r2-1"
   out=$(CODEX_STUB=absent review R2 claude "Preflight R2" "$RUN/findings/preflight-r2.json")
   assert_match "a fallback is printed"                "$out" '^reviewer: fallback: codex is not installed'
@@ -1152,6 +1151,9 @@ if section add-reviewer; then
   assert_eq "tower not runnable: no review task"                "$(reviews "$RUN2")" ""
   RUNG="$TMP/run-review-gone"; reset_stub
   r=$(fixture_repo bun-vitest); (cd "$r" && "$KIT/bootstrap.sh" "$RUNG" "Gone" main >/dev/null 2>&1); reset_stub
+  # A run whose lanes tab is not open yet (lane A in another tab): add-reviewer
+  # opens it, so it needs the orchestrator's workspace.
+  sed -i.bak -e '/^lanes tab:/d' -e 's/, tab lanes)$/, tab research)/' "$RUNG/panes.txt"
   echo gone > "$S/pane-0"; before=$(cat "$RUNG/panes.txt")
   out=$(cd "$r" && "$KIT/add-reviewer.sh" "$RUNG" R1 claude "Gone" "$RUNG/findings/a.json" 2>&1; echo "exit=$?")
   assert_match "no orchestrator pane: refused, naming it" "$out" 'no workspace for the orchestrator pane pane-0'
@@ -1163,6 +1165,40 @@ if section add-reviewer; then
   grep -v '^orchestrator:' "$RUNG/panes.txt" > "$RUNG/panes.tmp"; mv "$RUNG/panes.tmp" "$RUNG/panes.txt"
   assert_match "a pane map without an orchestrator line is refused" \
     "$(cd "$r" && "$KIT/add-reviewer.sh" "$RUNG" R1 claude "Gone" "$RUNG/findings/a.json" 2>&1)" "no orchestrator line in $RUNG/panes.txt"
+  # No lanes tab yet (lane A in another tab): the first review opens it in
+  # the orchestrator's workspace, R1 its root and R2 under it, and a code lane
+  # added after that goes under R2.
+  r=$(fixture_repo bun-vitest); RUNL="$TMP/run-review-lanes"
+  (cd "$r" && "$KIT/bootstrap.sh" "$RUNL" "Lanes" main "$KIT/example-tasks.tsv" >/dev/null 2>&1)
+  sed -i.bak -e '/^lanes tab:/d' -e 's/, tab lanes)$/, tab research)/' "$RUNL/panes.txt"
+  reset_stub; out=$(cd "$r" && "$KIT/add-reviewer.sh" "$RUNL" R2 claude "Open" "$RUNL/findings/o.json" 2>&1; echo "exit=$?"); log=$(cat "$HERDR_STUB_LOG")
+  assert_match "no lanes tab: the review finishes"     "$out" 'exit=0$'
+  assert_match "no lanes tab: opened in the orchestrator's workspace" "$log" "^herdr tab create --workspace ws-0 --cwd $r --label lanes --no-focus$"
+  assert_match "no lanes tab: the workspace is the orchestrator pane's" "$log" '^herdr pane get pane-0$'
+  assert_match "no lanes tab: R2 under R1"             "$log" '^herdr pane split --pane pane-1 --direction down --ratio 0.5 .*--no-focus$'
+  assert_match "no lanes tab: the lanes tab line"      "$(cat "$RUNL/panes.txt")" '^lanes tab: +tab-1 +\(R1 pane-1, R2 pane-2\)$'
+  assert_match "no lanes tab: the Reviewer starts in R2" "$log" '^herdr agent start bun-vitest-r2-1 --kind codex --pane pane-2 '
+  reset_stub; (cd "$r" && "$KIT/add-lane.sh" "$RUNL" B feat/b main 2 >/dev/null 2>&1)
+  assert_match "no lanes tab: a code lane added after it goes under R2" "$(cat "$HERDR_STUB_LOG")" '^herdr pane move pane-[0-9]+ --tab tab-1 --split down --target-pane pane-2 '
+  assert_match "no lanes tab: ... in tab lanes"        "$(cat "$RUNL/panes.txt")" '^lane B: .*, tab lanes\)$'
+  # A run opened before the lanes tab keeps its reviews tab and its slots.
+  r=$(fixture_repo bun-vitest); RUNO="$TMP/run-review-old"
+  (cd "$r" && "$KIT/bootstrap.sh" "$RUNO" "Old" main "$KIT/example-tasks.tsv" >/dev/null 2>&1)
+  sed -i.bak -e '/^lanes tab:/d' -e 's/, tab lanes)$/)/' "$RUNO/panes.txt"
+  echo 'review tab:     tab-9   (R1 pane-21, R2 pane-22)' >> "$RUNO/panes.txt"
+  reset_stub; out=$(cd "$r" && "$KIT/add-reviewer.sh" "$RUNO" R2 claude "Old" "$RUNO/findings/o.json" 2>&1; echo "exit=$?"); log=$(cat "$HERDR_STUB_LOG")
+  assert_match "review tab line: the review finishes"  "$out" 'exit=0$'
+  assert_nomatch "review tab line: no tab is opened"   "$log" '^herdr (tab create|pane split) '
+  assert_match "review tab line: the Reviewer starts in its R2" "$log" '^herdr agent start bun-vitest-r2-1 --kind codex --pane pane-22 '
+  # A lanes tab without a Reviewer column (reviews off at bootstrap): the
+  # review opens a reviews tab of its own, as before the lanes tab.
+  r=$(fixture_repo bun-vitest); RUNN="$TMP/run-review-nocolumn"
+  (cd "$r" && LANE_REVIEW=off PREFLIGHT=off "$KIT/bootstrap.sh" "$RUNN" "No column" main "$KIT/example-tasks.tsv" >/dev/null 2>&1)
+  reset_stub; out=$(cd "$r" && "$KIT/add-reviewer.sh" "$RUNN" R1 claude "No column" "$RUNN/findings/n.json" 2>&1; echo "exit=$?"); log=$(cat "$HERDR_STUB_LOG")
+  assert_match "no Reviewer column: the review finishes" "$out" 'exit=0$'
+  assert_match "no Reviewer column: a reviews tab"     "$log" "^herdr tab create --workspace ws-0 --cwd $r --label reviews --no-focus$"
+  assert_match "no Reviewer column: R2 right of R1"    "$log" '^herdr pane split --pane pane-1 --direction right --ratio 0.5 '
+  assert_match "no Reviewer column: the review tab line" "$(cat "$RUNN/panes.txt")" '^review tab: +tab-1 +\(R1 pane-1, R2 pane-2\)$'
   RUNF="$TMP/run-review-failed"; reset_stub
   r=$(fixture_repo bun-vitest); (cd "$r" && "$KIT/bootstrap.sh" "$RUNF" "Failed" main >/dev/null 2>&1)
   out=$(cd "$r" && HERDR_STUB_BUSY_STARTS=99 START_TRIES=1 "$KIT/add-reviewer.sh" "$RUNF" R1 claude "Try" "$RUNF/findings/a.json" 2>&1; echo "exit=$?")
@@ -1192,11 +1228,11 @@ if section add-reviewer; then
   echo blocked > "$S/bun-vitest-r1-1"
   out=$(cd "$r" && HERDR_STUB_TRUST_STARTS=1 "$KIT/add-reviewer.sh" "$RUNB" R1 claude "Blocked" "$RUNB/findings/a.json" 2>&1; echo "exit=$?")
   assert_match "blocked after its start: add-reviewer fails" "$out" 'exit=1$'
-  assert_match "blocked after its start: its agent is in the pane map" "$(cat "$RUNB/panes.txt")" '^reviewer R1: +pane-1 +\(agent "bun-vitest-r1-1", .*review "Blocked"'
+  assert_match "blocked after its start: its agent is in the pane map" "$(cat "$RUNB/panes.txt")" '^reviewer R1: +pane-4 +\(agent "bun-vitest-r1-1", .*review "Blocked"'
   printf 'blocked\nblocked\ngone\n' > "$S/bun-vitest-r1-1"; : > "$HERDR_STUB_LOG"   # read for resuming, for ending, then gone
   out=$(cd "$r" && EXIT_WAIT_SECONDS=3 "$KIT/add-reviewer.sh" "$RUNB" R1 claude "Blocked again" "$RUNB/findings/a.json" 2>&1; echo "exit=$?"); log=$(cat "$HERDR_STUB_LOG")
   assert_match "rerun: finishes"                      "$out" 'exit=0$'
-  assert_match "rerun: the agent left in the slot is sent /exit" "$log" '^herdr pane send-text pane-1 /exit$'
+  assert_match "rerun: the agent left in the slot is sent /exit" "$log" '^herdr pane send-text pane-4 /exit$'
   assert_match "rerun: the review starts again under the same name" "$log" '^herdr agent start bun-vitest-r1-1 '
   assert_nomatch "rerun: no second agent"              "$log" '^herdr agent start bun-vitest-r1-2 '
   assert_eq "rerun: the same task, new title"         "$(reviews "$RUNB")" "R1-1@R1:Blocked again"
@@ -1211,7 +1247,7 @@ if section add-reviewer; then
   out=$(cd "$r" && "$KIT/add-reviewer.sh" "$RUNB" R2 claude "Slow" "$RUNB/findings/b.json" 2>&1; echo "exit=$?"); log=$(cat "$HERDR_STUB_LOG")
   assert_match "rerun, agent now ready: finishes"     "$out" 'exit=0$'
   assert_nomatch "rerun, agent now ready: not ended, not started" "$log" '^herdr (pane send-text|agent start)'
-  assert_match "rerun, agent now ready: says it resumes it" "$out" 'resuming bun-vitest-r2-1 in pane-2'
+  assert_match "rerun, agent now ready: says it resumes it" "$out" 'resuming bun-vitest-r2-1 in pane-5'
   assert_match "rerun, agent now ready: ready"        "$out" 'reviewer R2 ready \(task R2-1\)'
   assert_match "rerun, agent now ready: its line is no longer starting" "$(cat "$RUNB/panes.txt")" '^reviewer R2: .*review "Slow".*\)$'
   # A starting Reviewer that is working and accepts input is kept, as
@@ -1220,7 +1256,7 @@ if section add-reviewer; then
   out=$(cd "$r" && READY_WAIT_SECONDS=1 "$KIT/add-reviewer.sh" "$RUNB" R2 claude "Busy" "$RUNB/findings/w.json" 2>&1; echo "exit=$?")
   rm -f "$S/bun-vitest-r2-2.started"; echo working > "$S/bun-vitest-r2-2"; : > "$HERDR_STUB_LOG"
   out=$(cd "$r" && "$KIT/add-reviewer.sh" "$RUNB" R2 claude "Busy" "$RUNB/findings/w.json" 2>&1; echo "exit=$?")
-  assert_match "starting, working and ready: resumed" "$out" 'resuming bun-vitest-r2-2 in pane-2'
+  assert_match "starting, working and ready: resumed" "$out" 'resuming bun-vitest-r2-2 in pane-5'
   assert_nomatch "starting, working and ready: not refused as working" "$out" 'still working'
   rm -f "$S"/bun-vitest-r2-2*
   assert_nomatch "rerun, agent now ready: not said to have not started" "$out" 'did not start'
@@ -1231,7 +1267,7 @@ if section add-reviewer; then
   rm -f "$S/bun-vitest-r2-3.started"; printf 'busy-unready\nbusy-unready\nworking\n' > "$S/bun-vitest-r2-3"; : > "$HERDR_STUB_LOG"
   out=$(cd "$r" && READY_WAIT_SECONDS=5 "$KIT/add-reviewer.sh" "$RUNB" R2 claude "Loading" "$RUNB/findings/l.json" 2>&1; echo "exit=$?"); log=$(cat "$HERDR_STUB_LOG")
   assert_match "starting, working, not ready: finishes" "$out" 'exit=0$'
-  assert_match "starting, working, not ready: resumed once ready" "$out" 'resuming bun-vitest-r2-3 in pane-2'
+  assert_match "starting, working, not ready: resumed once ready" "$out" 'resuming bun-vitest-r2-3 in pane-5'
   assert_nomatch "starting, working, not ready: not refused as working" "$out" 'still working'
   assert_nomatch "starting, working, not ready: not ended, not started" "$log" '^herdr (pane send-text|agent start)'
   # One that stays so: the rerun says it is still starting, and a rerun
@@ -1241,7 +1277,7 @@ if section add-reviewer; then
   rm -f "$S/bun-vitest-r2-4.started"; echo busy-unready > "$S/bun-vitest-r2-4"; : > "$HERDR_STUB_LOG"
   out=$(cd "$r" && READY_WAIT_SECONDS=2 "$KIT/add-reviewer.sh" "$RUNB" R2 claude "Stuck" "$RUNB/findings/s.json" 2>&1; echo "exit=$?"); log=$(cat "$HERDR_STUB_LOG")
   assert_match "starting, never ready on the rerun: fails" "$out" 'exit=1$'
-  assert_match "starting, never ready on the rerun: says it is still starting" "$out" 'Reviewer bun-vitest-r2-4 is still starting in pane-2: .*rerun  .*add-reviewer\.sh .* R2 claude Stuck .*/findings/s\.json  to resume it once it accepts input'
+  assert_match "starting, never ready on the rerun: says it is still starting" "$out" 'Reviewer bun-vitest-r2-4 is still starting in pane-5: .*rerun  .*add-reviewer\.sh .* R2 claude Stuck .*/findings/s\.json  to resume it once it accepts input'
   assert_nomatch "starting, never ready on the rerun: not refused as working" "$out" 'still working'
   assert_nomatch "starting, never ready on the rerun: no start's next step" "$out" 'agent start:'
   assert_nomatch "starting, never ready on the rerun: not ended, not started" "$log" '^herdr (pane send-text|agent start)'
@@ -1255,7 +1291,7 @@ if section add-reviewer; then
   assert_match "never ready: it says to rerun add-reviewer" "$out" 'rerun  .*add-reviewer\.sh .* R1 claude Kind .*/findings/k\.json  to resume it'
   printf 'idle\ngone\n' > "$S/bun-vitest-r1-2"; rm -f "$S/bun-vitest-r1-2.started"; : > "$HERDR_STUB_LOG"
   out=$(cd "$r" && REVIEWER_KIND=claude "$KIT/add-reviewer.sh" "$RUNB" R1 claude "Kind" "$RUNB/findings/k.json" 2>&1; echo "exit=$?"); log=$(cat "$HERDR_STUB_LOG")
-  assert_match "rerun as another kind: the kept agent is ended" "$log" '^herdr pane send-text pane-1 /exit$'
+  assert_match "rerun as another kind: the kept agent is ended" "$log" '^herdr pane send-text pane-4 /exit$'
   assert_match "rerun as another kind: started again as that kind" "$log" '^herdr agent start bun-vitest-r1-2 --kind claude '
   assert_match "rerun as another kind: ready"         "$out" 'reviewer R1 ready \(task R1-2\)'
   rm -f "$S"/bun-vitest-r1-1* "$S"/bun-vitest-r1-2* "$S"/bun-vitest-r2-1*
@@ -3213,10 +3249,10 @@ if section run; then
   map=$(cat "$RUN/panes.txt")
   assert_match "run: the pane map has lane A"          "$map" '^lane A: +pane-[0-9]+ +\(agent "suite-lane-a", kind claude, '
   assert_match "run: the pane map has lane B on codex" "$map" '^lane B: +pane-[0-9]+ +\(agent "suite-lane-b", kind codex, '
-  assert_match "run: the pane map has the review tab"  "$map" '^review tab: +tab-[0-9]+ +\(R1 pane-[0-9]+, R2 pane-[0-9]+\)$'
+  assert_match "run: the Reviewers are in the lanes tab's column"  "$map" '^lanes tab: +tab-[0-9]+ +\(R1 pane-[0-9]+, R2 pane-[0-9]+\)$'
   assert_match "run: lane A is reviewed by codex in R1" "$map" '^reviewer R1: .*kind codex, model gpt-6-astra, review "Lane review A, round 1"'
   assert_match "run: lane B is reviewed by claude in R2" "$map" '^reviewer R2: .*kind claude, model claude-opus-5-5, review "Lane review B, round 1"'
-  r1=$(sed -nE 's/^review tab: .*\(R1 ([^,]+),.*/\1/p' "$RUN/panes.txt")
+  r1=$(sed -nE 's/^lanes tab: .*\(R1 ([^,]+),.*/\1/p' "$RUN/panes.txt")
 
   echo gone > "$S/suite-r1-1"
   review R1 claude "Lane review A, round 2" "$RUN/findings/lane-A-2.json" >/dev/null

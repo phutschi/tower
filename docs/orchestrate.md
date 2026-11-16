@@ -184,10 +184,11 @@ by preflight on the strongest model. In this order:
    still on the screen never reads as done. A fix loop stops after the
    second re-review and comes to you. With `TRIAGE=auto` the open finding is
    deferred to preflight instead, and the lane merges.
-2. **The review tab.** The first review opens a second tab with two
-   slots, R1 and R2 (`add-reviewer.sh`). Every review starts a new agent in
-   a slot and becomes a task on the board owned by that slot. The tab
-   stays open after the run.
+2. **The Reviewer slots.** R1 and R2 are the lanes tab's right column
+   (`add-reviewer.sh`); a run whose lanes tab is not open yet gets it from
+   the first review, the column alone. Every review starts a new agent in
+   a slot and becomes a task on the board owned by that slot. The slots
+   stay open after the run.
 3. **Merge.** The orchestrator merges each lane as it reports ready (with
    lane review: once reviewed), then `origin/main`.
    A merge that conflicts is aborted and becomes a task for lane A.

@@ -15,9 +15,10 @@ tab_line() {  # MAP LABEL: the tab id on MAP's "<LABEL> tab:" line, empty when a
   sed -nE "s/^$2 tab: +([^ ]+).*/\\1/p" "$1" | head -1
 }
 
-grid_anchor() {  # MAP LABEL: "<pane> <right|down>" for the next lane in tab LABEL,
-  # nothing when the tab has no lane: the second goes right of the first, the
-  # third under the first, the fourth under the second.
+grid_anchor() {  # MAP LABEL: "<pane> <right|down>" for the next lane in tab LABEL:
+  # the second goes right of the first, the third under the first, the fourth
+  # under the second. The first goes under R2 when the tab has only its
+  # Reviewer column (add-reviewer opened it), else it has no anchor: nothing.
   local p
   # shellcheck disable=SC2207  # pane ids, one word each
   p=($(awk -v tab="$2" '/^lane [A-D]: / {
@@ -26,6 +27,7 @@ grid_anchor() {  # MAP LABEL: "<pane> <right|down>" for the next lane in tab LAB
     if (t == tab) print $3
   }' "$1"))
   case ${#p[@]} in
+    0) sed -nE "s/^$2 tab: .*[(, ]R2 ([^,)]+).*/\\1 down/p" "$1" | head -1 ;;
     1) echo "${p[0]} right" ;;
     2) echo "${p[0]} down" ;;
     3) echo "${p[1]} down" ;;

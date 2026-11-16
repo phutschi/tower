@@ -138,8 +138,8 @@ and do it in a lane anyway or suggest doing it without the kit.
    `<lane-kind>` is the lane's `kind` in the pane map, and `<X>` the lane,
    whose model a codex Reviewer of a codex lane runs on; the script picks
    the Reviewer's kind by the Reviewer order below and prints the Reviewer's
-   agent and task id. The first call
-   opens the review tab. Add the agent to `watch-lanes.sh` by its bare
+   agent and task id. The Reviewer runs in its slot in the lanes tab's
+   right column; with no lanes tab yet, the first call opens it. Add the agent to `watch-lanes.sh` by its bare
    name (a Reviewer is asked once, so its `FINDINGS WRITTEN` never carries
    a round tag), then brief it
    with the lane review brief (`brief-template.md`). The fixed point is the
@@ -313,7 +313,7 @@ and do it in a lane anyway or suggest doing it without the kit.
     file each as a follow-up first (the skill's act step 6; no tracker, or
     its label fails: leave it listed in the PR) and update the PR body, if there is one.
     Then `tower close "<how it ended>"`. Tear nothing down until the user says so; the
-    console, the review tab and its panes stay open, the human quits them.
+    console, the lanes tab and its panes stay open, the human quits them.
 
 ## Switches
 
