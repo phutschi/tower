@@ -34,6 +34,8 @@
 # --new-tab` answers the moved pane as any move does, and puts it in a tab of
 # its own, tab-<n> for pane-<n> (HERDR_STUB_COUNTER.tabs); `pane get` answers
 # that tab_id for it, and tab-0 for any other pane.
+# HERDR_STUB_NEW_TAB_LOCKS=FILE: a `pane move --new-tab` makes FILE read-only
+# after it moves the pane, as a disk that fills up just then.
 # HERDR_STUB_WORKTREE_FAIL=1: every `worktree create` fails; =garbled: it
 # succeeds with an answer that has no pane in it.
 # Errors are JSON on stderr with exit 1, as herdr answers them.
@@ -58,7 +60,10 @@ case "${1:-} ${2:-}" in
     [ "${HERDR_STUB_MOVE_FAIL:-}" != garbled ] || { echo '{"result":{}}'; exit 0; }
     [ "${HERDR_STUB_MOVE_FAIL:-}" != 1 ] || { echo '{"error":{"code":"server_unavailable","message":"herdr server is not answering"}}' >&2; exit 1; }
     p=$(next_id)
-    case " $* " in *" --new-tab "*) echo "$p tab-${p#pane-}" >> "$counter.tabs" ;; esac
+    case " $* " in *" --new-tab "*)
+      echo "$p tab-${p#pane-}" >> "$counter.tabs"
+      [ -z "${HERDR_STUB_NEW_TAB_LOCKS:-}" ] || chmod a-w "$HERDR_STUB_NEW_TAB_LOCKS" ;;
+    esac
     echo "{\"result\":{\"move_result\":{\"pane\":{\"pane_id\":\"$p\"}}}}" ;;
   "pane list")       echo '{"result":{"panes":[]}}' ;;
   "pane get")

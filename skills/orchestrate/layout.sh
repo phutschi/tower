@@ -58,7 +58,7 @@ open_tab_with() {  # MAP LABEL PANE: moves PANE into a new tab LABEL in the orch
   # with its Reviewer column (reviewer_column, in lane A's checkout); prints
   # the pane's new id. Dies saying what went wrong. The column follows the
   # run's LANE_REVIEW and PREFLIGHT, from MAP's switches: line.
-  local orch ws moved pane tab column="" LANE_REVIEW PREFLIGHT
+  local orch ws moved pane tab column="" line LANE_REVIEW PREFLIGHT
   orch=$(sed -nE 's/^orchestrator: +([^ ]+).*/\1/p' "$1")
   ws=$(herdr pane get "$orch" 2>/dev/null | jsonq 'd["result"]["pane"]["workspace_id"]' 2>/dev/null) \
     || die "no workspace for the orchestrator pane $orch (herdr pane get): is it still open?"
@@ -75,6 +75,9 @@ open_tab_with() {  # MAP LABEL PANE: moves PANE into a new tab LABEL in the orch
       || die "herdr moved pane $3 into a new lanes tab $tab as $pane, but could not open its Reviewer column"
     column="   $column"
   fi
-  printf '%-16s%s%s\n' "$2 tab:" "$tab" "$column" >> "$1"
+  line=$(printf '%-16s%s%s' "$2 tab:" "$tab" "$column")
+  # Called in a $( ) with || die, so errexit is off here: checked by hand.
+  printf '%s\n' "$line" >> "$1" \
+    || die "herdr moved pane $3 into a new $2 tab $tab as $pane, but could not write $1: add the line  $line  to it"
   echo "$pane"
 }
