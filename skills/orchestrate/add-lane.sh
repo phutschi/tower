@@ -256,7 +256,7 @@ read -r TARGET SPLIT <<< "$(grid_anchor "$MAP" "$TAB_LABEL")" || true
 TAB=$(tab_line "$MAP" "$TAB_LABEL")
 if [ -z "$TARGET" ] && [ -z "$TAB" ]; then
   PANE=$(open_tab_with "$MAP" "$TAB_LABEL" "$WT_PANE") \
-    || die "add-lane: lane $LANE's pane $WT_PANE is not in a $TAB_LABEL tab of its own (see above); it is in the pane map as unplaced: when it was not moved, rerun  $KIT/add-lane.sh $RUN_DIR $LANE $BRANCH $BASE $TASKS  to place it; else turn  unplaced lane $LANE: $WT_PANE  in $MAP into  lane $LANE: <its pane's id>  (the rest as it is), add  $TAB_LABEL tab: <its tab's id>, and rerun"
+    || die "add-lane: lane $LANE's pane $WT_PANE did not get a $TAB_LABEL tab of its own (see above); it is in the pane map as unplaced: when it was not moved, rerun  $KIT/add-lane.sh $RUN_DIR $LANE $BRANCH $BASE $TASKS  to place it; else turn  unplaced lane $LANE: $WT_PANE  in $MAP into  lane $LANE: <its pane's id>  (the rest as it is), add its tab line (named above, else  $TAB_LABEL tab: <its tab's id>), and rerun"
 else
   [ -n "$TARGET" ] || die "add-lane: the $TAB_LABEL tab has no lane to place lane $LANE beside (see $MAP)"
   [ -n "$TAB" ] || TAB=$HERDR_TAB_ID

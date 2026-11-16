@@ -78,6 +78,6 @@ open_tab_with() {  # MAP LABEL PANE: moves PANE into a new tab LABEL in the orch
   line=$(printf '%-16s%s%s' "$2 tab:" "$tab" "$column")
   # Called in a $( ) with || die, so errexit is off here: checked by hand.
   printf '%s\n' "$line" >> "$1" \
-    || die "herdr moved pane $3 into a new $2 tab $tab as $pane, but could not write $1: add the line  $line  to it"
+    || die "herdr moved pane $3 into a new $2 tab $tab as $pane, but could not write $1; its line:  $line"
   echo "$pane"
 }

@@ -3461,7 +3461,8 @@ EOF
   reset_stub; out=$(cd "$r" && HERDR_STUB_NEW_TAB_LOCKS="$RUN/panes.txt" "$KIT/add-lane.sh" "$RUN" B feat/b main 2 2>&1; echo "exit=$?")
   chmod u+w "$RUN/panes.txt"
   assert_match "a data lane, its research tab line not written: fails" "$out" 'exit=1$'
-  assert_match "... naming the moved pane and its tab, to add by hand" "$out" "moved pane pane-[0-9]+ into a new research tab tab-[0-9]+ as pane-[0-9]+, but could not write $RUN/panes.txt: add the line  research tab: +tab-[0-9]+  to it"
+  assert_match "... naming the moved pane and its tab, to add by hand" "$out" "moved pane pane-[0-9]+ into a new research tab tab-[0-9]+ as pane-[0-9]+, but could not write $RUN/panes.txt; its line:  research tab: +tab-[0-9]+$"
+  assert_match "... and the lane's repair steps"      "$out" "^add-lane: lane B's pane pane-[0-9]+ did not get a research tab .* unplaced lane B: pane-[0-9]+  in $RUN/panes.txt into  lane B: <its pane's id> .*add its tab line"
   assert_nomatch "... no agent started"               "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-lane-b '
   r=$(fixture_repo bun-vitest); RUN="$TMP/run-roles-a2-codex"; reset_stub
   LANES="A=2" EXECUTOR_KIND=codex boot "$r" "$RUN" "Roles A codex" main "$PLAN" >/dev/null
