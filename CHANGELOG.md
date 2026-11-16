@@ -33,6 +33,15 @@ All notable changes to this project are documented here. The format follows
 - A Reviewer marks a choice with a finding's `decision` options; triage
   writes `decided_by`, and the PR's findings tables show it.
 
+### Changed
+
+- An orchestrate run opens no checks pane: each lane runs the check gate
+  itself. Its place goes to an empty shell pane for the human (the pane
+  map's `shell:` line), and the console takes the right half of the bottom
+  row. A `pane checks` line in `.orchestrate` is ignored with one `info:`
+  line; `TEST_PKG` and `TEST_FILTER`, which steered the default checks pane,
+  are no longer read.
+
 ## [0.5.0] — 2026-10-07
 
 ### Added

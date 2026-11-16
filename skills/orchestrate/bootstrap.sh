@@ -22,15 +22,16 @@
 #        │ orchestrator │ lane A   │ lane B   │
 #        │              ├──────────┼──────────┤
 #        │              │ lane C   │ lane D   │
-#        ├──────┬───────┴──┬───────┴──────────┤
-#        │ dev  │ checks   │ console          │   ← dev only when the repo declares it
-#        └──────┴──────────┴──────────────────┘
+#        ├────────┬─────┴──┬───────┴──────────┤
+#        │ dev    │ shell  │ console          │   ← dev only when the repo declares it;
+#        └────────┴────────┴──────────────────┘     without it the shell takes the left half
 #
-# checks and dev come from .orchestrate (see example.orchestrate)
-# or the JS default (detect-stack.sh); both run in lane A's checkout, and only
-# their command is shell code: a checkout path with an apostrophe or a space
-# stays one directory. With no checks pane declared and no test runner
-# detected, one info: line on stderr says so. Lane A is EXECUTOR_KIND
+# dev comes from .orchestrate (see example.orchestrate) and runs in lane A's
+# checkout; only its command is shell code: a checkout path with an
+# apostrophe or a space stays one directory. The shell is an empty one in the
+# same checkout, for the human. There is no checks pane: each lane runs the
+# check gate itself, and a  pane checks  line in .orchestrate is ignored with
+# one info: line on stderr (detect-stack.sh). Lane A is EXECUTOR_KIND
 # (claude | codex | cursor) on EXECUTOR_MODEL: .orchestrate sets the run's default,
 # the environment of this call overrides it (executor.sh).
 #
@@ -128,7 +129,7 @@ if [ "$ROLES" = on ] && [ "${SOURCE##*.}" = md ]; then
   done
   unset _spec _role
 fi
-# Lane A, checks, and dev all belong in the directory bootstrap runs in, which
+# Lane A, dev and the shell all belong in the directory bootstrap runs in, which
 # is often a herdr worktree of the checkout, not repo_root() (that resolves to
 # the main checkout — the same resolution agent_name inlines for naming, and
 # what add-lane.sh uses for the worktree location of lanes B-D).
@@ -202,19 +203,15 @@ split() { herdr pane split "$@" --cwd "$REPO" --no-focus | pane_id; }
 run_in() { herdr pane run "$1" "cd $(printf %q "$REPO/$2") && $3" >/dev/null; }
 BOTTOM=$(split --current --direction down --ratio 0.7)
 LANE_A_PANE=$(split --current --direction right --ratio 0.3)
-CHECKS_I=$(pane_index checks); DEV_I=$(pane_index dev)
+# The console takes the right half of the bottom row (its 60 columns); dev,
+# when declared, and the shell share the left half.
+CONSOLE_PANE=$(split --pane "$BOTTOM" --direction right --ratio 0.5)
+DEV_I=$(pane_index dev); DEV_PANE=""; SHELL_PANE=$BOTTOM
 if [ -n "$DEV_I" ]; then
   DEV_PANE=$BOTTOM
-  CHECKS_PANE=$(split --pane "$BOTTOM" --direction right --ratio 0.34)
-  CONSOLE_PANE=$(split --pane "$CHECKS_PANE" --direction right --ratio 0.5)
+  SHELL_PANE=$(split --pane "$BOTTOM" --direction right --ratio 0.5)
   run_in "$DEV_PANE" "${PANE_DIRS[$DEV_I]}" "${PANE_CMDS[$DEV_I]}"
-else
-  DEV_PANE=""
-  CHECKS_PANE=$BOTTOM
-  CONSOLE_PANE=$(split --pane "$BOTTOM" --direction right --ratio 0.5)
 fi
-run_in "$CHECKS_PANE" "${PANE_DIRS[$CHECKS_I]}" "${PANE_CMDS[$CHECKS_I]}"
-[ "$NO_RUNNER" = 0 ] || echo 'info: no test runner detected: the checks pane has nothing to run; declare  pane checks "<cmd>"  in .orchestrate' >&2
 herdr pane run "$CONSOLE_PANE" "tower --stale $STALE" >/dev/null
 
 # --- the pane map, before the agent start so add-lane and the brief have it even if that fails
@@ -222,8 +219,8 @@ herdr pane run "$CONSOLE_PANE" "tower --stale $STALE" >/dev/null
   echo "run dir:        $RUN_DIR"
   echo "orchestrator:   $HERDR_PANE_ID"
   echo "lane A:         $LANE_A_PANE   (agent \"$LANE_A\", kind $EXECUTOR_KIND, ${LANE_A_SESSION}branch $BRANCH, checkout $REPO, model $EXECUTOR_MODEL)"
-  echo "checks:         $CHECKS_PANE   (${PANE_CMDS[$CHECKS_I]} in ${PANE_DIRS[$CHECKS_I]})"
   [ -z "$DEV_PANE" ] || echo "dev:            $DEV_PANE   (${PANE_CMDS[$DEV_I]} in ${PANE_DIRS[$DEV_I]})"
+  echo "shell:          $SHELL_PANE   (a shell in $REPO, for the human)"
   echo "console:        $CONSOLE_PANE   (tower; the record — stays open, the human quits it with q)"
   echo "check gate:     $CHECK_CMD"
   echo "contract:       $PIN"

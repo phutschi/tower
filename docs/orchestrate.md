@@ -120,9 +120,9 @@ One tab:
 │ orchestrator │ lane A   │ lane B   │
 │              ├──────────┼──────────┤
 │              │ lane C   │ lane D   │
-├──────┬───────┴──┬───────┴──────────┤
-│ dev  │ checks   │ console          │
-└──────┴──────────┴──────────────────┘
+├────────┬─────┴──┬───────┴──────────┤
+│ dev    │ shell  │ console          │
+└────────┴────────┴──────────────────┘
 ```
 
 - **Lanes** are the executors. Lane A works in your checkout on the feature
@@ -134,8 +134,11 @@ One tab:
   _finished_ lane is merged into the integration branch by the orchestrator,
   right away — never by lane A — and, while other lanes still have tasks
   nobody started, the orchestrator moves some to it, so no lane sits idle.
-- **checks** runs your test runner in watch mode, **dev** your development
-  server if you declare one. Both run in lane A's checkout.
+- **dev** runs your development server if you declare one, in lane A's
+  checkout. **shell** is an empty shell in the same checkout, for you;
+  without dev it takes the left half of the row. There is no checks pane:
+  each lane runs the check gate itself, and a `pane checks` line in
+  `.orchestrate` is ignored with one `info:` line.
 - **console** is tower's live board, the record of the run. It stays open
   after the run; you quit it with `q`. The run dir is no second record: it
   holds the pane map, the briefs, the findings and tower's own run files.
@@ -236,8 +239,7 @@ file in the root (see `skills/orchestrate/example.orchestrate`):
 ```bash
 CHECK_CMD="make check"            # the check gate every lane runs before a commit
 INSTALL_CMD="make deps"           # what each new lane's worktree runs; empty turns it off
-pane checks "make test-watch"     # pane NAME "COMMAND" [DIR]; NAME is checks or dev
-pane dev    "make dev" web
+pane dev    "make dev" web        # pane dev "COMMAND" [DIR]: the one pane a repo declares
 EXECUTOR_KIND=codex               # the lanes' harness: claude (default), codex or cursor
 EXECUTOR_MODEL=gpt-6-astra        # the lanes' model, for this repo's runs
 EXECUTOR_MODEL_CURSOR=grok-4.7-high-fast  # a kind's default model (see below)

@@ -41,7 +41,7 @@ _Avoid_: runway (rendering only), worker, thread, track, stream
 **Integration branch**:
 Lane A's branch, the feature branch of an orchestrate run. Lane A works on it
 in the checkout the run opens in, which may itself be a worktree. The
-orchestrator merges finished lanes into it, and the checks pane runs on it.
+orchestrator merges finished lanes into it, and the dev pane runs on it.
 _Avoid_: main lane, trunk
 
 **Merge point**:
@@ -339,7 +339,7 @@ _Avoid_: skin, mode, style, language
 
 **Layout**:
 The fixed pane arrangement of an orchestrate run on one herdr tab:
-orchestrator left, the lane grid right, and a bottom row of dev, checks and
+orchestrator left, the lane grid right, and a bottom row of dev, shell and
 console.
 
 **Lane grid**:
@@ -351,9 +351,10 @@ The bottom-right pane that runs the console. It stays open after the run until
 the human quits it.
 _Avoid_: tower pane
 
-**Checks pane**:
-The bottom pane running the repo's checks on change, in lane A's checkout.
-_Avoid_: tests pane, typecheck pane, watch pane
+**Shell pane**:
+An empty bottom pane in the orchestrator's checkout, for the human. It runs
+nothing.
+_Avoid_: spare pane, terminal pane
 
 **Dev pane**:
 An optional bottom pane running the repo's development server in lane A's
@@ -366,7 +367,7 @@ the repo contract, or the JS default.
 **Full suite**:
 The repo's thorough checks, run once in preflight on the whole branch: every
 test, typecheck, lint and build. Slower and broader than the check gate.
-_Avoid_: check gate (that runs per task), checks pane (that watches)
+_Avoid_: check gate (that runs per task)
 
 **Repo contract**:
 The `.orchestrate` file in a repo root: its panes, its install command, its

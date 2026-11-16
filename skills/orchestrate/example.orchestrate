@@ -21,10 +21,11 @@ CHECK_CMD="bun run check"
 # the repo has no package.json. INSTALL_CMD= turns the install off.
 # INSTALL_CMD="bun install --frozen-lockfile"
 
-# Panes on the bottom row, running in lane A's checkout (the integration branch).
-#   pane NAME "COMMAND" [DIR]     NAME is checks or dev; DIR is relative to the checkout.
-pane checks "bun test --watch"
-# pane dev  "bun run dev" apps/web
+# The dev pane, on the orchestrator's tab, running in lane A's checkout (the
+# integration branch). There is no checks pane: each lane runs the check gate
+# itself, and a  pane checks  line is ignored with an info: line.
+#   pane dev "COMMAND" [DIR]      DIR is relative to the checkout.
+# pane dev "bun run dev" apps/web
 
 # The lanes' harness (kind): claude (default), codex or cursor (cursor-agent).
 # EXECUTOR_KIND=cursor for one lane only goes in that add-lane call, so a run

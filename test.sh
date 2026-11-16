@@ -76,7 +76,7 @@ unset CLAUDE_ROUTER_ROLE CLAUDE_STUB_ROLE
 # The repo contract's names and the run switches: the fixtures decide them,
 # not the shell test.sh is started from (a codex lane exports EXECUTOR_KIND).
 unset EXECUTOR_KIND EXECUTOR_MODEL SPEC_REVIEWER_MODEL QUALITY_REVIEWER_MODEL STALE PM TYPECHECK_TASK \
-  CHECK_CMD INSTALL_CMD TEST_PKG TEST_FILTER LANES TASK_REVIEW LANE_REVIEW PREFLIGHT STATIC_BASELINE PR METHOD \
+  CHECK_CMD INSTALL_CMD LANES TASK_REVIEW LANE_REVIEW PREFLIGHT STATIC_BASELINE PR METHOD \
   REVIEWER_KIND REVIEWER_MODEL REVIEW_AREAS SUITE_SKIP PR_TEMPLATE TRIAGE GUIDED_REVIEW NOTIFY
 # The model defaults (model-defaults): the kit's file, never the calling shell's keys.
 # shellcheck disable=SC2046  # the file's keys, one word each
@@ -291,16 +291,14 @@ if section detect; then
   r=$(fixture_repo bun-vitest)
   assert_eq "detect: bun from bun.lock"              "$(detect_in "$r" 'echo $PM')" bun
   assert_eq "detect: check gate = typecheck && test" "$(detect_in "$r" 'echo "$CHECK_CMD"')" "bun run typecheck && bun run test"
-  assert_eq "detect: default checks pane is the runner in watch mode" "$(detect_in "$r" 'echo "${PANE_NAMES[0]} ${PANE_CMDS[0]} ${PANE_DIRS[0]}"')" "checks bunx vitest --watch ."
-  assert_eq "detect: no dev pane by default"        "$(detect_in "$r" 'echo ${#PANE_NAMES[@]}')" 1
+  assert_eq "detect: no pane by default (no checks pane, no dev)" "$(detect_in "$r" 'echo ${#PANE_NAMES[@]}')" 0
   assert_eq "detect: CHECK_CMD from the environment wins" "$(CHECK_CMD='make it' detect_in "$r" 'echo "$CHECK_CMD"')" "make it"
   r=$(fixture_repo pnpm-notest)
   assert_eq "detect: check-types, no test script"   "$(detect_in "$r" 'echo "$CHECK_CMD"')" "pnpm run check-types"
-  assert_match "detect: no runner gives a note, not a broken pane" "$(detect_in "$r" 'echo "${PANE_CMDS[0]}"')" "no test runner detected"
-  assert_eq "detect: NO_RUNNER=1 without a runner"  "$(detect_in "$r" 'echo $NO_RUNNER')" 1
-  assert_eq "detect: NO_RUNNER=0 with a detected runner" "$(detect_in "$(fixture_repo bun-vitest)" 'echo $NO_RUNNER')" 0
+  assert_nomatch "detect: no runner, no note" "$(detect_in "$r" 'true')" "no test runner detected"
   printf 'pane checks "make test"\n' > "$r/.orchestrate"
-  assert_eq "detect: NO_RUNNER=0 with a declared checks pane" "$(detect_in "$r" 'echo $NO_RUNNER')" 0
+  assert_eq "detect: a pane checks line is accepted, and places no pane" "$(detect_in "$r" 'echo ${#PANE_NAMES[@]}' 2>/dev/null | tail -1)" 0
+  assert_eq "detect: ... with one info: line that it is ignored" "$(detect_in "$r" 'true' | grep -c '^info: \.orchestrate: pane checks is ignored: the checks pane is gone')" 1
   rm "$r/.orchestrate"
   assert_eq "install: the package manager's install with a package.json" "$(detect_in "$(fixture_repo bun-vitest)" 'echo "$INSTALL_CMD"')" "bun install"
   assert_eq "install: none without a package.json"  "$(detect_in "$(fixture_repo none)" 'echo "[$INSTALL_CMD]"')" "[]"
@@ -316,7 +314,7 @@ if section detect; then
   assert_eq "install: the environment wins, even empty" "$(INSTALL_CMD='' detect_in "$ir" 'echo "[$INSTALL_CMD]"')" "[]"
   r=$(fixture_repo contract)
   assert_eq "contract: CHECK_CMD"                   "$(detect_in "$r" 'echo "$CHECK_CMD"')" "make check"
-  assert_eq "contract: panes in order with dirs"    "$(detect_in "$r" 'echo "${PANE_NAMES[*]}|${PANE_CMDS[1]}|${PANE_DIRS[1]}"')" "checks dev|make dev|web"
+  assert_eq "contract: panes in order with dirs"    "$(detect_in "$r" 'echo "${PANE_NAMES[*]}|${PANE_CMDS[0]}|${PANE_DIRS[0]}"' | tail -1)" "dev|make dev|web"
   assert_eq "contract: harness, models and stale"   "$(detect_in "$r" 'echo "$EXECUTOR_KIND $EXECUTOR_MODEL $SPEC_REVIEWER_MODEL $QUALITY_REVIEWER_MODEL $STALE"')" "codex gpt-6-astra-mini haiku sonnet 45"
   assert_eq "contract: the environment wins over the file" "$(EXECUTOR_KIND=claude STALE=5 detect_in "$r" 'echo "$EXECUTOR_KIND $STALE $EXECUTOR_MODEL"')" "claude 5 gpt-6-astra-mini"
   assert_match "contract: an unknown setting is named" "$(detect_in "$(fixture_repo contract-typo)" 'echo reached')" "'MODEL' is not a setting"
@@ -325,7 +323,7 @@ if section detect; then
   (cd "$r" && "$KIT/bootstrap.sh" "$RUNC" "Contract" main "$KIT/example-tasks.tsv" >/dev/null 2>&1)
   assert_eq "contract: bootstrap records the file's models" "$(board "$RUNC" '" ".join(k+"="+v for k,v in sorted(d["run"]["models"].items()))')" "implementer=gpt-6-astra-mini quality-reviewer=sonnet spec-reviewer=haiku"
   assert_match "contract: lane A is codex"          "$(cat "$RUNC/panes.txt")" '^lane A: .*kind codex, .*model gpt-6-astra-mini\)'
-  assert_match "contract: console stale from the file" "$(cat "$HERDR_STUB_LOG")" '^herdr pane run pane-4 tower --stale 45$'
+  assert_match "contract: console stale from the file" "$(cat "$HERDR_STUB_LOG")" '^herdr pane run pane-3 tower --stale 45$'
   reset_stub; out=$(cd "$r" && EXECUTOR_KIND=claude "$KIT/add-lane.sh" "$RUNC" B feat/b main 2 2>&1)
   assert_match "contract: add-lane env overrides the file's kind" "$(cat "$RUNC/panes.txt")" '^lane B: .*kind claude, .*model gpt-6-astra-mini\)'
   r=$(fixture_repo none)
@@ -346,9 +344,8 @@ if section detect; then
     "$(detect_in "$r" 'for i in 0 1 2; do printf "%s|%s|%s;" "${SUITE_NAMES[$i]}" "${SUITE_CMDS[$i]}" "${SUITE_DIRS[$i]}"; done')" \
     "lint|make lint|.;test|make test|pkg/core;build|make build|.;"
   assert_match "this repo's contract: the check gate runs tower's check, the fast tests and shellcheck" "$(detect_in "$ROOT" 'echo "$CHECK_CMD"')" '^bun run check && \./test\.sh --fast && shellcheck '
-  assert_eq "this repo's contract: the full suite is tower's check, every test, then shellcheck" "$(detect_in "$ROOT" 'echo "${SUITE_NAMES[*]}|${SUITE_CMDS[0]}|${SUITE_CMDS[1]}|${SUITE_CMDS[2]}"')" "check tests shellcheck|bun run check|./test.sh|shellcheck -S warning *.sh skills/*/*.sh skills/orchestrate/tests/stub/*"
-  assert_match "this repo's contract: the checks pane covers both sides" "$(detect_in "$ROOT" 'echo "${PANE_CMDS[0]}"')" 'bun run check.*\./test\.sh --fast'
-  assert_nomatch "this repo's contract: a checks pane, no unknown settings" "$(detect_in "$ROOT" 'echo "${PANE_CMDS[0]}"')" 'no test runner detected|not a setting'
+  assert_eq "this repo's contract: the full suite is tower's check, every test, then shellcheck" "$(detect_in "$ROOT" 'echo "${SUITE_NAMES[*]}|${SUITE_CMDS[0]}|${SUITE_CMDS[1]}|${SUITE_CMDS[2]}"' | tail -1)" "check tests shellcheck|bun run check|./test.sh|shellcheck -S warning *.sh skills/*/*.sh skills/orchestrate/tests/stub/*"
+  assert_nomatch "this repo's contract: no unknown settings" "$(detect_in "$ROOT" 'true')" 'not a setting'
   assert_eq "suite: none without suite lines" "$(detect_in "$(fixture_repo none)" 'echo ${#SUITE_NAMES[@]}')" 0
   r=$(fixture_repo contract-switches-bad)
   assert_match "switches: a bad value is refused with the allowed values" "$(detect_in "$r" 'echo reached')" "PR must be draft, ready or off \(got 'maybe'\)"
@@ -387,19 +384,22 @@ if section bootstrap; then
   assert_eq "empty: no lane assignment"                 "$(board "$RUN" 'len(d["lanes"])')" 0
   assert_match "layout: bottom row first"               "$log" '^herdr pane split --current --direction down --ratio 0.7 '
   assert_match "layout: lane A right of the orchestrator" "$log" '^herdr pane split --current --direction right --ratio 0.3 '
-  assert_match "layout: console right of checks"        "$log" '^herdr pane split --pane pane-1 --direction right --ratio 0.5 '
-  assert_match "layout: checks pane runs the runner in the checkout" "$log" "^herdr pane run pane-1 cd $r/\. && bunx vitest --watch$"
+  assert_match "layout: console right of the shell, half the row" "$log" '^herdr pane split --pane pane-1 --direction right --ratio 0.5 '
+  assert_nomatch "layout: the shell runs nothing"       "$log" '^herdr pane run pane-1 '
+  assert_match "layout: the shell opens in the checkout" "$log" "^herdr pane split --current --direction down --ratio 0.7 --cwd $r --no-focus$"
+  assert_eq "layout: no checks pane, so four splits at most" "$(grep -c '^herdr pane split ' <<< "$log")" 3
   assert_match "layout: console runs tower"             "$log" '^herdr pane run pane-3 tower --stale 30$'
   assert_match "lane A: agent named and started"        "$log" '^herdr agent start bun-vitest-lane-a --kind claude --pane pane-2 -- --model claude-opus-5-5\[1m\]$'
   map=$(cat "$RUN/panes.txt")
   assert_match "pane map: lane A line"                  "$map" '^lane A: +pane-2 +\(agent "bun-vitest-lane-a", kind claude, branch main, checkout '"$r"', model '
-  assert_match "pane map: checks line"                  "$map" '^checks: +pane-1 '
+  assert_nomatch "pane map: no checks line"             "$map" '^checks:'
+  assert_match "pane map: shell line"                   "$map" "^shell: +pane-1 +\\(a shell in $r, for the human\\)$"
   assert_match "pane map: console line"                 "$map" '^console: +pane-3 '
   assert_match "pane map: check gate"                   "$map" '^check gate: +bun run typecheck && bun run test$'
   assert_nomatch "pane map: no dev line by default"     "$map" '^dev:'
   assert_match "output: the pane map is printed"        "$out" '^lane A: '
   assert_match "output: next step for the empty opening" "$out" 'tower add'
-  assert_nomatch "output: a detected runner needs no note" "$out" 'no test runner detected'
+  assert_nomatch "output: no info line without a pane checks line" "$out" '^info:'
   for outside in HERDR_ENV=0 HERDR_STUB=absent; do
     RUN="$TMP/run-outside-${outside%%=*}"; reset_stub
     out=$(env "$outside" bash -c 'cd "$1" && shift && "$KIT/bootstrap.sh" "$@" 2>&1' _ "$r" "$RUN" "Outside" main; echo "exit=$?")
@@ -410,9 +410,7 @@ if section bootstrap; then
     assert_nomatch "outside herdr ($outside): no run in the repo"   "$(cd "$r" && "$KIT/tests/stub/tower" state --json 2>&1)" "run-outside"
   done
   out=$(boot "$(fixture_repo pnpm-notest)" "$TMP/run-norunner" "No runner" main)
-  assert_eq "output: no test runner detected, said once" "$(printf '%s\n' "$out" | grep -c '^info: no test runner detected')" 1
-  assert_nomatch "output: the note is on stderr, not stdout" "$(cd "$(fixture_repo pnpm-notest)" && "$KIT/bootstrap.sh" "$TMP/run-norunner2" "No runner" main 2>/dev/null)" '^info: no test runner detected'
-  assert_match "output: the note says how to declare one" "$out" '^info: no test runner detected: the checks pane has nothing to run; declare  pane checks "<cmd>"  in \.orchestrate$'
+  assert_nomatch "output: no test runner detected, no note" "$out" 'no test runner detected'
   assert_match "switches: pane map has every switch"    "$map" '^switches: +TASK_REVIEW=on LANE_REVIEW=off PREFLIGHT=on STATIC_BASELINE=on PR=draft METHOD=tdd REVIEWER_KIND=other REVIEWER_MODEL= REVIEWER_BY_CREDITS=off REVIEWER_CREDITS_MIN=20 REVIEW_AREAS= SUITE_SKIP= PR_TEMPLATE= TRIAGE=ask GUIDED_REVIEW=off NOTIFY=$'
   assert_match "switches: the record gets a tower note" "$(notes "$TMP/run-empty")" '^switches: TASK_REVIEW=on LANE_REVIEW=off .* PR_TEMPLATE= TRIAGE=ask GUIDED_REVIEW=off NOTIFY=$'
   assert_match "switches: printed with the pane map"    "$out" '^switches: +TASK_REVIEW=on '
@@ -487,7 +485,10 @@ if section bootstrap; then
   RUN="$TMP/run-lines"; reset_stub
   out=$(boot "$(fixture_repo contract-lines)" "$RUN" "Lines only" main; echo "exit=$?")
   assert_match "a contract with only pane and suite lines: bootstrap finishes" "$out" 'exit=0$'
-  assert_match "a contract with only pane and suite lines: pane map written" "$(cat "$RUN/panes.txt" 2>&1)" '^checks: +pane-[0-9]+ +\(make watch in \.\)$'
+  assert_match "a contract with only pane and suite lines: pane map written" "$(cat "$RUN/panes.txt" 2>&1)" '^shell: +pane-[0-9]+ '
+  assert_eq "pane checks: bootstrap says once that the line is ignored" "$(grep -c '^info: \.orchestrate: pane checks is ignored: the checks pane is gone' <<< "$out")" 1
+  assert_nomatch "pane checks: ... and opens no checks pane" "$(cat "$RUN/panes.txt" "$HERDR_STUB_LOG")" '^checks:|make watch'
+  assert_nomatch "pane checks: the info line is on stderr" "$(cd "$(fixture_repo contract-lines)" && "$KIT/bootstrap.sh" "$TMP/run-lines2" "Lines" main 2>/dev/null)" '^info:'
   r=$(fixture_repo bun-vitest); RUN="$TMP/run-fallback"; reset_stub
   out=$(CODEX_STUB=absent boot "$r" "$RUN" "Fallback" main)
   assert_match "reviewer: a fallback is in the pane map" "$(cat "$RUN/panes.txt")" '^reviewer: +kind claude, model claude-fable-5-1 \(fallback: codex is not installed'
@@ -504,12 +505,15 @@ if section bootstrap; then
   r=$(fixture_repo contract); RUN="$TMP/run-dev"; reset_stub
   out=$(boot "$r" "$RUN" "Dev" main)
   log=$(cat "$HERDR_STUB_LOG")
-  assert_match "dev: bottom row in thirds, checks after dev" "$log" '^herdr pane split --pane pane-1 --direction right --ratio 0.34 '
-  assert_match "dev: console after checks"              "$log" '^herdr pane split --pane pane-3 --direction right --ratio 0.5 '
+  assert_match "dev: console takes the right half of the bottom row" "$log" '^herdr pane split --pane pane-1 --direction right --ratio 0.5 '
+  assert_match "dev: the shell right of dev"            "$log" '^herdr pane split --pane pane-1 --direction right --ratio 0.5 .*$'
+  assert_eq "dev: dev split twice (console, then shell)" "$(grep -c '^herdr pane split --pane pane-1 --direction right --ratio 0.5 ' <<< "$log")" 2
   assert_match "dev: dev pane runs in its dir"          "$log" "^herdr pane run pane-1 cd $r/web && make dev$"
-  assert_match "dev: checks pane runs make watch"       "$log" "^herdr pane run pane-3 cd $r/\. && make watch$"
-  assert_match "dev: pane map has dev, checks, console" "$(cat "$RUN/panes.txt")" '^dev: +pane-1 '
-  assert_match "dev: console is pane-4"                 "$(cat "$RUN/panes.txt")" '^console: +pane-4 '
+  assert_nomatch "dev: the shell runs nothing"          "$log" '^herdr pane run pane-4 '
+  assert_match "dev: pane map has dev"                  "$(cat "$RUN/panes.txt")" '^dev: +pane-1 '
+  assert_match "dev: console is pane-3"                 "$(cat "$RUN/panes.txt")" '^console: +pane-3 '
+  assert_match "dev: shell is pane-4"                   "$(cat "$RUN/panes.txt")" '^shell: +pane-4 '
+  assert_match "dev: console runs tower"                "$log" '^herdr pane run pane-3 tower --stale 45$'
 
   # Lane A runs where bootstrap is run from, which is often a herdr worktree
   # of the checkout, not the main checkout repo_root() resolves to.
@@ -518,7 +522,7 @@ if section bootstrap; then
   RUN="$TMP/run-worktree"; reset_stub
   boot "$wt" "$RUN" "Worktree" wt-branch >/dev/null
   assert_match "worktree: lane A checkout is where bootstrap ran, not repo_root" "$(cat "$RUN/panes.txt")" '^lane A: +pane-2 +\(agent "[^"]+", kind claude, branch wt-branch, checkout '"$wt"', model '
-  assert_match "worktree: checks pane cds into the worktree"  "$(cat "$HERDR_STUB_LOG")" "^herdr pane run pane-1 cd $wt/\. && "
+  assert_match "worktree: the shell opens in the worktree" "$(cat "$RUN/panes.txt")" "^shell: +pane-1 +\\(a shell in $wt, "
 
   # The pane commands are shell code built around the checkout's path: a path
   # with an apostrophe (or one crafted to run code) must stay one directory.
@@ -534,7 +538,6 @@ if section bootstrap; then
     out=$(boot "$r" "$RUN" "Quoted" main; echo "exit=$?")
     assert_match "quoted path ($name): bootstrap finishes"    "$out" 'exit=0$'
     for sh in $shells; do
-      assert_eq "quoted path ($name, $sh): checks pane runs in the checkout" "$(cd "$TMP/repos/quoted" && pane_cwd "$sh" pane-3)" "$r"
       assert_eq "quoted path ($name, $sh): dev pane runs in its dir"         "$(cd "$TMP/repos/quoted" && pane_cwd "$sh" pane-1)" "$r/web"
       assert_eq "quoted path ($name, $sh): no code in the path runs" "$([ -e "$TMP/repos/quoted/pwned" ] && echo ran || echo none)" none
     done
@@ -1397,17 +1400,17 @@ if section user-contract; then
   # As the kit's scripts run: set -euo pipefail.
   detect_in() { (cd "$1" && env XDG_CONFIG_HOME="$UC" bash -c "set -euo pipefail; . \"\$KIT/common.sh\"; . \"\$KIT/detect-stack.sh\"; $2" 2>&1); }
   r=$(fixture_repo bun-vitest)
-  for key in CHECK_CMD INSTALL_CMD PM TYPECHECK_TASK TEST_PKG TEST_FILTER; do
+  for key in CHECK_CMD INSTALL_CMD PM TYPECHECK_TASK; do
     uc "$key=from-user"
     out=$(detect_in "$r" "echo \"[\$$key]\"")
     assert_match "user contract: repo-only $key is named, with the file" "$out" "^$UC/tower/orchestrate: '$key' is a repo contract setting"
     assert_nomatch "user contract: ... and ignored" "$out" '^\[from-user\]$'
   done
   uc 'pane checks "make watch"' 'suite lint "make lint"'
-  out=$(detect_in "$r" 'echo "${PANE_CMDS[*]}|${#SUITE_NAMES[@]}"')
+  out=$(detect_in "$r" 'echo "${#PANE_NAMES[@]}|${#SUITE_NAMES[@]}"')
   assert_match "user contract: repo-only pane is named" "$out" "^$UC/tower/orchestrate: 'pane' is a repo contract setting"
   assert_match "user contract: repo-only suite is named" "$out" "^$UC/tower/orchestrate: 'suite' is a repo contract setting"
-  assert_match "user contract: ... and both ignored" "$out" '^bunx vitest --watch\|0$'
+  assert_match "user contract: ... and both ignored" "$out" '^0\|0$'
   uc EXECUTOR_MODEL=lane-m
   out=$(detect_in "$r" 'echo "[${EXECUTOR_MODEL:-}]"')
   assert_match "user contract: an unsuffixed model is ignored, pointing to the per-kind key" "$out" \
