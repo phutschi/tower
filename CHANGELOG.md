@@ -37,8 +37,9 @@ All notable changes to this project are documented here. The format follows
 
 - An orchestrate run opens no checks pane: each lane runs the check gate
   itself. Its place goes to an empty shell pane for the human (the pane
-  map's `shell:` line), and the console takes the right half of the bottom
-  row. A `pane checks` line in `.orchestrate` is ignored with one `info:`
+  map's `shell:` line). The console takes the top right of the
+  orchestrator's tab, over the shell (with dev left of it, when the run has
+  one). A `pane checks` line in `.orchestrate` is ignored with one `info:`
   line; `TEST_PKG` and `TEST_FILTER`, which steered the default checks pane,
   are no longer read.
 - An orchestrate run opens a second tab, `lanes`, in the orchestrator's
