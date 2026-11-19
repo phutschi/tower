@@ -16,27 +16,41 @@
 # tower is the record and the console. When tower does not run, bootstrap
 # refuses before it creates anything and says how to install it.
 #
-# The layout, one tab (the lane grid grows with add-lane.sh):
+# The layout, two tabs in the orchestrator pane's workspace (the lane grid
+# grows with add-lane.sh):
 #
-#        ┌──────────────┬──────────┬──────────┐
-#        │ orchestrator │ lane A   │ lane B   │
-#        │              ├──────────┼──────────┤
-#        │              │ lane C   │ lane D   │
-#        ├──────┬───────┴──┬───────┴──────────┤
-#        │ dev  │ checks   │ console          │   ← dev only when the repo declares it
-#        └──────┴──────────┴──────────────────┘
+#   the orchestrator's tab             lanes  (opened with --no-focus)
+#   ┌──────────────┬──────────────┐    ┌──────────┬──────────┬──────────┐
+#   │ orchestrator │ console      │    │ lane A   │ lane B   │ R1       │
+#   │              ├───────┬──────┤    ├──────────┼──────────┼──────────┤
+#   │              │ dev   │ shell│    │ lane C   │ lane D   │ R2       │
+#   └──────────────┴───────┴──────┘    └──────────┴──────────┴──────────┘
 #
-# checks and dev come from .orchestrate (see example.orchestrate)
-# or the JS default (detect-stack.sh); both run in lane A's checkout, and only
-# their command is shell code: a checkout path with an apostrophe or a space
-# stays one directory. With no checks pane declared and no test runner
-# detected, one info: line on stderr says so. Lane A is EXECUTOR_KIND
+# dev only when the repo declares it; without it the shell takes the space
+# under the console. The console has half the tab, for its 60 columns. Lane
+# A is the lanes tab's root. The R1/R2 column, a third of the tab, held for
+# the Reviewer slots, is there only when LANE_REVIEW or PREFLIGHT is on.
+# With session roles on and lane A's tasks in a role other than code or review
+# (data, research, …; layout.sh lane_tab), lane A is the root of a  research
+# tab instead, its pane map line  research tab: <tab-id> , and the lanes tab
+# opens with the first code or review lane (add-lane.sh) or Reviewer
+# (add-reviewer.sh).
+#
+# dev comes from .orchestrate (see example.orchestrate) and runs in lane A's
+# checkout; only its command is shell code: a checkout path with an
+# apostrophe or a space stays one directory. The shell is an empty one in the
+# same checkout, for the human. There is no checks pane: each lane runs the
+# check gate itself, and a  pane checks  line in .orchestrate is ignored with
+# one info: line on stderr (detect-stack.sh). Lane A is EXECUTOR_KIND
 # (claude | codex | cursor) on EXECUTOR_MODEL: .orchestrate sets the run's default,
 # the environment of this call overrides it (executor.sh).
 #
 # Writes <run-dir>/panes.txt, the pane map for the whole run, then prints it
-# with the next step. The pane map's  switches:  line holds every run switch
-# and the value this run uses (detect-stack.sh). Its  contract:  line names
+# with the next step. Its  lanes tab:  line holds the tab's id and the R1 and
+# R2 panes, or  (no Reviewer column) ; or, with lane A in research, its
+#  research tab:  line holds that tab's id. Lane A's line ends with its tab.
+# The pane map's  switches:  line holds every run switch and the value this
+# run uses (detect-stack.sh). Its  contract:  line names
 # the pin: the .orchestrate read here, written read-only outside the run dir
 # and the repo (detect-stack.sh), is what add-lane and add-reviewer read for
 # the whole run; for them this line is only a pointer, never read. The
@@ -77,6 +91,7 @@
 set -euo pipefail
 KIT="$(cd "$(dirname "$0")" && pwd)"
 . "$KIT/common.sh"
+. "$KIT/layout.sh"
 in_herdr; need git python3 node
 [ $# -ge 3 ] || die 'usage: bootstrap.sh <run-dir> "<title>" <branch> [plan.md | tasks.tsv]'
 RUN_DIR="$1"; TITLE="$2"; BRANCH="$3"; SOURCE="${4:-}"
@@ -128,7 +143,7 @@ if [ "$ROLES" = on ] && [ "${SOURCE##*.}" = md ]; then
   done
   unset _spec _role
 fi
-# Lane A, checks, and dev all belong in the directory bootstrap runs in, which
+# Lane A, dev and the shell all belong in the directory bootstrap runs in, which
 # is often a herdr worktree of the checkout, not repo_root() (that resolves to
 # the main checkout — the same resolution agent_name inlines for naming, and
 # what add-lane.sh uses for the worktree location of lanes B-D).
@@ -200,30 +215,37 @@ LANE_A_SESSION=""; [ -z "$SESSION_ROLE" ] || LANE_A_SESSION="role $SESSION_ROLE,
 # --- the layout --------------------------------------------------------------
 split() { herdr pane split "$@" --cwd "$REPO" --no-focus | pane_id; }
 run_in() { herdr pane run "$1" "cd $(printf %q "$REPO/$2") && $3" >/dev/null; }
-BOTTOM=$(split --current --direction down --ratio 0.7)
-LANE_A_PANE=$(split --current --direction right --ratio 0.3)
-CHECKS_I=$(pane_index checks); DEV_I=$(pane_index dev)
+WS=$(herdr pane get "$HERDR_PANE_ID" | jsonq 'd["result"]["pane"]["workspace_id"]') \
+  || die "bootstrap: no workspace for the orchestrator pane $HERDR_PANE_ID (herdr pane get)"
+# The orchestrator's tab: the console right of the orchestrator, half the tab
+# (its 60 columns); under it the shell, and dev left of the shell when declared.
+CONSOLE_PANE=$(split --current --direction right --ratio 0.5)
+SHELL_PANE=$(split --pane "$CONSOLE_PANE" --direction down --ratio 0.6)
+DEV_I=$(pane_index dev); DEV_PANE=""
 if [ -n "$DEV_I" ]; then
-  DEV_PANE=$BOTTOM
-  CHECKS_PANE=$(split --pane "$BOTTOM" --direction right --ratio 0.34)
-  CONSOLE_PANE=$(split --pane "$CHECKS_PANE" --direction right --ratio 0.5)
+  DEV_PANE=$SHELL_PANE
+  SHELL_PANE=$(split --pane "$DEV_PANE" --direction right --ratio 0.5)
   run_in "$DEV_PANE" "${PANE_DIRS[$DEV_I]}" "${PANE_CMDS[$DEV_I]}"
-else
-  DEV_PANE=""
-  CHECKS_PANE=$BOTTOM
-  CONSOLE_PANE=$(split --pane "$BOTTOM" --direction right --ratio 0.5)
 fi
-run_in "$CHECKS_PANE" "${PANE_DIRS[$CHECKS_I]}" "${PANE_CMDS[$CHECKS_I]}"
-[ "$NO_RUNNER" = 0 ] || echo 'info: no test runner detected: the checks pane has nothing to run; declare  pane checks "<cmd>"  in .orchestrate' >&2
 herdr pane run "$CONSOLE_PANE" "tower --stale $STALE" >/dev/null
+# Lane A's tab, lane A its root: the lanes tab, with the Reviewer column when
+# anything reviews; with roles, the research tab for a lane A of a role other
+# than code or review (layout.sh lane_tab), and the lanes tab waits for its
+# first pane.
+LANE_A_TAB=lanes; [ "$ROLES" != on ] || LANE_A_TAB=$(lane_tab "$LANE_A_ROLE")
+out=$(herdr tab create --workspace "$WS" --cwd "$REPO" --label "$LANE_A_TAB" --no-focus)
+TAB_ID=$(echo "$out" | jsonq 'd["result"]["tab"]["tab_id"]')
+LANE_A_PANE=$(echo "$out" | jsonq 'd["result"]["root_pane"]["pane_id"]')
+COLUMN=""; [ "$LANE_A_TAB" != lanes ] || COLUMN="   $(reviewer_column "$REPO" "$LANE_A_PANE")"
 
 # --- the pane map, before the agent start so add-lane and the brief have it even if that fails
 {
   echo "run dir:        $RUN_DIR"
   echo "orchestrator:   $HERDR_PANE_ID"
-  echo "lane A:         $LANE_A_PANE   (agent \"$LANE_A\", kind $EXECUTOR_KIND, ${LANE_A_SESSION}branch $BRANCH, checkout $REPO, model $EXECUTOR_MODEL)"
-  echo "checks:         $CHECKS_PANE   (${PANE_CMDS[$CHECKS_I]} in ${PANE_DIRS[$CHECKS_I]})"
+  printf '%-16s%s%s\n' "$LANE_A_TAB tab:" "$TAB_ID" "$COLUMN"
+  echo "lane A:         $LANE_A_PANE   (agent \"$LANE_A\", kind $EXECUTOR_KIND, ${LANE_A_SESSION}branch $BRANCH, checkout $REPO, model $EXECUTOR_MODEL, tab $LANE_A_TAB)"
   [ -z "$DEV_PANE" ] || echo "dev:            $DEV_PANE   (${PANE_CMDS[$DEV_I]} in ${PANE_DIRS[$DEV_I]})"
+  echo "shell:          $SHELL_PANE   (a shell in $REPO, for the human)"
   echo "console:        $CONSOLE_PANE   (tower; the record — stays open, the human quits it with q)"
   echo "check gate:     $CHECK_CMD"
   echo "contract:       $PIN"

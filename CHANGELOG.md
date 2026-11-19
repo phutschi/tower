@@ -33,6 +33,34 @@ All notable changes to this project are documented here. The format follows
 - A Reviewer marks a choice with a finding's `decision` options; triage
   writes `decided_by`, and the PR's findings tables show it.
 
+### Changed
+
+- An orchestrate run opens no checks pane: each lane runs the check gate
+  itself. Its place goes to an empty shell pane for the human (the pane
+  map's `shell:` line). The console takes the top right of the orchestrator's
+  tab, over dev and the shell (dev only when the run has one). A
+  `pane checks` line in `.orchestrate` is ignored with one `info:` line;
+  `TEST_PKG` and `TEST_FILTER`, which steered the default checks pane, are
+  no longer read.
+- An orchestrate run opens a second tab, `lanes`, in the orchestrator's
+  workspace: lane A starts there, and lanes B–D join its grid in the order
+  they are added. The orchestrator's tab keeps the orchestrator, the console,
+  dev and the shell. When anything reviews, the lanes tab keeps a
+  full-height column on the right for R1 and R2. The pane map gains a
+  `lanes tab:` line, and each lane's line names its tab.
+- Reviewers R1 and R2 run in the lanes tab's right column, not in a
+  `reviews` tab of their own. A run whose lanes tab is not open yet gets it
+  from the first review, the column alone; a code lane added after that goes
+  under R2. One case gets a reviews tab: a lanes tab opened with
+  `LANE_REVIEW` and `PREFLIGHT` both off has no column, so a review started
+  in that run all the same opens one. A run opened before this change keeps
+  its reviews tab.
+- With session roles, a lane whose tasks name a role other than `code` or
+  `review` (data, research, any later one) goes to a third tab,
+  `research`, of any executor kind; lane A too. The tab opens with its
+  first such lane, and its lanes fill a grid of their own. A run with only
+  code or review lanes, or without roles, has no research tab.
+
 ## [0.5.0] — 2026-10-07
 
 ### Added
