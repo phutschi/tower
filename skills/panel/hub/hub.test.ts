@@ -1,0 +1,252 @@
+/**
+ * Seam 1: the hub, driven through its HTTP API, with the stub gh standing in
+ * for GitHub. Each repo's open issues are a fixture file the stub reads and
+ * edits.
+ */
+import {
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+  existsSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, expect, test } from "bun:test";
+
+import type { Job, PanelIssue } from "../types.ts";
+import { startHub, type Hub } from "./hub.ts";
+
+const GH = join(import.meta.dir, "../tests/stub/gh");
+
+let dir: string;
+let hub: Hub | undefined;
+
+interface Issue {
+  number: number;
+  title: string;
+  labels: { name: string }[];
+}
+const issue = (number: number, ...labels: string[]): Issue => ({
+  number,
+  title: `Issue ${number}`,
+  labels: labels.map((name) => ({ name })),
+});
+
+const fixture = (repo: string) => join(dir, `${repo.replace("/", "_")}.json`);
+const setIssues = (repo: string, issues: Issue[]) =>
+  writeFileSync(fixture(repo), JSON.stringify(issues));
+const ghIssues = (repo: string) =>
+  JSON.parse(readFileSync(fixture(repo), "utf8")) as Issue[];
+const ghLog = () =>
+  existsSync(join(dir, "gh.log"))
+    ? readFileSync(join(dir, "gh.log"), "utf8").split("\n").filter(Boolean)
+    : [];
+const lists = () => ghLog().filter((l) => l.startsWith("gh issue list")).length;
+
+/** Waits for the hub to finish `n` more polls of every listed repo. */
+async function polls(n: number) {
+  const target = lists() + n;
+  for (let i = 0; i < 200 && lists() < target; i++) await Bun.sleep(10);
+  // One more poll after the target, so the target's poll has been applied.
+  const applied = lists() + 1;
+  for (let i = 0; i < 200 && lists() < applied; i++) await Bun.sleep(10);
+}
+
+async function api<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`${hub!.url}${path}`, init);
+  expect(res.ok).toBe(true);
+  return (await res.json()) as T;
+}
+const post = (path: string, body: unknown) =>
+  fetch(`${hub!.url}${path}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+async function start(repos: string[] = ["acme/widgets"]) {
+  hub = await startHub({
+    dbPath: join(dir, "hub.db"),
+    host: "127.0.0.1",
+    port: 0,
+    pollMs: 20,
+    ghBin: GH,
+  });
+  for (const repo of repos) await post("/api/repos", { repo });
+  await polls(1);
+}
+
+beforeEach(() => {
+  dir = mkdtempSync(join(tmpdir(), "panel-hub-"));
+  process.env.GH_STUB_DIR = dir;
+  process.env.GH_STUB_LOG = join(dir, "gh.log");
+  delete process.env.GH_STUB_FAIL;
+});
+afterEach(async () => {
+  await hub?.stop();
+  hub = undefined;
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test("the first poll records current stage labels and queues no job", async () => {
+  setIssues("acme/widgets", [
+    issue(1, "needs-triage"),
+    issue(2, "shaping"),
+    issue(3, "ready-for-agent", "bug"),
+  ]);
+  await start();
+  const issues = await api<PanelIssue[]>("/api/issues");
+  expect(issues.map((i) => [i.number, i.stage])).toEqual([
+    [1, "needs-triage"],
+    [2, "shaping"],
+    [3, "ready-for-agent"],
+  ]);
+  expect(await api<Job[]>("/api/jobs")).toEqual([]);
+});
+
+test("a label changed into shaping on GitHub queues one grill job, seen twice or not", async () => {
+  setIssues("acme/widgets", [issue(1, "needs-triage"), issue(2)]);
+  await start();
+  setIssues("acme/widgets", [issue(1, "shaping"), issue(2)]);
+  await polls(2);
+  const jobs = await api<Job[]>("/api/jobs");
+  expect(jobs.map((j) => [j.kind, j.repo, j.issues, j.state])).toEqual([
+    ["grill", "acme/widgets", [1], "queued"],
+  ]);
+  const [one] = await api<PanelIssue[]>("/api/issues");
+  expect(one).toMatchObject({ stage: "shaping", jobId: jobs[0]!.id });
+});
+
+test("a move on the Panel into shaping sets the label through gh and queues one grill job", async () => {
+  setIssues("acme/widgets", [issue(4, "needs-triage", "bug", "area:ui")]);
+  await start();
+  const res = await post("/api/issues/acme/widgets/4/stage", {
+    stage: "shaping",
+  });
+  expect(res.status).toBe(200);
+  // The old stage label goes, the new one comes, nothing else is touched.
+  expect(ghIssues("acme/widgets")[0]!.labels.map((l) => l.name)).toEqual([
+    "bug",
+    "area:ui",
+    "shaping",
+  ]);
+  expect(ghLog()).toContain(
+    "gh issue edit 4 --repo acme/widgets --add-label shaping --remove-label needs-triage",
+  );
+  await polls(2);
+  const jobs = await api<Job[]>("/api/jobs");
+  expect(jobs.map((j) => [j.kind, j.issues])).toEqual([["grill", [4]]]);
+  const [four] = await api<PanelIssue[]>("/api/issues");
+  expect(four).toMatchObject({ stage: "shaping", issueArea: "ui" });
+});
+
+test("a move is refused for an unknown stage, closed, or an issue not on the Panel", async () => {
+  setIssues("acme/widgets", [issue(1, "needs-triage")]);
+  await start();
+  for (const [path, stage] of [
+    ["/api/issues/acme/widgets/1/stage", "done"],
+    ["/api/issues/acme/widgets/1/stage", "closed"],
+    ["/api/issues/acme/widgets/9/stage", "shaping"],
+    ["/api/issues/acme/gadgets/1/stage", "shaping"],
+  ] as const)
+    expect((await post(path, { stage })).status).toBe(400);
+  expect(ghLog().filter((l) => l.startsWith("gh issue edit"))).toEqual([]);
+});
+
+test("a move gh refuses is reported and changes nothing", async () => {
+  setIssues("acme/widgets", [issue(1, "needs-triage")]);
+  await start();
+  process.env.GH_STUB_FAIL = "edit";
+  const res = await post("/api/issues/acme/widgets/1/stage", {
+    stage: "shaping",
+  });
+  expect(res.status).toBe(502);
+  expect(await api<Job[]>("/api/jobs")).toEqual([]);
+  const [one] = await api<PanelIssue[]>("/api/issues");
+  expect(one!.stage).toBe("needs-triage");
+});
+
+test("a closed issue shows as closed, leaves the active stages and cannot be moved", async () => {
+  setIssues("acme/widgets", [issue(1, "in-review"), issue(2, "shaping")]);
+  await start();
+  setIssues("acme/widgets", [issue(2, "shaping")]);
+  await polls(2);
+  const issues = await api<PanelIssue[]>("/api/issues");
+  expect(issues.map((i) => [i.number, i.stage])).toEqual([
+    [1, "closed"],
+    [2, "shaping"],
+  ]);
+  const res = await post("/api/issues/acme/widgets/1/stage", {
+    stage: "shaping",
+  });
+  expect(res.status).toBe(400);
+  expect(await api<Job[]>("/api/jobs")).toEqual([]);
+});
+
+test("repos are listed and unlisted through the API; an unlisted repo's issues disappear", async () => {
+  setIssues("acme/widgets", [issue(1, "needs-triage")]);
+  setIssues("acme/gadgets", [issue(7, "shaping")]);
+  await start(["acme/widgets", "acme/gadgets"]);
+  expect(await api<string[]>("/api/repos")).toEqual([
+    "acme/gadgets",
+    "acme/widgets",
+  ]);
+  expect((await api<PanelIssue[]>("/api/issues")).length).toBe(2);
+  const res = await fetch(`${hub!.url}/api/repos/acme/gadgets`, {
+    method: "DELETE",
+  });
+  expect(res.status).toBe(200);
+  expect(await api<string[]>("/api/repos")).toEqual(["acme/widgets"]);
+  await polls(1);
+  const issues = await api<PanelIssue[]>("/api/issues");
+  expect(issues.map((i) => [i.repo, i.number])).toEqual([["acme/widgets", 1]]);
+  expect((await post("/api/repos", { repo: "not a repo" })).status).toBe(400);
+  expect(
+    (
+      await fetch(`${hub!.url}/api/repos`, {
+        method: "POST",
+        body: "{not json",
+      })
+    ).status,
+  ).toBe(400);
+});
+
+test("a newly listed repo's first poll records its stages and queues no job", async () => {
+  setIssues("acme/widgets", [issue(1, "needs-triage")]);
+  setIssues("acme/gadgets", [issue(7, "shaping")]);
+  await start();
+  await post("/api/repos", { repo: "acme/gadgets" });
+  await polls(2);
+  expect((await api<PanelIssue[]>("/api/issues")).length).toBe(2);
+  expect(await api<Job[]>("/api/jobs")).toEqual([]);
+});
+
+test("the Panel holds each stage's issues with a move control per issue, sized for a phone", async () => {
+  setIssues("acme/widgets", [
+    issue(1, "needs-triage"),
+    { ...issue(2, "shaping"), title: "Fix <script> & friends" },
+    issue(3, "in-review"),
+  ]);
+  await start();
+  const res = await fetch(`${hub!.url}/`);
+  expect(res.headers.get("content-type")).toContain("text/html");
+  const html = await res.text();
+  expect(html).toContain(
+    '<meta name="viewport" content="width=device-width, initial-scale=1">',
+  );
+  // No fixed-width layout: no width set in px anywhere.
+  expect(html).not.toMatch(/(^|[^-])width:\s*\d+px/);
+  const section = (stage: string) =>
+    html.split(`<section data-stage="${stage}">`)[1]?.split("</section>")[0] ??
+    "";
+  expect(section("needs-triage")).toContain("acme/widgets#1");
+  expect(section("shaping")).toContain("Fix &lt;script&gt; &amp; friends");
+  expect(section("in-review")).toContain("acme/widgets#3");
+  expect(section("ready-for-agent")).not.toContain("acme/widgets#");
+  for (const n of [1, 2, 3])
+    expect(html).toContain(
+      `<select data-move="/api/issues/acme/widgets/${n}/stage"`,
+    );
+  expect(html).toContain("acme/widgets");
+});

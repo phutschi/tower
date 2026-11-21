@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# Stand-in for gh in the Panel's tests. Logs argv to GH_STUB_LOG. Each repo's
+# open issues live in GH_STUB_DIR/<owner>_<repo>.json, as `gh issue list
+# --json number,title,labels` prints them; a repo without a file has none.
+# `issue edit` changes that file's labels, so the next list sees the edit.
+# GH_STUB_FAIL=<verb> makes that verb fail: list or edit.
+printf 'gh %s\n' "$*" >> "${GH_STUB_LOG:-/dev/null}"
+repo=""; add=(); remove=(); args=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --repo) repo=$2; shift ;;
+    --add-label) add+=("$2"); shift ;;
+    --remove-label) remove+=("$2"); shift ;;
+    --json|--limit|--state) shift ;;
+    *) args+=("$1") ;;
+  esac
+  shift
+done
+file="${GH_STUB_DIR:?}/${repo/\//_}.json"
+verb="${args[0]:-} ${args[1]:-}"
+[ -n "${GH_STUB_FAIL:-}" ] && [ "${args[1]:-}" = "$GH_STUB_FAIL" ] && { echo "gh: ${args[1]} failed (stub)" >&2; exit 1; }
+case "$verb" in
+  "issue list") if [ -f "$file" ]; then cat "$file"; else echo "[]"; fi ;;
+  "issue edit")
+    number=${args[2]:?}
+    adds=$(printf '%s\n' "${add[@]}" | jq -R . | jq -s 'map(select(. != ""))')
+    removes=$(printf '%s\n' "${remove[@]}" | jq -R . | jq -s 'map(select(. != ""))')
+    jq --argjson n "$number" --argjson add "$adds" --argjson rm "$removes" '
+      map(if .number == $n
+          then .labels = ([.labels[] | select(.name as $l | $rm | index($l) | not)]
+                          + [$add[] | {name: .}])
+          else . end)' "$file" > "$file.next" && mv "$file.next" "$file" ;;
+  *) echo "gh: unknown command $verb (stub)" >&2; exit 1 ;;
+esac
