@@ -289,6 +289,8 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
             !isObject(data)
           )
             return bad("an event has ts, kind and data");
+          if (kind === "session" && typeof data.sessionId === "string")
+            store.setSession(job.id, data.sessionId);
           if (job.kind === "advice" && kind === "proposal") {
             const proposal = parseProposal(data);
             if (typeof proposal === "string") return bad(proposal);

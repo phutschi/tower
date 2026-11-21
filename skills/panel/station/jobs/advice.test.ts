@@ -17,9 +17,10 @@ import {
   until,
   useFixture,
 } from "../../tests/fixture.ts";
-import { remote, station } from "../../tests/station-process.ts";
+import { remote, station, useStations } from "../../tests/station-process.ts";
 
 useFixture();
+useStations();
 setDefaultTimeout(20_000);
 
 const read = (name: string) =>

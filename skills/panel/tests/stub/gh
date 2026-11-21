@@ -2,8 +2,9 @@
 # Stand-in for gh in the Panel's tests. Logs argv to GH_STUB_LOG. Each repo's
 # open issues live in GH_STUB_DIR/<owner>_<repo>.json, as `gh issue list
 # --json number,title,labels` prints them; a repo without a file has none.
-# `issue view N --json labels` answers that issue's labels; `issue edit`
-# changes them in the file, so the next list sees the edit.
+# `issue view N` answers that issue's title, body and labels; `issue edit`
+# changes its labels in the file, so the next list sees the edit, and with
+# `--body-file -` writes the body it reads to GH_STUB_DIR/<owner>_<repo>_N.body.
 # `api repos/<owner>/<repo>/commits/HEAD` answers the head of main from
 # GH_STUB_DIR/<owner>_<repo>.head (0 without one); `api repos/…/issues/N`
 # answers that issue's id, 1000+N. `api repos/…/issues/N/dependencies/blocked_by`
@@ -11,13 +12,14 @@
 # one `N <blocker id>` line each. Any other `api` call answers {}.
 # GH_STUB_FAIL=<verb> makes that verb fail: list or edit.
 printf 'gh %s\n' "$*" >> "${GH_STUB_LOG:-/dev/null}"
-repo=""; add=(); remove=(); args=(); method=GET; field=""
+repo=""; add=(); remove=(); args=(); method=GET; field=""; body_file=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --repo) repo=$2; shift ;;
     --add-label) add+=("$2"); shift ;;
     --remove-label) remove+=("$2"); shift ;;
     -X) method=$2; shift ;;
+    --body-file) body_file=$2; shift ;;
     -F) field=$2; shift ;;
     --json|--limit|--state|--jq|-H|-f) shift ;;
     *) args+=("$1") ;;
@@ -29,9 +31,10 @@ verb="${args[0]:-} ${args[1]:-}"
 [ -n "${GH_STUB_FAIL:-}" ] && [ "${args[1]:-}" = "$GH_STUB_FAIL" ] && { echo "gh: ${args[1]} failed (stub)" >&2; exit 1; }
 case "$verb" in
   "issue list") if [ -f "$file" ]; then cat "$file"; else echo "[]"; fi ;;
-  "issue view") jq --argjson n "${args[2]:?}" '.[] | select(.number == $n) | {labels}' "$file" ;;
+  "issue view") jq --argjson n "${args[2]:?}" '.[] | select(.number == $n) | {title, body: (.body // ""), labels}' "$file" ;;
   "issue edit")
     number=${args[2]:?}
+    [ "$body_file" = - ] && cat > "${file%.json}_$number.body"
     adds=$(printf '%s\n' "${add[@]}" | jq -R . | jq -s 'map(select(. != ""))')
     removes=$(printf '%s\n' "${remove[@]}" | jq -R . | jq -s 'map(select(. != ""))')
     jq --argjson n "$number" --argjson add "$adds" --argjson rm "$removes" '

@@ -1,9 +1,17 @@
 #!/usr/bin/env bash
 # Stand-in for plannotator in the Panel's tests. Logs each call to
 # PLANNOTATOR_STUB_LOG as `plannotator <args>`, the JSON argument last.
-# `inbox call send_message` answers a message id.
+# `inbox call send_message` answers a message in thread thr_1 at cursor c0.
+# `inbox call read_thread` answers the thread in the file PLANNOTATOR_STUB_THREAD
+# names, or an empty one while there is no file or its cursor is the `after`
+# asked for.
 printf 'plannotator %s\n' "$*" >> "${PLANNOTATOR_STUB_LOG:-/dev/null}"
 case "${1:-} ${2:-} ${3:-}" in
-  "inbox call send_message") echo '{"message_id":"msg_1","thread_id":"thr_1"}' ;;
+  "inbox call send_message") echo '{"message_id":"msg_1","thread_id":"thr_1","cursor":"c0"}' ;;
+  "inbox call read_thread")
+    after=$(printf '%s' "${4:-{\}}" | jq -r '.after // "c0"')
+    file=${PLANNOTATOR_STUB_THREAD:-}
+    if [ -f "$file" ] && [ "$(jq -r .cursor "$file")" != "$after" ]; then cat "$file"
+    else printf '{"thread":{"messages":[]},"cursor":"%s"}\n' "$after"; fi ;;
   *) echo "plannotator: unknown command $* (stub)" >&2; exit 2 ;;
 esac

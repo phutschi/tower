@@ -24,8 +24,8 @@ interface StreamLine {
 }
 
 /**
- * One `claude -p` session, the prompt on stdin, with only `tools` of the
- * built-in ones when given. Its error
+ * One `claude -p` session, or a resumed one, the prompt on stdin, with only
+ * `tools` of the built-in ones when given. Its error
  * says why it failed: the result's subtype, an API error's category, or the
  * exit when it gave no result. Input tokens count the cached ones too.
  */
@@ -34,11 +34,13 @@ export async function runHeadless(opts: {
   cwd: string;
   model: string;
   tools?: string[];
+  resume?: string;
   signal?: AbortSignal;
 }): Promise<HeadlessRun> {
   const args = ["-p", "--output-format", "stream-json", "--verbose"];
   args.push("--model", opts.model);
   if (opts.tools) args.push("--tools", opts.tools.join(","));
+  if (opts.resume) args.push("--resume", opts.resume);
   const proc = Bun.spawn(["claude", ...args], {
     cwd: opts.cwd,
     stdin: new Blob([opts.prompt]),
@@ -52,7 +54,7 @@ export async function runHeadless(opts: {
     proc.exited,
   ]);
   const run: HeadlessRun = {
-    sessionId: "",
+    sessionId: opts.resume ?? "",
     finalText: "",
     tokens: { input: 0, output: 0 },
   };
@@ -91,4 +93,17 @@ export async function runHeadless(opts: {
       message: `claude exited ${code} with no result: ${err.trim().slice(-500)}`,
     };
   return run;
+}
+
+/** The JSON object in a session's answer, fenced or bare; null if it holds none. */
+export function jsonIn(text: string): unknown {
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  try {
+    return start < 0
+      ? null
+      : (JSON.parse(text.slice(start, end + 1)) as unknown);
+  } catch {
+    return null;
+  }
 }
