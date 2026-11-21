@@ -338,3 +338,51 @@ test("a station that crashed redoes its job in a fresh worktree", async () => {
   release(workdir, (await jobs())[0]!.id);
   await until(async () => (await jobs())[0]?.state === "done");
 });
+
+test("moving an issue back stops its job; the job's checkout and branch stay", async () => {
+  await setup();
+  await grills(1);
+  station();
+  await until(async () => (await jobs())[0]?.state === "claimed");
+  const id = (await jobs())[0]!.id;
+  await until(
+    async () =>
+      (await api<JobWithEvents>(`/api/jobs/${id}`)).events.length === 3,
+  );
+  const ws = (await api<JobWithEvents>(`/api/jobs/${id}`)).events[0]!.data as {
+    path: string;
+    branch: string;
+  };
+  await post("/api/issues/acme/widgets/1/stage", { stage: "needs-triage" });
+  await until(async () => (await jobs())[0]?.state === "stopped");
+  expect((await jobs())[0]!.reason).toBe("moved back to needs-triage");
+  expect(git(ws.path, "branch", "--show-current").trim()).toBe(ws.branch);
+});
+
+test("closing an issue stops its job", async () => {
+  await setup();
+  await grills(1);
+  station();
+  await until(async () => (await jobs())[0]?.state === "claimed");
+  setIssues("acme/widgets", [issue(2), issue(3)]);
+  await until(async () => (await jobs())[0]?.state === "stopped");
+  expect((await jobs())[0]!.reason).toBe("the issue was closed");
+});
+
+test("moving an issue back stops a job still queued, with no station", async () => {
+  await setup();
+  await grills(1);
+  await post("/api/issues/acme/widgets/1/stage", { stage: "needs-triage" });
+  expect((await jobs())[0]).toMatchObject({
+    state: "stopped",
+    reason: "moved back to needs-triage",
+  });
+});
+
+test("the Panel shows a stopped job's reason", async () => {
+  await setup();
+  await grills(1);
+  await post("/api/issues/acme/widgets/1/stage", { stage: "needs-triage" });
+  const html = await (await fetch(`${hubUrl()}/`)).text();
+  expect(html).toContain("stopped: moved back to needs-triage");
+});

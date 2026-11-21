@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { afterEach, expect, test } from "bun:test";
 import type { Subprocess } from "bun";
 
-import type { Job, JobEvent } from "../../types.ts";
+import type { Job, JobEvent, PanelIssue } from "../../types.ts";
 import {
   api,
   dir,
@@ -23,6 +23,8 @@ import {
   remote,
   setIssues,
   start,
+  inboxLog,
+  polls,
   until,
   useFixture,
 } from "../../tests/fixture.ts";
@@ -56,10 +58,13 @@ const labels = (n: number) =>
 const started = async (id: string) =>
   (await job(id)).events.find((e) => e.kind === "run-started")?.data;
 
-async function setup() {
+async function setup(env: Record<string, string> = {}, leaseMs?: number) {
   remote();
   setIssues("acme/widgets", [issue(12, "shaping"), issue(13, "shaping")]);
-  await start(["acme/widgets"], { serverStation: "server" });
+  await start(["acme/widgets"], {
+    serverStation: "server",
+    ...(leaseMs ? { leaseMs } : {}),
+  });
   proc = Bun.spawn(
     [
       "bun",
@@ -85,6 +90,7 @@ async function setup() {
         TOWER_STUB_STATE: join(dir(), "tower-state.json"),
         TOWER_STUB_LOG: join(dir(), "tower.log"),
         PANEL_RUN_POLL_MS: "50",
+        ...env,
       },
       stderr: "inherit",
     },
@@ -247,4 +253,67 @@ test("the Panel shows the run's Mac and workspace name", async () => {
     html.split(`<li data-job="${id}">`)[1]?.split("<details>")[0] ?? "";
   expect(line).toContain("claimed by server");
   expect(line).toContain("workspace acme-widgets-12");
+});
+
+test("a run whose workspace does not open is stuck in in-progress with its reason, one Inbox message, and no retry", async () => {
+  await setup({ HERDR_STUB_WORKSPACE_FAIL: "1" });
+  await ready(12);
+  await until(async () => (await jobs())[0]?.state === "stuck");
+  const [run] = await jobs();
+  expect(run!.reason).toContain("could not open workspace acme-widgets-12");
+  await until(async () => labels(12).includes("in-progress"));
+  const [twelve] = (await api<PanelIssue[]>("/api/issues")).filter(
+    (i) => i.number === 12,
+  );
+  expect(twelve).toMatchObject({
+    stage: "in-progress",
+    stuck: true,
+    jobId: run!.id,
+  });
+  await until(async () => inboxLog().length > 0);
+  await polls(3);
+  expect((await jobs()).length).toBe(1);
+  expect((await jobs())[0]!.state).toBe("stuck");
+  const notes = inboxLog();
+  expect(notes.length).toBe(1);
+  expect(notes[0]).toStartWith("inbox call send_message ");
+  const note = JSON.parse(
+    notes[0]!.slice("inbox call send_message ".length),
+  ) as Record<string, string>;
+  expect(note).toMatchObject({
+    thread: "acme/widgets#12",
+    idempotency_key: `stuck-${run!.id}`,
+  });
+  expect(note.body).toContain("could not open workspace");
+  const html = await (await fetch(`${hubUrl()}/`)).text();
+  const card = html.split("acme/widgets#12</span>")[1]?.split("</li>")[0] ?? "";
+  expect(card).toContain("stuck: ");
+  expect(card).toContain("could not open workspace");
+});
+
+test("a run whose station stops reporting is marked stuck, not queued again", async () => {
+  await setup({}, 300);
+  await ready(12);
+  await until(async () => (await jobs())[0]?.state === "claimed");
+  proc!.kill("SIGKILL");
+  await until(async () => (await jobs())[0]?.state !== "claimed");
+  expect((await jobs())[0]).toMatchObject({
+    state: "stuck",
+    reason: "its station stopped reporting",
+  });
+  await until(async () => inboxLog().length === 1);
+});
+
+test("moving a run's issue back closes its workspace and keeps its checkout", async () => {
+  await setup();
+  await ready(12);
+  await until(async () => (await jobs())[0]?.state === "claimed");
+  const id = (await jobs())[0]!.id;
+  await until(async () => (await started(id)) !== undefined);
+  const path = String((await started(id))!.path);
+  await post("/api/issues/acme/widgets/12/stage", { stage: "shaping" });
+  await until(async () => (await jobs())[0]?.state === "stopped");
+  expect((await jobs())[0]!.reason).toBe("moved back to shaping");
+  expect(herdrLog()).toMatch(/^herdr workspace close ws-1$/m);
+  expect(existsSync(path)).toBe(true);
 });

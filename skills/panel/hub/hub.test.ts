@@ -210,12 +210,16 @@ test("reopening an issue queues nothing: no stage was moved", async () => {
   expect(await api<Job[]>("/api/jobs")).toEqual([]);
 });
 
-test("an issue with a grill still waiting gets no second one", async () => {
+test("moving an issue back and forth stops its waiting grill and queues one new one", async () => {
   setIssues("acme/widgets", [issue(1, "needs-triage")]);
   await start();
   for (const stage of ["shaping", "needs-triage", "shaping"])
     await post("/api/issues/acme/widgets/1/stage", { stage });
-  expect((await api<Job[]>("/api/jobs")).length).toBe(1);
+  const jobs = await api<Job[]>("/api/jobs");
+  expect(jobs.map((j) => [j.kind, j.state, j.reason])).toEqual([
+    ["grill", "stopped", "moved back to needs-triage"],
+    ["grill", "queued", null],
+  ]);
 });
 
 test("a move removes the stage labels GitHub has now, not the ones the last poll saw", async () => {

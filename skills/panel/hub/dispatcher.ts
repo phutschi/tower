@@ -5,7 +5,7 @@
  */
 import { STAGES, type JobKind, type Stage } from "../types.ts";
 import type { GhIssue } from "./github.ts";
-import { ACTIVE, type SnapshotIssue, type Store } from "./store.ts";
+import type { SnapshotIssue, Store } from "./store.ts";
 
 const LABELS: readonly string[] = STAGES.filter((s) => s !== "closed");
 
@@ -25,26 +25,36 @@ const JOB_FOR: Partial<Record<Stage, JobKind>> = {
 };
 const jobFor = (to: Stage): JobKind | null => JOB_FOR[to] ?? null;
 
+/** The jobs a stage move calls off: the ones working an issue's stage. */
+const STOPPABLE: readonly JobKind[] = ["grill", "run"];
+
+/** Why a move stops the issue's jobs, or null when it is not a step back. */
+function stopsJobs(from: Stage, to: Stage): string | null {
+  if (to === "closed") return "the issue was closed";
+  return STAGES.indexOf(to) < STAGES.indexOf(from)
+    ? `moved back to ${to}`
+    : null;
+}
+
 /**
- * Records one issue's stage, and queues a job when it was moved since last
- * seen. A reopened issue was not moved, and an issue whose job of that kind is
- * not over yet gets no second one.
+ * Records one issue's stage, and acts when it was moved since last seen: a
+ * step back or a close stops the issue's job, and the new stage queues the
+ * job it asks for. A reopened issue was not moved, and an issue whose job of
+ * that kind is not over yet gets no second one.
  */
 export function record(store: Store, next: SnapshotIssue, now: Date) {
   store.transaction(() => {
     const prev = store.issue(next.repo, next.number);
     store.putIssue(next);
     if (!prev || prev.stage === next.stage || prev.stage === "closed") return;
+    const stop = stopsJobs(prev.stage, next.stage);
+    if (stop)
+      for (const j of store.activeJobs(next.repo, next.number))
+        if (STOPPABLE.includes(j.kind)) store.requestStop(j.id, stop);
     const kind = jobFor(next.stage);
     const waiting = store
-      .jobs()
-      .some(
-        (j) =>
-          j.kind === kind &&
-          j.repo === next.repo &&
-          j.issues.includes(next.number) &&
-          ACTIVE.includes(j.state),
-      );
+      .activeJobs(next.repo, next.number)
+      .some((j) => j.kind === kind);
     if (kind && !waiting) store.addJob(kind, next.repo, [next.number], now);
   });
 }

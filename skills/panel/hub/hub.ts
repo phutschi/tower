@@ -12,6 +12,7 @@ import {
 } from "../types.ts";
 import { isStageLabel, record, sync } from "./dispatcher.ts";
 import { GitHub } from "./github.ts";
+import { sendInboxNote } from "./inbox.ts";
 import { renderPanel } from "./panel-page.ts";
 import { ACTIVE, Store, type SnapshotIssue } from "./store.ts";
 
@@ -26,6 +27,7 @@ export interface HubOptions {
   leaseMs?: number;
   /** The server Mac's station, the one switched on from the start. */
   serverStation?: string;
+  plannotatorBin?: string;
 }
 export interface Hub {
   url: string;
@@ -69,16 +71,26 @@ function jobResult(id: string, b: Record<string, unknown>): JobResult | null {
   return r;
 }
 
+/** The stage a job of each kind works an issue in: stuck there, it shows stuck. */
+const WORKS_IN: Partial<Record<Job["kind"], Stage>> = {
+  grill: "shaping",
+  run: "in-progress",
+};
+
+/**
+ * An issue as the Panel shows it. Its job is the one not over yet, or a
+ * stuck one: the issue's last job, stuck in the stage it worked in, until a
+ * move starts another.
+ */
 function panelIssue(i: SnapshotIssue, jobs: Job[]): PanelIssue {
   const area = i.labels.find((l) => l.startsWith("area:"));
-  const job = jobs
-    .filter(
-      (j) =>
-        j.repo === i.repo &&
-        j.issues.includes(i.number) &&
-        ACTIVE.includes(j.state),
-    )
-    .at(-1);
+  const mine = jobs.filter(
+    (j) => j.repo === i.repo && j.issues.includes(i.number),
+  );
+  const last = mine.at(-1);
+  const stuck =
+    last?.state === "stuck" && WORKS_IN[last.kind] === i.stage ? last : null;
+  const job = stuck ?? mine.filter((j) => ACTIVE.includes(j.state)).at(-1);
   return {
     repo: i.repo,
     number: i.number,
@@ -88,7 +100,7 @@ function panelIssue(i: SnapshotIssue, jobs: Job[]): PanelIssue {
     bundleId: null,
     blockedBy: [],
     jobId: job?.id ?? null,
-    stuck: false,
+    stuck: stuck !== null,
   };
 }
 
@@ -98,7 +110,42 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
   const github = new GitHub(opts.ghBin);
   const leaseMs = opts.leaseMs ?? 90_000;
   const leaseUntil = () => new Date(now().getTime() + leaseMs);
-  const sweep = () => store.expireLeases(now());
+  // A stuck run gets one Inbox note; one that fails to send is tried again
+  // on the next sweep.
+  let noting = false;
+  const noteStuck = async () => {
+    if (noting) return;
+    noting = true;
+    try {
+      for (const run of store.unnotedStuckRuns()) {
+        const refs = run.issues.map((n) => `${run.repo}#${n}`);
+        await sendInboxNote({
+          thread: refs.join(" + "),
+          subject: `Stuck: ${refs.join(", ")}`,
+          body: [
+            `The run for ${refs.join(", ")} is stuck: ${run.reason ?? "no reason given"}.`,
+            "It is not tried again. Move the issue back to ready-for-agent to start a new run.",
+            ...(run.sessionId ? [`Its session: ${run.sessionId}`] : []),
+          ].join("\n\n"),
+          idempotencyKey: `stuck-${run.id}`,
+          ...(opts.plannotatorBin
+            ? { plannotatorBin: opts.plannotatorBin }
+            : {}),
+        });
+        store.markNoted(run.id);
+      }
+    } catch (err) {
+      console.error(`hub: an Inbox note failed: ${String(err)}`);
+    } finally {
+      noting = false;
+    }
+  };
+  const sweep = () => {
+    store.expireLeases(now());
+    void noteStuck();
+  };
+  // The hub was down, not its stations: they get a lease's time to report.
+  store.renewLeases(leaseUntil());
   sweep();
   const sweeper = setInterval(sweep, Math.max(leaseMs / 4, 10));
 
@@ -214,10 +261,16 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
     port: opts.port,
     routes: {
       "/": {
-        GET: () =>
-          new Response(
+        GET: () => {
+          const panelIssues = issues();
+          return new Response(
             renderPanel({
-              issues: issues(),
+              issues: panelIssues,
+              stuckReasons: Object.fromEntries(
+                panelIssues
+                  .filter((i) => i.stuck && i.jobId)
+                  .map((i) => [i.jobId, store.job(i.jobId!)?.reason ?? ""]),
+              ),
               repos: store.repos().map((r) => r.name),
               stations: store.stations(),
               jobs: store
@@ -227,7 +280,8 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
                 .map((j) => ({ ...j, events: store.events(j.id) })),
             }),
             { headers: { "content-type": "text/html; charset=utf-8" } },
-          ),
+          );
+        },
       },
       "/api/issues": { GET: () => Response.json(issues()) },
       "/api/issues/:owner/:repo/:number/stage": {
@@ -269,6 +323,12 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
           return Response.json({ ...job, events: store.events(job.id) });
         },
       },
+      "/api/jobs/:id/control": {
+        GET: (req) => {
+          const control = store.control(req.params.id);
+          return control ? Response.json(control) : bad("no such job", 404);
+        },
+      },
       "/api/jobs/:id/heartbeat": {
         POST: async (req) => {
           const { station } = await body(req);
@@ -298,9 +358,10 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
           const result = jobResult(req.params.id, b);
           if (typeof b.station !== "string" || !result)
             return bad("a result has station, outcome and durationMs");
-          return store.finish(b.station, result)
-            ? Response.json({ ok: true })
-            : bad("the station holds this job no more", 409);
+          if (!store.finish(b.station, result))
+            return bad("the station holds this job no more", 409);
+          void noteStuck();
+          return Response.json({ ok: true });
         },
       },
       "/api/stations/:name": {

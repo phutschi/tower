@@ -43,6 +43,12 @@ export const setIssues = (repo: string, issues: Issue[]) =>
   writeFileSync(fixture(repo), JSON.stringify(issues));
 export const ghIssues = (repo: string) =>
   JSON.parse(readFileSync(fixture(repo), "utf8")) as Issue[];
+export const inboxLog = () =>
+  existsSync(join(root, "plannotator.log"))
+    ? readFileSync(join(root, "plannotator.log"), "utf8")
+        .split("\n")
+        .filter(Boolean)
+    : [];
 export const ghLog = () =>
   existsSync(join(root, "gh.log"))
     ? readFileSync(join(root, "gh.log"), "utf8").split("\n").filter(Boolean)
@@ -93,6 +99,7 @@ export async function start(
     port: 0,
     pollMs: 20,
     ghBin: GH,
+    plannotatorBin: join(root, "plannotator"),
     ...opts,
   };
   hub = await startHub(hubOpts);
@@ -153,6 +160,12 @@ export function useFixture() {
     process.env.GH_STUB_DIR = root;
     process.env.GH_STUB_LOG = join(root, "gh.log");
     delete process.env.GH_STUB_FAIL;
+    // The hub's Inbox notes: one argv per line in plannotator.log.
+    writeFileSync(
+      join(root, "plannotator"),
+      `#!/bin/sh\nprintf '%s\\n' "$*" >> "${join(root, "plannotator.log")}"\necho '{}'\n`,
+      { mode: 0o755 },
+    );
   });
   afterEach(async () => {
     await hub?.stop();

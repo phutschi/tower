@@ -3535,6 +3535,21 @@ if section start-run; then
   assert_nomatch "start-run: and starts no agent"             "$(cat "$HERDR_STUB_LOG")" 'agent start'
 fi
 
+# --- stop-run ----------------------------------------------------------------
+# The Panel's station closes a stopped run's workspace through stop-run.sh.
+if section stop-run; then
+  reset_stub
+  out=$("$KIT/stop-run.sh" ws-3 2>&1); code=$?
+  assert_eq    "stop-run: succeeds"                  "$code" 0
+  assert_match "stop-run: closes that workspace"     "$(cat "$HERDR_STUB_LOG")" '^herdr workspace close ws-3$'
+  out=$("$KIT/stop-run.sh" 2>&1; echo "exit=$?")
+  assert_match "stop-run: a missing argument is refused" "$out" 'usage: stop-run.sh <workspace-id>'
+  assert_match "stop-run: and fails"                 "$out" 'exit=2$'
+  out=$(HERDR_STUB_WORKSPACE_FAIL=1 "$KIT/stop-run.sh" ws-3 2>&1; echo "exit=$?")
+  assert_match "stop-run: a close herdr refuses fails it" "$out" 'stop-run: herdr could not close workspace ws-3'
+  assert_match "stop-run: non-zero"                  "$out" 'exit=1$'
+fi
+
 # --- runner ------------------------------------------------------------------
 if section runner; then
   list=$("$ROOT/test.sh" --list 2>&1)

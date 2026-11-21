@@ -21,9 +21,29 @@ export type JobRunner = (
 
 const runners = new Map<JobKind, JobRunner>();
 
+/** How long a stopped or failed job's checkout, and any run's, is kept. */
+const KEEP_HOURS = 24;
+
+/**
+ * Why the station stopped a job, when the user stopped it (moved its issue
+ * back or closed it); null when the job was aborted for another reason (the
+ * hub ended it, or the station quits).
+ */
+export function stopReason(signal: AbortSignal): string | null {
+  const reason: unknown = signal.reason;
+  return typeof reason === "object" && reason !== null && "stop" in reason
+    ? String(reason.stop)
+    : null;
+}
+
 /** Makes this station take jobs of `kind`; a kind with no runner is never claimed. */
 export function registerJobRunner(kind: JobKind, runner: JobRunner): void {
   runners.set(kind, runner);
+}
+
+interface Control {
+  stop: boolean;
+  reason: string | null;
 }
 
 export interface StationOptions {
@@ -39,7 +59,12 @@ export async function runStation(
   const executor: Executor = new CheckoutExecutor(opts.workdir);
   const running = new Map<
     string,
-    { abort: AbortController; done: Promise<void>; ended?: boolean }
+    {
+      abort: AbortController;
+      done: Promise<void>;
+      ended?: boolean;
+      stopped?: boolean;
+    }
   >();
 
   const call = (path: string, body: unknown) =>
@@ -93,11 +118,23 @@ export async function runStation(
     } catch (err) {
       result = { outcome: "failed", reason: String(err) };
     }
-    // A run's orchestrator lives on in its own workspace after the station
-    // lets go (it closes the run there): its checkout stays.
-    // shortcut: a run's checkout is never removed, prune it once runs keep their checkouts a set time (task 6).
-    if (workspace && job.kind !== "run")
-      await executor.release(workspace).catch((err: unknown) => {
+    const stop = stopReason(abort.signal);
+    if (stop !== null)
+      result = {
+        outcome: "stopped",
+        reason: stop,
+        ...(result.sessionId ? { sessionId: result.sessionId } : {}),
+      };
+    // A stopped or failed job's checkout stays a day for a look at what it
+    // did; so does a run's, whose orchestrator lives on in its own workspace
+    // after the station lets go. A job handed back to the queue keeps none:
+    // its next try starts over.
+    const keep =
+      job.kind === "run" || (result.outcome !== "done" && !leaving)
+        ? KEEP_HOURS
+        : 0;
+    if (workspace)
+      await executor.release(workspace, keep).catch((err: unknown) => {
         console.error(`station: releasing ${workspace.path}: ${String(err)}`);
       });
     const { ended } = running.get(job.id) ?? {};
@@ -130,8 +167,20 @@ export async function runStation(
       if (res?.status === 409 && !job.ended) {
         job.ended = true;
         job.abort.abort();
+        continue;
+      }
+      // The user stopped it: moved its issue back, or closed it.
+      const control = await fetch(`${opts.hubUrl}/api/jobs/${id}/control`)
+        .then((r) => (r.ok ? (r.json() as Promise<Control>) : null))
+        .catch(() => null);
+      if (control?.stop && !job.stopped) {
+        job.stopped = true;
+        job.abort.abort({ stop: control.reason ?? "stopped" });
       }
     }
+    await executor.prune().catch((err: unknown) => {
+      console.error(`station: pruning kept checkouts: ${String(err)}`);
+    });
     for (let job = await claim(); job; job = await claim()) {
       if (running.has(job.id)) continue;
       const abort = new AbortController();

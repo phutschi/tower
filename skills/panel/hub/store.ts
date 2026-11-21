@@ -62,9 +62,12 @@ const toJob = (r: JobRow): Job => ({
       : { input: r.tokens_in, output: r.tokens_out },
 });
 
-/** `station` holds the job, or held it until its lease ran out while queued since. */
+/**
+ * `station` holds the job, or held it until its lease ran out and nobody took
+ * it since (queued, or a run marked stuck for it).
+ */
 const HOLDS =
-  "((state = 'claimed' AND station = ?) OR (state = 'queued' AND lost_by = ?))";
+  "((state = 'claimed' AND station = ?) OR (state IN ('queued', 'stuck') AND lost_by = ?))";
 
 const OUTCOME: Record<JobResult["outcome"], JobState> = {
   done: "done",
@@ -106,7 +109,9 @@ export class Store {
         tokens_in INTEGER,
         tokens_out INTEGER,
         lost_by TEXT,
-        claimed_at TEXT
+        claimed_at TEXT,
+        stop_reason TEXT,
+        noted INTEGER NOT NULL DEFAULT 0
       );
       CREATE TABLE IF NOT EXISTS stations (
         name TEXT PRIMARY KEY,
@@ -298,12 +303,82 @@ export class Store {
     );
   }
 
-  /** Sends every job whose lease ran out back to the queue. */
+  /**
+   * A job whose lease ran out goes back to the queue, unless it is a run: a
+   * run is not tried again by itself, it is stuck. One being stopped is
+   * stopped.
+   */
   expireLeases(now: Date) {
     this.db.run(
-      "UPDATE jobs SET state = 'queued', lost_by = station, station = NULL, lease_until = NULL WHERE state = 'claimed' AND lease_until < ?",
+      `UPDATE jobs SET
+         state = CASE WHEN stop_reason IS NOT NULL THEN 'stopped'
+                      WHEN kind = 'run' THEN 'stuck' ELSE 'queued' END,
+         reason = CASE WHEN stop_reason IS NOT NULL THEN stop_reason
+                       WHEN kind = 'run' THEN 'its station stopped reporting' ELSE reason END,
+         lost_by = station, station = NULL, lease_until = NULL
+       WHERE state = 'claimed' AND lease_until < ?`,
       [now.toISOString()],
     );
+  }
+
+  /** Gives every claimed job a fresh lease: the hub was down, not its stations. */
+  renewLeases(leaseUntil: Date) {
+    this.db.run("UPDATE jobs SET lease_until = ? WHERE state = 'claimed'", [
+      leaseUntil.toISOString(),
+    ]);
+  }
+
+  /** The jobs of an issue that are not over and not being stopped. */
+  activeJobs(repo: string, number: number): Job[] {
+    return this.db
+      .query<JobRow, [string]>(
+        `SELECT * FROM jobs WHERE repo = ? AND state IN ('queued', 'held', 'claimed')
+         AND stop_reason IS NULL ORDER BY created_at, rowid`,
+      )
+      .all(repo)
+      .map(toJob)
+      .filter((j) => j.issues.includes(number));
+  }
+
+  /**
+   * Stops a job: one no station holds stops now; a claimed one is told
+   * through its control route, and stops when its station posts the result.
+   */
+  requestStop(id: string, reason: string) {
+    this.db.run(
+      `UPDATE jobs SET
+         state = CASE WHEN state = 'claimed' THEN state ELSE 'stopped' END,
+         reason = CASE WHEN state = 'claimed' THEN reason ELSE ? END,
+         stop_reason = ?
+       WHERE id = ? AND state IN ('queued', 'held', 'claimed')`,
+      [reason, reason, id],
+    );
+  }
+
+  /** Whether a job's station should stop it, and why. */
+  control(id: string): { stop: boolean; reason: string | null } | undefined {
+    const row = this.db
+      .query<{ stop_reason: string | null }, [string]>(
+        "SELECT stop_reason FROM jobs WHERE id = ?",
+      )
+      .get(id);
+    return row
+      ? { stop: row.stop_reason !== null, reason: row.stop_reason }
+      : undefined;
+  }
+
+  /** Stuck runs nobody was told about yet. */
+  unnotedStuckRuns(): Job[] {
+    return this.db
+      .query<JobRow, []>(
+        "SELECT * FROM jobs WHERE kind = 'run' AND state = 'stuck' AND noted = 0",
+      )
+      .all()
+      .map(toJob);
+  }
+
+  markNoted(id: string) {
+    this.db.run("UPDATE jobs SET noted = 1 WHERE id = ?", [id]);
   }
 
   addEvent(e: JobEvent) {

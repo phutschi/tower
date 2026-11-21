@@ -9,6 +9,8 @@ import {
 
 export interface PanelData {
   issues: PanelIssue[];
+  /** Why each stuck issue's job is stuck, by job id. */
+  stuckReasons: Record<string, string>;
   repos: string[];
   stations: Station[];
   /** The latest jobs, newest first, each with its events. */
@@ -26,7 +28,7 @@ const esc = (s: string) =>
 
 const MOVABLE = STAGES.filter((s) => s !== "closed");
 
-function card(i: PanelIssue): string {
+function card(i: PanelIssue, reasons: PanelData["stuckReasons"]): string {
   const path = `/api/issues/${i.repo}/${i.number}/stage`;
   const options = MOVABLE.map(
     (s) =>
@@ -39,12 +41,20 @@ function card(i: PanelIssue): string {
   const area = i.issueArea
     ? ` <span class="tag">${esc(i.issueArea)}</span>`
     : "";
-  return `<li><span class="ref">${esc(i.repo)}#${i.number}</span>${area} ${esc(i.title)} ${move}</li>`;
+  const stuck =
+    i.stuck && i.jobId
+      ? ` <span class="stuck">stuck: ${esc(reasons[i.jobId] ?? "")}</span>`
+      : "";
+  return `<li><span class="ref">${esc(i.repo)}#${i.number}</span>${area} ${esc(i.title)}${stuck} ${move}</li>`;
 }
 
-function stageSection(stage: string, issues: PanelIssue[]): string {
+function stageSection(
+  stage: string,
+  issues: PanelIssue[],
+  reasons: PanelData["stuckReasons"],
+): string {
   const mine = issues.filter((i) => i.stage === stage);
-  const list = `<ul>${mine.map(card).join("")}</ul>`;
+  const list = `<ul>${mine.map((i) => card(i, reasons)).join("")}</ul>`;
   const head = `${stage} (${mine.length})`;
   // Closed issues stay out of the way: they left the active stages.
   return stage === "closed"
@@ -114,6 +124,7 @@ body { font: 16px/1.4 system-ui, sans-serif; margin: 0 auto; padding: 0 16px; ma
 ul { list-style: none; padding: 0; }
 li { padding: .5rem 0; border-bottom: 1px solid #8884; overflow-wrap: anywhere; }
 .ref { font-family: ui-monospace, monospace; }
+.stuck { color: #c33; font-weight: 600; }
 .tag { font-size: .8em; padding: 0 .4em; border: 1px solid #8888; border-radius: .4em; }
 select, button, input { font: inherit; max-width: 100%; }
 `;
@@ -135,7 +146,7 @@ export function renderPanel(data: PanelData): string {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Panel</title><style>${STYLE}</style></head>
 <body><h1>Panel</h1>
-${STAGES.map((s) => stageSection(s, data.issues)).join("\n")}
+${STAGES.map((s) => stageSection(s, data.issues, data.stuckReasons)).join("\n")}
 ${stationList(data.stations, data.jobs)}
 ${jobList(data.jobs)}
 ${repoList(data.repos)}

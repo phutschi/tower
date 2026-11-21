@@ -2,7 +2,8 @@
  * The run job: opens the run's workspace through the orchestrate kit's
  * start-run.sh, which starts an orchestrator there with the brief, then
  * forwards the run's tower record as job events until the hub ends the job
- * (its PR is ready).
+ * (its PR is ready). A run the user stops has its workspace closed through
+ * the kit's stop-run.sh.
  */
 import { execFile } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -12,10 +13,12 @@ import { promisify } from "node:util";
 
 import type { Job } from "../../types.ts";
 import type { Workspace } from "../executor.ts";
-import { registerJobRunner } from "../station.ts";
+import { registerJobRunner, stopReason } from "../station.ts";
 
 const run = promisify(execFile);
-const START_RUN = join(import.meta.dir, "../../../orchestrate/start-run.sh");
+const KIT = join(import.meta.dir, "../../../orchestrate");
+const START_RUN = join(KIT, "start-run.sh");
+const STOP_RUN = join(KIT, "stop-run.sh");
 const TEMPLATE = join(import.meta.dir, "../../prompts/run-brief.md");
 // How often the run's tower state is read; tests set it short.
 const POLL_MS = Number(process.env.PANEL_RUN_POLL_MS) || 30_000;
@@ -84,5 +87,9 @@ registerJobRunner("run", async ({ job, workspace, emit, signal }) => {
     }
     await sleep(POLL_MS, signal);
   }
-  return { outcome: "stopped", reason: "the station let the run go" };
+  const stop = stopReason(signal);
+  if (stop === null)
+    return { outcome: "stopped", reason: "the station let the run go" };
+  await run(STOP_RUN, [opened.workspace]);
+  return { outcome: "stopped", reason: stop };
 });

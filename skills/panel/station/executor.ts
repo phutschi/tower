@@ -9,9 +9,16 @@
  * on one Mac need two.
  */
 import { execFile } from "node:child_process";
-import { existsSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { createServer } from "node:net";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { promisify } from "node:util";
 
 import type { Job } from "../types.ts";
@@ -32,7 +39,10 @@ export interface Workspace {
 
 export interface Executor {
   prepare(job: Job): Promise<Workspace>;
-  release(ws: Workspace): Promise<void>;
+  /** Lets a job's workspace go: removed now, or kept `keepHours` first. */
+  release(ws: Workspace, keepHours: number): Promise<void>;
+  /** Removes the kept workspaces whose time is up. */
+  prune(): Promise<void>;
 }
 
 /** A port free right now, from the OS. */
@@ -54,7 +64,15 @@ export class CheckoutExecutor implements Executor {
   // Ports handed to live workspaces, so two jobs never share one.
   private readonly taken = new Set<number>();
 
-  constructor(private readonly workdir: string) {}
+  // Kept checkouts, one file each naming its path and until when it stays.
+  private readonly keep: string;
+
+  constructor(
+    private readonly workdir: string,
+    private readonly now: () => Date = () => new Date(),
+  ) {
+    this.keep = join(workdir, "keep");
+  }
 
   private locked<T>(key: string, fn: () => Promise<T>): Promise<T> {
     const next = (this.locks.get(key) ?? Promise.resolve()).then(fn, fn);
@@ -79,6 +97,7 @@ export class CheckoutExecutor implements Executor {
   async prepare(job: Job): Promise<Workspace> {
     const url = `https://github.com/${job.repo}.git`;
     const base = join(this.workdir, "repos", job.repo);
+    mkdirSync(this.workdir, { recursive: true });
     await this.locked(base, async () => {
       if (existsSync(base)) await git(base, "fetch", "--quiet", "origin");
       else await git(this.workdir, "clone", "--quiet", "--bare", url, base);
@@ -86,6 +105,7 @@ export class CheckoutExecutor implements Executor {
     const path = join(this.workdir, "jobs", job.id);
     // A station that crashed left this job's checkout: start over.
     rmSync(path, { recursive: true, force: true });
+    rmSync(join(this.keep, `${basename(path)}.json`), { force: true });
     await git(this.workdir, "clone", "--quiet", "--reference", base, url, path);
     const branch = `panel/${job.kind}-${job.issues.join("-")}-${job.id.slice(0, 8)}`;
     await git(path, "switch", "--quiet", "-c", branch);
@@ -98,8 +118,31 @@ export class CheckoutExecutor implements Executor {
     };
   }
 
-  async release(ws: Workspace): Promise<void> {
+  async release(ws: Workspace, keepHours: number): Promise<void> {
     for (const port of ws.ports) this.taken.delete(port);
-    rmSync(ws.path, { recursive: true, force: true });
+    if (keepHours <= 0) {
+      rmSync(ws.path, { recursive: true, force: true });
+      return;
+    }
+    const until = new Date(this.now().getTime() + keepHours * 3_600_000);
+    mkdirSync(this.keep, { recursive: true });
+    writeFileSync(
+      join(this.keep, `${basename(ws.path)}.json`),
+      JSON.stringify({ path: ws.path, until: until.toISOString() }),
+    );
+  }
+
+  async prune(): Promise<void> {
+    if (!existsSync(this.keep)) return;
+    for (const f of readdirSync(this.keep)) {
+      const marker = join(this.keep, f);
+      const { path, until } = JSON.parse(readFileSync(marker, "utf8")) as {
+        path: string;
+        until: string;
+      };
+      if (Date.parse(until) > this.now().getTime()) continue;
+      rmSync(path, { recursive: true, force: true });
+      rmSync(marker, { force: true });
+    }
   }
 }
