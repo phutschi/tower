@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Stand-in for plannotator in the Panel's tests. Logs each call to
+# PLANNOTATOR_STUB_LOG as `plannotator <args>`, the JSON argument last.
+# `inbox call send_message` answers a message id.
+printf 'plannotator %s\n' "$*" >> "${PLANNOTATOR_STUB_LOG:-/dev/null}"
+case "${1:-} ${2:-} ${3:-}" in
+  "inbox call send_message") echo '{"message_id":"msg_1","thread_id":"thr_1"}' ;;
+  *) echo "plannotator: unknown command $* (stub)" >&2; exit 2 ;;
+esac

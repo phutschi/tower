@@ -64,4 +64,30 @@ export class GitHub {
     for (const label of remove) args.push("--remove-label", label);
     await this.gh(args);
   }
+
+  /** The commit main's head is on now; the sha media type spares the commit's body. */
+  async head(repo: string): Promise<string> {
+    const out = await this.gh([
+      "api",
+      "-H",
+      "Accept: application/vnd.github.sha",
+      `repos/${repo}/commits/HEAD`,
+    ]);
+    return out.trim();
+  }
+
+  /** Makes `issue` wait on `blocker`, as GitHub's native issue dependency. */
+  async addBlockedBy(repo: string, issue: number, blocker: number) {
+    const { id } = JSON.parse(
+      await this.gh(["api", `repos/${repo}/issues/${blocker}`]),
+    ) as { id: number };
+    await this.gh([
+      "api",
+      "-X",
+      "POST",
+      `repos/${repo}/issues/${issue}/dependencies/blocked_by`,
+      "-F",
+      `issue_id=${id}`,
+    ]);
+  }
 }

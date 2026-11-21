@@ -1,6 +1,8 @@
 /** The Panel: one HTML page rendered from the API's data, sized for a phone. */
 import {
   STAGES,
+  type AdviceProposal,
+  type Bundle,
   type Job,
   type JobEvent,
   type PanelIssue,
@@ -13,6 +15,10 @@ export interface PanelData {
   stations: Station[];
   /** The latest jobs, newest first, each with its events. */
   jobs: (Job & { events: JobEvent[] })[];
+  advice: AdviceProposal | null;
+  bundles: Bundle[];
+  /** How the issues are grouped: by stage, or by bundle. */
+  group: "stage" | "bundle";
 }
 
 const esc = (s: string) =>
@@ -50,6 +56,51 @@ function stageSection(stage: string, issues: PanelIssue[]): string {
   return stage === "closed"
     ? `<section data-stage="${stage}"><details><summary>${head}</summary>${list}</details></section>`
     : `<section data-stage="${stage}"><h2>${head}</h2>${list}</section>`;
+}
+
+function bundleSections(issues: PanelIssue[], bundles: Bundle[]): string {
+  const section = (key: string, head: string, mine: PanelIssue[]) =>
+    `<section data-bundle="${esc(key)}"><h2>${esc(head)} (${mine.length})</h2><ul>${mine.map(card).join("")}</ul></section>`;
+  const of = (id: string | null) => issues.filter((i) => i.bundleId === id);
+  return [
+    ...bundles
+      .filter((b) => of(b.id).length)
+      .map((b) =>
+        section(b.id, `bundle ${b.repo} #${b.issues.join(", #")}`, of(b.id)),
+      ),
+    section("none", "no bundle", of(null)),
+  ].join("\n");
+}
+
+/** The parts of the advice still waiting for the user; decided ones are hidden. */
+function adviceView(advice: AdviceProposal | null): string {
+  if (!advice) return "";
+  const controls = (parts: object) =>
+    ["accept", "reject"]
+      .map(
+        (d) =>
+          `<button data-decide="/api/advice/${esc(advice.id)}/${d}" data-parts="${esc(JSON.stringify(parts))}">${d}</button>`,
+      )
+      .join(" ");
+  const items = [
+    ...advice.order.flatMap((o, n) =>
+      o.decision
+        ? []
+        : [
+            `<li>${esc(o.repo)}#${o.issue} after #${o.after.join(", #")}: ${esc(o.reason)} ${controls({ order: [n] })}</li>`,
+          ],
+    ),
+    ...advice.bundles.flatMap((b) =>
+      b.decision
+        ? []
+        : [
+            `<li>bundle ${esc(b.repo)} #${b.issues.join(", #")}: ${esc(b.reason)} ${controls({ bundles: [b.id] })}</li>`,
+          ],
+    ),
+  ];
+  return items.length
+    ? `<section data-advice><h2>Order advice</h2><ul>${items.join("")}</ul></section>`
+    : "";
 }
 
 function repoList(repos: string[]): string {
@@ -118,6 +169,7 @@ document.querySelectorAll("[data-move]").forEach((s) => s.addEventListener("chan
 document.querySelectorAll("[data-unlist]").forEach((b) => b.addEventListener("click", () => call(b.dataset.unlist, "DELETE")));
 document.querySelectorAll("[data-switch]").forEach((c) => c.addEventListener("change", () => call(c.dataset.switch, "PUT", { enabled: c.checked })));
 document.querySelectorAll("[data-limit]").forEach((i) => i.addEventListener("change", () => call(i.dataset.limit, "PUT", { limit: Number(i.value) })));
+document.querySelectorAll("[data-decide]").forEach((b) => b.addEventListener("click", () => call(b.dataset.decide, "POST", JSON.parse(b.dataset.parts))));
 document.querySelector("[data-list]")?.addEventListener("submit", (e) => { e.preventDefault(); call("/api/repos", "POST", { repo: e.target.repo.value }); });
 `;
 
@@ -127,7 +179,9 @@ export function renderPanel(data: PanelData): string {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Panel</title><style>${STYLE}</style></head>
 <body><h1>Panel</h1>
-${STAGES.map((s) => stageSection(s, data.issues)).join("\n")}
+<nav>group by <a href="/">stage</a> · <a href="/?group=bundle">bundle</a></nav>
+${adviceView(data.advice)}
+${data.group === "bundle" ? bundleSections(data.issues, data.bundles) : STAGES.map((s) => stageSection(s, data.issues)).join("\n")}
 ${stationList(data.stations, data.jobs)}
 ${jobList(data.jobs)}
 ${repoList(data.repos)}

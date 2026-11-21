@@ -11,6 +11,8 @@ export type { Workspace } from "./executor.ts";
 
 export interface JobContext {
   job: Job;
+  /** The hub this station reports to, for a job that reads the Panel. */
+  hubUrl: string;
   workspace: Workspace;
   emit(kind: string, data: Record<string, unknown>): Promise<void>;
   signal: AbortSignal;
@@ -86,6 +88,7 @@ export async function runStation(
       workspace = await executor.prepare(job);
       result = await runners.get(job.kind)!({
         job,
+        hubUrl: opts.hubUrl,
         workspace,
         emit,
         signal: abort.signal,
