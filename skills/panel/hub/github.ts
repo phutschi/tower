@@ -107,6 +107,20 @@ export class GitHub {
     return out.trim();
   }
 
+  /**
+   * Whether the repo names its contexts in a CONTEXT-MAP.md at its root: its
+   * issue areas. Any answer but GitHub's 404 is an error.
+   */
+  async hasContextMap(repo: string): Promise<boolean> {
+    try {
+      await this.gh(["api", `repos/${repo}/contents/CONTEXT-MAP.md`]);
+      return true;
+    } catch (err) {
+      if (/HTTP 404/.test(String(err))) return false;
+      throw err;
+    }
+  }
+
   /** The open issues `issue` waits on, as GitHub's native issue dependencies. */
   async openBlockers(repo: string, issue: number): Promise<number[]> {
     const out = await this.gh([

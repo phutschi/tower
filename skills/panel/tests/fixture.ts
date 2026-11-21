@@ -100,15 +100,15 @@ const lists = (repos: string[]) =>
     ),
   );
 
-/** Waits for the hub to finish `n` more polls of every listed repo. */
+/** Waits for the hub to finish `n` more polls of every listed repo (5 s at most each). */
 export async function polls(n: number) {
   const repos = await api<string[]>("/api/repos");
   if (!repos.length) return;
   const target = lists(repos) + n;
-  for (let i = 0; i < 200 && lists(repos) < target; i++) await Bun.sleep(10);
+  for (let i = 0; i < 500 && lists(repos) < target; i++) await Bun.sleep(10);
   // One more poll after the target, so the target's poll has been applied.
   const applied = lists(repos) + 1;
-  for (let i = 0; i < 200 && lists(repos) < applied; i++) await Bun.sleep(10);
+  for (let i = 0; i < 500 && lists(repos) < applied; i++) await Bun.sleep(10);
 }
 
 /** Waits until `check` holds, for up to `ms`. */
@@ -166,12 +166,17 @@ export async function restart() {
 export const git = (cwd: string, ...args: string[]) =>
   execFileSync("git", args, { cwd, encoding: "utf8" });
 
-/** acme/widgets as a bare repo with one commit, standing in for GitHub's. */
-export function remote() {
+/**
+ * acme/widgets as a bare repo with one commit, standing in for GitHub's: a
+ * README, and `files` (path to text) besides.
+ */
+export function remote(files: Record<string, string> = {}) {
   const seed = join(root, "seed");
   mkdirSync(seed, { recursive: true });
   git(seed, "init", "-q", "-b", "main");
   writeFileSync(join(seed, "README.md"), "widgets\n");
+  for (const [path, text] of Object.entries(files))
+    writeFileSync(join(seed, path), text);
   git(seed, "add", ".");
   git(
     seed,

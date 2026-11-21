@@ -14,7 +14,7 @@ import { AdviceStore, keepOpen, parseProposal } from "./advice.ts";
 import { isStageLabel, merged, record, sync } from "./dispatcher.ts";
 import { GitHub } from "./github.ts";
 import { sendInboxNote } from "../station/inbox.ts";
-import { renderPanel } from "./panel-page.ts";
+import { renderPanel, type PanelData } from "./panel-page.ts";
 import { ACTIVE, Store, type SnapshotIssue } from "./store.ts";
 
 export interface HubOptions {
@@ -71,6 +71,10 @@ function jobResult(id: string, b: Record<string, unknown>): JobResult | null {
     r.tokens = { input: tokens.input, output: tokens.output };
   return r;
 }
+
+/** How the Panel groups issues, from its `group` query. */
+const groupOf = (q: string | null): PanelData["group"] =>
+  q === "bundle" || q === "area" ? q : "stage";
 
 /** The stage a job of each kind works an issue in: stuck there, it shows stuck. */
 const WORKS_IN: Partial<Record<Job["kind"], Stage>> = {
@@ -284,9 +288,14 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
 
   const poll = () =>
     serial(async () => {
-      for (const { name } of store.repos()) {
+      for (const { name, baselined } of store.repos()) {
         try {
-          sync(store, name, await github.openIssues(name), now(), bundleOf);
+          const open = await github.openIssues(name);
+          // Asked only when the poll brings a new issue to label.
+          const fresh =
+            baselined && open.some((i) => !store.issue(name, i.number));
+          const labelAreas = fresh && (await github.hasContextMap(name));
+          sync(store, name, open, now(), bundleOf, labelAreas);
           await sendBack(name);
           await gate(name);
           await followRuns(name);
@@ -383,10 +392,7 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
           const panelIssues = issues();
           return new Response(
             renderPanel({
-              group:
-                new URL(req.url).searchParams.get("group") === "bundle"
-                  ? "bundle"
-                  : "stage",
+              group: groupOf(new URL(req.url).searchParams.get("group")),
               advice: advice.latest(),
               bundles: advice.bundles(),
               issues: panelIssues,

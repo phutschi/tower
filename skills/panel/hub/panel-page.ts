@@ -19,8 +19,8 @@ export interface PanelData {
   jobs: (Job & { events: JobEvent[] })[];
   advice: AdviceProposal | null;
   bundles: Bundle[];
-  /** How the issues are grouped: by stage, or by bundle. */
-  group: "stage" | "bundle";
+  /** How the issues are grouped: by stage, by bundle, or by issue area. */
+  group: "stage" | "bundle" | "area";
 }
 
 const esc = (s: string) =>
@@ -84,6 +84,25 @@ function bundleSections(
         section(b.id, `bundle ${b.repo} #${b.issues.join(", #")}`, of(b.id)),
       ),
     section("none", "no bundle", of(null)),
+  ].join("\n");
+}
+
+/** The open issues by issue area, A to Z, then the ones with none. */
+function areaSections(
+  issues: PanelIssue[],
+  reasons: PanelData["stuckReasons"],
+): string {
+  const open = issues.filter((i) => i.stage !== "closed");
+  const areas = [
+    ...new Set(open.flatMap((i) => (i.issueArea ? [i.issueArea] : []))),
+  ].sort();
+  const section = (key: string, head: string) => {
+    const mine = open.filter((i) => (i.issueArea ?? "") === key);
+    return `<section data-area="${esc(key)}"><h2>${esc(head)} (${mine.length})</h2><ul>${mine.map((i) => card(i, reasons)).join("")}</ul></section>`;
+  };
+  return [
+    ...areas.map((a) => section(a, a)),
+    section("", "no issue area"),
   ].join("\n");
 }
 
@@ -203,9 +222,17 @@ export function renderPanel(data: PanelData): string {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Panel</title><style>${STYLE}</style></head>
 <body><h1>Panel</h1>
-<nav>group by <a href="/">stage</a> · <a href="/?group=bundle">bundle</a></nav>
+<nav>group by <a href="/">stage</a> · <a href="/?group=bundle">bundle</a> · <a href="/?group=area">issue area</a></nav>
 ${adviceView(data.advice)}
-${data.group === "bundle" ? bundleSections(data.issues, data.bundles, data.stuckReasons) : STAGES.map((s) => stageSection(s, data.issues, data.stuckReasons)).join("\n")}
+${
+  data.group === "bundle"
+    ? bundleSections(data.issues, data.bundles, data.stuckReasons)
+    : data.group === "area"
+      ? areaSections(data.issues, data.stuckReasons)
+      : STAGES.map((s) => stageSection(s, data.issues, data.stuckReasons)).join(
+          "\n",
+        )
+}
 ${stationList(data.stations, data.jobs)}
 ${jobList(data.jobs)}
 ${repoList(data.repos)}

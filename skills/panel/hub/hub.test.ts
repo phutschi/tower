@@ -3,6 +3,8 @@
  * for GitHub. Each repo's open issues are a fixture file the stub reads and
  * edits.
  */
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { expect, test } from "bun:test";
 
 import type { Job, PanelIssue } from "../types.ts";
@@ -10,6 +12,7 @@ import {
   acceptBundle,
   api,
   blocks,
+  dir,
   ghIssues,
   ghLog,
   hubUrl,
@@ -432,4 +435,64 @@ test("a bundle issue moved back on GitHub sends the others back, again on a late
   delete process.env.GH_STUB_FAIL;
   await polls(2);
   expect(labelsOf(3)).toEqual(["ready-for-agent"]);
+});
+
+/** Gives acme/widgets a context map on GitHub. */
+const contextMap = () =>
+  writeFileSync(join(dir(), "acme_widgets.context-map"), "");
+const labelJobs = async () =>
+  (await jobsNow()).filter((j) => j.kind === "label-area");
+
+test("a newly seen issue queues one label-area job; the issues of the first poll queue none", async () => {
+  contextMap();
+  setIssues("acme/widgets", [issue(1), issue(2, "area:parser")]);
+  await start();
+  expect(await labelJobs()).toEqual([]);
+  setIssues("acme/widgets", [issue(1), issue(2, "area:parser"), issue(3)]);
+  await polls(2);
+  expect((await labelJobs()).map((j) => [j.issues, j.state])).toEqual([
+    [[3], "queued"],
+  ]);
+});
+
+test("a repo without a context map queues no label-area job", async () => {
+  setIssues("acme/widgets", [issue(1)]);
+  await start();
+  setIssues("acme/widgets", [issue(1), issue(3)]);
+  await polls(2);
+  expect(await labelJobs()).toEqual([]);
+  expect((await api<PanelIssue[]>("/api/issues")).map((i) => i.number)).toEqual(
+    [1, 3],
+  );
+});
+
+test("an area label changed by hand shows on the Panel at the next poll, and queues nothing", async () => {
+  contextMap();
+  setIssues("acme/widgets", [issue(1, "area:parser")]);
+  await start();
+  setIssues("acme/widgets", [issue(1, "area:billing")]);
+  await polls(2);
+  expect((await api<PanelIssue[]>("/api/issues"))[0]!.issueArea).toBe(
+    "billing",
+  );
+  expect(await jobsNow()).toEqual([]);
+});
+
+test("the Panel groups issues by issue area, with ungrouped issues in their own group", async () => {
+  setIssues("acme/widgets", [
+    issue(1, "area:parser"),
+    issue(2, "area:billing"),
+    issue(3, "area:parser"),
+    issue(4),
+  ]);
+  await start();
+  const html = await (await fetch(`${hubUrl()}/?group=area`)).text();
+  const group = (key: string) =>
+    html.split(`<section data-area="${key}">`)[1]?.split("</section>")[0] ?? "";
+  expect(group("parser")).toContain("acme/widgets#1");
+  expect(group("parser")).toContain("acme/widgets#3");
+  expect(group("parser")).not.toContain("acme/widgets#2");
+  expect(group("billing")).toContain("acme/widgets#2");
+  expect(group("")).toContain("acme/widgets#4");
+  expect(html).toContain('<a href="/?group=area">issue area</a>');
 });

@@ -2,10 +2,14 @@
 # Stand-in for gh in the Panel's tests. Logs argv to GH_STUB_LOG. Each repo's
 # open issues live in GH_STUB_DIR/<owner>_<repo>.json, as `gh issue list
 # --json number,title,labels` prints them; a repo without a file has none.
-# `issue view N --json labels` answers that issue's labels; `issue edit`
+# A repo's labels are the lines of GH_STUB_DIR/<owner>_<repo>.labels: `label
+# list` answers them, `label create` adds one.
+# `issue view N` answers that issue as the list has it; `issue edit`
 # changes them in the file, so the next list sees the edit.
 # Its open pull requests live in GH_STUB_DIR/<owner>_<repo>.prs.json, as `gh pr
 # list --json number,isDraft,createdAt,closingIssuesReferences` prints them.
+# `api repos/<owner>/<repo>/contents/CONTEXT-MAP.md` answers {} when the file
+# GH_STUB_DIR/<owner>_<repo>.context-map exists, and GitHub's 404 when not.
 # `api repos/<owner>/<repo>/commits/HEAD` answers the head of main from
 # GH_STUB_DIR/<owner>_<repo>.head (0 without one); `api repos/…/issues/N`
 # answers that issue's id, 1000+N. `api repos/…/issues/N/dependencies/blocked_by`
@@ -33,7 +37,9 @@ verb="${args[0]:-} ${args[1]:-}"
 case "$verb" in
   "issue list") if [ -f "$file" ]; then cat "$file"; else echo "[]"; fi ;;
   "pr list") if [ -f "${file%.json}.prs.json" ]; then cat "${file%.json}.prs.json"; else echo "[]"; fi ;;
-  "issue view") jq --argjson n "${args[2]:?}" '.[] | select(.number == $n) | {labels}' "$file" ;;
+  "issue view") jq --argjson n "${args[2]:?}" '.[] | select(.number == $n)' "$file" ;;
+  "label list") labels="${file%.json}.labels"; touch "$labels"; jq -R '{name: .}' "$labels" | jq -s . ;;
+  "label create") echo "${args[2]:?}" >> "${file%.json}.labels" ;;
   "issue edit")
     number=${args[2]:?}
     adds=$(printf '%s\n' "${add[@]}" | jq -R . | jq -s 'map(select(. != ""))')
@@ -45,6 +51,9 @@ case "$verb" in
           else . end)' "$file" > "$file.next" && mv "$file.next" "$file" ;;
   "api "*)
     case "${args[1]}" in
+      repos/*/contents/CONTEXT-MAP.md) r=${args[1]#repos/}; r=${r%%/contents/*}
+        [ -f "$GH_STUB_DIR/${r/\//_}.context-map" ] || { echo "gh: Not Found (HTTP 404)" >&2; exit 1; }
+        echo "{}" ;;
       repos/*/commits/HEAD) head=${args[1]#repos/}; head=${head%/commits/HEAD}
         cat "$GH_STUB_DIR/${head/\//_}.head" 2>/dev/null || echo 0 ;;
       repos/*/issues/*[0-9]) echo "{\"id\": $((1000 + ${args[1]##*/}))}" ;;

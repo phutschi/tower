@@ -122,7 +122,8 @@ export function record(
 /**
  * Records a repo's open issues as one poll saw them. Its first poll only
  * records, so listing a repo starts nothing. An issue gone from the open list
- * is closed.
+ * is closed. With `labelAreas` (the repo has a context map), an issue seen
+ * for the first time queues the job that labels its issue area.
  */
 export function sync(
   store: Store,
@@ -130,6 +131,7 @@ export function sync(
   open: GhIssue[],
   now: Date,
   bundleOf: BundleOf = noBundle,
+  labelAreas = false,
 ) {
   const listed = store.repos().find((r) => r.name === repo);
   if (!listed) return; // unlisted while the poll ran
@@ -140,6 +142,8 @@ export function sync(
       const labels = i.labels.map((l) => l.name);
       const issue = { repo, number: i.number, title: i.title, labels };
       const next = { ...issue, stage: stageOf(labels) };
+      if (labelAreas && listed.baselined && !store.issue(repo, i.number))
+        store.addJob("label-area", repo, [i.number], now);
       if (listed.baselined) record(store, next, now, bundleOf);
       else store.putIssue(next);
     }
