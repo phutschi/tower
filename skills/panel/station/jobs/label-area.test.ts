@@ -24,10 +24,10 @@ import {
 } from "../../tests/fixture.ts";
 import { station, useStations } from "../../tests/station-process.ts";
 
+// Stations die before the fixture stops the hub: hooks run in this order.
+useStations();
 useFixture();
 setDefaultTimeout(20_000);
-
-useStations();
 
 const MAP = `# Context Map
 

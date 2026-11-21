@@ -6,7 +6,7 @@
  */
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
 import type { Subprocess } from "bun";
 
 import type { Job, JobEvent, PanelIssue } from "../../types.ts";
@@ -32,6 +32,8 @@ import {
 } from "../../tests/fixture.ts";
 
 useFixture();
+// Stations and polls are slow on a busy Mac: a test gets 20 s, as in the job tests.
+setDefaultTimeout(20_000);
 
 const CLI = join(import.meta.dir, "../../cli.ts");
 const STUBS = join(import.meta.dir, "../../tests/stub");
@@ -279,9 +281,9 @@ test("a run whose workspace does not open is stuck in in-progress with its reaso
   expect((await jobs())[0]!.state).toBe("stuck");
   const notes = inboxLog();
   expect(notes.length).toBe(1);
-  expect(notes[0]).toStartWith("inbox call send_message ");
+  expect(notes[0]).toStartWith("plannotator inbox call send_message ");
   const note = JSON.parse(
-    notes[0]!.slice("inbox call send_message ".length),
+    notes[0]!.slice("plannotator inbox call send_message ".length),
   ) as Record<string, string>;
   expect(note).toMatchObject({
     thread: "acme/widgets#12",

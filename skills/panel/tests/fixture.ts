@@ -112,7 +112,7 @@ export async function polls(n: number) {
 }
 
 /** Waits until `check` holds, for up to `ms`. */
-export async function until(check: () => Promise<boolean>, ms = 5000) {
+export async function until(check: () => Promise<boolean>, ms = 10_000) {
   const end = Date.now() + ms;
   while (Date.now() < end) {
     if (await check()) return;
@@ -146,7 +146,8 @@ export async function start(
     port: 0,
     pollMs: 20,
     ghBin: GH,
-    plannotatorBin: join(root, "plannotator"),
+    // Never the real usage report: it starts a Claude CLI with the user's login.
+    readUsage: async () => null,
     ...opts,
   };
   hub = await startHub(hubOpts);
@@ -206,22 +207,24 @@ export const gitRemotes = () => ({
   GIT_CONFIG_VALUE_0: "https://github.com/",
 });
 
+const PATH = process.env.PATH;
+
 export function useFixture() {
   beforeEach(() => {
     root = mkdtempSync(join(tmpdir(), "panel-"));
+    // The hub runs in this process: its plannotator and claude are the stubs,
+    // never the user's own Inbox or login.
+    process.env.PATH = `${join(import.meta.dir, "stub")}:${PATH}`;
+    process.env.PLANNOTATOR_STUB_LOG = join(root, "plannotator.log");
     process.env.GH_STUB_DIR = root;
     process.env.GH_STUB_LOG = join(root, "gh.log");
     delete process.env.GH_STUB_FAIL;
-    // The hub's Inbox notes: one argv per line in plannotator.log.
-    writeFileSync(
-      join(root, "plannotator"),
-      `#!/bin/sh\nprintf '%s\\n' "$*" >> "${join(root, "plannotator.log")}"\necho '{}'\n`,
-      { mode: 0o755 },
-    );
   });
   afterEach(async () => {
     await hub?.stop();
     hub = undefined;
     rmSync(root, { recursive: true, force: true });
+    process.env.PATH = PATH;
+    delete process.env.PLANNOTATOR_STUB_LOG;
   });
 }

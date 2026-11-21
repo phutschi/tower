@@ -9,6 +9,7 @@ import {
   type JobResult,
   type PanelIssue,
   type Stage,
+  type UsageRow,
 } from "../types.ts";
 import { AdviceStore, keepOpen, parseProposal } from "./advice.ts";
 import { isStageLabel, merged, record, sync } from "./dispatcher.ts";
@@ -16,6 +17,7 @@ import { GitHub } from "./github.ts";
 import { sendInboxNote } from "../station/inbox.ts";
 import { renderPanel, type PanelData } from "./panel-page.ts";
 import { ACTIVE, Store, type SnapshotIssue } from "./store.ts";
+import { UsageStore, parseRateLimit, readUsageReport } from "./usage.ts";
 
 export interface HubOptions {
   dbPath: string;
@@ -28,7 +30,9 @@ export interface HubOptions {
   leaseMs?: number;
   /** The server Mac's station, the one switched on from the start. */
   serverStation?: string;
-  plannotatorBin?: string;
+  /** The plan's limits, asked for on a timer; the Agent SDK's usage report by default. */
+  readUsage?: () => Promise<UsageRow[] | null>;
+  usageMs?: number;
 }
 export interface Hub {
   url: string;
@@ -113,6 +117,14 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
   const now = opts.now ?? (() => new Date());
   const store = new Store(opts.dbPath);
   const advice = new AdviceStore(opts.dbPath);
+  const usage = new UsageStore(opts.dbPath);
+  let report: UsageRow[] | null = null;
+  const readUsage = opts.readUsage ?? readUsageReport;
+  const refreshUsage = async () => {
+    report = await readUsage().catch(() => null);
+  };
+  void refreshUsage();
+  const usageTimer = setInterval(refreshUsage, opts.usageMs ?? 5 * 60_000);
   const github = new GitHub(opts.ghBin);
   const leaseMs = opts.leaseMs ?? 90_000;
   const leaseUntil = () => new Date(now().getTime() + leaseMs);
@@ -134,9 +146,6 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
             ...(run.sessionId ? [`Its session: ${run.sessionId}`] : []),
           ].join("\n\n"),
           idempotencyKey: `stuck-${run.id}`,
-          ...(opts.plannotatorBin
-            ? { plannotatorBin: opts.plannotatorBin }
-            : {}),
         });
         store.markNoted(run.id);
       }
@@ -394,6 +403,7 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
             renderPanel({
               group: groupOf(new URL(req.url).searchParams.get("group")),
               advice: advice.latest(),
+              usage: usage.view(report, now()),
               bundles: advice.bundles(),
               issues: panelIssues,
               stuckReasons: Object.fromEntries(
@@ -425,6 +435,7 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
       },
       "/api/jobs": { GET: () => Response.json(store.jobs()) },
       "/api/advice": { GET: () => Response.json(advice.latest()) },
+      "/api/usage": { GET: () => Response.json(usage.view(report, now())) },
       "/api/advice/:id/accept": {
         POST: async (req) => decide(req.params.id, "accepted", await body(req)),
       },
@@ -443,6 +454,8 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
             return bad("kinds must list job kinds");
           sweep();
           const s = store.station(station, opts.serverStation);
+          // At a usage limit nothing new starts until the reset.
+          if (usage.pausedUntil(now())) return Response.json(null);
           const job = store.claim(s, kinds, now(), leaseUntil());
           // A claimed run moves its issues to in-progress; the poll tries
           // again if this fails (followRuns).
@@ -477,7 +490,7 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
       },
       "/api/jobs/:id/events": {
         POST: async (req) => {
-          const { ts, kind, data } = await body(req);
+          const { station, ts, kind, data } = await body(req);
           const job = store.job(req.params.id);
           if (!job) return bad("no such job", 404);
           if (
@@ -486,6 +499,31 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
             !isObject(data)
           )
             return bad("an event has ts, kind and data");
+          // Only from the station working the job: one that lost it says nothing.
+          if (
+            kind === "session" &&
+            typeof data.sessionId === "string" &&
+            job.state === "claimed" &&
+            job.station === station
+          )
+            store.setSession(job.id, data.sessionId);
+          if (kind === "rate-limit") {
+            const info = parseRateLimit(data);
+            if (!info)
+              return bad("a rate-limit event has a status and an ISO resetsAt");
+            const paused = usage.record(info, now());
+            if (paused)
+              void sendInboxNote({
+                thread: "Panel usage",
+                subject: "Dispatch paused at a usage limit",
+                body: `Claude refused a job at a usage limit${info.rateLimitType ? ` (${info.rateLimitType})` : ""}. No new job starts until ${paused}.`,
+                idempotencyKey: `panel-pause-${paused}`,
+              }).catch((err: unknown) =>
+                console.error(
+                  `hub: the Inbox refused the pause note: ${String(err)}`,
+                ),
+              );
+          }
           if (job.kind === "advice" && kind === "proposal") {
             const proposal = parseProposal(data);
             if (typeof proposal === "string") return bad(proposal);
@@ -564,10 +602,12 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
       stopped = true;
       clearTimeout(timer);
       clearInterval(sweeper);
+      clearInterval(usageTimer);
       await chain;
       await server.stop(true);
       store.close();
       advice.close();
+      usage.close();
     },
   };
 }

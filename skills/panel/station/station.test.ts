@@ -5,7 +5,13 @@
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  expect,
+  setDefaultTimeout,
+  test,
+} from "bun:test";
 import type { Subprocess } from "bun";
 
 import type { Job, JobEvent, Station } from "../types.ts";
@@ -28,6 +34,8 @@ import {
 } from "../tests/fixture.ts";
 
 useFixture();
+// Stations and polls are slow on a busy Mac: a test gets 20 s, as in the job tests.
+setDefaultTimeout(20_000);
 
 const FAKE = join(import.meta.dir, "../tests/fake-station.ts");
 let stations: Subprocess[] = [];

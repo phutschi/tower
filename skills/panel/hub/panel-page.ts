@@ -7,6 +7,8 @@ import {
   type JobEvent,
   type PanelIssue,
   type Station,
+  type UsageRow,
+  type UsageView,
 } from "../types.ts";
 
 export interface PanelData {
@@ -18,6 +20,7 @@ export interface PanelData {
   /** The latest jobs, newest first, each with its events. */
   jobs: (Job & { events: JobEvent[] })[];
   advice: AdviceProposal | null;
+  usage: UsageView;
   bundles: Bundle[];
   /** How the issues are grouped: by stage, by bundle, or by issue area. */
   group: "stage" | "bundle" | "area";
@@ -137,6 +140,30 @@ function adviceView(advice: AdviceProposal | null): string {
     : "";
 }
 
+const LIMIT_NAMES = { session: "5-hour window", weekly_all: "weekly" };
+const limitName = (r: UsageRow) =>
+  r.kind === "weekly_scoped"
+    ? `${r.model ?? "model"} weekly`
+    : LIMIT_NAMES[r.kind];
+
+/** The plan's limits, and the pause when Claude refused a job at one. */
+function limitsView(u: UsageView): string {
+  const rows = u.rows
+    .map(
+      (r) =>
+        `<li>${esc(limitName(r))}: ${Math.round(r.percent)}% (resets ${esc(r.resetsAt)})</li>`,
+    )
+    .join("");
+  const paused = u.pausedUntil
+    ? `<p data-paused>Paused at a usage limit: no new job starts until ${esc(u.pausedUntil)}.</p>`
+    : "";
+  const source =
+    u.source === "job-events"
+      ? `<p>${u.rows.length ? "No usage report; these are the values from the latest jobs." : "No usage report, and no job has reported its limits yet."}</p>`
+      : "";
+  return `<section data-usage><h2>Limits</h2>${paused}${source}<ul>${rows}</ul></section>`;
+}
+
 function repoList(repos: string[]): string {
   const items = repos
     .map(
@@ -168,7 +195,10 @@ function jobState(j: Job): string {
   const took =
     j.durationMs === null ? "" : ` in ${Math.round(j.durationMs / 1000)}s`;
   const reason = j.reason ? `: ${esc(j.reason)}` : "";
-  return `${j.state}${took}${reason}`;
+  const tokens = j.tokens
+    ? `, ${j.tokens.input} in / ${j.tokens.output} out tokens`
+    : "";
+  return `${j.state}${took}${tokens}${reason}`;
 }
 
 function jobList(jobs: PanelData["jobs"]): string {
@@ -233,6 +263,7 @@ ${
           "\n",
         )
 }
+${limitsView(data.usage)}
 ${stationList(data.stations, data.jobs)}
 ${jobList(data.jobs)}
 ${repoList(data.repos)}

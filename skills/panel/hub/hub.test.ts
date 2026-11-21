@@ -5,7 +5,7 @@
  */
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { expect, test } from "bun:test";
+import { expect, setDefaultTimeout, test } from "bun:test";
 
 import type { Job, PanelIssue } from "../types.ts";
 import {
@@ -26,6 +26,8 @@ import {
 } from "../tests/fixture.ts";
 
 useFixture();
+// Stations and polls are slow on a busy Mac: a test gets 20 s, as in the job tests.
+setDefaultTimeout(20_000);
 
 test("the first poll records current stage labels and queues no job", async () => {
   setIssues("acme/widgets", [

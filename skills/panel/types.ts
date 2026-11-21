@@ -94,3 +94,18 @@ export interface Bundle {
   issues: number[];
   acceptedAt: string;
 }
+
+/** One of the plan's usage limits: the 5-hour window, the week, a model's week. */
+export interface UsageRow {
+  kind: "session" | "weekly_all" | "weekly_scoped";
+  percent: number;
+  resetsAt: string;
+  model?: string;
+}
+
+/** The Panel's limits view, and whether dispatch is paused at a limit. */
+export interface UsageView {
+  rows: UsageRow[];
+  source: "usage-report" | "job-events";
+  pausedUntil: string | null;
+}

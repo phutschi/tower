@@ -2,10 +2,20 @@
 # Stand-in for claude in the Panel's tests. Logs argv to CLAUDE_STUB_LOG and
 # appends the prompt it reads on stdin to CLAUDE_STUB_LOG.prompts, one
 # `--- prompt` line before each. Answers the stream-json lines of the file
-# CLAUDE_STUB_OUT names, and exits CLAUDE_STUB_EXIT (0 unset). CLAUDE_STUB_RUN is
-# a shell command it runs first, as something that happens while a session runs.
+# CLAUDE_STUB_OUT names, or with --resume of the files CLAUDE_STUB_RESUME_OUT
+# names, colon-separated: the nth resume answers the nth, the last repeats.
+# Exits CLAUDE_STUB_EXIT (0 unset). CLAUDE_STUB_RUN is a shell command it runs
+# first, as something that happens while a session runs.
 printf 'claude %s\n' "$*" >> "${CLAUDE_STUB_LOG:-/dev/null}"
 { echo "--- prompt"; cat; echo; } >> "${CLAUDE_STUB_LOG:-/dev/null}.prompts"
 [ -n "${CLAUDE_STUB_RUN:-}" ] && sh -c "$CLAUDE_STUB_RUN"
-[ -n "${CLAUDE_STUB_OUT:-}" ] && cat "$CLAUDE_STUB_OUT"
+out=${CLAUDE_STUB_OUT:-}
+case " $* " in *" --resume "*)
+  echo >> "${CLAUDE_STUB_LOG:-/dev/null}.resumes"
+  n=$(wc -l < "${CLAUDE_STUB_LOG:-/dev/null}.resumes" 2>/dev/null || echo 1)
+  IFS=: read -ra outs <<< "${CLAUDE_STUB_RESUME_OUT:-}"
+  i=$(( n > ${#outs[@]} ? ${#outs[@]} - 1 : n - 1 ))
+  out=${outs[$i]:-} ;;
+esac
+[ -n "$out" ] && cat "$out"
 exit "${CLAUDE_STUB_EXIT:-0}"

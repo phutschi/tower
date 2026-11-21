@@ -455,4 +455,9 @@ export class Store {
       ).changes === 1
     );
   }
+
+  /** Records the session a job runs in while it still runs, for a take-over at the desk. */
+  setSession(id: string, sessionId: string) {
+    this.db.run("UPDATE jobs SET session_id = ? WHERE id = ?", [sessionId, id]);
+  }
 }

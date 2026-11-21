@@ -4,8 +4,9 @@
 # --json number,title,labels` prints them; a repo without a file has none.
 # A repo's labels are the lines of GH_STUB_DIR/<owner>_<repo>.labels: `label
 # create` adds one, and fails as gh does for one the repo has already.
-# `issue view N` answers that issue as the list has it; `issue edit`
-# changes them in the file, so the next list sees the edit.
+# `issue view N` answers that issue's title, body and labels; `issue edit`
+# changes its labels in the file, so the next list sees the edit, and with
+# `--body-file -` writes the body it reads to GH_STUB_DIR/<owner>_<repo>_N.body.
 # Its open pull requests live in GH_STUB_DIR/<owner>_<repo>.prs.json, as `gh pr
 # list --json number,isDraft,createdAt,closingIssuesReferences` prints them.
 # `api repos/<owner>/<repo>/contents/CONTEXT-MAP.md` answers {} when the file
@@ -16,15 +17,17 @@
 # lists, or with -X POST adds, the blockers in GH_STUB_DIR/<owner>_<repo>.deps,
 # one `N <blocker id>` line each; a blocker is open while it is in the repo's
 # open issues. Any other `api` call answers {}.
-# GH_STUB_FAIL=<verb> makes that verb fail: list or edit.
+# GH_STUB_FAIL=<verb> makes that verb fail: list or edit; so does a file
+# GH_STUB_DIR/fail holding the verb, while it is there.
 printf 'gh %s\n' "$*" >> "${GH_STUB_LOG:-/dev/null}"
-repo=""; add=(); remove=(); args=(); method=GET; field=""
+repo=""; add=(); remove=(); args=(); method=GET; field=""; body_file=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --repo) repo=$2; shift ;;
     --add-label) add+=("$2"); shift ;;
     --remove-label) remove+=("$2"); shift ;;
     -X) method=$2; shift ;;
+    --body-file) body_file=$2; shift ;;
     -F) field=$2; shift ;;
     --json|--limit|--state|--jq|-H|-f) shift ;;
     *) args+=("$1") ;;
@@ -33,11 +36,12 @@ while [ $# -gt 0 ]; do
 done
 file="${GH_STUB_DIR:?}/${repo/\//_}.json"
 verb="${args[0]:-} ${args[1]:-}"
-[ -n "${GH_STUB_FAIL:-}" ] && [ "${args[1]:-}" = "$GH_STUB_FAIL" ] && { echo "gh: ${args[1]} failed (stub)" >&2; exit 1; }
+fail=${GH_STUB_FAIL:-$(cat "$GH_STUB_DIR/fail" 2>/dev/null)}
+[ -n "$fail" ] && [ "${args[1]:-}" = "$fail" ] && { echo "gh: ${args[1]} failed (stub)" >&2; exit 1; }
 case "$verb" in
   "issue list") if [ -f "$file" ]; then cat "$file"; else echo "[]"; fi ;;
   "pr list") if [ -f "${file%.json}.prs.json" ]; then cat "${file%.json}.prs.json"; else echo "[]"; fi ;;
-  "issue view") jq --argjson n "${args[2]:?}" '.[] | select(.number == $n)' "$file" ;;
+  "issue view") jq --argjson n "${args[2]:?}" '.[] | select(.number == $n) | {title, body: (.body // ""), labels}' "$file" ;;
   "label create") labels="${file%.json}.labels"
     if grep -qxF -- "${args[2]:?}" "$labels" 2>/dev/null; then
       echo "label with name \"${args[2]}\" already exists; use \`--force\` to update its color and description" >&2; exit 1
@@ -45,6 +49,7 @@ case "$verb" in
     echo "${args[2]}" >> "$labels" ;;
   "issue edit")
     number=${args[2]:?}
+    [ "$body_file" = - ] && cat > "${file%.json}_$number.body"
     adds=$(printf '%s\n' "${add[@]}" | jq -R . | jq -s 'map(select(. != ""))')
     removes=$(printf '%s\n' "${remove[@]}" | jq -R . | jq -s 'map(select(. != ""))')
     jq --argjson n "$number" --argjson add "$adds" --argjson rm "$removes" '

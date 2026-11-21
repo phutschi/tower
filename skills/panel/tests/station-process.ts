@@ -48,10 +48,11 @@ export function remote() {
 }
 
 let procs: Subprocess[] = [];
+
 /**
- * Ends each test's stations after it. Every test file that starts stations
- * calls it: a hook registered once at import would end only the stations of
- * the first file that imports this module.
+ * Kills every station a test of this file started, passed or not. Call it at
+ * the top of each test file: a hook registered here at import would reach
+ * only the first file that imports this module.
  */
 export function useStations() {
   afterEach(async () => {
@@ -60,6 +61,9 @@ export function useStations() {
     procs = [];
   });
 }
+
+/** A station outlives no test: one leaked by a broken teardown dies by this. */
+const STATION_MAX_MS = 60_000;
 
 /** Starts the station `server` with `env` on top of the test's. */
 export function station(env: Record<string, string> = {}) {
@@ -91,6 +95,8 @@ export function station(env: Record<string, string> = {}) {
         ...env,
       },
       stderr: "inherit",
+      timeout: STATION_MAX_MS,
+      killSignal: "SIGKILL",
     },
   );
   procs.push(proc);

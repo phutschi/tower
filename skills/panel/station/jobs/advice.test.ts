@@ -6,7 +6,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, setDefaultTimeout, test } from "bun:test";
 
-import type { AdviceProposal, Job } from "../../types.ts";
+import type { AdviceProposal, Job, UsageView } from "../../types.ts";
 import {
   api,
   dir,
@@ -19,8 +19,9 @@ import {
 } from "../../tests/fixture.ts";
 import { remote, station, useStations } from "../../tests/station-process.ts";
 
-useFixture();
+// Stations die before the fixture stops the hub: hooks run in this order.
 useStations();
+useFixture();
 setDefaultTimeout(20_000);
 
 const read = (name: string) =>
@@ -161,4 +162,124 @@ test("a session that fails fails the job with its reason", async () => {
   const job = await advise({ CLAUDE_STUB_OUT: file, CLAUDE_STUB_EXIT: "1" });
   expect(job).toMatchObject({ state: "stuck", sessionId: "sess-2" });
   expect(job.reason).toBe("error_during_execution: API overloaded");
+});
+
+/** A session that ran into a usage limit: `lines` before its failed result. */
+function limited(lines: object[]) {
+  const file = join(dir(), "limited.out");
+  writeFileSync(
+    file,
+    [
+      { type: "system", subtype: "init", session_id: "sess-3" },
+      ...lines,
+      {
+        type: "result",
+        subtype: "error_during_execution",
+        is_error: true,
+        session_id: "sess-3",
+        errors: ["usage limit reached"],
+        usage: { input_tokens: 5, output_tokens: 0 },
+      },
+    ]
+      .map((l) => JSON.stringify(l))
+      .join("\n") + "\n",
+  );
+  return { CLAUDE_STUB_OUT: file, CLAUDE_STUB_EXIT: "1" };
+}
+const RESET = Math.floor(Date.now() / 1000) + 3600;
+const usage = () => api<UsageView>("/api/usage");
+
+test("a rejected rate-limit event in a session pauses dispatch until its reset", async () => {
+  await advise(
+    limited([
+      {
+        type: "rate_limit_event",
+        session_id: "sess-3",
+        rate_limit_info: {
+          status: "rejected",
+          rateLimitType: "five_hour",
+          utilization: 1,
+          resetsAt: RESET,
+        },
+      },
+    ]),
+  );
+  await until(async () => (await usage()).pausedUntil !== null);
+  expect((await usage()).pausedUntil).toBe(
+    new Date(RESET * 1000).toISOString(),
+  );
+  // The pause note went to the stub Inbox, never the user's own.
+  await until(async () => read("plannotator.log").includes("Dispatch paused"));
+});
+
+test("a rejection paid as extra usage pauses nothing", async () => {
+  const job = await advise(
+    limited([
+      {
+        type: "rate_limit_event",
+        session_id: "sess-3",
+        rate_limit_info: {
+          status: "rejected",
+          rateLimitType: "five_hour",
+          resetsAt: RESET,
+          overageStatus: "allowed",
+          isUsingOverage: true,
+        },
+      },
+    ]),
+  );
+  expect(job.state).toBe("stuck");
+  await Bun.sleep(200);
+  expect((await usage()).pausedUntil).toBeNull();
+});
+
+test("a rate_limit error pauses dispatch until the earliest reset the session named", async () => {
+  const LATER = RESET + 4 * 24 * 3600;
+  await advise(
+    limited([
+      {
+        type: "rate_limit_event",
+        session_id: "sess-3",
+        rate_limit_info: {
+          status: "allowed_warning",
+          rateLimitType: "five_hour",
+          utilization: 0.97,
+          resetsAt: RESET,
+        },
+      },
+      {
+        type: "rate_limit_event",
+        session_id: "sess-3",
+        rate_limit_info: {
+          status: "allowed_warning",
+          rateLimitType: "seven_day",
+          utilization: 0.8,
+          resetsAt: LATER,
+        },
+      },
+      {
+        type: "assistant",
+        session_id: "sess-3",
+        error: "rate_limit",
+        message: { content: [] },
+      },
+    ]),
+  );
+  await until(async () => (await usage()).pausedUntil !== null);
+  const view = await usage();
+  // A wrong guess costs one more refused job, not days.
+  expect(view.pausedUntil).toBe(new Date(RESET * 1000).toISOString());
+  // The warnings' values feed the limits view while there is no usage report.
+  expect(view.rows).toEqual([
+    {
+      kind: "session",
+      percent: 97,
+      resetsAt: new Date(RESET * 1000).toISOString(),
+    },
+    {
+      kind: "weekly_all",
+      percent: 80,
+      resetsAt: new Date(LATER * 1000).toISOString(),
+    },
+  ]);
 });

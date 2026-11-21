@@ -10,25 +10,12 @@ import { promisify } from "node:util";
 
 import { keepOpen, parseProposal } from "../../hub/advice.ts";
 import type { PanelIssue } from "../../types.ts";
-import { runHeadless } from "../claude.ts";
+import { jsonIn, reportLimits, runHeadless } from "../claude.ts";
 import { sendInboxNote } from "../inbox.ts";
 import { registerJobRunner } from "../station.ts";
 
 const run = promisify(execFile);
 const PROMPT = join(import.meta.dir, "../../prompts/advice.md");
-
-/** The JSON object in a session's answer, fenced or bare; null if it holds none. */
-function jsonIn(text: string): unknown {
-  const start = text.indexOf("{");
-  const end = text.lastIndexOf("}");
-  try {
-    return start < 0
-      ? null
-      : (JSON.parse(text.slice(start, end + 1)) as unknown);
-  } catch {
-    return null;
-  }
-}
 
 registerJobRunner(
   "advice",
@@ -72,6 +59,7 @@ ${data(merges.trim().split("\n"))}
       tools: [],
       signal,
     });
+    await reportLimits(session, emit);
     const ran = { sessionId: session.sessionId, tokens: session.tokens };
     if (session.error)
       return {
