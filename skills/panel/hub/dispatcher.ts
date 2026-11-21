@@ -18,9 +18,12 @@ export function stageOf(labels: string[]): Stage {
 
 export const isStageLabel = (label: string) => LABELS.includes(label);
 
-function jobFor(to: Stage): JobKind | null {
-  return to === "shaping" ? "grill" : null;
-}
+/** The job a move into each stage asks for. */
+const JOB_FOR: Partial<Record<Stage, JobKind>> = {
+  shaping: "grill",
+  "ready-for-agent": "run",
+};
+const jobFor = (to: Stage): JobKind | null => JOB_FOR[to] ?? null;
 
 /**
  * Records one issue's stage, and queues a job when it was moved since last

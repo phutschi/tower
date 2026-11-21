@@ -3505,6 +3505,31 @@ EOF
   unset CLAUDE_ROUTER_ROLE
 fi
 
+# --- start-run ---------------------------------------------------------------
+# The Panel's station opens a run's workspace through start-run.sh.
+if section start-run; then
+  r=$(fixture_repo start-run); brief="$TMP/start-run-brief.md"; reset_stub
+  printf 'Run /tower:spec-to-plan on acme/widgets#12.\nThen /tower:orchestrate.\n' > "$brief"
+  out=$("$KIT/start-run.sh" acme-widgets-12 "$r" "$brief" 2>&1); code=$?
+  log=$(cat "$HERDR_STUB_LOG")
+  assert_eq    "start-run: succeeds"                         "$code" 0
+  assert_match "start-run: a workspace named after the issue, in the checkout" "$log" "^herdr workspace create --cwd $r --label acme-widgets-12 --no-focus\$"
+  assert_match "start-run: the orchestrator is claude, in the workspace's first pane" "$log" '^herdr agent start acme-widgets-12 --kind claude --pane pane-1 '
+  assert_match "start-run: the brief is its first prompt"     "$log" '^herdr agent prompt acme-widgets-12 Run /tower:spec-to-plan on acme/widgets#12\.$'
+  assert_match "start-run: prints the workspace and the pane" "$out" '^\{"workspace":"ws-1","pane":"pane-1"\}$'
+  out=$("$KIT/start-run.sh" acme-widgets-12 "$r" 2>&1; echo "exit=$?")
+  assert_match "start-run: a missing argument is refused"     "$out" 'usage: start-run.sh <workspace-name> <worktree-path> <brief-file>'
+  assert_match "start-run: and fails"                         "$out" 'exit=2$'
+  out=$("$KIT/start-run.sh" acme-widgets-12 "$TMP/nowhere" "$brief" 2>&1; echo "exit=$?")
+  assert_match "start-run: a missing checkout is refused"     "$out" "start-run: no checkout at $TMP/nowhere"
+  assert_match "start-run: and fails non-zero"                "$out" 'exit=1$'
+  reset_stub
+  out=$(HERDR_STUB_WORKSPACE_FAIL=1 "$KIT/start-run.sh" acme-widgets-12 "$r" "$brief" 2>&1; echo "exit=$?")
+  assert_match "start-run: a workspace herdr refuses fails it" "$out" 'start-run: herdr could not open workspace acme-widgets-12'
+  assert_match "start-run: non-zero"                          "$out" 'exit=1$'
+  assert_nomatch "start-run: and starts no agent"             "$(cat "$HERDR_STUB_LOG")" 'agent start'
+fi
+
 # --- runner ------------------------------------------------------------------
 if section runner; then
   list=$("$ROOT/test.sh" --list 2>&1)

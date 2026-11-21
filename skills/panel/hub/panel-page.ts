@@ -95,7 +95,15 @@ function jobList(jobs: PanelData["jobs"]): string {
       )
       .join("");
     const session = j.sessionId ? ` · session ${esc(j.sessionId)}` : "";
-    return `<li data-job="${esc(j.id)}">${esc(jobName(j))} · ${jobState(j)}${session}
+    // Where to attach to a run: the workspace its station opened.
+    const opened = j.events
+      .filter((e) => e.kind === "run-started")
+      .at(-1)?.data;
+    const ws =
+      typeof opened?.workspace === "string"
+        ? ` · workspace ${esc(opened.workspace)}`
+        : "";
+    return `<li data-job="${esc(j.id)}">${esc(jobName(j))} · ${jobState(j)}${ws}${session}
 <details><summary>${j.events.length} events</summary><ul>${events}</ul></details></li>`;
   });
   return `<section data-jobs><h2>Jobs</h2><ul>${items.join("")}</ul></section>`;

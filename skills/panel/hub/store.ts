@@ -105,7 +105,8 @@ export class Store {
         duration_ms INTEGER,
         tokens_in INTEGER,
         tokens_out INTEGER,
-        lost_by TEXT
+        lost_by TEXT,
+        claimed_at TEXT
       );
       CREATE TABLE IF NOT EXISTS stations (
         name TEXT PRIMARY KEY,
@@ -239,7 +240,12 @@ export class Store {
    * Hands the oldest queued job of one of `kinds` to `station`, with a lease
    * until `leaseUntil`, unless the station is off or at its limit.
    */
-  claim(station: Station, kinds: JobKind[], leaseUntil: Date): Job | null {
+  claim(
+    station: Station,
+    kinds: JobKind[],
+    now: Date,
+    leaseUntil: Date,
+  ): Job | null {
     let id: string | undefined;
     this.transaction(() => {
       const held = this.db
@@ -257,8 +263,8 @@ export class Store {
         .get(...kinds)?.id;
       if (id)
         this.db.run(
-          "UPDATE jobs SET state = 'claimed', station = ?, lease_until = ?, lost_by = NULL WHERE id = ?",
-          [station.name, leaseUntil.toISOString(), id],
+          "UPDATE jobs SET state = 'claimed', station = ?, lease_until = ?, lost_by = NULL, claimed_at = ? WHERE id = ?",
+          [station.name, leaseUntil.toISOString(), now.toISOString(), id],
         );
     });
     return id ? this.job(id)! : null;
@@ -276,6 +282,19 @@ export class Store {
          WHERE id = ? AND ${HOLDS}`,
         [station, leaseUntil.toISOString(), id, station, station],
       ).changes === 1
+    );
+  }
+
+  /**
+   * Ends a claimed job from the hub's side, as done: its run's PR is ready.
+   * The station learns it from its next heartbeat and posts no result.
+   */
+  finishClaimed(id: string, now: Date) {
+    this.db.run(
+      `UPDATE jobs SET state = 'done', lease_until = NULL,
+         duration_ms = CAST((julianday(?) - julianday(claimed_at)) * 86400000 AS INTEGER)
+       WHERE id = ? AND state = 'claimed'`,
+      [now.toISOString(), id],
     );
   }
 

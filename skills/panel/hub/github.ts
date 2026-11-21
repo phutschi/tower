@@ -53,6 +53,35 @@ export class GitHub {
     );
   }
 
+  /** The issues each open, non-draft pull request closes. */
+  async readyPulls(
+    repo: string,
+  ): Promise<{ number: number; closes: number[] }[]> {
+    const out = await this.gh([
+      "pr",
+      "list",
+      "--repo",
+      repo,
+      "--state",
+      "open",
+      "--limit",
+      "200",
+      "--json",
+      "number,isDraft,closingIssuesReferences",
+    ]);
+    const pulls = JSON.parse(out) as {
+      number: number;
+      isDraft: boolean;
+      closingIssuesReferences: { number: number }[];
+    }[];
+    return pulls
+      .filter((p) => !p.isDraft)
+      .map((p) => ({
+        number: p.number,
+        closes: p.closingIssuesReferences.map((i) => i.number),
+      }));
+  }
+
   async editLabels(
     repo: string,
     number: number,

@@ -3,7 +3,6 @@
  * runStation with fake runners) against a real hub, with real git against a
  * temp bare repo standing in for GitHub's.
  */
-import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, test } from "bun:test";
@@ -13,10 +12,13 @@ import type { Job, JobEvent, Station } from "../types.ts";
 import {
   api,
   dir,
+  git,
   hubUrl,
   issue,
   post,
   put,
+  gitRemotes,
+  remote,
   restart,
   setIssues,
   start,
@@ -30,32 +32,6 @@ useFixture();
 const FAKE = join(import.meta.dir, "../tests/fake-station.ts");
 let stations: Subprocess[] = [];
 
-const git = (cwd: string, ...args: string[]) =>
-  execFileSync("git", args, { cwd, encoding: "utf8" });
-
-/** acme/widgets as a bare repo with one commit; git reaches it for github.com. */
-function remote() {
-  const remotes = join(dir(), "remotes");
-  const seed = join(dir(), "seed");
-  mkdirSync(seed, { recursive: true });
-  git(seed, "init", "-q", "-b", "main");
-  writeFileSync(join(seed, "README.md"), "widgets\n");
-  git(seed, "add", ".");
-  git(
-    seed,
-    "-c",
-    "user.name=rex",
-    "-c",
-    "user.email=someone@example.com",
-    "commit",
-    "-qm",
-    "init",
-  );
-  mkdirSync(join(remotes, "acme"), { recursive: true });
-  git(dir(), "clone", "-q", "--bare", seed, join(remotes, "acme/widgets.git"));
-  return remotes;
-}
-
 function station(name = "server", kinds = "grill") {
   const workdir = join(dir(), `station-${name}`);
   mkdirSync(workdir, { recursive: true });
@@ -66,9 +42,7 @@ function station(name = "server", kinds = "grill") {
       STATION_NAME: name,
       WORKDIR: workdir,
       FAKE_KINDS: kinds,
-      GIT_CONFIG_COUNT: "1",
-      GIT_CONFIG_KEY_0: `url.file://${join(dir(), "remotes")}/.insteadOf`,
-      GIT_CONFIG_VALUE_0: "https://github.com/",
+      ...gitRemotes(),
     },
     stderr: "inherit",
   });

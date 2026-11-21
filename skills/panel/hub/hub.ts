@@ -111,11 +111,54 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
     return next;
   };
 
+  /**
+   * Sets an issue's stage label on GitHub and records it; throws when gh
+   * fails. Callers run it inside serial().
+   */
+  const setStage = async (prev: SnapshotIssue, stage: Stage) => {
+    // GitHub's labels now, not the last poll's: a job may have moved it.
+    let labels = await github.labels(prev.repo, prev.number);
+    const remove = labels.filter((l) => isStageLabel(l) && l !== stage);
+    await github.editLabels(prev.repo, prev.number, [stage], remove);
+    labels = labels.filter((l) => !remove.includes(l));
+    if (!labels.includes(stage)) labels.push(stage);
+    record(store, { ...prev, stage, labels }, now());
+  };
+
+  /** Sets a stage the hub itself owns (in-progress, in-review) on each of a job's issues. */
+  const setStages = async (job: Job, stage: Stage) => {
+    for (const n of job.issues) {
+      const prev = store.issue(job.repo, n);
+      if (prev && prev.stage !== "closed") await setStage(prev, stage);
+    }
+  };
+
+  /**
+   * A claimed run whose issues one ready (not draft) PR closes is over: its
+   * issues go to in-review and the job is done. Until the labels are set the
+   * job stays claimed, so a gh failure is tried again on the next poll.
+   */
+  const finishReadyRuns = async (repo: string) => {
+    const runs = store
+      .jobs()
+      .filter(
+        (j) => j.kind === "run" && j.state === "claimed" && j.repo === repo,
+      );
+    if (runs.length === 0) return;
+    const pulls = await github.readyPulls(repo);
+    for (const run of runs)
+      if (pulls.some((p) => run.issues.every((n) => p.closes.includes(n)))) {
+        await setStages(run, "in-review");
+        store.finishClaimed(run.id, now());
+      }
+  };
+
   const poll = () =>
     serial(async () => {
       for (const { name } of store.repos()) {
         try {
           sync(store, name, await github.openIssues(name), now());
+          await finishReadyRuns(name);
         } catch (err) {
           console.error(`hub: polling ${name} failed: ${String(err)}`);
         }
@@ -140,18 +183,11 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
       const prev = store.issue(repo, number);
       if (!prev) return bad(`${repo}#${number} is not on the Panel`);
       if (prev.stage === "closed") return bad(`${repo}#${number} is closed`);
-      let labels: string[];
       try {
-        // GitHub's labels now, not the last poll's: a job may have moved it.
-        labels = await github.labels(repo, number);
-        const remove = labels.filter((l) => isStageLabel(l) && l !== stage);
-        await github.editLabels(repo, number, [stage], remove);
-        labels = labels.filter((l) => !remove.includes(l));
+        await setStage(prev, stage);
       } catch (err) {
         return bad(`gh refused the move: ${String(err)}`, 502);
       }
-      if (!labels.includes(stage)) labels.push(stage);
-      record(store, { ...prev, stage, labels }, now());
       return Response.json(
         issues().find((i) => i.repo === repo && i.number === number),
       );
@@ -200,7 +236,13 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
             return bad("kinds must list job kinds");
           sweep();
           const s = store.station(station, opts.serverStation);
-          return Response.json(store.claim(s, kinds, leaseUntil()));
+          const job = store.claim(s, kinds, now(), leaseUntil());
+          // A claimed run moves its issues to in-progress.
+          if (job?.kind === "run")
+            void serial(() => setStages(job, "in-progress")).catch((err) =>
+              console.error(`hub: setting in-progress failed: ${String(err)}`),
+            );
+          return Response.json(job);
         },
       },
       "/api/jobs/:id": {

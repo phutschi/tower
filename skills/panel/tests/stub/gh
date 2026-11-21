@@ -4,6 +4,8 @@
 # --json number,title,labels` prints them; a repo without a file has none.
 # `issue view N --json labels` answers that issue's labels; `issue edit`
 # changes them in the file, so the next list sees the edit.
+# Its open pull requests live in GH_STUB_DIR/<owner>_<repo>.prs.json, as `gh pr
+# list --json number,isDraft,closingIssuesReferences` prints them.
 # GH_STUB_FAIL=<verb> makes that verb fail: list or edit.
 printf 'gh %s\n' "$*" >> "${GH_STUB_LOG:-/dev/null}"
 repo=""; add=(); remove=(); args=()
@@ -22,6 +24,7 @@ verb="${args[0]:-} ${args[1]:-}"
 [ -n "${GH_STUB_FAIL:-}" ] && [ "${args[1]:-}" = "$GH_STUB_FAIL" ] && { echo "gh: ${args[1]} failed (stub)" >&2; exit 1; }
 case "$verb" in
   "issue list") if [ -f "$file" ]; then cat "$file"; else echo "[]"; fi ;;
+  "pr list") if [ -f "${file%.json}.prs.json" ]; then cat "${file%.json}.prs.json"; else echo "[]"; fi ;;
   "issue view") jq --argjson n "${args[2]:?}" '.[] | select(.number == $n) | {labels}' "$file" ;;
   "issue edit")
     number=${args[2]:?}

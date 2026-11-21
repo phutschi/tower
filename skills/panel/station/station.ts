@@ -5,7 +5,7 @@
  * Mac takes and whether it takes any.
  */
 import type { Job, JobKind, JobResult } from "../types.ts";
-import { WorktreeExecutor, type Executor, type Workspace } from "./executor.ts";
+import { CheckoutExecutor, type Executor, type Workspace } from "./executor.ts";
 
 export type { Workspace } from "./executor.ts";
 
@@ -36,10 +36,10 @@ export interface StationOptions {
 export async function runStation(
   opts: StationOptions,
 ): Promise<{ stop(): Promise<void> }> {
-  const executor: Executor = new WorktreeExecutor(opts.workdir);
+  const executor: Executor = new CheckoutExecutor(opts.workdir);
   const running = new Map<
     string,
-    { abort: AbortController; done: Promise<void> }
+    { abort: AbortController; done: Promise<void>; ended?: boolean }
   >();
 
   const call = (path: string, body: unknown) =>
@@ -97,10 +97,12 @@ export async function runStation(
       await executor.release(workspace).catch((err: unknown) => {
         console.error(`station: releasing ${workspace.path}: ${String(err)}`);
       });
+    const { ended } = running.get(job.id) ?? {};
     running.delete(job.id);
     // A station that quits posts no result: the lease runs out and the job
-    // waits in the queue for the next station.
-    if (leaving) return;
+    // waits in the queue for the next station. A job the hub ended has its
+    // result already.
+    if (leaving || ended) return;
     outbox.push({
       path: `/api/jobs/${job.id}/result`,
       body: { ...result, durationMs: Date.now() - started },
@@ -119,8 +121,14 @@ export async function runStation(
 
   const tick = async () => {
     await flush();
-    for (const id of running.keys())
-      await call(`/api/jobs/${id}/heartbeat`, {}).catch(() => {});
+    for (const [id, job] of running) {
+      const res = await call(`/api/jobs/${id}/heartbeat`, {}).catch(() => null);
+      // 409: the job is no longer this station's (the hub ended it): let go.
+      if (res?.status === 409 && !job.ended) {
+        job.ended = true;
+        job.abort.abort();
+      }
+    }
     for (let job = await claim(); job; job = await claim()) {
       if (running.has(job.id)) continue;
       const abort = new AbortController();

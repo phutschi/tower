@@ -230,3 +230,14 @@ test("a move removes the stage labels GitHub has now, not the ones the last poll
     "in-review",
   ]);
 });
+
+test("a label changed into ready-for-agent queues one run job", async () => {
+  setIssues("acme/widgets", [issue(1, "shaping"), issue(2, "needs-triage")]);
+  await start();
+  setIssues("acme/widgets", [issue(1, "ready-for-agent"), issue(2)]);
+  await polls(2);
+  const jobs = await api<Job[]>("/api/jobs");
+  expect(jobs.map((j) => [j.kind, j.issues, j.state])).toEqual([
+    ["run", [1], "queued"],
+  ]);
+});

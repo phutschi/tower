@@ -3,8 +3,10 @@
  * repo's open issues as a file it reads and edits, and a real hub on it.
  * `useFixture()` sets it up and tears it down around each test of a file.
  */
+import { execFileSync } from "node:child_process";
 import {
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -106,6 +108,44 @@ export async function restart() {
   const port = Number(new URL(hubUrl()).port);
   hub = await startHub({ ...hubOpts!, port });
 }
+
+export const git = (cwd: string, ...args: string[]) =>
+  execFileSync("git", args, { cwd, encoding: "utf8" });
+
+/** acme/widgets as a bare repo with one commit, standing in for GitHub's. */
+export function remote() {
+  const seed = join(root, "seed");
+  mkdirSync(seed, { recursive: true });
+  git(seed, "init", "-q", "-b", "main");
+  writeFileSync(join(seed, "README.md"), "widgets\n");
+  git(seed, "add", ".");
+  git(
+    seed,
+    "-c",
+    "user.name=rex",
+    "-c",
+    "user.email=someone@example.com",
+    "commit",
+    "-qm",
+    "init",
+  );
+  mkdirSync(join(root, "remotes/acme"), { recursive: true });
+  git(
+    root,
+    "clone",
+    "-q",
+    "--bare",
+    seed,
+    join(root, "remotes/acme/widgets.git"),
+  );
+}
+
+/** The environment that makes git fetch github.com repos from `remote()`. */
+export const gitRemotes = () => ({
+  GIT_CONFIG_COUNT: "1",
+  GIT_CONFIG_KEY_0: `url.file://${join(root, "remotes")}/.insteadOf`,
+  GIT_CONFIG_VALUE_0: "https://github.com/",
+});
 
 export function useFixture() {
   beforeEach(() => {
