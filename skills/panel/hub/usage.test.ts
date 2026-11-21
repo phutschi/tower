@@ -223,7 +223,9 @@ test("a pause moved later by a named reset sends a note for the new reset", asyn
   });
   const sends = () => notes().filter((l) => l.includes("send_message"));
   await until(async () => sends().length === 2);
-  expect(sends()[1]).toContain(later);
+  // The two notes are sent side by side: either may land first.
+  expect(sends().some((l) => l.includes(later))).toBe(true);
+  expect(sends().some((l) => l.includes(soon))).toBe(true);
   expect((await api<UsageView>("/api/usage")).pausedUntil).toBe(later);
 });
 

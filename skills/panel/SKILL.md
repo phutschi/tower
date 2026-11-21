@@ -24,6 +24,10 @@ does before it runs, and check each one before the next.
   tailnet (`tailscale ip -4` answers).
 - **A Mac that takes runs:** the orchestrate kit's needs too
   (`/tower:orchestrate` lists them).
+- **A checkout of tower that stays put**, on main: not a worktree, and not
+  the plugin's cache. The launchd agents run its `skills/panel/cli.ts` by
+  path, so removing or moving it stops the Panel; install from there, and
+  pull there to update.
 
 Ask which Mac is the server and which is the MacBook. Check what is missing on
 each and stop on the first gap: say what is missing and how to get it.
@@ -62,8 +66,14 @@ Leave it off.
 ## 5. One Inbox
 
 Jobs on the server ask their questions in the server's Plannotator Inbox. Link
-it to the MacBook's, so every question shows in one place: run
-`plannotator inbox link` and follow what it prints, on both Macs.
+it with the MacBook's, so every question shows in one place:
+
+1. On the server: `plannotator inbox link --offer --tailscale`. It publishes
+   the server's Inbox on the tailnet and prints a one-time code (good for 10
+   minutes).
+2. On the MacBook: `plannotator inbox link <code>`. Each Inbox then shows both
+   Macs' threads.
+3. Check on either Mac: `plannotator inbox link --list` names the other one.
 
 ## 6. Check
 

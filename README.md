@@ -54,8 +54,9 @@ and `tower note`. See [docs/cli.md](docs/cli.md).
 
 `/tower:panel` sets up the Panel: a page on your always-on Mac, reached over
 Tailscale from a phone, that lists the open issues of the repos you choose by
-stage. Moving an issue into shaping starts a grill, which turns it into a spec
-in the Inbox; moving it into ready-for-agent starts a run, with
+stage. Moving an issue into shaping starts a grill, which asks you its
+questions in the Inbox and writes the spec into the issue; moving it into
+ready-for-agent starts a run, with
 `/tower:spec-to-plan` and `/tower:orchestrate`, on one of your Macs, until its
 PR is ready for review. See [docs/panel.md](docs/panel.md).
 

@@ -507,7 +507,7 @@ test("the Panel groups issues by issue area, with ungrouped issues in their own 
 });
 
 test("the hub refuses to listen on every address: it is reached on the tailnet only", async () => {
-  for (const host of ["0.0.0.0", "::"])
+  for (const host of ["0.0.0.0", "::", "::0", "0:0:0:0:0:0:0:0", ""])
     expect(
       startHub({ dbPath: join(dir(), "hub.db"), host, port: 0, pollMs: 20 }),
     ).rejects.toThrow("never on every address");

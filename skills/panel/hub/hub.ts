@@ -114,8 +114,14 @@ function panelIssue(i: SnapshotIssue, jobs: Job[]): PanelIssue {
 }
 
 export async function startHub(opts: HubOptions): Promise<Hub> {
-  // No login guards the Panel: only the tailnet does (ADR 0017).
-  if (opts.host === "0.0.0.0" || opts.host === "::")
+  // No login guards the Panel: only the tailnet does (ADR 0017). Every
+  // all-zero address (or none) is every address.
+  const everywhere =
+    opts.host === "" ||
+    opts.host === "0.0.0.0" ||
+    (opts.host.includes(":") &&
+      opts.host.split(":").every((g) => /^0*$/.test(g)));
+  if (everywhere)
     throw new Error(
       `the hub listens on one address, never on every address (${opts.host}): give it the Mac's Tailscale address`,
     );

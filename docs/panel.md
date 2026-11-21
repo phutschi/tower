@@ -64,6 +64,8 @@ bun skills/panel/cli.ts install hub                       # on the server
 bun skills/panel/cli.ts install station --hub <Panel URL>  # on each Mac
 ```
 
-Each writes and loads a launchd agent; `uninstall hub|station` removes it. Then
-list your repos on the Panel, and link the server's Plannotator Inbox to the
+Each writes and loads a launchd agent; `uninstall hub|station` removes it. The
+agents run that checkout's `skills/panel/cli.ts` by path: install from a
+checkout that stays put, not a worktree or the plugin's cache. Then list your
+repos on the Panel, and link the server's Plannotator Inbox with the
 MacBook's (`plannotator inbox link`). The hub and the stations run on Bun.

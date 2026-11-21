@@ -42,13 +42,17 @@ test("writePlist writes a launchd agent that runs the Panel's role and keeps it 
       "--hub",
       "http://100.64.0.7:7420",
       "--name",
-      "rex &amp; sam&apos;s &lt;mac&gt;",
+      "rex &amp; sam&#39;s &lt;mac&gt;",
     ]);
     expect(plist).toContain("<key>RunAtLoad</key><true/>");
     expect(plist).toContain("<key>KeepAlive</key><true/>");
     // The jobs need gh, git, claude and the rest: the PATH of the install.
     expect(plist).toContain(
       `<key>PATH</key><string>${process.env.PATH}</string>`,
+    );
+    // Its state lands where the install's shell keeps tower's.
+    expect(plist).toContain(
+      `<key>XDG_STATE_HOME</key><string>${join(dir, "state")}</string>`,
     );
     expect(plist).toContain(
       `<key>StandardErrorPath</key><string>${join(dir, "state/tower/panel/station.log")}</string>`,

@@ -201,3 +201,18 @@ test("uninstall unloads the agent and removes its plist", async () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("an install launchd refuses to load leaves no plist behind", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "panel-cli-"));
+  try {
+    const r = await cli(
+      ["install", "station", "--dir", dir, "--hub", "http://100.64.0.7:7420"],
+      { LAUNCHCTL_STUB_FAIL: "bootstrap" },
+    );
+    expect(r.code).toBe(1);
+    expect(r.err).toContain("launchctl could not load");
+    expect(existsSync(join(dir, "dev.tower.panel.station.plist"))).toBe(false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

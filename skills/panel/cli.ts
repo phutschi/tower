@@ -10,7 +10,7 @@ import { dirname, join } from "node:path";
 import { parseArgs } from "node:util";
 
 import { startHub } from "./hub/hub.ts";
-import { label, writePlist, type Role } from "./launchd.ts";
+import { label, stateDir, writePlist, type Role } from "./launchd.ts";
 import { runStation } from "./station/station.ts";
 
 const USAGE = `usage: bun skills/panel/cli.ts hub [--db <path>] [--host <addr>] [--port <n>] [--poll-seconds <n>] [--server-station <name>]
@@ -22,11 +22,6 @@ const USAGE = `usage: bun skills/panel/cli.ts hub [--db <path>] [--host <addr>] 
 const AGENTS = join(homedir(), "Library/LaunchAgents");
 const domain = () => `gui/${process.getuid?.() ?? 0}`;
 
-const stateDir = join(
-  process.env.XDG_STATE_HOME || join(homedir(), ".local/state"),
-  "tower/panel",
-);
-
 function onStop(stop: () => Promise<void>) {
   const exit = () => void stop().then(() => process.exit(0));
   process.on("SIGINT", exit);
@@ -37,7 +32,7 @@ async function hub(args: string[]) {
   const { values } = parseArgs({
     args,
     options: {
-      db: { type: "string", default: join(stateDir, "hub.db") },
+      db: { type: "string", default: join(stateDir(), "hub.db") },
       host: { type: "string", default: "127.0.0.1" },
       port: { type: "string", default: "7420" },
       "poll-seconds": { type: "string", default: "60" },
@@ -62,7 +57,7 @@ async function station(args: string[]) {
     options: {
       hub: { type: "string" },
       name: { type: "string", default: hostname() },
-      workdir: { type: "string", default: join(stateDir, "station") },
+      workdir: { type: "string", default: join(stateDir(), "station") },
       "heartbeat-seconds": { type: "string", default: "15" },
     },
   });
@@ -144,7 +139,16 @@ function install(args: string[]) {
   }
   const path = writePlist({ role, args: run, dir: values.dir });
   bootout(role);
-  execFileSync("launchctl", ["bootstrap", domain(), path]);
+  try {
+    execFileSync("launchctl", ["bootstrap", domain(), path], { stdio: "pipe" });
+  } catch (err) {
+    // Left in place, the agent would start at the next login anyway.
+    rmSync(path, { force: true });
+    console.error(
+      `install ${role}: launchctl could not load ${path}: ${String(err)}`,
+    );
+    process.exit(1);
+  }
   console.log(`install ${role}: ${path} is loaded`);
 }
 

@@ -26,7 +26,7 @@ export interface PanelData {
   group: "stage" | "bundle" | "area";
 }
 
-const esc = (s: string) =>
+export const esc = (s: string) =>
   s.replace(
     /[&<>"']/g,
     (c) =>
