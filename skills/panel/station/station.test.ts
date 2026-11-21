@@ -138,10 +138,9 @@ test("a station switched off claims nothing", async () => {
 test("a new station other than the server starts switched off", async () => {
   await setup();
   await grills(1);
+  expect((await fetch(`${hubUrl()}/api/stations/laptop`)).status).toBe(404);
   station("laptop");
-  await until(
-    async () => (await api<Station>("/api/stations/laptop")).name === "laptop",
-  );
+  await until(async () => (await fetch(`${hubUrl()}/api/stations/laptop`)).ok);
   await Bun.sleep(300);
   expect(await api<Station>("/api/stations/laptop")).toEqual({
     name: "laptop",
@@ -316,4 +315,52 @@ test("the Panel lists stations with switch, limit and current jobs, and each job
     html.split(`<li data-job="${id}">`)[1]?.split("</details>")[0] ?? "";
   expect(job).toContain("claimed by server");
   expect(job).toMatch(/workspace.*step.*step/s);
+});
+
+test("a hub down for longer than the lease gets the job back from the station that still runs it", async () => {
+  await setup({ leaseMs: 300 });
+  await grills(1);
+  const { workdir } = station();
+  await until(async () => (await jobs())[0]?.state === "claimed");
+  const id = (await jobs())[0]!.id;
+  await stopHub();
+  await Bun.sleep(600);
+  await restart();
+  await Bun.sleep(300);
+  expect((await jobs())[0]).toMatchObject({
+    state: "claimed",
+    station: "server",
+  });
+  release(workdir, id);
+  await until(async () => (await jobs())[0]?.state === "done");
+  const { events } = await api<JobWithEvents>(`/api/jobs/${id}`);
+  expect(events.filter((e) => e.kind === "workspace").length).toBe(1);
+});
+
+test("quitting a station hands its jobs back to the queue", async () => {
+  await setup({ leaseMs: 300 });
+  await grills(1);
+  const { proc } = station();
+  await until(async () => (await jobs())[0]?.state === "claimed");
+  proc.kill("SIGTERM");
+  expect(await proc.exited).toBe(0);
+  await until(async () => (await jobs())[0]?.state === "queued");
+});
+
+test("a station that crashed redoes its job in a fresh worktree", async () => {
+  await setup({ leaseMs: 300 });
+  await grills(1);
+  const first = station();
+  const events = async () =>
+    (await api<JobWithEvents>(`/api/jobs/${(await jobs())[0]!.id}`)).events;
+  await until(async () => (await events()).length === 3);
+  first.proc.kill("SIGKILL");
+  await first.proc.exited;
+  await until(async () => (await jobs())[0]?.state === "queued");
+  const { workdir } = station();
+  await until(async () => (await events()).length === 6);
+  const pids = (await events()).map((e) => e.data.pid).filter(Boolean);
+  expect(new Set(pids).size).toBe(2);
+  release(workdir, (await jobs())[0]!.id);
+  await until(async () => (await jobs())[0]?.state === "done");
 });

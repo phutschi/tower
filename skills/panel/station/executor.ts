@@ -58,12 +58,16 @@ export class WorktreeExecutor implements Executor {
         );
       const path = join(this.workdir, "jobs", job.id);
       const branch = `panel/${job.kind}-${job.issues.join("-")}-${job.id.slice(0, 8)}`;
+      // A station that crashed left this job's worktree and branch: start over.
+      await git(clone, "worktree", "prune");
+      if (existsSync(path))
+        await git(clone, "worktree", "remove", "--force", path);
       await git(
         clone,
         "worktree",
         "add",
         "--quiet",
-        "-b",
+        "-B",
         branch,
         path,
         "origin/HEAD",

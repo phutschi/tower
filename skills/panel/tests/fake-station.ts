@@ -19,6 +19,7 @@ for (const kind of env("FAKE_KINDS").split(",").filter(Boolean))
       await emit("workspace", {
         path: workspace.path,
         branch: workspace.branch,
+        pid: process.pid,
       });
       await emit("step", { n: 1 });
       await emit("step", { n: 2 });

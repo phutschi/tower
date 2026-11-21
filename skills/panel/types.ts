@@ -10,7 +10,8 @@ export const STAGES = [
   "closed",
 ] as const;
 export type Stage = (typeof STAGES)[number];
-export type JobKind = "grill" | "run" | "label-area" | "advice";
+export const JOB_KINDS = ["grill", "run", "label-area", "advice"] as const;
+export type JobKind = (typeof JOB_KINDS)[number];
 export type JobState =
   "queued" | "held" | "claimed" | "done" | "stuck" | "stopped";
 

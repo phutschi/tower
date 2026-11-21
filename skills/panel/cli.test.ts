@@ -32,7 +32,12 @@ test("`cli.ts hub` starts a hub and prints where it listens", async () => {
   try {
     expect(url).toStartWith("http://127.0.0.1:");
     expect(await (await fetch(`${url}/api/repos`)).json()).toEqual([]);
-    expect(await (await fetch(`${url}/api/stations/server`)).json()).toEqual({
+    const server = await fetch(`${url}/api/stations/server`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    });
+    expect(await server.json()).toEqual({
       name: "server",
       enabled: true,
       limit: 1,

@@ -80,7 +80,7 @@ export async function runStation(
       });
       return flush();
     };
-    let result: Omit<JobResult, "jobId" | "durationMs">;
+    let result: Omit<JobResult, "jobId" | "durationMs"> | undefined;
     let workspace: Workspace | undefined;
     try {
       workspace = await executor.prepare(job);
@@ -97,11 +97,14 @@ export async function runStation(
       await executor.release(workspace).catch((err: unknown) => {
         console.error(`station: releasing ${workspace.path}: ${String(err)}`);
       });
+    running.delete(job.id);
+    // A station that quits posts no result: the lease runs out and the job
+    // waits in the queue for the next station.
+    if (leaving) return;
     outbox.push({
       path: `/api/jobs/${job.id}/result`,
       body: { ...result, durationMs: Date.now() - started },
     });
-    running.delete(job.id);
     await flush();
   };
 
@@ -119,12 +122,14 @@ export async function runStation(
     for (const id of running.keys())
       await call(`/api/jobs/${id}/heartbeat`, {}).catch(() => {});
     for (let job = await claim(); job; job = await claim()) {
+      if (running.has(job.id)) continue;
       const abort = new AbortController();
       running.set(job.id, { abort, done: work(job, abort) });
     }
   };
 
   let stopped = false;
+  let leaving = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const loop = async () => {
     await tick();
@@ -134,7 +139,7 @@ export async function runStation(
 
   return {
     async stop() {
-      stopped = true;
+      stopped = leaving = true;
       clearTimeout(timer);
       for (const { abort } of running.values()) abort.abort();
       await Promise.all([...running.values()].map((r) => r.done));

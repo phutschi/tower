@@ -62,6 +62,10 @@ const toJob = (r: JobRow): Job => ({
       : { input: r.tokens_in, output: r.tokens_out },
 });
 
+/** `station` holds the job, or held it until its lease ran out while queued since. */
+const HOLDS =
+  "((state = 'claimed' AND station = ?) OR (state = 'queued' AND lost_by = ?))";
+
 const OUTCOME: Record<JobResult["outcome"], JobState> = {
   done: "done",
   failed: "stuck",
@@ -100,7 +104,8 @@ export class Store {
         created_at TEXT NOT NULL,
         duration_ms INTEGER,
         tokens_in INTEGER,
-        tokens_out INTEGER
+        tokens_out INTEGER,
+        lost_by TEXT
       );
       CREATE TABLE IF NOT EXISTS stations (
         name TEXT PRIMARY KEY,
@@ -252,19 +257,24 @@ export class Store {
         .get(...kinds)?.id;
       if (id)
         this.db.run(
-          "UPDATE jobs SET state = 'claimed', station = ?, lease_until = ? WHERE id = ?",
+          "UPDATE jobs SET state = 'claimed', station = ?, lease_until = ?, lost_by = NULL WHERE id = ?",
           [station.name, leaseUntil.toISOString(), id],
         );
     });
     return id ? this.job(id)! : null;
   }
 
-  /** Renews the lease of a job `station` holds; false if it holds it no more. */
+  /**
+   * Renews the lease of a job `station` holds. A job whose lease ran out
+   * while the hub was out of reach, and that nobody claimed since, goes back
+   * to the station still working it. False if it holds the job no more.
+   */
   heartbeat(id: string, station: string, leaseUntil: Date): boolean {
     return (
       this.db.run(
-        "UPDATE jobs SET lease_until = ? WHERE id = ? AND state = 'claimed' AND station = ?",
-        [leaseUntil.toISOString(), id, station],
+        `UPDATE jobs SET state = 'claimed', station = ?, lease_until = ?, lost_by = NULL
+         WHERE id = ? AND ${HOLDS}`,
+        [station, leaseUntil.toISOString(), id, station, station],
       ).changes === 1
     );
   }
@@ -272,7 +282,7 @@ export class Store {
   /** Sends every job whose lease ran out back to the queue. */
   expireLeases(now: Date) {
     this.db.run(
-      "UPDATE jobs SET state = 'queued', station = NULL, lease_until = NULL WHERE state = 'claimed' AND lease_until < ?",
+      "UPDATE jobs SET state = 'queued', lost_by = station, station = NULL, lease_until = NULL WHERE state = 'claimed' AND lease_until < ?",
       [now.toISOString()],
     );
   }
@@ -301,15 +311,15 @@ export class Store {
 
   /**
    * Records a job's result from `station`. It counts while that station
-   * holds the job, or once its lease ran out and nobody claimed it again: a
+   * holds the job, or once its lease ran out and nobody claimed it since: a
    * finished job beats a second try. False when it does not count.
    */
   finish(station: string, r: JobResult): boolean {
     return (
       this.db.run(
         `UPDATE jobs SET state = ?, reason = ?, session_id = ?, duration_ms = ?,
-           tokens_in = ?, tokens_out = ?, lease_until = NULL, station = ?
-         WHERE id = ? AND (state = 'queued' OR (state = 'claimed' AND station = ?))`,
+           tokens_in = ?, tokens_out = ?, lease_until = NULL, station = ?, lost_by = NULL
+         WHERE id = ? AND ${HOLDS}`,
         [
           OUTCOME[r.outcome],
           r.reason ?? null,
@@ -319,6 +329,7 @@ export class Store {
           r.tokens?.output ?? null,
           station,
           r.jobId,
+          station,
           station,
         ],
       ).changes === 1

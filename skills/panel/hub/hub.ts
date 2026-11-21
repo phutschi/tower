@@ -3,9 +3,9 @@
  * and checks GitHub on a timer, since a tailnet-only Panel gets no webhooks.
  */
 import {
+  JOB_KINDS,
   STAGES,
   type Job,
-  type JobKind,
   type JobResult,
   type PanelIssue,
   type Stage,
@@ -49,7 +49,6 @@ async function body(req: Request): Promise<Record<string, unknown>> {
     : {};
 }
 
-const KINDS: readonly JobKind[] = ["grill", "run", "label-area", "advice"];
 const NAME = /^[\w.-]+$/;
 const isObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v);
@@ -194,7 +193,10 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
           const { station, kinds } = await body(req);
           if (typeof station !== "string" || !NAME.test(station))
             return bad("station must be a name");
-          if (!Array.isArray(kinds) || !kinds.every((k) => KINDS.includes(k)))
+          if (
+            !Array.isArray(kinds) ||
+            !kinds.every((k) => JOB_KINDS.includes(k))
+          )
             return bad("kinds must list job kinds");
           sweep();
           const s = store.station(station, opts.serverStation);
@@ -243,10 +245,10 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
         },
       },
       "/api/stations/:name": {
-        GET: (req) =>
-          NAME.test(req.params.name)
-            ? Response.json(store.station(req.params.name, opts.serverStation))
-            : bad("station must be a name"),
+        GET: (req) => {
+          const s = store.stations().find((s) => s.name === req.params.name);
+          return s ? Response.json(s) : bad("no such station", 404);
+        },
         PUT: async (req) => {
           const { name } = req.params;
           const { enabled, limit } = await body(req);
