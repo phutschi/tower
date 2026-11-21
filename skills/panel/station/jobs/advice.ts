@@ -10,7 +10,7 @@ import { promisify } from "node:util";
 
 import { keepOpen, parseProposal } from "../../hub/advice.ts";
 import type { PanelIssue } from "../../types.ts";
-import { jsonIn, runHeadless } from "../claude.ts";
+import { jsonIn, reportLimits, runHeadless } from "../claude.ts";
 import { sendInboxNote } from "../inbox.ts";
 import { registerJobRunner } from "../station.ts";
 
@@ -59,6 +59,7 @@ ${data(merges.trim().split("\n"))}
       tools: [],
       signal,
     });
+    await reportLimits(session, emit);
     const ran = { sessionId: session.sessionId, tokens: session.tokens };
     if (session.error)
       return {

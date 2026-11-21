@@ -14,7 +14,12 @@ import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 
 import type { JobEvent } from "../../types.ts";
-import { jsonIn, runHeadless, type HeadlessRun } from "../claude.ts";
+import {
+  jsonIn,
+  reportLimits,
+  runHeadless,
+  type HeadlessRun,
+} from "../claude.ts";
 import { readThread, sendMessage } from "../inbox.ts";
 import { registerJobRunner } from "../station.ts";
 
@@ -122,6 +127,7 @@ registerJobRunner("grill", async ({ job, hubUrl, workspace, emit, signal }) => {
     });
     tokens.input += run.tokens.input;
     tokens.output += run.tokens.output;
+    await reportLimits(run, emit);
     if (run.sessionId && run.sessionId !== sessionId) {
       sessionId = run.sessionId;
       await emit("session", { sessionId });

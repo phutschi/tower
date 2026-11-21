@@ -1,8 +1,18 @@
 /** Runs a headless Claude Code session and reads its stream-json answer. */
+
+/** One of the session's rate-limit events; `resetsAt` is ISO time. */
+export interface RateLimitInfo {
+  status: "allowed" | "allowed_warning" | "rejected";
+  rateLimitType?: string;
+  utilization?: number;
+  resetsAt?: string;
+}
+
 export interface HeadlessRun {
   sessionId: string;
   finalText: string;
   tokens: { input: number; output: number };
+  rateLimits: RateLimitInfo[];
   error?: { category: string; message: string };
 }
 
@@ -21,6 +31,13 @@ interface StreamLine {
   errors?: string[];
   error?: string;
   usage?: Usage;
+  rate_limit_info?: {
+    status: RateLimitInfo["status"];
+    rateLimitType?: string;
+    utilization?: number;
+    /** Seconds since the epoch. */
+    resetsAt?: number;
+  };
 }
 
 /**
@@ -57,6 +74,7 @@ export async function runHeadless(opts: {
     sessionId: opts.resume ?? "",
     finalText: "",
     tokens: { input: 0, output: 0 },
+    rateLimits: [],
   };
   let result: StreamLine | undefined;
   for (const line of out.split("\n")) {
@@ -70,6 +88,18 @@ export async function runHeadless(opts: {
     if (msg.type === "assistant" && msg.error)
       run.error = { category: msg.error, message: "the API refused the turn" };
     if (msg.type === "result") result = msg;
+    const info = msg.type === "rate_limit_event" && msg.rate_limit_info;
+    if (info)
+      run.rateLimits.push({
+        status: info.status,
+        ...(info.rateLimitType ? { rateLimitType: info.rateLimitType } : {}),
+        ...(info.utilization === undefined
+          ? {}
+          : { utilization: info.utilization }),
+        ...(info.resetsAt
+          ? { resetsAt: new Date(info.resetsAt * 1000).toISOString() }
+          : {}),
+      });
   }
   if (result) {
     const u = result.usage ?? {};
@@ -105,5 +135,27 @@ export function jsonIn(text: string): unknown {
       : (JSON.parse(text.slice(start, end + 1)) as unknown);
   } catch {
     return null;
+  }
+}
+
+/**
+ * Hands a session's rate-limit events to the hub, which pauses dispatch at a
+ * rejection. A rate_limit error with no rejection of its own counts as one,
+ * at the latest reset the session named.
+ */
+export async function reportLimits(
+  run: HeadlessRun,
+  emit: (kind: string, data: Record<string, unknown>) => Promise<void>,
+) {
+  for (const info of run.rateLimits) await emit("rate-limit", { ...info });
+  if (
+    run.error?.category === "rate_limit" &&
+    !run.rateLimits.some((r) => r.status === "rejected")
+  ) {
+    const resetsAt = run.rateLimits.filter((r) => r.resetsAt).at(-1)?.resetsAt;
+    await emit("rate-limit", {
+      status: "rejected",
+      ...(resetsAt ? { resetsAt } : {}),
+    });
   }
 }
