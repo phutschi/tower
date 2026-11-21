@@ -107,6 +107,17 @@ export class GitHub {
     return out.trim();
   }
 
+  /** The open issues `issue` waits on, as GitHub's native issue dependencies. */
+  async openBlockers(repo: string, issue: number): Promise<number[]> {
+    const out = await this.gh([
+      "api",
+      `repos/${repo}/issues/${issue}/dependencies/blocked_by`,
+    ]);
+    return (JSON.parse(out) as { number: number; state: string }[])
+      .filter((b) => b.state === "open")
+      .map((b) => b.number);
+  }
+
   /**
    * Makes `issue` wait on each of `blockers`, as GitHub's native issue
    * dependencies; one it waits on already is left as it is.

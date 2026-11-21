@@ -5,6 +5,7 @@
  */
 import { execFileSync } from "node:child_process";
 import {
+  appendFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -17,6 +18,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, expect } from "bun:test";
 
 import { startHub, type Hub, type HubOptions } from "../hub/hub.ts";
+import type { AdviceProposal, Job } from "../types.ts";
 
 export const GH = join(import.meta.dir, "stub/gh");
 
@@ -43,6 +45,41 @@ export const setIssues = (repo: string, issues: Issue[]) =>
   writeFileSync(fixture(repo), JSON.stringify(issues));
 export const ghIssues = (repo: string) =>
   JSON.parse(readFileSync(fixture(repo), "utf8")) as Issue[];
+/** Makes `issue` wait on `blocker`, as a GitHub issue dependency. */
+export const blocks = (repo: string, issue: number, blocker: number) =>
+  appendFileSync(
+    join(root, `${repo.replace("/", "_")}.deps`),
+    `${issue} ${1000 + blocker}\n`,
+  );
+
+/**
+ * Accepts a bundle of `issues` of acme/widgets: a merge to main queues an
+ * order advice, which proposes the bundle, and the user accepts it. The hub
+ * must have been started with `setHead("acme/widgets", "aaa")`.
+ */
+export async function acceptBundle(...issues: number[]): Promise<string> {
+  setHead("acme/widgets", `merge-${issues.join("-")}`);
+  await polls(2);
+  const job = (await api<Job[]>("/api/jobs"))
+    .filter((j) => j.kind === "advice")
+    .at(-1)!;
+  await post(`/api/jobs/${job.id}/events`, {
+    ts: "2026-11-21T10:00:00.000Z",
+    kind: "proposal",
+    data: {
+      order: [],
+      bundles: [{ repo: "acme/widgets", issues, reason: "built together" }],
+    },
+  });
+  const advice = await api<AdviceProposal>("/api/advice");
+  const id = advice.bundles[0]!.id;
+  await post(`/api/advice/${advice.id}/accept`, { order: [], bundles: [id] });
+  return id;
+}
+
+export const setHead = (repo: string, sha: string) =>
+  writeFileSync(join(root, `${repo.replace("/", "_")}.head`), sha);
+
 export const inboxLog = () =>
   existsSync(join(root, "plannotator.log"))
     ? readFileSync(join(root, "plannotator.log"), "utf8")

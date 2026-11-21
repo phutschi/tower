@@ -202,11 +202,17 @@ export class Store {
       .map(toJob);
   }
 
-  addJob(kind: JobKind, repo: string, issues: number[], now: Date): Job {
+  addJob(
+    kind: JobKind,
+    repo: string,
+    issues: number[],
+    now: Date,
+    state: "queued" | "held" = "queued",
+  ): Job {
     const id = crypto.randomUUID();
     this.db.run(
-      "INSERT INTO jobs (id, kind, repo, issues, state, created_at) VALUES (?, ?, ?, ?, 'queued', ?)",
-      [id, kind, repo, JSON.stringify(issues), now.toISOString()],
+      "INSERT INTO jobs (id, kind, repo, issues, state, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+      [id, kind, repo, JSON.stringify(issues), state, now.toISOString()],
     );
     return this.job(id)!;
   }
@@ -371,6 +377,20 @@ export class Store {
     return row
       ? { stop: row.stop_reason !== null, reason: row.stop_reason }
       : undefined;
+  }
+
+  /**
+   * Holds a job not yet claimed while it waits on the open issues `waits`,
+   * or queues it once it waits on none.
+   */
+  hold(id: string, waits: number[]) {
+    this.db.run(
+      `UPDATE jobs SET state = ?, reason = ?
+       WHERE id = ? AND state IN ('queued', 'held') AND stop_reason IS NULL`,
+      waits.length
+        ? ["held", `waits on ${waits.map((n) => `#${n}`).join(", ")}`, id]
+        : ["queued", null, id],
+    );
   }
 
   /** Stuck runs nobody was told about yet. */

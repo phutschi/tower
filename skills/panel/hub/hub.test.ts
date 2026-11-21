@@ -7,13 +7,16 @@ import { expect, test } from "bun:test";
 
 import type { Job, PanelIssue } from "../types.ts";
 import {
+  acceptBundle,
   api,
+  blocks,
   ghIssues,
   ghLog,
   hubUrl,
   issue,
   polls,
   post,
+  setHead,
   setIssues,
   start,
   useFixture,
@@ -263,4 +266,120 @@ test("a run stuck after its lease ran out stays stuck when its station reports a
   });
   expect(res.status).toBe(409);
   expect((await api<Job[]>("/api/jobs"))[0]!.state).toBe("stuck");
+});
+
+const jobsNow = () => api<Job[]>("/api/jobs");
+const runs = async () => (await jobsNow()).filter((j) => j.kind === "run");
+const labelsOf = (n: number) =>
+  ghIssues("acme/widgets")
+    .find((i) => i.number === n)!
+    .labels.map((l) => l.name);
+
+test("a run for an issue with an open blocker is held, not claimable, and the Panel says what it waits on", async () => {
+  setIssues("acme/widgets", [issue(5), issue(12, "shaping")]);
+  blocks("acme/widgets", 12, 5);
+  await start(["acme/widgets"], { serverStation: "server" });
+  await post("/api/issues/acme/widgets/12/stage", { stage: "ready-for-agent" });
+  await polls(1);
+  const [run] = await runs();
+  expect(run).toMatchObject({ state: "held", reason: "waits on #5" });
+  const claimed = await post("/api/jobs/claim", {
+    station: "server",
+    kinds: ["run"],
+  });
+  expect(await claimed.json()).toBeNull();
+  const twelve = (await api<PanelIssue[]>("/api/issues")).find(
+    (i) => i.number === 12,
+  );
+  expect(twelve!.blockedBy).toEqual([5]);
+  const html = await (await fetch(`${hubUrl()}/`)).text();
+  expect(html).toContain("held: waits on #5");
+});
+
+test("a held run becomes queued once its last blocker closes", async () => {
+  setIssues("acme/widgets", [issue(5), issue(6), issue(12, "shaping")]);
+  blocks("acme/widgets", 12, 5);
+  blocks("acme/widgets", 12, 6);
+  await start();
+  await post("/api/issues/acme/widgets/12/stage", { stage: "ready-for-agent" });
+  await polls(1);
+  expect((await runs())[0]).toMatchObject({
+    state: "held",
+    reason: "waits on #5, #6",
+  });
+  setIssues("acme/widgets", [issue(6), issue(12, "ready-for-agent")]);
+  await polls(2);
+  expect((await runs())[0]).toMatchObject({
+    state: "held",
+    reason: "waits on #6",
+  });
+  setIssues("acme/widgets", [issue(12, "ready-for-agent")]);
+  await polls(2);
+  expect((await runs())[0]).toMatchObject({ state: "queued", reason: null });
+});
+
+test("a bundle with one issue not yet ready-for-agent queues nothing; all ready, exactly one run for all its issues", async () => {
+  setIssues("acme/widgets", [
+    issue(1, "shaping"),
+    issue(3, "shaping"),
+    issue(4),
+  ]);
+  setHead("acme/widgets", "aaa");
+  await start();
+  await acceptBundle(1, 3);
+  await post("/api/issues/acme/widgets/1/stage", { stage: "ready-for-agent" });
+  await polls(1);
+  expect(await runs()).toEqual([]);
+  await post("/api/issues/acme/widgets/3/stage", { stage: "ready-for-agent" });
+  await polls(2);
+  expect((await runs()).map((j) => [j.issues, j.state])).toEqual([
+    [[1, 3], "queued"],
+  ]);
+});
+
+test("a bundle that waits on an open issue outside it is held; one inside it holds nothing", async () => {
+  setIssues("acme/widgets", [
+    issue(1, "shaping"),
+    issue(3, "shaping"),
+    issue(4),
+  ]);
+  blocks("acme/widgets", 3, 1);
+  blocks("acme/widgets", 3, 4);
+  setHead("acme/widgets", "aaa");
+  await start();
+  await acceptBundle(1, 3);
+  for (const n of [1, 3])
+    await post(`/api/issues/acme/widgets/${n}/stage`, {
+      stage: "ready-for-agent",
+    });
+  await polls(1);
+  expect((await runs()).map((j) => [j.issues, j.state, j.reason])).toEqual([
+    [[1, 3], "held", "waits on #4"],
+  ]);
+});
+
+test("moving one bundle issue back stops the run and moves its other issues back to ready-for-agent", async () => {
+  setIssues("acme/widgets", [issue(1, "shaping"), issue(3, "shaping")]);
+  setHead("acme/widgets", "aaa");
+  await start(["acme/widgets"], { serverStation: "server" });
+  await acceptBundle(1, 3);
+  for (const n of [1, 3])
+    await post(`/api/issues/acme/widgets/${n}/stage`, {
+      stage: "ready-for-agent",
+    });
+  await polls(1);
+  await post("/api/jobs/claim", { station: "server", kinds: ["run"] });
+  for (let i = 0; i < 100 && !labelsOf(3).includes("in-progress"); i++)
+    await Bun.sleep(20);
+  await post("/api/issues/acme/widgets/1/stage", { stage: "shaping" });
+  const [run] = await runs();
+  expect(await api<unknown>(`/api/jobs/${run!.id}/control`)).toEqual({
+    stop: true,
+    reason: "moved back to shaping",
+  });
+  expect(labelsOf(1)).toEqual(["shaping"]);
+  expect(labelsOf(3)).toEqual(["ready-for-agent"]);
+  await polls(2);
+  // Issue 3 alone in ready-for-agent starts nothing: its bundle is not ready.
+  expect((await runs()).length).toBe(1);
 });

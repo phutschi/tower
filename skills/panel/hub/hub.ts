@@ -171,7 +171,60 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
     await github.editLabels(prev.repo, prev.number, [stage], remove);
     labels = labels.filter((l) => !remove.includes(l));
     if (!labels.includes(stage)) labels.push(stage);
-    record(store, { ...prev, stage, labels }, now());
+    await sendBack(record(store, { ...prev, stage, labels }, now(), bundleOf));
+  };
+
+  /** The newest accepted bundle an issue is in. */
+  const bundleOf = (repo: string, issue: number) =>
+    advice
+      .bundles()
+      .filter((b) => b.repo === repo && b.issues.includes(issue))
+      .at(-1);
+
+  /**
+   * A bundle's run stopped by one of its issues sends the others back to
+   * ready-for-agent: a bundle never ships half done.
+   */
+  async function sendBack(stopped: Job[]) {
+    for (const job of stopped)
+      for (const n of job.issues) {
+        const prev = store.issue(job.repo, n);
+        if (job.issues.length > 1 && prev?.stage === "in-progress")
+          await setStage(prev, "ready-for-agent");
+      }
+  }
+
+  // The open issues each issue waits on, from the last blocker check.
+  const blockers = new Map<string, number[]>();
+
+  /**
+   * Holds each run not yet claimed while one of its issues waits on an open
+   * issue outside the run, and queues it once none does. Runs start held
+   * (the Dispatcher), so none is claimed before its first check.
+   */
+  const gate = async (repo: string) => {
+    const waiting = store
+      .jobs()
+      .filter(
+        (j) =>
+          j.kind === "run" &&
+          j.repo === repo &&
+          (j.state === "held" || j.state === "queued"),
+      );
+    const seen = new Map<string, number[]>();
+    for (const job of waiting) {
+      const waits = new Set<number>();
+      for (const n of job.issues)
+        for (const b of await github.openBlockers(repo, n))
+          if (!job.issues.includes(b)) waits.add(b);
+      const sorted = [...waits].sort((a, b) => a - b);
+      store.hold(job.id, sorted);
+      for (const n of job.issues) seen.set(`${repo}#${n}`, sorted);
+    }
+    // Swapped in whole, so a read meanwhile sees the last check, not none.
+    for (const key of blockers.keys())
+      if (key.startsWith(`${repo}#`)) blockers.delete(key);
+    for (const [key, waits] of seen) blockers.set(key, waits);
   };
 
   /** Sets a stage the hub itself owns (in-progress, in-review) on each of a job's issues. */
@@ -222,7 +275,10 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
     serial(async () => {
       for (const { name } of store.repos()) {
         try {
-          sync(store, name, await github.openIssues(name), now());
+          await sendBack(
+            sync(store, name, await github.openIssues(name), now(), bundleOf),
+          );
+          await gate(name);
           await followRuns(name);
           merged(store, advice, name, await github.head(name), now());
         } catch (err) {
@@ -243,6 +299,7 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
     const bundles = advice.bundles();
     return store.issues().map((i) => ({
       ...panelIssue(i, jobs),
+      blockedBy: blockers.get(`${i.repo}#${i.number}`) ?? [],
       // The newest accepted bundle an issue is in.
       bundleId:
         bundles
@@ -297,6 +354,10 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
       } catch (err) {
         return bad(`gh refused the move: ${String(err)}`, 502);
       }
+      // A run the move queued starts without waiting for the next poll.
+      await gate(repo).catch((err: unknown) =>
+        console.error(`hub: checking blockers failed: ${String(err)}`),
+      );
       return Response.json(
         issues().find((i) => i.repo === repo && i.number === number),
       );

@@ -10,7 +10,8 @@
 # GH_STUB_DIR/<owner>_<repo>.head (0 without one); `api repos/…/issues/N`
 # answers that issue's id, 1000+N. `api repos/…/issues/N/dependencies/blocked_by`
 # lists, or with -X POST adds, the blockers in GH_STUB_DIR/<owner>_<repo>.deps,
-# one `N <blocker id>` line each. Any other `api` call answers {}.
+# one `N <blocker id>` line each; a blocker is open while it is in the repo's
+# open issues. Any other `api` call answers {}.
 # GH_STUB_FAIL=<verb> makes that verb fail: list or edit.
 printf 'gh %s\n' "$*" >> "${GH_STUB_LOG:-/dev/null}"
 repo=""; add=(); remove=(); args=(); method=GET; field=""
@@ -52,7 +53,9 @@ case "$verb" in
         n=${args[1]%/dependencies/blocked_by}; n=${n##*/}; touch "$deps"
         if [ "$method" = POST ]; then echo "$n ${field#issue_id=}" >> "$deps"; echo "{}"
         else awk -v n="$n" 'BEGIN { printf "[" } $1 == n { printf "%s{\"id\":%s,\"number\":%s}", (c++ ? "," : ""), $2, $2 - 1000 }
-          END { print "]" }' "$deps"; fi ;;
+          END { print "]" }' "$deps" \
+          | jq --slurpfile open "$GH_STUB_DIR/${r/\//_}.json" \
+            'map(.number as $b | . + {state: (if ($open[0] | map(.number) | index($b)) == null then "closed" else "open" end)})'; fi ;;
       *) echo "{}" ;;
     esac ;;
   *) echo "gh: unknown command $verb (stub)" >&2; exit 1 ;;

@@ -21,8 +21,10 @@ import {
   post,
   put,
   remote,
+  setHead,
   setIssues,
   start,
+  acceptBundle,
   inboxLog,
   polls,
   until,
@@ -61,6 +63,7 @@ const started = async (id: string) =>
 async function setup(env: Record<string, string> = {}, leaseMs?: number) {
   remote();
   setIssues("acme/widgets", [issue(12, "shaping"), issue(13, "shaping")]);
+  setHead("acme/widgets", "aaa");
   await start(["acme/widgets"], {
     serverStation: "server",
     ...(leaseMs ? { leaseMs } : {}),
@@ -331,4 +334,24 @@ test("a stopped run whose workspace does not close says so in its reason", async
     "moved back to shaping; its workspace is still open: ",
   );
   expect(reason).toContain("could not close workspace ws-1");
+});
+
+test("a bundle's run opens one workspace named after the bundle, with one brief naming every issue and one PR", async () => {
+  await setup();
+  await acceptBundle(12, 13);
+  await ready(12, 13);
+  await until(async () =>
+    (await jobs()).some((j) => j.kind === "run" && j.state === "claimed"),
+  );
+  const run = (await jobs()).find((j) => j.kind === "run")!;
+  expect(run.issues).toEqual([12, 13]);
+  await until(async () => (await started(run.id)) !== undefined);
+  expect((await started(run.id))!.workspace).toBe("acme-widgets-12-13");
+  const brief =
+    herdrLog().split("herdr agent prompt acme-widgets-12-13 ")[1] ?? "";
+  expect(brief).toContain("acme/widgets#12, acme/widgets#13");
+  expect(brief).toContain("one plan and one PR");
+  expect(brief).toContain("Closes #12, #13");
+  expect(brief).toContain("thread named `acme/widgets#12 + acme/widgets#13`");
+  expect(herdrLog().match(/^herdr workspace create /gm)?.length).toBe(1);
 });
