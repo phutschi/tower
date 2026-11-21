@@ -63,3 +63,34 @@ export interface Station {
   enabled: boolean;
   limit: number;
 }
+
+/** The user's answer to one part of an order advice; null until given. */
+export type Decision = "accepted" | "rejected" | null;
+
+/** An order advice: which issue to build after which, and what to bundle. */
+export interface AdviceProposal {
+  id: string;
+  createdAt: string;
+  order: {
+    repo: string;
+    issue: number;
+    after: number[];
+    reason: string;
+    decision: Decision;
+  }[];
+  bundles: {
+    id: string;
+    repo: string;
+    issues: number[];
+    reason: string;
+    decision: Decision;
+  }[];
+}
+
+/** Issues the user accepted, from an order advice, to build in one run and one PR. */
+export interface Bundle {
+  id: string;
+  repo: string;
+  issues: number[];
+  acceptedAt: string;
+}

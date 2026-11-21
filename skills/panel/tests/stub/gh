@@ -5,16 +5,23 @@
 # `issue view N --json labels` answers that issue's labels; `issue edit`
 # changes them in the file, so the next list sees the edit.
 # Its open pull requests live in GH_STUB_DIR/<owner>_<repo>.prs.json, as `gh pr
-# list --json number,isDraft,closingIssuesReferences` prints them.
+# list --json number,isDraft,createdAt,closingIssuesReferences` prints them.
+# `api repos/<owner>/<repo>/commits/HEAD` answers the head of main from
+# GH_STUB_DIR/<owner>_<repo>.head (0 without one); `api repos/…/issues/N`
+# answers that issue's id, 1000+N. `api repos/…/issues/N/dependencies/blocked_by`
+# lists, or with -X POST adds, the blockers in GH_STUB_DIR/<owner>_<repo>.deps,
+# one `N <blocker id>` line each. Any other `api` call answers {}.
 # GH_STUB_FAIL=<verb> makes that verb fail: list or edit.
 printf 'gh %s\n' "$*" >> "${GH_STUB_LOG:-/dev/null}"
-repo=""; add=(); remove=(); args=()
+repo=""; add=(); remove=(); args=(); method=GET; field=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --repo) repo=$2; shift ;;
     --add-label) add+=("$2"); shift ;;
     --remove-label) remove+=("$2"); shift ;;
-    --json|--limit|--state) shift ;;
+    -X) method=$2; shift ;;
+    -F) field=$2; shift ;;
+    --json|--limit|--state|--jq|-H|-f) shift ;;
     *) args+=("$1") ;;
   esac
   shift
@@ -35,5 +42,18 @@ case "$verb" in
           then .labels = ([.labels[] | select(.name as $l | $rm | index($l) | not)]
                           + [$add[] | {name: .}])
           else . end)' "$file" > "$file.next" && mv "$file.next" "$file" ;;
+  "api "*)
+    case "${args[1]}" in
+      repos/*/commits/HEAD) head=${args[1]#repos/}; head=${head%/commits/HEAD}
+        cat "$GH_STUB_DIR/${head/\//_}.head" 2>/dev/null || echo 0 ;;
+      repos/*/issues/*[0-9]) echo "{\"id\": $((1000 + ${args[1]##*/}))}" ;;
+      repos/*/issues/*/dependencies/blocked_by)
+        r=${args[1]#repos/}; r=${r%%/issues/*}; deps="$GH_STUB_DIR/${r/\//_}.deps"
+        n=${args[1]%/dependencies/blocked_by}; n=${n##*/}; touch "$deps"
+        if [ "$method" = POST ]; then echo "$n ${field#issue_id=}" >> "$deps"; echo "{}"
+        else awk -v n="$n" 'BEGIN { printf "[" } $1 == n { printf "%s{\"id\":%s,\"number\":%s}", (c++ ? "," : ""), $2, $2 - 1000 }
+          END { print "]" }' "$deps"; fi ;;
+      *) echo "{}" ;;
+    esac ;;
   *) echo "gh: unknown command $verb (stub)" >&2; exit 1 ;;
 esac

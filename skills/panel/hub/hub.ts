@@ -10,9 +10,10 @@ import {
   type PanelIssue,
   type Stage,
 } from "../types.ts";
-import { isStageLabel, record, sync } from "./dispatcher.ts";
+import { AdviceStore, keepOpen, parseProposal } from "./advice.ts";
+import { isStageLabel, merged, record, sync } from "./dispatcher.ts";
 import { GitHub } from "./github.ts";
-import { sendInboxNote } from "./inbox.ts";
+import { sendInboxNote } from "../station/inbox.ts";
 import { renderPanel } from "./panel-page.ts";
 import { ACTIVE, Store, type SnapshotIssue } from "./store.ts";
 
@@ -107,6 +108,7 @@ function panelIssue(i: SnapshotIssue, jobs: Job[]): PanelIssue {
 export async function startHub(opts: HubOptions): Promise<Hub> {
   const now = opts.now ?? (() => new Date());
   const store = new Store(opts.dbPath);
+  const advice = new AdviceStore(opts.dbPath);
   const github = new GitHub(opts.ghBin);
   const leaseMs = opts.leaseMs ?? 90_000;
   const leaseUntil = () => new Date(now().getTime() + leaseMs);
@@ -222,6 +224,7 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
         try {
           sync(store, name, await github.openIssues(name), now());
           await followRuns(name);
+          merged(store, advice, name, await github.head(name), now());
         } catch (err) {
           console.error(`hub: polling ${name} failed: ${String(err)}`);
         }
@@ -237,8 +240,51 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
 
   const issues = () => {
     const jobs = store.jobs();
-    return store.issues().map((i) => panelIssue(i, jobs));
+    const bundles = advice.bundles();
+    return store.issues().map((i) => ({
+      ...panelIssue(i, jobs),
+      // The newest accepted bundle an issue is in.
+      bundleId:
+        bundles
+          .filter((b) => b.repo === i.repo && b.issues.includes(i.number))
+          .at(-1)?.id ?? null,
+    }));
   };
+
+  /** The user's accept or reject of parts of an order advice. */
+  const decide = (
+    id: string,
+    decision: "accepted" | "rejected",
+    b: Record<string, unknown>,
+  ) =>
+    serial(async () => {
+      const p = advice.proposal(id);
+      if (!p) return bad("no such advice", 404);
+      const { order = [], bundles = [] } = b;
+      if (
+        !Array.isArray(order) ||
+        !order.every(isCount) ||
+        !Array.isArray(bundles) ||
+        !bundles.every((x) => typeof x === "string")
+      )
+        return bad("order lists part indexes, bundles lists bundle ids");
+      const closed = advice.undecided(p, order, bundles);
+      if (closed) return bad(closed);
+      if (decision === "accepted")
+        for (const i of new Set(order)) {
+          const part = p.order[i]!;
+          try {
+            await github.addBlockedBy(part.repo, part.issue, part.after);
+          } catch (err) {
+            return bad(`gh refused the dependency: ${String(err)}`, 502);
+          }
+          // Each part counts once its dependencies are on GitHub.
+          advice.decide(id, decision, [i], [], now());
+        }
+      else advice.decide(id, decision, order, [], now());
+      advice.decide(id, decision, [], bundles, now());
+      return Response.json(advice.proposal(id));
+    });
 
   /** The Panel's one write: the stage label of the issue the user moved (ADR 0003). */
   const move = (repo: string, number: number, stage: Stage) =>
@@ -261,10 +307,16 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
     port: opts.port,
     routes: {
       "/": {
-        GET: () => {
+        GET: (req) => {
           const panelIssues = issues();
           return new Response(
             renderPanel({
+              group:
+                new URL(req.url).searchParams.get("group") === "bundle"
+                  ? "bundle"
+                  : "stage",
+              advice: advice.latest(),
+              bundles: advice.bundles(),
               issues: panelIssues,
               stuckReasons: Object.fromEntries(
                 panelIssues
@@ -294,6 +346,13 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
         },
       },
       "/api/jobs": { GET: () => Response.json(store.jobs()) },
+      "/api/advice": { GET: () => Response.json(advice.latest()) },
+      "/api/advice/:id/accept": {
+        POST: async (req) => decide(req.params.id, "accepted", await body(req)),
+      },
+      "/api/advice/:id/reject": {
+        POST: async (req) => decide(req.params.id, "rejected", await body(req)),
+      },
       "/api/jobs/claim": {
         POST: async (req) => {
           const { station, kinds } = await body(req);
@@ -341,13 +400,24 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
       "/api/jobs/:id/events": {
         POST: async (req) => {
           const { ts, kind, data } = await body(req);
-          if (!store.job(req.params.id)) return bad("no such job", 404);
+          const job = store.job(req.params.id);
+          if (!job) return bad("no such job", 404);
           if (
             typeof ts !== "string" ||
             typeof kind !== "string" ||
             !isObject(data)
           )
             return bad("an event has ts, kind and data");
+          if (job.kind === "advice" && kind === "proposal") {
+            const proposal = parseProposal(data);
+            if (typeof proposal === "string") return bad(proposal);
+            // An issue may have closed while the session ran: keep the rest.
+            const { kept } = keepOpen(proposal, (repo, n) => {
+              const i = store.issue(repo, n);
+              return !!i && i.stage !== "closed";
+            });
+            advice.add(job.id, kept, now());
+          }
           store.addEvent({ jobId: req.params.id, ts, kind, data });
           return Response.json({ ok: true });
         },
@@ -419,6 +489,7 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
       await chain;
       await server.stop(true);
       store.close();
+      advice.close();
     },
   };
 }

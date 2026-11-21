@@ -53,15 +53,25 @@ export const ghLog = () =>
   existsSync(join(root, "gh.log"))
     ? readFileSync(join(root, "gh.log"), "utf8").split("\n").filter(Boolean)
     : [];
-const lists = () => ghLog().filter((l) => l.startsWith("gh issue list")).length;
+/** How many polls every one of `repos` has had: the fewest any one had. */
+const lists = (repos: string[]) =>
+  Math.min(
+    ...repos.map(
+      (r) =>
+        ghLog().filter((l) => l.startsWith(`gh issue list --repo ${r} `))
+          .length,
+    ),
+  );
 
 /** Waits for the hub to finish `n` more polls of every listed repo. */
 export async function polls(n: number) {
-  const target = lists() + n;
-  for (let i = 0; i < 200 && lists() < target; i++) await Bun.sleep(10);
+  const repos = await api<string[]>("/api/repos");
+  if (!repos.length) return;
+  const target = lists(repos) + n;
+  for (let i = 0; i < 200 && lists(repos) < target; i++) await Bun.sleep(10);
   // One more poll after the target, so the target's poll has been applied.
-  const applied = lists() + 1;
-  for (let i = 0; i < 200 && lists() < applied; i++) await Bun.sleep(10);
+  const applied = lists(repos) + 1;
+  for (let i = 0; i < 200 && lists(repos) < applied; i++) await Bun.sleep(10);
 }
 
 /** Waits until `check` holds, for up to `ms`. */

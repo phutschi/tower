@@ -1,13 +1,13 @@
-/** The hub's notes to the user, in the server Mac's Plannotator Inbox. */
+/**
+ * Calls into the Plannotator Inbox, through `plannotator inbox call`: the
+ * station's jobs and the hub's notes.
+ */
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
 const run = promisify(execFile);
 
-/**
- * Posts one message to the Inbox thread `thread`. The idempotency key makes
- * a second send of the same note return the first instead of posting twice.
- */
+/** One message to the user; the same key never posts twice. */
 export async function sendInboxNote(opts: {
   thread: string;
   subject: string;
