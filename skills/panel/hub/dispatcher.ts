@@ -48,8 +48,9 @@ export type BundleOf = (repo: string, issue: number) => Bundle | undefined;
 const noBundle: BundleOf = () => undefined;
 
 /**
- * The issues a run for `issue` builds: its bundle's, once every one of them
- * is in ready-for-agent; null while one is not. A single issue is its own.
+ * The issues a run for `issue` builds: its bundle's open ones, once every one
+ * of them is in ready-for-agent; null while one is not. A closed issue has
+ * left its bundle. A single issue is its own.
  */
 function runIssues(
   store: Store,
@@ -59,10 +60,13 @@ function runIssues(
 ): number[] | null {
   const bundle = bundleOf(repo, issue);
   if (!bundle) return [issue];
-  const ready = bundle.issues.every(
+  const open = bundle.issues.filter(
+    (n) => store.issue(repo, n)?.stage !== "closed",
+  );
+  const ready = open.every(
     (n) => store.issue(repo, n)?.stage === "ready-for-agent",
   );
-  return ready ? bundle.issues : null;
+  return ready ? open : null;
 }
 
 /**
@@ -70,15 +74,15 @@ function runIssues(
  * step back or a close stops the issue's job, and the new stage queues the
  * job it asks for. A run is queued held, until the hub has checked its
  * blockers. A reopened issue was not moved, and an issue whose job of that
- * kind is not over yet gets no second one. Returns the jobs it stopped.
+ * kind is not over yet gets no second one. A bundle that is ready takes over
+ * the waiting runs of its issues; one already claimed keeps them.
  */
 export function record(
   store: Store,
   next: SnapshotIssue,
   now: Date,
   bundleOf: BundleOf = noBundle,
-): Job[] {
-  const stopped: Job[] = [];
+) {
   store.transaction(() => {
     const prev = store.issue(next.repo, next.number);
     store.putIssue(next);
@@ -86,29 +90,33 @@ export function record(
     const stop = stopsJobs(prev.stage, next.stage);
     if (stop)
       for (const j of store.activeJobs(next.repo, next.number))
-        if (STOPPABLE.includes(j.kind)) {
-          store.requestStop(j.id, stop);
-          stopped.push(j);
-        }
+        if (STOPPABLE.includes(j.kind)) store.requestStop(j.id, stop);
     const kind = jobFor(next.stage);
     if (!kind) return;
     const issues =
       kind === "run"
         ? runIssues(store, next.repo, next.number, bundleOf)
         : [next.number];
-    const waiting = issues?.some((n) =>
-      store.activeJobs(next.repo, n).some((j) => j.kind === kind),
+    if (!issues) return;
+    const others = [
+      ...new Map(
+        issues
+          .flatMap((n) => store.activeJobs(next.repo, n))
+          .filter((j) => j.kind === kind)
+          .map((j) => [j.id, j]),
+      ).values(),
+    ];
+    const same = (j: Job) => j.issues.join() === issues.join();
+    if (others.some((j) => same(j) || j.state === "claimed")) return;
+    for (const j of others) store.requestStop(j.id, "joined a bundle");
+    store.addJob(
+      kind,
+      next.repo,
+      issues,
+      now,
+      kind === "run" ? "held" : "queued",
     );
-    if (issues && !waiting)
-      store.addJob(
-        kind,
-        next.repo,
-        issues,
-        now,
-        kind === "run" ? "held" : "queued",
-      );
   });
-  return stopped;
 }
 
 /**
@@ -122,10 +130,9 @@ export function sync(
   open: GhIssue[],
   now: Date,
   bundleOf: BundleOf = noBundle,
-): Job[] {
-  const stopped: Job[] = [];
+) {
   const listed = store.repos().find((r) => r.name === repo);
-  if (!listed) return stopped; // unlisted while the poll ran
+  if (!listed) return; // unlisted while the poll ran
   const seen = new Set<number>();
   store.transaction(() => {
     for (const i of open) {
@@ -133,17 +140,14 @@ export function sync(
       const labels = i.labels.map((l) => l.name);
       const issue = { repo, number: i.number, title: i.title, labels };
       const next = { ...issue, stage: stageOf(labels) };
-      if (listed.baselined) stopped.push(...record(store, next, now, bundleOf));
+      if (listed.baselined) record(store, next, now, bundleOf);
       else store.putIssue(next);
     }
     for (const prev of store.issues(repo))
       if (!seen.has(prev.number) && prev.stage !== "closed")
-        stopped.push(
-          ...record(store, { ...prev, stage: "closed" }, now, bundleOf),
-        );
+        record(store, { ...prev, stage: "closed" }, now, bundleOf);
     store.markBaselined(repo);
   });
-  return stopped;
 }
 
 /**

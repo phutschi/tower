@@ -383,3 +383,53 @@ test("moving one bundle issue back stops the run and moves its other issues back
   // Issue 3 alone in ready-for-agent starts nothing: its bundle is not ready.
   expect((await runs()).length).toBe(1);
 });
+
+test("a bundle accepted around an issue that already has a waiting run takes that run over", async () => {
+  setIssues("acme/widgets", [issue(1, "shaping"), issue(3, "shaping")]);
+  setHead("acme/widgets", "aaa");
+  await start();
+  await post("/api/issues/acme/widgets/1/stage", { stage: "ready-for-agent" });
+  await acceptBundle(1, 3);
+  await post("/api/issues/acme/widgets/3/stage", { stage: "ready-for-agent" });
+  await polls(1);
+  expect((await runs()).map((j) => [j.issues, j.state, j.reason])).toEqual([
+    [[1], "stopped", "joined a bundle"],
+    [[1, 3], "queued", null],
+  ]);
+});
+
+test("a closed issue leaves its bundle: the rest runs without it", async () => {
+  setIssues("acme/widgets", [issue(1, "shaping"), issue(3, "shaping")]);
+  setHead("acme/widgets", "aaa");
+  await start();
+  await acceptBundle(1, 3);
+  setIssues("acme/widgets", [issue(1, "shaping")]);
+  await polls(2);
+  await post("/api/issues/acme/widgets/1/stage", { stage: "ready-for-agent" });
+  await polls(1);
+  expect((await runs()).map((j) => [j.issues, j.state])).toEqual([
+    [[1], "queued"],
+  ]);
+});
+
+test("a bundle issue moved back on GitHub sends the others back, again on a later poll when gh failed", async () => {
+  setIssues("acme/widgets", [issue(1, "shaping"), issue(3, "shaping")]);
+  setHead("acme/widgets", "aaa");
+  await start(["acme/widgets"], { serverStation: "server" });
+  await acceptBundle(1, 3);
+  for (const n of [1, 3])
+    await post(`/api/issues/acme/widgets/${n}/stage`, {
+      stage: "ready-for-agent",
+    });
+  await polls(1);
+  await post("/api/jobs/claim", { station: "server", kinds: ["run"] });
+  for (let i = 0; i < 100 && !labelsOf(3).includes("in-progress"); i++)
+    await Bun.sleep(20);
+  process.env.GH_STUB_FAIL = "edit";
+  setIssues("acme/widgets", [issue(1, "shaping"), issue(3, "in-progress")]);
+  await polls(2);
+  expect(labelsOf(3)).toEqual(["in-progress"]);
+  delete process.env.GH_STUB_FAIL;
+  await polls(2);
+  expect(labelsOf(3)).toEqual(["ready-for-agent"]);
+});

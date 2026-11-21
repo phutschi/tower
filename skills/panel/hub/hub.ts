@@ -126,7 +126,7 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
           subject: `Stuck: ${refs.join(", ")}`,
           body: [
             `The run for ${refs.join(", ")} is stuck: ${run.reason ?? "no reason given"}.`,
-            "It is not tried again. Move the issue back to ready-for-agent to start a new run.",
+            "It is not tried again. Move its issues back to ready-for-agent to start a new run.",
             ...(run.sessionId ? [`Its session: ${run.sessionId}`] : []),
           ].join("\n\n"),
           idempotencyKey: `stuck-${run.id}`,
@@ -171,7 +171,7 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
     await github.editLabels(prev.repo, prev.number, [stage], remove);
     labels = labels.filter((l) => !remove.includes(l));
     if (!labels.includes(stage)) labels.push(stage);
-    await sendBack(record(store, { ...prev, stage, labels }, now(), bundleOf));
+    record(store, { ...prev, stage, labels }, now(), bundleOf);
   };
 
   /** The newest accepted bundle an issue is in. */
@@ -182,16 +182,23 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
       .at(-1);
 
   /**
-   * A bundle's run stopped by one of its issues sends the others back to
-   * ready-for-agent: a bundle never ships half done.
+   * A bundle's run stopped by one of its issues sends the others back from
+   * in-progress to ready-for-agent: a bundle never ships half done. Worked
+   * out from the jobs each poll, so a gh failure is tried again.
    */
-  async function sendBack(stopped: Job[]) {
-    for (const job of stopped)
-      for (const n of job.issues) {
-        const prev = store.issue(job.repo, n);
-        if (job.issues.length > 1 && prev?.stage === "in-progress")
-          await setStage(prev, "ready-for-agent");
-      }
+  async function sendBack(repo: string) {
+    const jobs = store.jobs();
+    for (const i of store.issues(repo)) {
+      if (i.stage !== "in-progress") continue;
+      const run = jobs
+        .filter(
+          (j) =>
+            j.kind === "run" && j.repo === repo && j.issues.includes(i.number),
+        )
+        .at(-1);
+      if (run && run.issues.length > 1 && store.control(run.id)?.stop)
+        await setStage(i, "ready-for-agent");
+    }
   }
 
   // The open issues each issue waits on, from the last blocker check.
@@ -247,7 +254,11 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
     const runs = store
       .jobs()
       .filter(
-        (j) => j.kind === "run" && j.state === "claimed" && j.repo === repo,
+        (j) =>
+          j.kind === "run" &&
+          j.state === "claimed" &&
+          j.repo === repo &&
+          !store.control(j.id)?.stop,
       );
     if (runs.length === 0) return;
     for (const run of runs)
@@ -275,9 +286,8 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
     serial(async () => {
       for (const { name } of store.repos()) {
         try {
-          await sendBack(
-            sync(store, name, await github.openIssues(name), now(), bundleOf),
-          );
+          sync(store, name, await github.openIssues(name), now(), bundleOf);
+          await sendBack(name);
           await gate(name);
           await followRuns(name);
           merged(store, advice, name, await github.head(name), now());
@@ -296,15 +306,10 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
 
   const issues = () => {
     const jobs = store.jobs();
-    const bundles = advice.bundles();
     return store.issues().map((i) => ({
       ...panelIssue(i, jobs),
       blockedBy: blockers.get(`${i.repo}#${i.number}`) ?? [],
-      // The newest accepted bundle an issue is in.
-      bundleId:
-        bundles
-          .filter((b) => b.repo === i.repo && b.issues.includes(i.number))
-          .at(-1)?.id ?? null,
+      bundleId: bundleOf(i.repo, i.number)?.id ?? null,
     }));
   };
 
@@ -354,10 +359,16 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
       } catch (err) {
         return bad(`gh refused the move: ${String(err)}`, 502);
       }
-      // A run the move queued starts without waiting for the next poll.
-      await gate(repo).catch((err: unknown) =>
-        console.error(`hub: checking blockers failed: ${String(err)}`),
-      );
+      // What the move set off happens now, not at the next poll (which
+      // tries again what fails here): a bundle's other issues go back, and
+      // a run the move queued is checked for blockers.
+      await sendBack(repo)
+        .then(() => gate(repo))
+        .catch((err: unknown) =>
+          console.error(
+            `hub: after the move of ${repo}#${number}: ${String(err)}`,
+          ),
+        );
       return Response.json(
         issues().find((i) => i.repo === repo && i.number === number),
       );
