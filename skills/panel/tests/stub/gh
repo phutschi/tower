@@ -3,7 +3,7 @@
 # open issues live in GH_STUB_DIR/<owner>_<repo>.json, as `gh issue list
 # --json number,title,labels` prints them; a repo without a file has none.
 # A repo's labels are the lines of GH_STUB_DIR/<owner>_<repo>.labels: `label
-# list` answers them, `label create` adds one.
+# create` adds one, and fails as gh does for one the repo has already.
 # `issue view N` answers that issue as the list has it; `issue edit`
 # changes them in the file, so the next list sees the edit.
 # Its open pull requests live in GH_STUB_DIR/<owner>_<repo>.prs.json, as `gh pr
@@ -38,8 +38,11 @@ case "$verb" in
   "issue list") if [ -f "$file" ]; then cat "$file"; else echo "[]"; fi ;;
   "pr list") if [ -f "${file%.json}.prs.json" ]; then cat "${file%.json}.prs.json"; else echo "[]"; fi ;;
   "issue view") jq --argjson n "${args[2]:?}" '.[] | select(.number == $n)' "$file" ;;
-  "label list") labels="${file%.json}.labels"; touch "$labels"; jq -R '{name: .}' "$labels" | jq -s . ;;
-  "label create") echo "${args[2]:?}" >> "${file%.json}.labels" ;;
+  "label create") labels="${file%.json}.labels"
+    if grep -qxF -- "${args[2]:?}" "$labels" 2>/dev/null; then
+      echo "label with name \"${args[2]}\" already exists; use \`--force\` to update its color and description" >&2; exit 1
+    fi
+    echo "${args[2]}" >> "$labels" ;;
   "issue edit")
     number=${args[2]:?}
     adds=$(printf '%s\n' "${add[@]}" | jq -R . | jq -s 'map(select(. != ""))')

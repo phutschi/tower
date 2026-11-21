@@ -5,8 +5,7 @@
  */
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
-import type { Subprocess } from "bun";
+import { expect, setDefaultTimeout, test } from "bun:test";
 
 import type { Job } from "../../types.ts";
 import {
@@ -23,21 +22,12 @@ import {
   useFixture,
   type Issue,
 } from "../../tests/fixture.ts";
-import { station } from "../../tests/station-process.ts";
+import { station, useStations } from "../../tests/station-process.ts";
 
 useFixture();
 setDefaultTimeout(20_000);
 
-// This file's stations: station-process.ts ends only those of the first
-// file that imports it, so a later file ends its own.
-let stations: Subprocess[] = [];
-afterEach(async () => {
-  for (const p of stations) p.kill("SIGKILL");
-  await Promise.all(stations.map((p) => p.exited));
-  stations = [];
-});
-const startStation = (env: Record<string, string>) =>
-  stations.push(station(env));
+useStations();
 
 const MAP = `# Context Map
 
@@ -93,7 +83,7 @@ async function newIssue(
 
 test("the job creates the missing area label, then sets exactly that one, naming a context of the map", async () => {
   await newIssue();
-  startStation(answers("Billing"));
+  station(answers("Billing"));
   await until(async () => (await labelJob())?.state === "done");
   expect(labels(3)).toEqual(["area:billing"]);
   expect(repoLabels()).toEqual(["area:billing"]);
@@ -113,25 +103,40 @@ test("the job creates the missing area label, then sets exactly that one, naming
   });
   const claude = readFileSync(join(dir(), "claude.log"), "utf8");
   expect(claude).toContain("--model haiku");
+  // Only the answer: no tools, and none of the user's MCP servers.
+  expect(claude).toContain("--strict-mcp-config");
   const prompt = readFileSync(join(dir(), "claude.log.prompts"), "utf8");
   expect(prompt).toContain("Invoices round the tax wrong");
   expect(prompt).toContain("Parser");
   expect(prompt).toContain("Billing");
 });
 
-test("an area label that already exists is not created again", async () => {
+test("an area label the repo has already is set as it is", async () => {
   await newIssue();
   writeFileSync(join(dir(), "acme_widgets.labels"), "area:billing\n");
-  startStation(answers("Billing"));
+  station(answers("Billing"));
   await until(async () => (await labelJob())?.state === "done");
   expect(labels(3)).toEqual(["area:billing"]);
-  expect(ghLog().some((l) => l.startsWith("gh label create"))).toBe(false);
+  expect(repoLabels()).toEqual(["area:billing"]);
+});
+
+test("an area a person set while the session ran is never overwritten", async () => {
+  await newIssue();
+  const fixture = join(dir(), "acme_widgets.json");
+  const during = JSON.stringify([issue(1), issue(2), issue(3, "area:parser")]);
+  station({
+    ...answers("Billing"),
+    CLAUDE_STUB_RUN: `printf '%s' '${during}' > '${fixture}'`,
+  });
+  await until(async () => (await labelJob())?.state === "done");
+  expect(labels(3)).toEqual(["area:parser"]);
+  expect(ghLog().some((l) => l.includes("issue edit 3 "))).toBe(false);
 });
 
 test("an area a person set before the job ran is never overwritten", async () => {
   await newIssue();
   setIssues("acme/widgets", [issue(1), issue(2), issue(3, "area:parser")]);
-  startStation(answers("Billing"));
+  station(answers("Billing"));
   await until(async () => (await labelJob())?.state === "done");
   expect(labels(3)).toEqual(["area:parser"]);
   expect(ghLog().some((l) => l.includes("issue edit 3 "))).toBe(false);
@@ -139,7 +144,7 @@ test("an area a person set before the job ran is never overwritten", async () =>
 
 test("an answer that names no context of the map fails the job and sets nothing", async () => {
   await newIssue();
-  startStation(answers("Shipping"));
+  station(answers("Shipping"));
   await until(async () => (await labelJob())?.state === "stuck");
   expect((await labelJob())!.reason).toContain(
     "names no context of the map: Shipping",

@@ -142,7 +142,13 @@ export function sync(
       const labels = i.labels.map((l) => l.name);
       const issue = { repo, number: i.number, title: i.title, labels };
       const next = { ...issue, stage: stageOf(labels) };
-      if (labelAreas && listed.baselined && !store.issue(repo, i.number))
+      const hasArea = labels.some((l) => l.startsWith("area:"));
+      if (
+        labelAreas &&
+        listed.baselined &&
+        !hasArea &&
+        !store.issue(repo, i.number)
+      )
         store.addJob("label-area", repo, [i.number], now);
       if (listed.baselined) record(store, next, now, bundleOf);
       else store.putIssue(next);

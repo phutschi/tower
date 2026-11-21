@@ -48,11 +48,18 @@ export function remote() {
 }
 
 let procs: Subprocess[] = [];
-afterEach(async () => {
-  for (const p of procs) p.kill("SIGKILL");
-  await Promise.all(procs.map((p) => p.exited));
-  procs = [];
-});
+/**
+ * Ends each test's stations after it. Every test file that starts stations
+ * calls it: a hook registered once at import would end only the stations of
+ * the first file that imports this module.
+ */
+export function useStations() {
+  afterEach(async () => {
+    for (const p of procs) p.kill("SIGKILL");
+    await Promise.all(procs.map((p) => p.exited));
+    procs = [];
+  });
+}
 
 /** Starts the station `server` with `env` on top of the test's. */
 export function station(env: Record<string, string> = {}) {

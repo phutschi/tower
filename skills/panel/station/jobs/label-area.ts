@@ -2,8 +2,8 @@
  * The issue-area labelling job: a headless session on a small model reads a
  * new issue and the repo's context map, and picks the one context the issue
  * touches. The job sets that context's `area:` label, creating it first when
- * the repo has none yet. An issue that has an area already keeps it: a
- * person set it, and changing it by hand is the correction.
+ * the repo has none yet. An issue that has an issue area already keeps it:
+ * a person set it, and changing it by hand is the correction.
  */
 import { execFile } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
@@ -15,6 +15,8 @@ import { registerJobRunner } from "../station.ts";
 
 const run = promisify(execFile);
 const PROMPT = join(import.meta.dir, "../../prompts/label-area.md");
+
+const HAS_AREA = "the issue has an issue area already";
 
 const gh = async (...args: string[]) => (await run("gh", args)).stdout;
 
@@ -55,8 +57,7 @@ registerJobRunner("label-area", async ({ job, workspace, emit, signal }) => {
   const hasArea = (i: Awaited<ReturnType<typeof view>>) =>
     i.labels.some((l) => l.name.startsWith("area:"));
   const issue = await view();
-  if (hasArea(issue))
-    return { outcome: "done", reason: "the issue has an area already" };
+  if (hasArea(issue)) return { outcome: "done", reason: HAS_AREA };
 
   // As JSON with < escaped, untrusted text cannot close the tag it sits in.
   const data = (v: unknown) => JSON.stringify(v).replaceAll("<", "\\u003c");
@@ -92,31 +93,22 @@ ${data({ title: issue.title, body: issue.body ?? "" })}
     };
 
   const label = areaLabel(context);
-  const existing = JSON.parse(
-    await gh(
-      "label",
-      "list",
-      "--repo",
-      job.repo,
-      "--json",
-      "name",
-      "--limit",
-      "1000",
-    ),
-  ) as { name: string }[];
-  if (!existing.some((l) => l.name === label))
-    await gh(
-      "label",
-      "create",
-      label,
-      "--repo",
-      job.repo,
-      "--description",
-      `Issue area: ${context}`,
-    );
-  // A person may have set an area while the session ran: theirs stands.
+  // Made if the repo lacks it. One that exists, or that another job of
+  // this station made a moment ago, is set as it is.
+  await gh(
+    "label",
+    "create",
+    label,
+    "--repo",
+    job.repo,
+    "--description",
+    `Issue area: ${context}`,
+  ).catch((err: unknown) => {
+    if (!/already exists/.test(String(err))) throw err;
+  });
+  // A person may have set an issue area while the session ran: theirs stands.
   if (hasArea(await view()))
-    return { outcome: "done", reason: "the issue has an area already", ...ran };
+    return { outcome: "done", reason: HAS_AREA, ...ran };
   await gh(
     "issue",
     "edit",

@@ -448,7 +448,13 @@ test("a newly seen issue queues one label-area job; the issues of the first poll
   setIssues("acme/widgets", [issue(1), issue(2, "area:parser")]);
   await start();
   expect(await labelJobs()).toEqual([]);
-  setIssues("acme/widgets", [issue(1), issue(2, "area:parser"), issue(3)]);
+  // Issue 4 was opened with its issue area: it needs no job.
+  setIssues("acme/widgets", [
+    issue(1),
+    issue(2, "area:parser"),
+    issue(3),
+    issue(4, "area:billing"),
+  ]);
   await polls(2);
   expect((await labelJobs()).map((j) => [j.issues, j.state])).toEqual([
     [[3], "queued"],

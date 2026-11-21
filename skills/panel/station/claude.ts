@@ -38,7 +38,10 @@ export async function runHeadless(opts: {
 }): Promise<HeadlessRun> {
   const args = ["-p", "--output-format", "stream-json", "--verbose"];
   args.push("--model", opts.model);
-  if (opts.tools) args.push("--tools", opts.tools.join(","));
+  // Only the tools named: none of the user's MCP servers either, since a
+  // session may read text a stranger wrote.
+  if (opts.tools)
+    args.push("--strict-mcp-config", "--tools", opts.tools.join(","));
   const proc = Bun.spawn(["claude", ...args], {
     cwd: opts.cwd,
     stdin: new Blob([opts.prompt]),
