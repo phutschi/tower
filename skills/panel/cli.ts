@@ -1,18 +1,26 @@
 #!/usr/bin/env bun
 /**
  * The Panel's entry point: `hub` starts the hub on the server Mac, `station`
- * a station on any Mac.
+ * a station on any Mac; `install` and `uninstall` make either a launchd agent.
  */
-import { existsSync, mkdirSync, readdirSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { homedir, hostname } from "node:os";
 import { dirname, join } from "node:path";
 import { parseArgs } from "node:util";
 
 import { startHub } from "./hub/hub.ts";
+import { label, writePlist, type Role } from "./launchd.ts";
 import { runStation } from "./station/station.ts";
 
 const USAGE = `usage: bun skills/panel/cli.ts hub [--db <path>] [--host <addr>] [--port <n>] [--poll-seconds <n>] [--server-station <name>]
-       bun skills/panel/cli.ts station --hub <url> [--name <mac>] [--workdir <dir>] [--heartbeat-seconds <n>]`;
+       bun skills/panel/cli.ts station --hub <url> [--name <mac>] [--workdir <dir>] [--heartbeat-seconds <n>]
+       bun skills/panel/cli.ts install hub [--port <n>] [--server-station <name>] [--dir <dir>]
+       bun skills/panel/cli.ts install station --hub <url> [--name <mac>] [--dir <dir>]
+       bun skills/panel/cli.ts uninstall hub|station [--dir <dir>]`;
+
+const AGENTS = join(homedir(), "Library/LaunchAgents");
+const domain = () => `gui/${process.getuid?.() ?? 0}`;
 
 const stateDir = join(
   process.env.XDG_STATE_HOME || join(homedir(), ".local/state"),
@@ -75,6 +83,83 @@ async function station(args: string[]) {
   onStop(() => station.stop());
 }
 
+/** The Mac's Tailscale address: the hub listens there, and only there. */
+function tailscaleIp(): string {
+  try {
+    const ip = execFileSync("tailscale", ["ip", "-4"], { encoding: "utf8" })
+      .split("\n")[0]
+      ?.trim();
+    if (ip) return ip;
+  } catch {
+    // reported below
+  }
+  console.error(
+    "install hub: this Mac has no Tailscale address (tailscale ip -4): the Panel is reached on the tailnet only",
+  );
+  process.exit(1);
+}
+
+/** Unloads a role's agent, if it is loaded. */
+const bootout = (role: Role) => {
+  try {
+    execFileSync("launchctl", ["bootout", `${domain()}/${label(role)}`], {
+      stdio: "ignore",
+    });
+  } catch {
+    // not loaded
+  }
+};
+
+function install(args: string[]) {
+  const [role, ...rest] = args;
+  if (role !== "hub" && role !== "station") usage();
+  const { values } = parseArgs({
+    args: rest,
+    options: {
+      dir: { type: "string", default: AGENTS },
+      port: { type: "string", default: "7420" },
+      "server-station": { type: "string", default: hostname() },
+      hub: { type: "string" },
+      name: { type: "string", default: hostname() },
+    },
+  });
+  let run: string[];
+  if (role === "hub") {
+    const host = tailscaleIp();
+    run = [
+      "hub",
+      "--host",
+      host,
+      "--port",
+      values.port,
+      "--server-station",
+      values["server-station"],
+    ];
+    console.log(
+      `install hub: the Panel will be at http://${host}:${values.port}`,
+    );
+  } else {
+    if (!values.hub) usage();
+    run = ["station", "--hub", values.hub, "--name", values.name];
+  }
+  const path = writePlist({ role, args: run, dir: values.dir });
+  bootout(role);
+  execFileSync("launchctl", ["bootstrap", domain(), path]);
+  console.log(`install ${role}: ${path} is loaded`);
+}
+
+function uninstall(args: string[]) {
+  const [role, ...rest] = args;
+  if (role !== "hub" && role !== "station") usage();
+  const { values } = parseArgs({
+    args: rest,
+    options: { dir: { type: "string", default: AGENTS } },
+  });
+  bootout(role);
+  rmSync(join(values.dir, `${label(role)}.plist`), { force: true });
+  console.log(`uninstall ${role}: unloaded and removed`);
+}
+
 function usage(): never {
   console.error(USAGE);
   process.exit(2);
@@ -83,4 +168,6 @@ function usage(): never {
 const [command, ...rest] = process.argv.slice(2);
 if (command === "hub") await hub(rest);
 else if (command === "station") await station(rest);
+else if (command === "install") install(rest);
+else if (command === "uninstall") uninstall(rest);
 else usage();

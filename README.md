@@ -50,10 +50,20 @@ Or use the CLI on its own: `tower init` from a plan, `tower brief` for each
 executor, `tower` to watch. Executors report with `tower task`, `tower block`
 and `tower note`. See [docs/cli.md](docs/cli.md).
 
+## From issue to PR, on your Macs
+
+`/tower:panel` sets up the Panel: a page on your always-on Mac, reached over
+Tailscale from a phone, that lists the open issues of the repos you choose by
+stage. Moving an issue into shaping starts a grill, which turns it into a spec
+in the Inbox; moving it into ready-for-agent starts a run, with
+`/tower:spec-to-plan` and `/tower:orchestrate`, on one of your Macs, until its
+PR is ready for review. See [docs/panel.md](docs/panel.md).
+
 ## Install
 
 tower has two parts: the CLI and the skills. Install the CLI one of three
-ways, then the skills. You never need Bun to use tower.
+ways, then the skills. You never need Bun to use tower, except for the Panel,
+whose hub and stations run on Bun.
 
 **A release binary** (macOS and Linux, arm64 or x64, no runtime needed). Each
 release carries `tower-<os>-<arch>` and a `SHA256SUMS` to check it against;
@@ -103,6 +113,8 @@ cursor lanes).
   and the switches.
 - [docs/cli.md](docs/cli.md): the commands, the screen, how the record works.
 - [docs/agents.md](docs/agents.md): pointing your agents at tower.
+- [docs/panel.md](docs/panel.md): the Panel, its stages and jobs, and its
+  setup.
 - [docs/plan-format.md](docs/plan-format.md),
   [docs/protocol.md](docs/protocol.md), [docs/themes.md](docs/themes.md),
   [docs/recipes/](docs/recipes/), and the decisions in

@@ -114,6 +114,11 @@ function panelIssue(i: SnapshotIssue, jobs: Job[]): PanelIssue {
 }
 
 export async function startHub(opts: HubOptions): Promise<Hub> {
+  // No login guards the Panel: only the tailnet does (ADR 0017).
+  if (opts.host === "0.0.0.0" || opts.host === "::")
+    throw new Error(
+      `the hub listens on one address, never on every address (${opts.host}): give it the Mac's Tailscale address`,
+    );
   const now = opts.now ?? (() => new Date());
   const store = new Store(opts.dbPath);
   const advice = new AdviceStore(opts.dbPath);

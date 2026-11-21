@@ -1,5 +1,5 @@
 /**
- * One plugin, `tower`, with four skills. Its manifest carries the package's
+ * One plugin, `tower`, with five skills. Its manifest carries the package's
  * version, and no name from the kit's old home (the `phutschi` plugin, the
  * herdr-orchestrate repo) is left behind.
  */
@@ -26,7 +26,7 @@ type Manifest = {
 };
 const json = (path: string) => JSON.parse(read(path)) as Manifest;
 
-const SKILLS = ["run", "orchestrate", "spec-to-plan", "preflight"];
+const SKILLS = ["run", "orchestrate", "spec-to-plan", "preflight", "panel"];
 
 test("every skill frontmatter parses as YAML", () => {
   for (const skill of SKILLS) {
@@ -41,7 +41,7 @@ test("the plugin carries the package's version", () => {
   expect(json(".cursor-plugin/plugin.json").version).toBe(version);
 });
 
-test("the plugin and its marketplace entry name the four skills", () => {
+test("the plugin and its marketplace entry name the five skills", () => {
   const plugin = json(".claude-plugin/plugin.json");
   const cursor = json(".cursor-plugin/plugin.json");
   for (const marketplace of [
@@ -782,4 +782,29 @@ test("spec-to-plan documents the optional Role field", () => {
   expect(skill).toMatch(/\*\*Role\*\* \(optional\)/);
   expect(skill).toMatch(/leave it out for `code`, the default/);
   expect(skill).toMatch(/Every task in\s+one lane names the same role or none/);
+});
+
+// The Panel's doc speaks the glossary (CONTEXT.md § The Panel) and points at
+// the decisions behind it.
+test("docs/panel.md links ADRs 0016 and 0017 and avoids the glossary's avoided words", () => {
+  const doc = read("docs/panel.md");
+  expect(doc).toContain("adr/0016-the-dispatcher-is-a-script.md");
+  expect(doc).toContain("adr/0017-jobs-run-on-the-users-macs-through-a-hub.md");
+  expect(doc).not.toMatch(
+    /\b(kanban|backlog|dashboard|scheduler|daemon|worker)\b/i,
+  );
+  expect(doc).not.toMatch(/\b(status|column)\b/i);
+});
+
+// The panel skill sets the Panel up; it runs nothing by itself, and names no
+// harness or runner of the orchestrate kit (only orchestrate names herdr).
+test("the panel skill is invoked only by the user and names no herdr", () => {
+  const skill = read("skills/panel/SKILL.md");
+  const frontmatter = Bun.YAML.parse(skill.split("---", 3)[1] ?? "") as Record<
+    string,
+    unknown
+  >;
+  expect(frontmatter["disable-model-invocation"]).toBe(true);
+  expect(skill).not.toMatch(/herdr/i);
+  expect(skill).toContain("plannotator inbox link");
 });

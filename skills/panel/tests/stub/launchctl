@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Stand-in for launchctl in the Panel's tests. Logs argv to LAUNCHCTL_STUB_LOG.
+# `bootout` of a service that is not loaded fails, as launchctl's does, when
+# LAUNCHCTL_STUB_NOT_LOADED=1.
+printf 'launchctl %s\n' "$*" >> "${LAUNCHCTL_STUB_LOG:-/dev/null}"
+[ "${1:-}" = bootout ] && [ "${LAUNCHCTL_STUB_NOT_LOADED:-}" = 1 ] && { echo "Boot-out failed: 3: No such process" >&2; exit 3; }
+exit 0

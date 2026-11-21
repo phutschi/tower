@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { expect, setDefaultTimeout, test } from "bun:test";
 
 import type { Job, PanelIssue } from "../types.ts";
+import { startHub } from "./hub.ts";
 import {
   acceptBundle,
   api,
@@ -503,4 +504,11 @@ test("the Panel groups issues by issue area, with ungrouped issues in their own 
   expect(group("billing")).toContain("acme/widgets#2");
   expect(group("")).toContain("acme/widgets#4");
   expect(html).toContain('<a href="/?group=area">issue area</a>');
+});
+
+test("the hub refuses to listen on every address: it is reached on the tailnet only", async () => {
+  for (const host of ["0.0.0.0", "::"])
+    expect(
+      startHub({ dbPath: join(dir(), "hub.db"), host, port: 0, pollMs: 20 }),
+    ).rejects.toThrow("never on every address");
 });

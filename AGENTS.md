@@ -5,9 +5,11 @@ read docs/agents.md instead.
 
 - Two halves. `src/` is the CLI: it observes and never acts (ADR 0003), and
   it names no harness and no runner (ADR 0005). `skills/` is the plugin:
-  `run` (neutral; `skills/run/SKILL.test.ts` guards it) and the orchestrate
-  kit, `orchestrate`, `spec-to-plan` and `preflight`. `orchestrate` is the one
-  herdr-only skill; no other skill and nothing in `src/` names herdr.
+  `run` (neutral; `skills/run/SKILL.test.ts` guards it), the orchestrate
+  kit, `orchestrate`, `spec-to-plan` and `preflight`, and `panel` (the
+  Panel's hub and stations, under `skills/panel/`; docs/panel.md).
+  `orchestrate` is the one herdr-only skill; no other skill and nothing in
+  `src/` names herdr.
 - Runtime: `src/` uses `node:*` APIs only. No `Bun.*` (ESLint enforces it).
   Node ≥ 22.12 and Bun must both run the built CLI. Users never need Bun.
   The one exception is `skills/panel/`: the Panel's hub and stations run on

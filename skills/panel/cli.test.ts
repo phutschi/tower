@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
@@ -84,4 +84,120 @@ test("`cli.ts` with an unknown command prints its usage and fails", async () => 
   const proc = Bun.spawn(["bun", CLI, "nope"], { stderr: "pipe" });
   expect(await proc.exited).toBe(2);
   expect(await new Response(proc.stderr).text()).toContain("usage:");
+});
+
+/** Runs `cli.ts` with the Panel's stubs first on PATH, in a temp dir. */
+async function cli(args: string[], env: Record<string, string> = {}) {
+  const proc = Bun.spawn(["bun", CLI, ...args], {
+    env: {
+      ...process.env,
+      PATH: `${join(import.meta.dir, "tests/stub")}:${process.env.PATH}`,
+      XDG_STATE_HOME: join(tmpdir(), "panel-cli-state"),
+      ...env,
+    },
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const [out, err, code] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ]);
+  return { out, err, code };
+}
+
+test("install hub writes and loads a launchd agent that starts the hub on the Tailscale address", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "panel-cli-"));
+  const log = join(dir, "launchctl.log");
+  try {
+    const r = await cli(
+      ["install", "hub", "--dir", dir, "--server-station", "server"],
+      {
+        LAUNCHCTL_STUB_LOG: log,
+        LAUNCHCTL_STUB_NOT_LOADED: "1",
+      },
+    );
+    expect(r.code).toBe(0);
+    const path = join(dir, "dev.tower.panel.hub.plist");
+    const plist = readFileSync(path, "utf8");
+    expect(plist).toContain(
+      "<string>hub</string><string>--host</string><string>100.64.0.7</string>",
+    );
+    expect(plist).toContain(
+      "<string>--server-station</string><string>server</string>",
+    );
+    expect(readFileSync(log, "utf8")).toContain(
+      `launchctl bootstrap gui/${process.getuid!()} ${path}`,
+    );
+    expect(r.out).toContain("http://100.64.0.7:7420");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("install hub off the tailnet refuses, and writes nothing", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "panel-cli-"));
+  try {
+    const r = await cli(["install", "hub", "--dir", dir], {
+      TAILSCALE_STUB_IP: "none",
+    });
+    expect(r.code).toBe(1);
+    expect(r.err).toContain("Tailscale");
+    expect(existsSync(join(dir, "dev.tower.panel.hub.plist"))).toBe(false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("install station writes a plist with the hub's URL and the station's name", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "panel-cli-"));
+  try {
+    const r = await cli(
+      [
+        "install",
+        "station",
+        "--dir",
+        dir,
+        "--hub",
+        "http://100.64.0.7:7420",
+        "--name",
+        "laptop",
+      ],
+      { LAUNCHCTL_STUB_LOG: join(dir, "launchctl.log") },
+    );
+    expect(r.code).toBe(0);
+    const plist = readFileSync(
+      join(dir, "dev.tower.panel.station.plist"),
+      "utf8",
+    );
+    expect(plist).toContain(
+      "<string>station</string><string>--hub</string><string>http://100.64.0.7:7420</string><string>--name</string><string>laptop</string>",
+    );
+    expect((await cli(["install", "station", "--dir", dir])).code).toBe(2);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("uninstall unloads the agent and removes its plist", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "panel-cli-"));
+  const log = join(dir, "launchctl.log");
+  try {
+    await cli(
+      ["install", "station", "--dir", dir, "--hub", "http://100.64.0.7:7420"],
+      {
+        LAUNCHCTL_STUB_LOG: log,
+      },
+    );
+    const r = await cli(["uninstall", "station", "--dir", dir], {
+      LAUNCHCTL_STUB_LOG: log,
+    });
+    expect(r.code).toBe(0);
+    expect(existsSync(join(dir, "dev.tower.panel.station.plist"))).toBe(false);
+    expect(readFileSync(log, "utf8")).toContain(
+      `launchctl bootout gui/${process.getuid!()}/dev.tower.panel.station`,
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
