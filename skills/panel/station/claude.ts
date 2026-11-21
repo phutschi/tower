@@ -37,6 +37,8 @@ interface StreamLine {
     utilization?: number;
     /** Seconds since the epoch. */
     resetsAt?: number;
+    overageStatus?: RateLimitInfo["status"];
+    isUsingOverage?: boolean;
   };
 }
 
@@ -91,7 +93,12 @@ export async function runHeadless(opts: {
     const info = msg.type === "rate_limit_event" && msg.rate_limit_info;
     if (info)
       run.rateLimits.push({
-        status: info.status,
+        // A request the plan refused but extra usage pays for goes on.
+        status:
+          info.status === "rejected" &&
+          (info.overageStatus === "allowed" || info.isUsingOverage)
+            ? "allowed_warning"
+            : info.status,
         ...(info.rateLimitType ? { rateLimitType: info.rateLimitType } : {}),
         ...(info.utilization === undefined
           ? {}
@@ -141,7 +148,7 @@ export function jsonIn(text: string): unknown {
 /**
  * Hands a session's rate-limit events to the hub, which pauses dispatch at a
  * rejection. A rate_limit error with no rejection of its own counts as one,
- * at the latest reset the session named.
+ * at the earliest reset the session named.
  */
 export async function reportLimits(
   run: HeadlessRun,
@@ -152,7 +159,11 @@ export async function reportLimits(
     run.error?.category === "rate_limit" &&
     !run.rateLimits.some((r) => r.status === "rejected")
   ) {
-    const resetsAt = run.rateLimits.filter((r) => r.resetsAt).at(-1)?.resetsAt;
+    // The earliest reset: a wrong guess costs one more refused job, not days.
+    const resetsAt = run.rateLimits
+      .map((r) => r.resetsAt)
+      .filter((r) => r !== undefined)
+      .sort()[0];
     await emit("rate-limit", {
       status: "rejected",
       ...(resetsAt ? { resetsAt } : {}),

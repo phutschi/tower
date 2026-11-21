@@ -118,7 +118,7 @@ function limitsView(u: UsageView): string {
   const rows = u.rows
     .map(
       (r) =>
-        `<li>${esc(limitName(r))}: ${r.percent}% (resets ${esc(r.resetsAt)})</li>`,
+        `<li>${esc(limitName(r))}: ${Math.round(r.percent)}% (resets ${esc(r.resetsAt)})</li>`,
     )
     .join("");
   const paused = u.pausedUntil
@@ -126,7 +126,7 @@ function limitsView(u: UsageView): string {
     : "";
   const source =
     u.source === "job-events"
-      ? `<p>No usage report; these are the values from the latest jobs.</p>`
+      ? `<p>${u.rows.length ? "No usage report; these are the values from the latest jobs." : "No usage report, and no job has reported its limits yet."}</p>`
       : "";
   return `<section data-usage><h2>Limits</h2>${paused}${source}<ul>${rows}</ul></section>`;
 }

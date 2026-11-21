@@ -208,9 +208,33 @@ test("a rejected rate-limit event in a session pauses dispatch until its reset",
   expect((await usage()).pausedUntil).toBe(
     new Date(RESET * 1000).toISOString(),
   );
+  // The pause note went to the stub Inbox, never the user's own.
+  await until(async () => read("plannotator.log").includes("Dispatch paused"));
 });
 
-test("a rate_limit error pauses dispatch until the reset the session named", async () => {
+test("a rejection paid as extra usage pauses nothing", async () => {
+  const job = await advise(
+    limited([
+      {
+        type: "rate_limit_event",
+        session_id: "sess-3",
+        rate_limit_info: {
+          status: "rejected",
+          rateLimitType: "five_hour",
+          resetsAt: RESET,
+          overageStatus: "allowed",
+          isUsingOverage: true,
+        },
+      },
+    ]),
+  );
+  expect(job.state).toBe("stuck");
+  await Bun.sleep(200);
+  expect((await usage()).pausedUntil).toBeNull();
+});
+
+test("a rate_limit error pauses dispatch until the earliest reset the session named", async () => {
+  const LATER = RESET + 4 * 24 * 3600;
   await advise(
     limited([
       {
@@ -218,9 +242,19 @@ test("a rate_limit error pauses dispatch until the reset the session named", asy
         session_id: "sess-3",
         rate_limit_info: {
           status: "allowed_warning",
-          rateLimitType: "seven_day",
+          rateLimitType: "five_hour",
           utilization: 0.97,
           resetsAt: RESET,
+        },
+      },
+      {
+        type: "rate_limit_event",
+        session_id: "sess-3",
+        rate_limit_info: {
+          status: "allowed_warning",
+          rateLimitType: "seven_day",
+          utilization: 0.8,
+          resetsAt: LATER,
         },
       },
       {
@@ -233,11 +267,19 @@ test("a rate_limit error pauses dispatch until the reset the session named", asy
   );
   await until(async () => (await usage()).pausedUntil !== null);
   const view = await usage();
+  // A wrong guess costs one more refused job, not days.
   expect(view.pausedUntil).toBe(new Date(RESET * 1000).toISOString());
-  // The warning's values feed the limits view while there is no usage report.
-  expect(view.rows).toContainEqual({
-    kind: "weekly_all",
-    percent: 97,
-    resetsAt: new Date(RESET * 1000).toISOString(),
-  });
+  // The warnings' values feed the limits view while there is no usage report.
+  expect(view.rows).toEqual([
+    {
+      kind: "session",
+      percent: 97,
+      resetsAt: new Date(RESET * 1000).toISOString(),
+    },
+    {
+      kind: "weekly_all",
+      percent: 80,
+      resetsAt: new Date(LATER * 1000).toISOString(),
+    },
+  ]);
 });

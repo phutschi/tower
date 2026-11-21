@@ -4,7 +4,7 @@
  */
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { expect, test } from "bun:test";
 
 import type { Job, UsageRow, UsageView } from "../types.ts";
 import {
@@ -21,16 +21,6 @@ import {
 import { usageRows } from "./usage.ts";
 
 useFixture();
-
-const PATH = process.env.PATH;
-beforeEach(() => {
-  process.env.PATH = `${join(import.meta.dir, "../tests/stub")}:${PATH}`;
-  process.env.PLANNOTATOR_STUB_LOG = join(dir(), "plannotator.log");
-});
-afterEach(() => {
-  process.env.PATH = PATH;
-  delete process.env.PLANNOTATOR_STUB_LOG;
-});
 
 const REPORT: UsageRow[] = [
   { kind: "session", percent: 42, resetsAt: "2026-11-21T15:00:00.000Z" },
@@ -87,7 +77,7 @@ test("a finished job shows its duration and tokens on the Panel", async () => {
 
 test("a rejected rate-limit event pauses dispatch until its reset, with exactly one Inbox message", async () => {
   const job = await hub();
-  const resetsAt = new Date(Date.now() + 1500).toISOString();
+  const resetsAt = new Date(Date.now() + 3000).toISOString();
   for (let i = 0; i < 2; i++)
     expect(
       (
@@ -188,4 +178,80 @@ test("the usage report's plan limits become session, weekly and per-model rows",
     }),
   ).toEqual(REPORT);
   expect(usageRows(null)).toBeNull();
+});
+
+test("an empty usage report falls back to the jobs' values", async () => {
+  const job = await hub(async () => []);
+  await limit(job, {
+    status: "allowed",
+    rateLimitType: "five_hour",
+    utilization: 0.2,
+    resetsAt: "2026-11-21T15:00:00.000Z",
+  });
+  await Bun.sleep(50);
+  expect(await api<UsageView>("/api/usage")).toMatchObject({
+    source: "job-events",
+    rows: [{ kind: "session", percent: 20 }],
+  });
+});
+
+test("a rejection whose reset has passed pauses nothing and sends no note", async () => {
+  const job = await hub();
+  await limit(job, {
+    status: "rejected",
+    resetsAt: new Date(Date.now() - 60_000).toISOString(),
+  });
+  expect((await api<UsageView>("/api/usage")).pausedUntil).toBeNull();
+  expect(await claim()).not.toBeNull();
+  await Bun.sleep(100);
+  expect(notes()).toEqual([]);
+});
+
+test("a pause moved later by a named reset sends a note for the new reset", async () => {
+  const job = await hub();
+  const soon = new Date(Date.now() + 60 * 60_000).toISOString();
+  const later = new Date(Date.now() + 3 * 24 * 60 * 60_000).toISOString();
+  await limit(job, {
+    status: "rejected",
+    rateLimitType: "five_hour",
+    resetsAt: soon,
+  });
+  await limit(job, {
+    status: "rejected",
+    rateLimitType: "seven_day",
+    resetsAt: later,
+  });
+  const sends = () => notes().filter((l) => l.includes("send_message"));
+  await until(async () => sends().length === 2);
+  expect(sends()[1]).toContain(later);
+  expect((await api<UsageView>("/api/usage")).pausedUntil).toBe(later);
+});
+
+test("a report without per-model rows still names Opus and Sonnet from their weekly windows", () => {
+  expect(
+    usageRows({
+      seven_day_opus: {
+        utilization: 10,
+        resets_at: "2026-11-25T08:00:00.000Z",
+      },
+      seven_day_sonnet: {
+        utilization: 20,
+        resets_at: "2026-11-25T08:00:00.000Z",
+      },
+    }),
+  ).toEqual([
+    {
+      kind: "weekly_scoped",
+      model: "Opus",
+      percent: 10,
+      resetsAt: "2026-11-25T08:00:00.000Z",
+    },
+    {
+      kind: "weekly_scoped",
+      model: "Sonnet",
+      percent: 20,
+      resetsAt: "2026-11-25T08:00:00.000Z",
+    },
+  ]);
+  expect(usageRows({ five_hour: null })).toBeNull();
 });

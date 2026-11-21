@@ -101,6 +101,8 @@ export async function start(
     port: 0,
     pollMs: 20,
     ghBin: GH,
+    // Never the real usage report: it starts a Claude CLI with the user's login.
+    readUsage: async () => null,
     ...opts,
   };
   hub = await startHub(hubOpts);
@@ -117,9 +119,15 @@ export async function restart() {
   hub = await startHub({ ...hubOpts!, port });
 }
 
+const PATH = process.env.PATH;
+
 export function useFixture() {
   beforeEach(() => {
     root = mkdtempSync(join(tmpdir(), "panel-"));
+    // The hub runs in this process: its plannotator and claude are the stubs,
+    // never the user's own Inbox or login.
+    process.env.PATH = `${join(import.meta.dir, "stub")}:${PATH}`;
+    process.env.PLANNOTATOR_STUB_LOG = join(root, "plannotator.log");
     process.env.GH_STUB_DIR = root;
     process.env.GH_STUB_LOG = join(root, "gh.log");
     delete process.env.GH_STUB_FAIL;
@@ -128,5 +136,7 @@ export function useFixture() {
     await hub?.stop();
     hub = undefined;
     rmSync(root, { recursive: true, force: true });
+    process.env.PATH = PATH;
+    delete process.env.PLANNOTATOR_STUB_LOG;
   });
 }

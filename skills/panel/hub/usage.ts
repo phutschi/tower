@@ -54,6 +54,8 @@ export function usageRows(
   limits: {
     five_hour?: Window;
     seven_day?: Window;
+    seven_day_opus?: Window;
+    seven_day_sonnet?: Window;
     model_scoped?: ({ display_name: string } & NonNullable<Window>)[];
     [other: string]: unknown;
   } | null,
@@ -68,7 +70,13 @@ export function usageRows(
   add(limits.seven_day, { kind: "weekly_all" });
   for (const m of limits.model_scoped ?? [])
     add(m, { kind: "weekly_scoped", model: m.display_name });
-  return rows;
+  // An answer from the CLI's cache has no per-model rows; these windows remain.
+  if (!limits.model_scoped) {
+    add(limits.seven_day_opus, { kind: "weekly_scoped", model: "Opus" });
+    add(limits.seven_day_sonnet, { kind: "weekly_scoped", model: "Sonnet" });
+  }
+  // No row at all is no report: the view falls back to the jobs' values.
+  return rows.length ? rows : null;
 }
 
 /**
@@ -79,33 +87,37 @@ export async function readUsageReport(
   opts: { timeoutMs?: number } = {},
 ): Promise<UsageRow[] | null> {
   let close = () => {};
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     const { query } = await import("@anthropic-ai/claude-agent-sdk");
     let end = () => {};
     const ended = new Promise<void>((r) => (end = r));
     // A session that never gets a prompt: asking for usage spends no tokens.
+    // No settings: the user's plugins, hooks and MCP servers need not start.
     const q = query({
       prompt: (async function* () {
         await ended;
         yield* [];
       })(),
+      options: { settingSources: [] },
     });
     close = () => (end(), q.close());
     const report = await Promise.race([
       q.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET({
         skipBehaviors: true,
       }),
-      new Promise<never>((_, reject) =>
-        setTimeout(
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
           () => reject(new Error("usage report timed out")),
           opts.timeoutMs ?? 30_000,
-        ),
-      ),
+        );
+      }),
     ]);
     return usageRows(report.rate_limits);
   } catch {
     return null;
   } finally {
+    clearTimeout(timer);
     close();
   }
 }
@@ -144,8 +156,8 @@ export class UsageStore {
 
   /**
    * Keeps a job's rate-limit values, and pauses dispatch on a rejection
-   * until its reset. Returns the reset when this began a pause, so the hub
-   * tells the person once; a rejection while paused only moves the reset on.
+   * until its reset. Returns the reset when this began a pause or moved it to
+   * a named later reset, so the hub tells the person once per reset.
    */
   record(info: RateLimitInfo, now: Date): string | null {
     if (info.rateLimitType && info.utilization !== undefined && info.resetsAt)
@@ -157,19 +169,23 @@ export class UsageStore {
     if (info.status !== "rejected") return null;
     const until =
       info.resetsAt ?? new Date(now.getTime() + UNNAMED_RESET_MS).toISOString();
+    // A rejection that arrives late, after its reset, pauses nothing.
+    if (until <= now.toISOString()) return null;
     const paused = this.pausedUntil(now);
     if (paused && paused >= until) return null;
     this.db.run(
       "INSERT INTO pause (id, until) VALUES (1, ?) ON CONFLICT (id) DO UPDATE SET until = excluded.until",
       [until],
     );
-    return paused ? null : until;
+    // A pause a named reset moved later is news; a guessed extension is not.
+    return !paused || info.resetsAt ? until : null;
   }
 
   /** The limits view: the usage report's rows, or else the jobs' latest values. */
   view(report: UsageRow[] | null, now: Date): UsageView {
     const pausedUntil = this.pausedUntil(now);
-    if (report) return { rows: report, source: "usage-report", pausedUntil };
+    if (report?.length)
+      return { rows: report, source: "usage-report", pausedUntil };
     const order = Object.keys(WINDOWS);
     const rows = this.db
       .query<{ window: string; percent: number; resets_at: string }, []>(
