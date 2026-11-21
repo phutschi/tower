@@ -122,7 +122,8 @@ export async function runStation(
       result = { outcome: "failed", reason: String(err) };
     }
     const stop = stopReason(abort.signal);
-    if (stop !== null)
+    // The runner's own stopped result says more (a workspace left open).
+    if (stop !== null && result.outcome !== "stopped")
       result = {
         outcome: "stopped",
         reason: stop,

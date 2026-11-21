@@ -245,3 +245,22 @@ test("a label changed into ready-for-agent queues one run job", async () => {
     ["run", [1], "queued"],
   ]);
 });
+
+test("a run stuck after its lease ran out stays stuck when its station reports again", async () => {
+  setIssues("acme/widgets", [issue(1, "shaping")]);
+  await start(["acme/widgets"], { leaseMs: 300, serverStation: "server" });
+  await post("/api/issues/acme/widgets/1/stage", { stage: "ready-for-agent" });
+  await post("/api/jobs/claim", { station: "server", kinds: ["run"] });
+  const [run] = await api<Job[]>("/api/jobs");
+  for (
+    let i = 0;
+    i < 100 && (await api<Job[]>("/api/jobs"))[0]!.state !== "stuck";
+    i++
+  )
+    await Bun.sleep(20);
+  const res = await post(`/api/jobs/${run!.id}/heartbeat`, {
+    station: "server",
+  });
+  expect(res.status).toBe(409);
+  expect((await api<Job[]>("/api/jobs"))[0]!.state).toBe("stuck");
+});

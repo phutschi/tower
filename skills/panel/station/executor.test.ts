@@ -2,7 +2,7 @@
  * The executor seam: a checkout per job, kept for a while after release when
  * asked, then pruned. Real git against a temp bare repo.
  */
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, expect, test } from "bun:test";
 
@@ -65,4 +65,14 @@ test("a kept checkout is pruned by a new executor too, as after a station restar
   );
   await second.prune();
   expect(existsSync(kept.path)).toBe(false);
+});
+
+test("a keep marker that cannot be read counts as expired and stops no other pruning", async () => {
+  const workdir = join(dir(), "station");
+  mkdirSync(join(workdir, "keep"), { recursive: true });
+  mkdirSync(join(workdir, "jobs/dddddddd-4"), { recursive: true });
+  writeFileSync(join(workdir, "keep/dddddddd-4.json"), "{half");
+  await new CheckoutExecutor(workdir).prune();
+  expect(existsSync(join(workdir, "jobs/dddddddd-4"))).toBe(false);
+  expect(existsSync(join(workdir, "keep/dddddddd-4.json"))).toBe(false);
 });

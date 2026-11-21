@@ -64,9 +64,15 @@ const toJob = (r: JobRow): Job => ({
 
 /**
  * `station` holds the job, or held it until its lease ran out and nobody took
- * it since (queued, or a run marked stuck for it).
+ * it since: it may renew it.
  */
 const HOLDS =
+  "((state = 'claimed' AND station = ?) OR (state = 'queued' AND lost_by = ?))";
+/**
+ * The same, or a run marked stuck when its lease ran out: its result still
+ * counts. A stuck run is never renewed: the user was told it is over.
+ */
+const FINISHES =
   "((state = 'claimed' AND station = ?) OR (state IN ('queued', 'stuck') AND lost_by = ?))";
 
 const OUTCOME: Record<JobResult["outcome"], JobState> = {
@@ -276,9 +282,9 @@ export class Store {
   }
 
   /**
-   * Renews the lease of a job `station` holds. A job whose lease ran out
-   * while the hub was out of reach, and that nobody claimed since, goes back
-   * to the station still working it. False if it holds the job no more.
+   * Renews the lease of a job `station` holds. A job whose lease ran out,
+   * and that nobody claimed since, goes back to the station still working
+   * it; a run marked stuck does not. False if it holds the job no more.
    */
   heartbeat(id: string, station: string, leaseUntil: Date): boolean {
     return (
@@ -413,7 +419,7 @@ export class Store {
       this.db.run(
         `UPDATE jobs SET state = ?, reason = ?, session_id = ?, duration_ms = ?,
            tokens_in = ?, tokens_out = ?, lease_until = NULL, station = ?, lost_by = NULL
-         WHERE id = ? AND ${HOLDS}`,
+         WHERE id = ? AND ${FINISHES}`,
         [
           OUTCOME[r.outcome],
           r.reason ?? null,

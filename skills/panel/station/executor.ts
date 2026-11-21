@@ -136,12 +136,19 @@ export class CheckoutExecutor implements Executor {
     if (!existsSync(this.keep)) return;
     for (const f of readdirSync(this.keep)) {
       const marker = join(this.keep, f);
-      const { path, until } = JSON.parse(readFileSync(marker, "utf8")) as {
-        path: string;
-        until: string;
+      // A marker left half-written counts as expired: its checkout is the
+      // job's, by the marker's name.
+      let kept = {
+        path: join(this.workdir, "jobs", basename(f, ".json")),
+        until: "",
       };
-      if (Date.parse(until) > this.now().getTime()) continue;
-      rmSync(path, { recursive: true, force: true });
+      try {
+        kept = JSON.parse(readFileSync(marker, "utf8")) as typeof kept;
+      } catch {
+        // expired
+      }
+      if (Date.parse(kept.until) > this.now().getTime()) continue;
+      rmSync(kept.path, { recursive: true, force: true });
       rmSync(marker, { force: true });
     }
   }

@@ -54,6 +54,12 @@ const sleep = (ms: number, signal: AbortSignal) =>
   });
 
 registerJobRunner("run", async ({ job, workspace, emit, signal }) => {
+  // Stopped while its checkout was made: start no orchestrator.
+  if (signal.aborted)
+    return {
+      outcome: "stopped",
+      reason: stopReason(signal) ?? "the station let the run go",
+    };
   const name = workspaceName(job);
   const dir = mkdtempSync(join(tmpdir(), "panel-brief-"));
   const file = join(dir, "brief.md");
@@ -90,6 +96,10 @@ registerJobRunner("run", async ({ job, workspace, emit, signal }) => {
   const stop = stopReason(signal);
   if (stop === null)
     return { outcome: "stopped", reason: "the station let the run go" };
-  await run(STOP_RUN, [opened.workspace]);
-  return { outcome: "stopped", reason: stop };
+  // A workspace that stays open keeps its orchestrator working: say so.
+  const left = await run(STOP_RUN, [opened.workspace]).then(
+    () => "",
+    (err: unknown) => `; its workspace is still open: ${String(err)}`,
+  );
+  return { outcome: "stopped", reason: stop + left };
 });

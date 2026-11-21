@@ -317,3 +317,18 @@ test("moving a run's issue back closes its workspace and keeps its checkout", as
   expect(herdrLog()).toMatch(/^herdr workspace close ws-1$/m);
   expect(existsSync(path)).toBe(true);
 });
+
+test("a stopped run whose workspace does not close says so in its reason", async () => {
+  await setup({ HERDR_STUB_WORKSPACE_FAIL: "close" });
+  await ready(12);
+  await until(async () => (await jobs())[0]?.state === "claimed");
+  const id = (await jobs())[0]!.id;
+  await until(async () => (await started(id)) !== undefined);
+  await post("/api/issues/acme/widgets/12/stage", { stage: "shaping" });
+  await until(async () => (await jobs())[0]?.state === "stopped");
+  const { reason } = (await jobs())[0]!;
+  expect(reason).toStartWith(
+    "moved back to shaping; its workspace is still open: ",
+  );
+  expect(reason).toContain("could not close workspace ws-1");
+});
