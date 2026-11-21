@@ -44,6 +44,20 @@ test("a new merge to main of a listed repo queues one advice job, seen twice or 
   expect((await jobs()).length).toBe(1);
 });
 
+test("merges to two repos queue an advice job for each", async () => {
+  setHead("acme/widgets", "aaa");
+  setHead("acme/gadgets", "aaa");
+  await start(["acme/widgets", "acme/gadgets"]);
+  await polls(1);
+  setHead("acme/widgets", "bbb");
+  setHead("acme/gadgets", "bbb");
+  await polls(2);
+  expect((await jobs()).map((j) => [j.kind, j.repo]).sort()).toEqual([
+    ["advice", "acme/gadgets"],
+    ["advice", "acme/widgets"],
+  ]);
+});
+
 /** An advice job, queued by a merge, with issues 1–4 of acme/widgets open. */
 async function adviceJob(): Promise<Job> {
   setIssues("acme/widgets", [issue(1), issue(2), issue(3), issue(4)]);
@@ -95,9 +109,9 @@ test("a malformed proposal is refused with the reason and stores nothing", async
   const bad = [
     { order: "first 1" },
     { ...PROPOSAL, order: [{ ...PROPOSAL.order[0], reason: "" }] },
-    { ...PROPOSAL, order: [{ ...PROPOSAL.order[0], issue: 99 }] },
-    { ...PROPOSAL, order: [{ ...PROPOSAL.order[0], repo: "acme/other" }] },
-    { ...PROPOSAL, bundles: [{ ...PROPOSAL.bundles[0], issues: [1] }] },
+    { ...PROPOSAL, order: [{ ...PROPOSAL.order[0], after: [] }] },
+    { ...PROPOSAL, order: [{ ...PROPOSAL.order[0], after: [2] }] },
+    { ...PROPOSAL, bundles: [{ ...PROPOSAL.bundles[0], issues: [1, 1] }] },
   ];
   for (const data of bad) {
     const res = await propose(job, data);
@@ -107,6 +121,22 @@ test("a malformed proposal is refused with the reason and stores nothing", async
     );
   }
   expect(await api<AdviceProposal | null>("/api/advice")).toBeNull();
+});
+
+test("a part naming an issue that is no longer open is dropped, the rest stored", async () => {
+  const job = await adviceJob();
+  const res = await propose(job, {
+    order: [
+      { ...PROPOSAL.order[0], issue: 99 },
+      { ...PROPOSAL.order[1], repo: "acme/other" },
+      PROPOSAL.order[0],
+    ],
+    bundles: [{ ...PROPOSAL.bundles[0], issues: [1, 99] }],
+  });
+  expect(res.status).toBe(200);
+  const advice = await api<AdviceProposal>("/api/advice");
+  expect(advice.order.map((o) => o.reason)).toEqual(["2 builds on 1"]);
+  expect(advice.bundles).toEqual([]);
 });
 
 /** An advice job with PROPOSAL stored. */
@@ -144,6 +174,16 @@ test("accepting an order part creates the GitHub issue dependency through gh", a
   ]);
   const after = await api<AdviceProposal>("/api/advice");
   expect(after.order.map((o) => o.decision)).toEqual(["accepted", null]);
+});
+
+test("accepting an order part GitHub has already writes no second dependency", async () => {
+  const advice = await proposed();
+  writeFileSync(join(dir(), "acme_widgets.deps"), "2 1001\n");
+  const res = await post(`/api/advice/${advice.id}/accept`, { order: [0] });
+  expect(res.status).toBe(200);
+  expect(writes()).toEqual([]);
+  const after = await api<AdviceProposal>("/api/advice");
+  expect(after.order[0]!.decision).toBe("accepted");
 });
 
 test("accepting a bundle stores it, and its issues show that bundle on the Panel", async () => {

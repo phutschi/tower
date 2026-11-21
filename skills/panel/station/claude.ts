@@ -24,7 +24,8 @@ interface StreamLine {
 }
 
 /**
- * One `claude -p` session, the prompt on stdin, or a resumed one. Its error
+ * One `claude -p` session, the prompt on stdin, with only `tools` of the
+ * built-in ones when given. Its error
  * says why it failed: the result's subtype, an API error's category, or the
  * exit when it gave no result. Input tokens count the cached ones too.
  */
@@ -32,14 +33,13 @@ export async function runHeadless(opts: {
   prompt: string;
   cwd: string;
   model: string;
-  resume?: string;
+  tools?: string[];
   signal?: AbortSignal;
-  claudeBin?: string;
 }): Promise<HeadlessRun> {
   const args = ["-p", "--output-format", "stream-json", "--verbose"];
   args.push("--model", opts.model);
-  if (opts.resume) args.push("--resume", opts.resume);
-  const proc = Bun.spawn([opts.claudeBin ?? "claude", ...args], {
+  if (opts.tools) args.push("--tools", opts.tools.join(","));
+  const proc = Bun.spawn(["claude", ...args], {
     cwd: opts.cwd,
     stdin: new Blob([opts.prompt]),
     stdout: "pipe",
@@ -52,7 +52,7 @@ export async function runHeadless(opts: {
     proc.exited,
   ]);
   const run: HeadlessRun = {
-    sessionId: opts.resume ?? "",
+    sessionId: "",
     finalText: "",
     tokens: { input: 0, output: 0 },
   };

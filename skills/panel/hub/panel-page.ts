@@ -61,7 +61,8 @@ function stageSection(stage: string, issues: PanelIssue[]): string {
 function bundleSections(issues: PanelIssue[], bundles: Bundle[]): string {
   const section = (key: string, head: string, mine: PanelIssue[]) =>
     `<section data-bundle="${esc(key)}"><h2>${esc(head)} (${mine.length})</h2><ul>${mine.map(card).join("")}</ul></section>`;
-  const of = (id: string | null) => issues.filter((i) => i.bundleId === id);
+  const of = (id: string | null) =>
+    issues.filter((i) => i.bundleId === id && i.stage !== "closed");
   return [
     ...bundles
       .filter((b) => of(b.id).length)

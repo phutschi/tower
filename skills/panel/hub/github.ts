@@ -76,18 +76,20 @@ export class GitHub {
     return out.trim();
   }
 
-  /** Makes `issue` wait on `blocker`, as GitHub's native issue dependency. */
-  async addBlockedBy(repo: string, issue: number, blocker: number) {
-    const { id } = JSON.parse(
-      await this.gh(["api", `repos/${repo}/issues/${blocker}`]),
-    ) as { id: number };
-    await this.gh([
-      "api",
-      "-X",
-      "POST",
-      `repos/${repo}/issues/${issue}/dependencies/blocked_by`,
-      "-F",
-      `issue_id=${id}`,
-    ]);
+  /**
+   * Makes `issue` wait on each of `blockers`, as GitHub's native issue
+   * dependencies; one it waits on already is left as it is.
+   */
+  async addBlockedBy(repo: string, issue: number, blockers: number[]) {
+    const path = `repos/${repo}/issues/${issue}/dependencies/blocked_by`;
+    const has = (
+      JSON.parse(await this.gh(["api", path])) as { number: number }[]
+    ).map((b) => b.number);
+    for (const blocker of blockers.filter((b) => !has.includes(b))) {
+      const { id } = JSON.parse(
+        await this.gh(["api", `repos/${repo}/issues/${blocker}`]),
+      ) as { id: number };
+      await this.gh(["api", "-X", "POST", path, "-F", `issue_id=${id}`]);
+    }
   }
 }

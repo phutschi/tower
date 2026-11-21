@@ -8,7 +8,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
-import { parseProposal } from "../../hub/advice.ts";
+import { keepOpen, parseProposal } from "../../hub/advice.ts";
 import type { PanelIssue } from "../../types.ts";
 import { runHeadless } from "../claude.ts";
 import { sendInboxNote } from "../inbox.ts";
@@ -54,18 +54,22 @@ registerJobRunner(
         },
       )
     ).stdout;
+    // As JSON with < escaped, untrusted text cannot close the tag it sits in.
+    const data = (v: unknown) => JSON.stringify(v).replaceAll("<", "\\u003c");
     const prompt = `${readFileSync(PROMPT, "utf8")}
 <open-issues>
-${JSON.stringify(open)}
+${data(open)}
 </open-issues>
 
 <recent-merges repo="${job.repo}">
-${merges}</recent-merges>
+${data(merges.trim().split("\n"))}
+</recent-merges>
 `;
     const session = await runHeadless({
       prompt,
       cwd: workspace.path,
       model: "opus",
+      tools: [],
       signal,
     });
     const ran = { sessionId: session.sessionId, tokens: session.tokens };
@@ -82,11 +86,19 @@ ${merges}</recent-merges>
         reason: "malformed proposal: the answer holds no JSON object",
         ...ran,
       };
-    const proposal = parseProposal(answer, (repo, n) =>
+    const parsed = parseProposal(answer);
+    if (typeof parsed === "string")
+      return { outcome: "failed", reason: parsed, ...ran };
+    // An issue the session made up makes the whole answer suspect.
+    const { kept: proposal, dropped } = keepOpen(parsed, (repo, n) =>
       open.some((i) => i.repo === repo && i.number === n),
     );
-    if (typeof proposal === "string")
-      return { outcome: "failed", reason: proposal, ...ran };
+    if (dropped.length)
+      return {
+        outcome: "failed",
+        reason: `malformed proposal: ${dropped[0]}`,
+        ...ran,
+      };
     await emit("proposal", { ...proposal });
     const parts = proposal.order.length + proposal.bundles.length;
     await sendInboxNote({

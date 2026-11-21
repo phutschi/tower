@@ -10,9 +10,8 @@ export async function sendInboxNote(opts: {
   subject: string;
   body: string;
   idempotencyKey: string;
-  plannotatorBin?: string;
 }): Promise<void> {
-  await run(opts.plannotatorBin ?? "plannotator", [
+  await run("plannotator", [
     "inbox",
     "call",
     "send_message",

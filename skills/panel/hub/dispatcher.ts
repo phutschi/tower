@@ -3,7 +3,7 @@
  * seen and queues the job the new stage asks for. No model runs here, and a
  * job starts only from a stage change, never from reading an issue.
  */
-import { STAGES, type JobKind, type Stage } from "../types.ts";
+import { STAGES, type Job, type JobKind, type Stage } from "../types.ts";
 import type { AdviceStore } from "./advice.ts";
 import type { GhIssue } from "./github.ts";
 import { ACTIVE, type SnapshotIssue, type Store } from "./store.ts";
@@ -74,8 +74,8 @@ export function sync(store: Store, repo: string, open: GhIssue[], now: Date) {
 
 /**
  * Records the head of a repo's main, and queues an order advice when it moved
- * since last seen. The first sight only records. A queued advice reads every
- * merge up to its start, so it gets no second one.
+ * since last seen. The first sight only records. A repo's queued advice reads
+ * every merge up to its start, so it gets no second one.
  */
 export function merged(
   store: Store,
@@ -87,6 +87,7 @@ export function merged(
   const prev = advice.head(repo);
   advice.setHead(repo, head);
   if (prev === undefined || prev === head) return;
-  if (!store.jobs().some((j) => j.kind === "advice" && j.state === "queued"))
-    store.addJob("advice", repo, [], now);
+  const queued = (j: Job) =>
+    j.kind === "advice" && j.repo === repo && j.state === "queued";
+  if (!store.jobs().some(queued)) store.addJob("advice", repo, [], now);
 }

@@ -15,17 +15,11 @@ export interface ProposalInput {
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v);
-const isNumber = (v: unknown): v is number =>
+const isIssueNumber = (v: unknown): v is number =>
   typeof v === "number" && Number.isInteger(v) && v > 0;
 
-/**
- * A session's proposal, checked part by part, or why it is malformed. Every
- * issue it names must be open: `isOpen` says which are.
- */
-export function parseProposal(
-  value: unknown,
-  isOpen: (repo: string, issue: number) => boolean,
-): ProposalInput | string {
+/** A session's proposal, checked part by part, or why it is malformed. */
+export function parseProposal(value: unknown): ProposalInput | string {
   const fail = (why: string) => `malformed proposal: ${why}`;
   if (!isObject(value)) return fail("not an object");
   const { order, bundles } = value;
@@ -34,8 +28,7 @@ export function parseProposal(
   const issues = (at: string, repo: unknown, list: unknown[]) => {
     if (typeof repo !== "string") return `${at}.repo is not a repo`;
     for (const n of list)
-      if (!isNumber(n) || !isOpen(repo, n))
-        return `${at} names ${repo}#${String(n)}, not an open issue on the Panel`;
+      if (!isIssueNumber(n)) return `${at} names ${String(n)}, not an issue`;
     return null;
   };
   const reason = (at: string, r: unknown) =>
@@ -43,8 +36,8 @@ export function parseProposal(
   const out: ProposalInput = { order: [], bundles: [] };
   for (const [i, o] of order.entries()) {
     const at = `order[${i}]`;
-    if (!isObject(o) || !Array.isArray(o.after))
-      return fail(`${at} has no after list`);
+    if (!isObject(o) || !Array.isArray(o.after) || !o.after.length)
+      return fail(`${at} waits on no issue`);
     const why =
       issues(at, o.repo, [o.issue, ...o.after]) ??
       (o.after.includes(o.issue) ? `${at} comes after itself` : null) ??
@@ -75,6 +68,34 @@ export function parseProposal(
     });
   }
   return out;
+}
+
+/**
+ * The parts of a proposal whose issues are all open, and why each other part
+ * was dropped: an issue closed since the session read them, or one it made up.
+ */
+export function keepOpen(
+  p: ProposalInput,
+  isOpen: (repo: string, issue: number) => boolean,
+): { kept: ProposalInput; dropped: string[] } {
+  const dropped: string[] = [];
+  const open = (at: string, repo: string, issues: number[]) => {
+    const shut = issues.find((n) => !isOpen(repo, n));
+    if (shut === undefined) return true;
+    dropped.push(`${at} names ${repo}#${shut}, not an open issue on the Panel`);
+    return false;
+  };
+  return {
+    kept: {
+      order: p.order.filter((o, i) =>
+        open(`order[${i}]`, o.repo, [o.issue, ...o.after]),
+      ),
+      bundles: p.bundles.filter((b, i) =>
+        open(`bundles[${i}]`, b.repo, b.issues),
+      ),
+    },
+    dropped,
+  };
 }
 
 export class AdviceStore {

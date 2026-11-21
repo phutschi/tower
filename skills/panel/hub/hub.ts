@@ -10,7 +10,7 @@ import {
   type PanelIssue,
   type Stage,
 } from "../types.ts";
-import { AdviceStore, parseProposal } from "./advice.ts";
+import { AdviceStore, keepOpen, parseProposal } from "./advice.ts";
 import { isStageLabel, merged, record, sync } from "./dispatcher.ts";
 import { GitHub } from "./github.ts";
 import { renderPanel } from "./panel-page.ts";
@@ -168,8 +168,7 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
         for (const i of new Set(order)) {
           const part = p.order[i]!;
           try {
-            for (const blocker of part.after)
-              await github.addBlockedBy(part.repo, part.issue, blocker);
+            await github.addBlockedBy(part.repo, part.issue, part.after);
           } catch (err) {
             return bad(`gh refused the dependency: ${String(err)}`, 502);
           }
@@ -291,12 +290,14 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
           )
             return bad("an event has ts, kind and data");
           if (job.kind === "advice" && kind === "proposal") {
-            const proposal = parseProposal(data, (repo, n) => {
+            const proposal = parseProposal(data);
+            if (typeof proposal === "string") return bad(proposal);
+            // An issue may have closed while the session ran: keep the rest.
+            const { kept } = keepOpen(proposal, (repo, n) => {
               const i = store.issue(repo, n);
               return !!i && i.stage !== "closed";
             });
-            if (typeof proposal === "string") return bad(proposal);
-            advice.add(job.id, proposal, now());
+            advice.add(job.id, kept, now());
           }
           store.addEvent({ jobId: req.params.id, ts, kind, data });
           return Response.json({ ok: true });
