@@ -1,7 +1,15 @@
 /** The hub's SQLite tables: listed repos, the issue snapshot, jobs and their events. */
 import { Database } from "bun:sqlite";
 
-import type { Job, JobKind, JobState, Stage } from "../types.ts";
+import type {
+  Job,
+  JobEvent,
+  JobKind,
+  JobResult,
+  JobState,
+  Stage,
+  Station,
+} from "../types.ts";
 
 /** The states of a job that is not over yet. */
 export const ACTIVE: readonly JobState[] = ["queued", "held", "claimed"];
@@ -31,6 +39,9 @@ interface JobRow {
   reason: string | null;
   session_id: string | null;
   created_at: string;
+  duration_ms: number | null;
+  tokens_in: number | null;
+  tokens_out: number | null;
 }
 
 const toJob = (r: JobRow): Job => ({
@@ -44,7 +55,18 @@ const toJob = (r: JobRow): Job => ({
   reason: r.reason,
   sessionId: r.session_id,
   createdAt: r.created_at,
+  durationMs: r.duration_ms,
+  tokens:
+    r.tokens_in === null || r.tokens_out === null
+      ? null
+      : { input: r.tokens_in, output: r.tokens_out },
 });
+
+const OUTCOME: Record<JobResult["outcome"], JobState> = {
+  done: "done",
+  failed: "stuck",
+  stopped: "stopped",
+};
 
 export class Store {
   private readonly db: Database;
@@ -75,7 +97,15 @@ export class Store {
         lease_until TEXT,
         reason TEXT,
         session_id TEXT,
-        created_at TEXT NOT NULL
+        created_at TEXT NOT NULL,
+        duration_ms INTEGER,
+        tokens_in INTEGER,
+        tokens_out INTEGER
+      );
+      CREATE TABLE IF NOT EXISTS stations (
+        name TEXT PRIMARY KEY,
+        enabled INTEGER NOT NULL,
+        job_limit INTEGER NOT NULL
       );
       CREATE TABLE IF NOT EXISTS job_events (
         seq INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -161,6 +191,137 @@ export class Store {
       "INSERT INTO jobs (id, kind, repo, issues, state, created_at) VALUES (?, ?, ?, ?, 'queued', ?)",
       [id, kind, repo, JSON.stringify(issues), now.toISOString()],
     );
-    return this.jobs().find((j) => j.id === id)!;
+    return this.job(id)!;
+  }
+
+  job(id: string): Job | undefined {
+    const row = this.db
+      .query<JobRow, [string]>("SELECT * FROM jobs WHERE id = ?")
+      .get(id);
+    return row ? toJob(row) : undefined;
+  }
+
+  stations(): Station[] {
+    return this.db
+      .query<{ name: string; enabled: number; job_limit: number }, []>(
+        "SELECT * FROM stations ORDER BY name",
+      )
+      .all()
+      .map((r) => ({
+        name: r.name,
+        enabled: r.enabled === 1,
+        limit: r.job_limit,
+      }));
+  }
+
+  /** A station, made on first sight: switched on only if it is the server's. */
+  station(name: string, serverStation: string | undefined): Station {
+    this.db.run(
+      "INSERT OR IGNORE INTO stations (name, enabled, job_limit) VALUES (?, ?, 1)",
+      [name, name === serverStation ? 1 : 0],
+    );
+    return this.stations().find((s) => s.name === name)!;
+  }
+
+  putStation(s: Station) {
+    this.db.run(
+      "UPDATE stations SET enabled = ?, job_limit = ? WHERE name = ?",
+      [s.enabled ? 1 : 0, s.limit, s.name],
+    );
+  }
+
+  /**
+   * Hands the oldest queued job of one of `kinds` to `station`, with a lease
+   * until `leaseUntil`, unless the station is off or at its limit.
+   */
+  claim(station: Station, kinds: JobKind[], leaseUntil: Date): Job | null {
+    let id: string | undefined;
+    this.transaction(() => {
+      const held = this.db
+        .query<{ n: number }, [string]>(
+          "SELECT count(*) AS n FROM jobs WHERE state = 'claimed' AND station = ?",
+        )
+        .get(station.name)!.n;
+      if (!station.enabled || held >= station.limit || kinds.length === 0)
+        return;
+      id = this.db
+        .query<{ id: string }, JobKind[]>(
+          `SELECT id FROM jobs WHERE state = 'queued' AND kind IN (${kinds.map(() => "?").join(",")})
+           ORDER BY created_at, rowid LIMIT 1`,
+        )
+        .get(...kinds)?.id;
+      if (id)
+        this.db.run(
+          "UPDATE jobs SET state = 'claimed', station = ?, lease_until = ? WHERE id = ?",
+          [station.name, leaseUntil.toISOString(), id],
+        );
+    });
+    return id ? this.job(id)! : null;
+  }
+
+  /** Renews the lease of a job `station` holds; false if it holds it no more. */
+  heartbeat(id: string, station: string, leaseUntil: Date): boolean {
+    return (
+      this.db.run(
+        "UPDATE jobs SET lease_until = ? WHERE id = ? AND state = 'claimed' AND station = ?",
+        [leaseUntil.toISOString(), id, station],
+      ).changes === 1
+    );
+  }
+
+  /** Sends every job whose lease ran out back to the queue. */
+  expireLeases(now: Date) {
+    this.db.run(
+      "UPDATE jobs SET state = 'queued', station = NULL, lease_until = NULL WHERE state = 'claimed' AND lease_until < ?",
+      [now.toISOString()],
+    );
+  }
+
+  addEvent(e: JobEvent) {
+    this.db.run(
+      "INSERT INTO job_events (job_id, ts, kind, data) VALUES (?, ?, ?, ?)",
+      [e.jobId, e.ts, e.kind, JSON.stringify(e.data)],
+    );
+  }
+
+  /** A job's events, in the order they arrived. */
+  events(jobId: string): JobEvent[] {
+    return this.db
+      .query<{ ts: string; kind: string; data: string }, [string]>(
+        "SELECT ts, kind, data FROM job_events WHERE job_id = ? ORDER BY seq",
+      )
+      .all(jobId)
+      .map((r) => ({
+        jobId,
+        ts: r.ts,
+        kind: r.kind,
+        data: JSON.parse(r.data) as Record<string, unknown>,
+      }));
+  }
+
+  /**
+   * Records a job's result from `station`. It counts while that station
+   * holds the job, or once its lease ran out and nobody claimed it again: a
+   * finished job beats a second try. False when it does not count.
+   */
+  finish(station: string, r: JobResult): boolean {
+    return (
+      this.db.run(
+        `UPDATE jobs SET state = ?, reason = ?, session_id = ?, duration_ms = ?,
+           tokens_in = ?, tokens_out = ?, lease_until = NULL, station = ?
+         WHERE id = ? AND (state = 'queued' OR (state = 'claimed' AND station = ?))`,
+        [
+          OUTCOME[r.outcome],
+          r.reason ?? null,
+          r.sessionId ?? null,
+          r.durationMs,
+          r.tokens?.input ?? null,
+          r.tokens?.output ?? null,
+          station,
+          r.jobId,
+          station,
+        ],
+      ).changes === 1
+    );
   }
 }

@@ -3,91 +3,23 @@
  * for GitHub. Each repo's open issues are a fixture file the stub reads and
  * edits.
  */
-import {
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-  existsSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { expect, test } from "bun:test";
 
 import type { Job, PanelIssue } from "../types.ts";
-import { startHub, type Hub } from "./hub.ts";
+import {
+  api,
+  ghIssues,
+  ghLog,
+  hubUrl,
+  issue,
+  polls,
+  post,
+  setIssues,
+  start,
+  useFixture,
+} from "../tests/fixture.ts";
 
-const GH = join(import.meta.dir, "../tests/stub/gh");
-
-let dir: string;
-let hub: Hub | undefined;
-
-interface Issue {
-  number: number;
-  title: string;
-  labels: { name: string }[];
-}
-const issue = (number: number, ...labels: string[]): Issue => ({
-  number,
-  title: `Issue ${number}`,
-  labels: labels.map((name) => ({ name })),
-});
-
-const fixture = (repo: string) => join(dir, `${repo.replace("/", "_")}.json`);
-const setIssues = (repo: string, issues: Issue[]) =>
-  writeFileSync(fixture(repo), JSON.stringify(issues));
-const ghIssues = (repo: string) =>
-  JSON.parse(readFileSync(fixture(repo), "utf8")) as Issue[];
-const ghLog = () =>
-  existsSync(join(dir, "gh.log"))
-    ? readFileSync(join(dir, "gh.log"), "utf8").split("\n").filter(Boolean)
-    : [];
-const lists = () => ghLog().filter((l) => l.startsWith("gh issue list")).length;
-
-/** Waits for the hub to finish `n` more polls of every listed repo. */
-async function polls(n: number) {
-  const target = lists() + n;
-  for (let i = 0; i < 200 && lists() < target; i++) await Bun.sleep(10);
-  // One more poll after the target, so the target's poll has been applied.
-  const applied = lists() + 1;
-  for (let i = 0; i < 200 && lists() < applied; i++) await Bun.sleep(10);
-}
-
-async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${hub!.url}${path}`, init);
-  expect(res.ok).toBe(true);
-  return (await res.json()) as T;
-}
-const post = (path: string, body: unknown) =>
-  fetch(`${hub!.url}${path}`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
-
-async function start(repos: string[] = ["acme/widgets"]) {
-  hub = await startHub({
-    dbPath: join(dir, "hub.db"),
-    host: "127.0.0.1",
-    port: 0,
-    pollMs: 20,
-    ghBin: GH,
-  });
-  for (const repo of repos) await post("/api/repos", { repo });
-  await polls(1);
-}
-
-beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), "panel-hub-"));
-  process.env.GH_STUB_DIR = dir;
-  process.env.GH_STUB_LOG = join(dir, "gh.log");
-  delete process.env.GH_STUB_FAIL;
-});
-afterEach(async () => {
-  await hub?.stop();
-  hub = undefined;
-  rmSync(dir, { recursive: true, force: true });
-});
+useFixture();
 
 test("the first poll records current stage labels and queues no job", async () => {
   setIssues("acme/widgets", [
@@ -193,7 +125,7 @@ test("repos are listed and unlisted through the API; an unlisted repo's issues d
     "acme/widgets",
   ]);
   expect((await api<PanelIssue[]>("/api/issues")).length).toBe(2);
-  const res = await fetch(`${hub!.url}/api/repos/acme/gadgets`, {
+  const res = await fetch(`${hubUrl()}/api/repos/acme/gadgets`, {
     method: "DELETE",
   });
   expect(res.status).toBe(200);
@@ -204,7 +136,7 @@ test("repos are listed and unlisted through the API; an unlisted repo's issues d
   expect((await post("/api/repos", { repo: "not a repo" })).status).toBe(400);
   expect(
     (
-      await fetch(`${hub!.url}/api/repos`, {
+      await fetch(`${hubUrl()}/api/repos`, {
         method: "POST",
         body: "{not json",
       })
@@ -229,7 +161,7 @@ test("the Panel holds each stage's issues with a move control per issue, sized f
     issue(3, "in-review"),
   ]);
   await start();
-  const res = await fetch(`${hub!.url}/`);
+  const res = await fetch(`${hubUrl()}/`);
   expect(res.headers.get("content-type")).toContain("text/html");
   const html = await res.text();
   expect(html).toContain(
@@ -255,7 +187,7 @@ test("a write without a JSON content type is refused, so another site's form can
   setIssues("acme/widgets", [issue(1, "needs-triage")]);
   await start();
   for (const path of ["/api/issues/acme/widgets/1/stage", "/api/repos"]) {
-    const res = await fetch(`${hub!.url}${path}`, {
+    const res = await fetch(`${hubUrl()}${path}`, {
       method: "POST",
       headers: { "content-type": "text/plain" },
       body: JSON.stringify({ stage: "shaping", repo: "acme/evil" }),

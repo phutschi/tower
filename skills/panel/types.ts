@@ -37,4 +37,28 @@ export interface Job {
   reason: string | null;
   sessionId: string | null;
   createdAt: string;
+  durationMs: number | null;
+  tokens: { input: number; output: number } | null;
+}
+
+export interface JobEvent {
+  jobId: string;
+  ts: string;
+  kind: string;
+  data: Record<string, unknown>;
+}
+
+export interface JobResult {
+  jobId: string;
+  outcome: "done" | "failed" | "stopped";
+  reason?: string;
+  sessionId?: string;
+  durationMs: number;
+  tokens?: { input: number; output: number };
+}
+
+export interface Station {
+  name: string;
+  enabled: boolean;
+  limit: number;
 }

@@ -2,7 +2,14 @@
  * The hub (ADR 0017): serves the Panel and its HTTP API, holds the job queue,
  * and checks GitHub on a timer, since a tailnet-only Panel gets no webhooks.
  */
-import { STAGES, type Job, type PanelIssue, type Stage } from "../types.ts";
+import {
+  STAGES,
+  type Job,
+  type JobKind,
+  type JobResult,
+  type PanelIssue,
+  type Stage,
+} from "../types.ts";
 import { isStageLabel, record, sync } from "./dispatcher.ts";
 import { GitHub } from "./github.ts";
 import { renderPanel } from "./panel-page.ts";
@@ -15,6 +22,10 @@ export interface HubOptions {
   pollMs: number;
   ghBin?: string;
   now?: () => Date;
+  /** How long a claim holds without a heartbeat. */
+  leaseMs?: number;
+  /** The server Mac's station, the one switched on from the start. */
+  serverStation?: string;
 }
 export interface Hub {
   url: string;
@@ -36,6 +47,27 @@ async function body(req: Request): Promise<Record<string, unknown>> {
   return value && typeof value === "object"
     ? (value as Record<string, unknown>)
     : {};
+}
+
+const KINDS: readonly JobKind[] = ["grill", "run", "label-area", "advice"];
+const NAME = /^[\w.-]+$/;
+const isObject = (v: unknown): v is Record<string, unknown> =>
+  typeof v === "object" && v !== null && !Array.isArray(v);
+const isCount = (v: unknown): v is number =>
+  typeof v === "number" && Number.isInteger(v) && v >= 0;
+
+/** A result body, checked field by field; null when it is not one. */
+function jobResult(id: string, b: Record<string, unknown>): JobResult | null {
+  const { outcome, reason, sessionId, durationMs, tokens } = b;
+  if (outcome !== "done" && outcome !== "failed" && outcome !== "stopped")
+    return null;
+  if (!isCount(durationMs)) return null;
+  const r: JobResult = { jobId: id, outcome, durationMs };
+  if (typeof reason === "string") r.reason = reason;
+  if (typeof sessionId === "string") r.sessionId = sessionId;
+  if (isObject(tokens) && isCount(tokens.input) && isCount(tokens.output))
+    r.tokens = { input: tokens.input, output: tokens.output };
+  return r;
 }
 
 function panelIssue(i: SnapshotIssue, jobs: Job[]): PanelIssue {
@@ -65,6 +97,11 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
   const now = opts.now ?? (() => new Date());
   const store = new Store(opts.dbPath);
   const github = new GitHub(opts.ghBin);
+  const leaseMs = opts.leaseMs ?? 90_000;
+  const leaseUntil = () => new Date(now().getTime() + leaseMs);
+  const sweep = () => store.expireLeases(now());
+  sweep();
+  const sweeper = setInterval(sweep, Math.max(leaseMs / 4, 10));
 
   // Polls and moves run one at a time, so a poll that read GitHub before a
   // move never writes its older stage over the move.
@@ -131,6 +168,12 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
             renderPanel({
               issues: issues(),
               repos: store.repos().map((r) => r.name),
+              stations: store.stations(),
+              jobs: store
+                .jobs()
+                .slice(-30)
+                .reverse()
+                .map((j) => ({ ...j, events: store.events(j.id) })),
             }),
             { headers: { "content-type": "text/html; charset=utf-8" } },
           ),
@@ -146,6 +189,82 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
         },
       },
       "/api/jobs": { GET: () => Response.json(store.jobs()) },
+      "/api/jobs/claim": {
+        POST: async (req) => {
+          const { station, kinds } = await body(req);
+          if (typeof station !== "string" || !NAME.test(station))
+            return bad("station must be a name");
+          if (!Array.isArray(kinds) || !kinds.every((k) => KINDS.includes(k)))
+            return bad("kinds must list job kinds");
+          sweep();
+          const s = store.station(station, opts.serverStation);
+          return Response.json(store.claim(s, kinds, leaseUntil()));
+        },
+      },
+      "/api/jobs/:id": {
+        GET: (req) => {
+          const job = store.job(req.params.id);
+          if (!job) return bad("no such job", 404);
+          return Response.json({ ...job, events: store.events(job.id) });
+        },
+      },
+      "/api/jobs/:id/heartbeat": {
+        POST: async (req) => {
+          const { station } = await body(req);
+          if (typeof station !== "string") return bad("station must be a name");
+          return store.heartbeat(req.params.id, station, leaseUntil())
+            ? Response.json({ ok: true })
+            : bad("the station holds this job no more", 409);
+        },
+      },
+      "/api/jobs/:id/events": {
+        POST: async (req) => {
+          const { ts, kind, data } = await body(req);
+          if (!store.job(req.params.id)) return bad("no such job", 404);
+          if (
+            typeof ts !== "string" ||
+            typeof kind !== "string" ||
+            !isObject(data)
+          )
+            return bad("an event has ts, kind and data");
+          store.addEvent({ jobId: req.params.id, ts, kind, data });
+          return Response.json({ ok: true });
+        },
+      },
+      "/api/jobs/:id/result": {
+        POST: async (req) => {
+          const b = await body(req);
+          const result = jobResult(req.params.id, b);
+          if (typeof b.station !== "string" || !result)
+            return bad("a result has station, outcome and durationMs");
+          return store.finish(b.station, result)
+            ? Response.json({ ok: true })
+            : bad("the station holds this job no more", 409);
+        },
+      },
+      "/api/stations/:name": {
+        GET: (req) =>
+          NAME.test(req.params.name)
+            ? Response.json(store.station(req.params.name, opts.serverStation))
+            : bad("station must be a name"),
+        PUT: async (req) => {
+          const { name } = req.params;
+          const { enabled, limit } = await body(req);
+          if (!NAME.test(name)) return bad("station must be a name");
+          if (enabled !== undefined && typeof enabled !== "boolean")
+            return bad("enabled must be true or false");
+          if (limit !== undefined && !isCount(limit))
+            return bad("limit must be a whole number");
+          const s = store.station(name, opts.serverStation);
+          const next = {
+            ...s,
+            enabled: enabled ?? s.enabled,
+            limit: limit ?? s.limit,
+          };
+          store.putStation(next);
+          return Response.json(next);
+        },
+      },
       "/api/repos": {
         GET: () => Response.json(store.repos().map((r) => r.name)),
         POST: async (req) => {
@@ -174,6 +293,7 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
     async stop() {
       stopped = true;
       clearTimeout(timer);
+      clearInterval(sweeper);
       await chain;
       await server.stop(true);
       store.close();

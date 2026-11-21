@@ -1,9 +1,18 @@
 /** The Panel: one HTML page rendered from the API's data, sized for a phone. */
-import { STAGES, type PanelIssue } from "../types.ts";
+import {
+  STAGES,
+  type Job,
+  type JobEvent,
+  type PanelIssue,
+  type Station,
+} from "../types.ts";
 
 export interface PanelData {
   issues: PanelIssue[];
   repos: string[];
+  stations: Station[];
+  /** The latest jobs, newest first, each with its events. */
+  jobs: (Job & { events: JobEvent[] })[];
 }
 
 const esc = (s: string) =>
@@ -54,6 +63,44 @@ function repoList(repos: string[]): string {
 <form data-list><input name="repo" placeholder="owner/name" required> <button>list</button></form></section>`;
 }
 
+const jobName = (j: Job) => `${j.kind} ${j.repo}#${j.issues.join(", #")}`;
+
+function stationList(stations: Station[], jobs: Job[]): string {
+  const items = stations.map((s) => {
+    const path = `/api/stations/${esc(s.name)}`;
+    const mine = jobs
+      .filter((j) => j.state === "claimed" && j.station === s.name)
+      .map((j) => esc(jobName(j)));
+    return `<li data-station="${esc(s.name)}"><label><input type="checkbox" data-switch="${path}"${s.enabled ? " checked" : ""}> ${esc(s.name)}</label>
+<label>limit <input type="number" min="0" inputmode="numeric" data-limit="${path}" value="${s.limit}"></label>
+<span>${mine.length ? mine.join(", ") : "idle"}</span></li>`;
+  });
+  return `<section data-stations><h2>Stations</h2><ul>${items.join("")}</ul></section>`;
+}
+
+function jobState(j: Job): string {
+  if (j.state === "claimed") return `claimed by ${esc(j.station ?? "")}`;
+  const took =
+    j.durationMs === null ? "" : ` in ${Math.round(j.durationMs / 1000)}s`;
+  const reason = j.reason ? `: ${esc(j.reason)}` : "";
+  return `${j.state}${took}${reason}`;
+}
+
+function jobList(jobs: PanelData["jobs"]): string {
+  const items = jobs.map((j) => {
+    const events = j.events
+      .map(
+        (e) =>
+          `<li>${esc(e.ts)} ${esc(e.kind)} ${esc(JSON.stringify(e.data))}</li>`,
+      )
+      .join("");
+    const session = j.sessionId ? ` · session ${esc(j.sessionId)}` : "";
+    return `<li data-job="${esc(j.id)}">${esc(jobName(j))} · ${jobState(j)}${session}
+<details><summary>${j.events.length} events</summary><ul>${events}</ul></details></li>`;
+  });
+  return `<section data-jobs><h2>Jobs</h2><ul>${items.join("")}</ul></section>`;
+}
+
 const STYLE = `
 body { font: 16px/1.4 system-ui, sans-serif; margin: 0 auto; padding: 0 16px; max-width: 60rem; }
 ul { list-style: none; padding: 0; }
@@ -69,6 +116,8 @@ const call = (url, method, body) => fetch(url, { method, headers: { "content-typ
   .then(async (r) => { if (!r.ok) alert((await r.json()).error); location.reload(); });
 document.querySelectorAll("[data-move]").forEach((s) => s.addEventListener("change", () => call(s.dataset.move, "POST", { stage: s.value })));
 document.querySelectorAll("[data-unlist]").forEach((b) => b.addEventListener("click", () => call(b.dataset.unlist, "DELETE")));
+document.querySelectorAll("[data-switch]").forEach((c) => c.addEventListener("change", () => call(c.dataset.switch, "PUT", { enabled: c.checked })));
+document.querySelectorAll("[data-limit]").forEach((i) => i.addEventListener("change", () => call(i.dataset.limit, "PUT", { limit: Number(i.value) })));
 document.querySelector("[data-list]")?.addEventListener("submit", (e) => { e.preventDefault(); call("/api/repos", "POST", { repo: e.target.repo.value }); });
 `;
 
@@ -79,6 +128,8 @@ export function renderPanel(data: PanelData): string {
 <title>Panel</title><style>${STYLE}</style></head>
 <body><h1>Panel</h1>
 ${STAGES.map((s) => stageSection(s, data.issues)).join("\n")}
+${stationList(data.stations, data.jobs)}
+${jobList(data.jobs)}
 ${repoList(data.repos)}
 <script>${SCRIPT}</script></body></html>`;
 }
