@@ -39,5 +39,8 @@ worktree later.
   finishes its current job without it and reports when the hub is back.
 - Runs on one Mac share it, so per-run databases and ports are the station's
   job, and the per-Mac job limit is what keeps a Mac usable.
+- A job's checkout is its own clone, borrowing the objects of the station's
+  clone of the repo, rather than a worktree of it: tower keeps one live run
+  per git common dir (ADR 0006), so two runs of one repo on one Mac need two.
 - The Panel is reached only on the tailnet, so the hub learns of label
   changes and merges by checking GitHub on a timer, not from webhooks.

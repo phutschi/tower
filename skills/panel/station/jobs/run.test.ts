@@ -45,6 +45,10 @@ const herdrLog = () =>
   existsSync(join(dir(), "herdr.log"))
     ? readFileSync(join(dir(), "herdr.log"), "utf8")
     : "";
+const towerLog = () =>
+  existsSync(join(dir(), "tower.log"))
+    ? readFileSync(join(dir(), "tower.log"), "utf8")
+    : "";
 const labels = (n: number) =>
   ghIssues("acme/widgets")
     .find((i) => i.number === n)!
@@ -79,6 +83,7 @@ async function setup() {
         HERDR_STUB_LOG: join(dir(), "herdr.log"),
         HERDR_STUB_COUNTER: join(dir(), "herdr.counter"),
         TOWER_STUB_STATE: join(dir(), "tower-state.json"),
+        TOWER_STUB_LOG: join(dir(), "tower.log"),
         PANEL_RUN_POLL_MS: "50",
       },
       stderr: "inherit",
@@ -174,7 +179,7 @@ test("the run's tower state reaches the hub as job events", async () => {
   ).toEqual(["in_progress", "done"]);
 });
 
-test("a ready PR that closes the issue sets in-review and marks the job done", async () => {
+test("a ready PR opened for the run sets in-review and marks the job done; the run keeps its checkout", async () => {
   await setup();
   await ready(12);
   await until(async () => (await jobs())[0]?.state === "claimed");
@@ -182,29 +187,53 @@ test("a ready PR that closes the issue sets in-review and marks the job done", a
   await until(async () => (await started(id)) !== undefined);
   const path = String((await started(id))!.path);
   const prs = join(dir(), "acme_widgets.prs.json");
+  const pr = (number: number, isDraft: boolean, createdAt: string) => ({
+    number,
+    isDraft,
+    createdAt,
+    closingIssuesReferences: [{ number: 12 }],
+  });
+  // A ready PR from before the run, and the run's own PR still a draft.
+  const before = "2026-01-01T00:00:00Z";
+  const now = new Date().toISOString();
   writeFileSync(
     prs,
-    JSON.stringify([
-      { number: 40, isDraft: true, closingIssuesReferences: [{ number: 12 }] },
-    ]),
+    JSON.stringify([pr(30, false, before), pr(40, true, now)]),
   );
   await Bun.sleep(300);
   expect((await jobs())[0]!.state).toBe("claimed");
   writeFileSync(
     prs,
-    JSON.stringify([
-      { number: 40, isDraft: false, closingIssuesReferences: [{ number: 12 }] },
-    ]),
+    JSON.stringify([pr(30, false, before), pr(40, false, now)]),
   );
   await until(async () => (await jobs())[0]?.state === "done");
   expect(labels(12)).toEqual(["in-review"]);
   expect((await job(id)).durationMs).toBeGreaterThan(0);
-  // The station lets the run go: its checkout is gone, and no result follows.
-  await until(async () => !existsSync(path));
+  // The station lets the run go: it stops reading the run's state and posts
+  // no result. The orchestrator may still be closing the run: its checkout stays.
+  const reads = () => towerLog().split("\n").length;
+  await until(async () => {
+    const n = reads();
+    await Bun.sleep(200);
+    return reads() === n;
+  });
   expect((await jobs())[0]!.state).toBe("done");
+  expect(existsSync(path)).toBe(true);
   expect(
     ghLog().filter((l) => l.includes("--add-label in-review")).length,
   ).toBe(1);
+});
+
+test("a claimed run whose in-progress label gh refused gets it on a later poll", async () => {
+  await setup();
+  await ready(12);
+  process.env.GH_STUB_FAIL = "edit";
+  await until(async () => (await jobs())[0]?.state === "claimed");
+  await Bun.sleep(200);
+  expect(labels(12)).toEqual(["ready-for-agent"]);
+  delete process.env.GH_STUB_FAIL;
+  await until(async () => labels(12).includes("in-progress"));
+  expect(labels(12)).toEqual(["in-progress"]);
 });
 
 test("the Panel shows the run's Mac and workspace name", async () => {

@@ -93,7 +93,10 @@ export async function runStation(
     } catch (err) {
       result = { outcome: "failed", reason: String(err) };
     }
-    if (workspace)
+    // A run's orchestrator lives on in its own workspace after the station
+    // lets go (it closes the run there): its checkout stays.
+    // shortcut: a run's checkout is never removed, prune it once runs keep their checkouts a set time (task 6).
+    if (workspace && job.kind !== "run")
       await executor.release(workspace).catch((err: unknown) => {
         console.error(`station: releasing ${workspace.path}: ${String(err)}`);
       });

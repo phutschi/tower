@@ -29,8 +29,11 @@ WS=$(printf '%s' "$out" | jsonq 'd["result"]["workspace"]["workspace_id"]' 2>/de
   || die "start-run: herdr opened workspace $NAME without naming its pane: $out"
 # An agent name herdr accepts (executor.sh agent_name): a lowercase letter
 # first, then lowercase letters, digits, '-' or '_', at most 32 characters.
-AGENT=$(printf '%s' "$NAME" | tr 'A-Z' 'a-z' | sed 's/[^a-z0-9_-]/-/g; s/^[^a-z]*//')
-AGENT="${AGENT:0:32}"; [ -n "$AGENT" ] || AGENT=run
+# A long name loses words from its front, never the issue number at its end:
+# herdr addresses the agent by it, and two runs of one repo must differ.
+AGENT=$(printf '%s' "$NAME" | tr 'A-Z' 'a-z' | sed 's/[^a-z0-9_-]/-/g')
+[ "${#AGENT}" -le 32 ] || { AGENT="${AGENT: -32}"; AGENT="${AGENT#*-}"; }
+AGENT=$(printf '%s' "$AGENT" | sed 's/^[^a-z]*//'); [ -n "$AGENT" ] || AGENT=run
 start_agent_with_trust_retry "$AGENT" "$PANE" \
   || die "start-run: the orchestrator did not start in workspace $NAME (pane $PANE)"
 herdr agent prompt "$AGENT" "$(cat "$BRIEF")" >/dev/null \

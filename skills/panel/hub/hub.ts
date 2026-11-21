@@ -134,20 +134,36 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
   };
 
   /**
-   * A claimed run whose issues one ready (not draft) PR closes is over: its
-   * issues go to in-review and the job is done. Until the labels are set the
-   * job stays claimed, so a gh failure is tried again on the next poll.
+   * Keeps each claimed run's issues true on GitHub. Issues still in
+   * ready-for-agent get in-progress (the claim's own try may have failed). A
+   * run whose issues one ready (not draft) PR opened since the run closes is
+   * over: its issues go to in-review and the job is done. Until the labels
+   * are set the job stays claimed, so a gh failure is tried again on the next
+   * poll. An older PR is the work of an earlier run or of a person.
    */
-  const finishReadyRuns = async (repo: string) => {
+  const followRuns = async (repo: string) => {
     const runs = store
       .jobs()
       .filter(
         (j) => j.kind === "run" && j.state === "claimed" && j.repo === repo,
       );
     if (runs.length === 0) return;
+    for (const run of runs)
+      if (
+        run.issues.some(
+          (n) => store.issue(repo, n)?.stage === "ready-for-agent",
+        )
+      )
+        await setStages(run, "in-progress");
     const pulls = await github.readyPulls(repo);
     for (const run of runs)
-      if (pulls.some((p) => run.issues.every((n) => p.closes.includes(n)))) {
+      if (
+        pulls.some(
+          (p) =>
+            Date.parse(p.createdAt) > Date.parse(run.createdAt) &&
+            run.issues.every((n) => p.closes.includes(n)),
+        )
+      ) {
         await setStages(run, "in-review");
         store.finishClaimed(run.id, now());
       }
@@ -158,7 +174,7 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
       for (const { name } of store.repos()) {
         try {
           sync(store, name, await github.openIssues(name), now());
-          await finishReadyRuns(name);
+          await followRuns(name);
         } catch (err) {
           console.error(`hub: polling ${name} failed: ${String(err)}`);
         }
@@ -237,7 +253,8 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
           sweep();
           const s = store.station(station, opts.serverStation);
           const job = store.claim(s, kinds, now(), leaseUntil());
-          // A claimed run moves its issues to in-progress.
+          // A claimed run moves its issues to in-progress; the poll tries
+          // again if this fails (followRuns).
           if (job?.kind === "run")
             void serial(() => setStages(job, "in-progress")).catch((err) =>
               console.error(`hub: setting in-progress failed: ${String(err)}`),

@@ -53,10 +53,10 @@ export class GitHub {
     );
   }
 
-  /** The issues each open, non-draft pull request closes. */
+  /** The issues each open, non-draft pull request closes, and when it was opened. */
   async readyPulls(
     repo: string,
-  ): Promise<{ number: number; closes: number[] }[]> {
+  ): Promise<{ number: number; closes: number[]; createdAt: string }[]> {
     const out = await this.gh([
       "pr",
       "list",
@@ -67,17 +67,19 @@ export class GitHub {
       "--limit",
       "200",
       "--json",
-      "number,isDraft,closingIssuesReferences",
+      "number,isDraft,createdAt,closingIssuesReferences",
     ]);
     const pulls = JSON.parse(out) as {
       number: number;
       isDraft: boolean;
+      createdAt: string;
       closingIssuesReferences: { number: number }[];
     }[];
     return pulls
       .filter((p) => !p.isDraft)
       .map((p) => ({
         number: p.number,
+        createdAt: p.createdAt,
         closes: p.closingIssuesReferences.map((i) => i.number),
       }));
   }
