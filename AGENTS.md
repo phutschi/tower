@@ -10,6 +10,8 @@ read docs/agents.md instead.
   herdr-only skill; no other skill and nothing in `src/` names herdr.
 - Runtime: `src/` uses `node:*` APIs only. No `Bun.*` (ESLint enforces it).
   Node ≥ 22.12 and Bun must both run the built CLI. Users never need Bun.
+  The one exception is `skills/panel/`: the Panel's hub and stations run on
+  Bun (`bun:sqlite`, `Bun.serve`), so a Mac that runs them needs Bun.
 - Toolchain: Bun. `bun run check` = format + lint + typecheck + test, and is
   what CI runs. Run it before every push. It needs jq: one test runs the
   tracker commands of `docs/agents/issue-tracker.md` with the real jq.

@@ -6,7 +6,7 @@ import { STAGES, type Job, type PanelIssue, type Stage } from "../types.ts";
 import { isStageLabel, record, sync } from "./dispatcher.ts";
 import { GitHub } from "./github.ts";
 import { renderPanel } from "./panel-page.ts";
-import { Store, type SnapshotIssue } from "./store.ts";
+import { ACTIVE, Store, type SnapshotIssue } from "./store.ts";
 
 export interface HubOptions {
   dbPath: string;
@@ -24,15 +24,19 @@ export interface Hub {
 const bad = (error: string, status = 400) =>
   Response.json({ error }, { status });
 
-/** A request's JSON object body; anything else reads as an empty one. */
+/**
+ * A request's JSON object body; anything else reads as an empty one. Only an
+ * application/json body counts: another site's page cannot send one without
+ * the browser asking the hub first, so it cannot move a stage.
+ */
 async function body(req: Request): Promise<Record<string, unknown>> {
+  if (!req.headers.get("content-type")?.startsWith("application/json"))
+    return {};
   const value: unknown = await req.json().catch(() => null);
   return value && typeof value === "object"
     ? (value as Record<string, unknown>)
     : {};
 }
-
-const ACTIVE: Job["state"][] = ["queued", "held", "claimed"];
 
 function panelIssue(i: SnapshotIssue, jobs: Job[]): PanelIssue {
   const area = i.labels.find((l) => l.startsWith("area:"));
@@ -100,13 +104,16 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
       const prev = store.issue(repo, number);
       if (!prev) return bad(`${repo}#${number} is not on the Panel`);
       if (prev.stage === "closed") return bad(`${repo}#${number} is closed`);
-      const remove = prev.labels.filter((l) => isStageLabel(l) && l !== stage);
+      let labels: string[];
       try {
+        // GitHub's labels now, not the last poll's: a job may have moved it.
+        labels = await github.labels(repo, number);
+        const remove = labels.filter((l) => isStageLabel(l) && l !== stage);
         await github.editLabels(repo, number, [stage], remove);
+        labels = labels.filter((l) => !remove.includes(l));
       } catch (err) {
         return bad(`gh refused the move: ${String(err)}`, 502);
       }
-      const labels = prev.labels.filter((l) => !remove.includes(l));
       if (!labels.includes(stage)) labels.push(stage);
       record(store, { ...prev, stage, labels }, now());
       return Response.json(

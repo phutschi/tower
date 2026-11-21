@@ -250,3 +250,51 @@ test("the Panel holds each stage's issues with a move control per issue, sized f
     );
   expect(html).toContain("acme/widgets");
 });
+
+test("a write without a JSON content type is refused, so another site's form cannot move a stage", async () => {
+  setIssues("acme/widgets", [issue(1, "needs-triage")]);
+  await start();
+  for (const path of ["/api/issues/acme/widgets/1/stage", "/api/repos"]) {
+    const res = await fetch(`${hub!.url}${path}`, {
+      method: "POST",
+      headers: { "content-type": "text/plain" },
+      body: JSON.stringify({ stage: "shaping", repo: "acme/evil" }),
+    });
+    expect(res.status).toBe(400);
+  }
+  expect(ghLog().filter((l) => l.startsWith("gh issue edit"))).toEqual([]);
+  expect(await api<string[]>("/api/repos")).toEqual(["acme/widgets"]);
+});
+
+test("reopening an issue queues nothing: no stage was moved", async () => {
+  setIssues("acme/widgets", [issue(1, "shaping")]);
+  await start();
+  setIssues("acme/widgets", []);
+  await polls(1);
+  setIssues("acme/widgets", [issue(1, "shaping")]);
+  await polls(1);
+  const [one] = await api<PanelIssue[]>("/api/issues");
+  expect(one!.stage).toBe("shaping");
+  expect(await api<Job[]>("/api/jobs")).toEqual([]);
+});
+
+test("an issue with a grill still waiting gets no second one", async () => {
+  setIssues("acme/widgets", [issue(1, "needs-triage")]);
+  await start();
+  for (const stage of ["shaping", "needs-triage", "shaping"])
+    await post("/api/issues/acme/widgets/1/stage", { stage });
+  expect((await api<Job[]>("/api/jobs")).length).toBe(1);
+});
+
+test("a move removes the stage labels GitHub has now, not the ones the last poll saw", async () => {
+  setIssues("acme/widgets", [issue(4, "shaping")]);
+  await start();
+  // A grill moved it on GitHub since the last poll, and no poll ran since.
+  process.env.GH_STUB_FAIL = "list";
+  await polls(1);
+  setIssues("acme/widgets", [issue(4, "ready-for-agent")]);
+  await post("/api/issues/acme/widgets/4/stage", { stage: "in-review" });
+  expect(ghIssues("acme/widgets")[0]!.labels.map((l) => l.name)).toEqual([
+    "in-review",
+  ]);
+});

@@ -5,7 +5,7 @@
  */
 import { STAGES, type JobKind, type Stage } from "../types.ts";
 import type { GhIssue } from "./github.ts";
-import type { SnapshotIssue, Store } from "./store.ts";
+import { ACTIVE, type SnapshotIssue, type Store } from "./store.ts";
 
 const LABELS: readonly string[] = STAGES.filter((s) => s !== "closed");
 
@@ -22,13 +22,28 @@ function jobFor(to: Stage): JobKind | null {
   return to === "shaping" ? "grill" : null;
 }
 
-/** Records one issue's stage, and queues a job when it changed since last seen. */
+/**
+ * Records one issue's stage, and queues a job when it was moved since last
+ * seen. A reopened issue was not moved, and an issue whose job of that kind is
+ * not over yet gets no second one.
+ */
 export function record(store: Store, next: SnapshotIssue, now: Date) {
-  const prev = store.issue(next.repo, next.number);
-  store.putIssue(next);
-  if (!prev || prev.stage === next.stage) return;
-  const kind = jobFor(next.stage);
-  if (kind) store.addJob(kind, next.repo, [next.number], now);
+  store.transaction(() => {
+    const prev = store.issue(next.repo, next.number);
+    store.putIssue(next);
+    if (!prev || prev.stage === next.stage || prev.stage === "closed") return;
+    const kind = jobFor(next.stage);
+    const waiting = store
+      .jobs()
+      .some(
+        (j) =>
+          j.kind === kind &&
+          j.repo === next.repo &&
+          j.issues.includes(next.number) &&
+          ACTIVE.includes(j.state),
+      );
+    if (kind && !waiting) store.addJob(kind, next.repo, [next.number], now);
+  });
 }
 
 /**
@@ -40,16 +55,18 @@ export function sync(store: Store, repo: string, open: GhIssue[], now: Date) {
   const listed = store.repos().find((r) => r.name === repo);
   if (!listed) return; // unlisted while the poll ran
   const seen = new Set<number>();
-  for (const i of open) {
-    seen.add(i.number);
-    const labels = i.labels.map((l) => l.name);
-    const issue = { repo, number: i.number, title: i.title, labels };
-    const next = { ...issue, stage: stageOf(labels) };
-    if (listed.baselined) record(store, next, now);
-    else store.putIssue(next);
-  }
-  for (const prev of store.issues(repo))
-    if (!seen.has(prev.number) && prev.stage !== "closed")
-      record(store, { ...prev, stage: "closed" }, now);
-  store.markBaselined(repo);
+  store.transaction(() => {
+    for (const i of open) {
+      seen.add(i.number);
+      const labels = i.labels.map((l) => l.name);
+      const issue = { repo, number: i.number, title: i.title, labels };
+      const next = { ...issue, stage: stageOf(labels) };
+      if (listed.baselined) record(store, next, now);
+      else store.putIssue(next);
+    }
+    for (const prev of store.issues(repo))
+      if (!seen.has(prev.number) && prev.stage !== "closed")
+        record(store, { ...prev, stage: "closed" }, now);
+    store.markBaselined(repo);
+  });
 }

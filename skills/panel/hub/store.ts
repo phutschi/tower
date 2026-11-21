@@ -1,7 +1,10 @@
 /** The hub's SQLite tables: listed repos, the issue snapshot, jobs and their events. */
 import { Database } from "bun:sqlite";
 
-import type { Job, JobKind, Stage } from "../types.ts";
+import type { Job, JobKind, JobState, Stage } from "../types.ts";
+
+/** The states of a job that is not over yet. */
+export const ACTIVE: readonly JobState[] = ["queued", "held", "claimed"];
 
 export interface SnapshotIssue {
   repo: string;
@@ -10,6 +13,12 @@ export interface SnapshotIssue {
   stage: Stage;
   labels: string[];
 }
+
+type IssueRow = Omit<SnapshotIssue, "labels"> & { labels: string };
+const toIssue = (r: IssueRow): SnapshotIssue => ({
+  ...r,
+  labels: JSON.parse(r.labels) as string[],
+});
 
 interface JobRow {
   id: string;
@@ -82,6 +91,11 @@ export class Store {
     this.db.close();
   }
 
+  /** Runs `fn` as one transaction: all its writes land, or none. */
+  transaction(fn: () => void) {
+    this.db.transaction(fn)();
+  }
+
   repos(): { name: string; baselined: boolean }[] {
     return this.db
       .query<{ name: string; baselined: number }, []>(
@@ -108,28 +122,21 @@ export class Store {
   }
 
   issues(repo?: string): SnapshotIssue[] {
-    const rows = this.db
-      .query<
-        {
-          repo: string;
-          number: number;
-          title: string;
-          stage: Stage;
-          labels: string;
-        },
-        string[]
-      >(
+    return this.db
+      .query<IssueRow, string[]>(
         `SELECT * FROM issues ${repo ? "WHERE repo = ?" : ""} ORDER BY repo, number`,
       )
-      .all(...(repo ? [repo] : []));
-    return rows.map((r) => ({
-      ...r,
-      labels: JSON.parse(r.labels) as string[],
-    }));
+      .all(...(repo ? [repo] : []))
+      .map(toIssue);
   }
 
   issue(repo: string, number: number): SnapshotIssue | undefined {
-    return this.issues(repo).find((i) => i.number === number);
+    const row = this.db
+      .query<IssueRow, [string, number]>(
+        "SELECT * FROM issues WHERE repo = ? AND number = ?",
+      )
+      .get(repo, number);
+    return row ? toIssue(row) : undefined;
   }
 
   putIssue(i: SnapshotIssue) {

@@ -37,6 +37,22 @@ export class GitHub {
     return JSON.parse(out) as GhIssue[];
   }
 
+  /** An issue's labels as GitHub has them now. */
+  async labels(repo: string, number: number): Promise<string[]> {
+    const out = await this.gh([
+      "issue",
+      "view",
+      String(number),
+      "--repo",
+      repo,
+      "--json",
+      "labels",
+    ]);
+    return (JSON.parse(out) as Pick<GhIssue, "labels">).labels.map(
+      (l) => l.name,
+    );
+  }
+
   async editLabels(
     repo: string,
     number: number,
