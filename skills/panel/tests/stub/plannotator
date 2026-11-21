@@ -1,15 +1,18 @@
 #!/usr/bin/env bash
 # Stand-in for plannotator in the Panel's tests. Logs each call to
 # PLANNOTATOR_STUB_LOG as `plannotator <args>`, the JSON argument last.
-# `inbox call send_message` answers a message in thread thr_1 at cursor c0.
+# `inbox call send_message` answers a message in thread thr_1, at cursor s<n>
+# for the nth send.
 # `inbox call read_thread` answers the thread in the file PLANNOTATOR_STUB_THREAD
 # names, or an empty one while there is no file or its cursor is the `after`
 # asked for.
 printf 'plannotator %s\n' "$*" >> "${PLANNOTATOR_STUB_LOG:-/dev/null}"
 case "${1:-} ${2:-} ${3:-}" in
-  "inbox call send_message") echo '{"message_id":"msg_1","thread_id":"thr_1","cursor":"c0"}' ;;
+  "inbox call send_message")
+    n=$(grep -c "send_message" "${PLANNOTATOR_STUB_LOG:-/dev/null}" 2>/dev/null || echo 1)
+    printf '{"message_id":"msg_s%s","thread_id":"thr_1","cursor":"s%s"}\n' "$n" "$n" ;;
   "inbox call read_thread")
-    after=$(printf '%s' "${4:-{\}}" | jq -r '.after // "c0"')
+    after=$(printf '%s' "${4:-{\}}" | jq -r '.after // ""')
     file=${PLANNOTATOR_STUB_THREAD:-}
     if [ -f "$file" ] && [ "$(jq -r .cursor "$file")" != "$after" ]; then cat "$file"
     else printf '{"thread":{"messages":[]},"cursor":"%s"}\n' "$after"; fi ;;

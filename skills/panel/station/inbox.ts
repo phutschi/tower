@@ -7,12 +7,11 @@ const run = promisify(execFile);
 const call = async (action: string, fields: object): Promise<unknown> =>
   JSON.parse(
     (
-      await run("plannotator", [
-        "inbox",
-        "call",
-        action,
-        JSON.stringify(fields),
-      ])
+      await run(
+        "plannotator",
+        ["inbox", "call", action, JSON.stringify(fields)],
+        { timeout: 60_000 },
+      )
     ).stdout,
   ) as unknown;
 

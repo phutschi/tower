@@ -280,7 +280,7 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
       },
       "/api/jobs/:id/events": {
         POST: async (req) => {
-          const { ts, kind, data } = await body(req);
+          const { station, ts, kind, data } = await body(req);
           const job = store.job(req.params.id);
           if (!job) return bad("no such job", 404);
           if (
@@ -289,7 +289,13 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
             !isObject(data)
           )
             return bad("an event has ts, kind and data");
-          if (kind === "session" && typeof data.sessionId === "string")
+          // Only from the station working the job: one that lost it says nothing.
+          if (
+            kind === "session" &&
+            typeof data.sessionId === "string" &&
+            job.state === "claimed" &&
+            job.station === station
+          )
             store.setSession(job.id, data.sessionId);
           if (job.kind === "advice" && kind === "proposal") {
             const proposal = parseProposal(data);

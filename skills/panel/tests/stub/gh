@@ -10,7 +10,8 @@
 # answers that issue's id, 1000+N. `api repos/…/issues/N/dependencies/blocked_by`
 # lists, or with -X POST adds, the blockers in GH_STUB_DIR/<owner>_<repo>.deps,
 # one `N <blocker id>` line each. Any other `api` call answers {}.
-# GH_STUB_FAIL=<verb> makes that verb fail: list or edit.
+# GH_STUB_FAIL=<verb> makes that verb fail: list or edit; so does a file
+# GH_STUB_DIR/fail holding the verb, while it is there.
 printf 'gh %s\n' "$*" >> "${GH_STUB_LOG:-/dev/null}"
 repo=""; add=(); remove=(); args=(); method=GET; field=""; body_file=""
 while [ $# -gt 0 ]; do
@@ -28,7 +29,8 @@ while [ $# -gt 0 ]; do
 done
 file="${GH_STUB_DIR:?}/${repo/\//_}.json"
 verb="${args[0]:-} ${args[1]:-}"
-[ -n "${GH_STUB_FAIL:-}" ] && [ "${args[1]:-}" = "$GH_STUB_FAIL" ] && { echo "gh: ${args[1]} failed (stub)" >&2; exit 1; }
+fail=${GH_STUB_FAIL:-$(cat "$GH_STUB_DIR/fail" 2>/dev/null)}
+[ -n "$fail" ] && [ "${args[1]:-}" = "$fail" ] && { echo "gh: ${args[1]} failed (stub)" >&2; exit 1; }
 case "$verb" in
   "issue list") if [ -f "$file" ]; then cat "$file"; else echo "[]"; fi ;;
   "issue view") jq --argjson n "${args[2]:?}" '.[] | select(.number == $n) | {title, body: (.body // ""), labels}' "$file" ;;

@@ -19,8 +19,9 @@ import {
 } from "../../tests/fixture.ts";
 import { remote, station, useStations } from "../../tests/station-process.ts";
 
-useFixture();
+// Stations die before the fixture stops the hub: hooks run in this order.
 useStations();
+useFixture();
 setDefaultTimeout(20_000);
 
 const read = (name: string) =>

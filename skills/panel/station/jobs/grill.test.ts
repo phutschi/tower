@@ -3,15 +3,16 @@
  * runs it with the stub claude, plannotator and gh. The person's reply is the
  * thread file the stub plannotator answers from.
  */
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, setDefaultTimeout, test } from "bun:test";
 
-import type { Job } from "../../types.ts";
+import type { Job, JobEvent } from "../../types.ts";
 import {
   api,
   dir,
   ghIssues,
+  ghLog,
   issue,
   post,
   setIssues,
@@ -21,8 +22,9 @@ import {
 } from "../../tests/fixture.ts";
 import { remote, station, useStations } from "../../tests/station-process.ts";
 
-useFixture();
+// Stations die before the fixture stops the hub: hooks run in this order.
 useStations();
+useFixture();
 setDefaultTimeout(20_000);
 
 const read = (name: string) =>
@@ -73,26 +75,36 @@ async function grill(env: Record<string, string>) {
   });
 }
 
-/** The person answers in the grill's thread. */
-const reply = (body: string) =>
+/** The person's replies so far in the grill's thread, read up to `cursor`. */
+const replies = (cursor: string, ...bodies: string[]) =>
   writeFileSync(
     join(dir(), "thread.json"),
     JSON.stringify({
       thread: {
         messages: [
-          { id: "msg_1", author: { kind: "agent" }, body: "Who uses it?" },
-          { id: "msg_2", author: { kind: "person" }, body },
+          { id: "msg_s1", author: { kind: "agent" }, body: "Who uses it?" },
+          ...bodies.map((body, n) => ({
+            id: `msg_p${n}`,
+            author: { kind: "person" },
+            body,
+          })),
         ],
       },
-      cursor: "c1",
+      cursor,
     }),
   );
+const reply = (body: string) => replies("c1", body);
+const reads = () =>
+  lines("plannotator.log").filter((l) => l.includes("read_thread")).length;
+const prompts = () => read("claude.log.prompts").split("--- prompt").slice(1);
 
 test("a grill starts a headless session with the grill prompt, records its session id and asks in the Inbox", async () => {
   await grill({ CLAUDE_STUB_OUT: session("q.out", "sess-1", QUESTIONS) });
   await until(async () => (await job()).sessionId === "sess-1");
   expect(lines("claude.log")).toHaveLength(1);
   expect(lines("claude.log")[0]).toContain("--model opus");
+  // It may read the repo, and write nothing.
+  expect(lines("claude.log")[0]).toMatch(/--tools Read,Grep,Glob( |$)/);
   const prompt = read("claude.log.prompts");
   expect(prompt).toContain("# Grill");
   expect(prompt).toContain("make export fast");
@@ -164,4 +176,109 @@ test("a session that fails posts a failed result with the reason", async () => {
   await grill({ CLAUDE_STUB_OUT: file, CLAUDE_STUB_EXIT: "1" });
   await until(async () => (await job()).state === "stuck");
   expect((await job()).reason).toMatch(/^exit: claude exited 1 with no result/);
+});
+
+test("a reply that comes while the session thinks is read in the next round, and none is read twice", async () => {
+  await grill({
+    CLAUDE_STUB_OUT: session("q.out", "sess-1", QUESTIONS),
+    CLAUDE_STUB_RESUME_OUT: [
+      session("q2.out", "sess-1", { questions: "And who else?" }),
+      session("spec.out", "sess-1", SPEC),
+    ].join(":"),
+  });
+  await until(async () => reads() > 0);
+  reply("Only rex.");
+  await until(async () => lines("claude.log").length === 2);
+  replies("c2", "Only rex.", "And sam, I forgot.");
+  await until(async () => (await job()).state === "done");
+  const [, first, second] = prompts();
+  expect(first).toContain("Only rex.");
+  expect(second).toContain("And sam, I forgot.");
+  expect(second).not.toContain("Only rex.");
+  expect(lines("claude.log")).toHaveLength(3);
+});
+
+test("a station that quits mid-grill hands it on: the next one waits on the same thread and resumes the same session", async () => {
+  remote();
+  setIssues("acme/widgets", [issue(5, "needs-triage")]);
+  await start(["acme/widgets"], { serverStation: "server", leaseMs: 300 });
+  await post("/api/issues/acme/widgets/5/stage", { stage: "shaping" });
+  const env = {
+    PANEL_GRILL_POLL_MS: "50",
+    PLANNOTATOR_STUB_THREAD: join(dir(), "thread.json"),
+    CLAUDE_STUB_OUT: session("q.out", "sess-1", QUESTIONS),
+    CLAUDE_STUB_RESUME_OUT: session("spec.out", "sess-1", SPEC),
+  };
+  const first = station(env);
+  await until(async () => reads() > 0);
+  first.kill("SIGKILL");
+  await first.exited;
+  station(env);
+  await until(async () => reads() > 3);
+  // Waiting again started no session and asked nothing twice.
+  expect(lines("claude.log")).toHaveLength(1);
+  expect(
+    lines("plannotator.log").filter((l) => l.includes("send_message")),
+  ).toHaveLength(1);
+  reply("Only rex.");
+  await until(async () => (await job()).state === "done");
+  expect(lines("claude.log")[1]).toContain("--resume sess-1");
+});
+
+test("a gh refusal while writing the spec is retried, and the spec is kept as an event", async () => {
+  await grill({
+    CLAUDE_STUB_OUT: session("q.out", "sess-1", QUESTIONS),
+    CLAUDE_STUB_RESUME_OUT: session("spec.out", "sess-1", SPEC),
+  });
+  await until(async () => reads() > 0);
+  writeFileSync(join(dir(), "fail"), "edit");
+  reply("Only rex.");
+  const spec = async () =>
+    (
+      await api<Job & { events: JobEvent[] }>(`/api/jobs/${(await job()).id}`)
+    ).events.find((e) => e.kind === "spec")?.data;
+  await until(async () => ghLog().some((l) => l.startsWith("gh issue edit 5")));
+  await until(async () => (await spec()) !== undefined);
+  expect(await spec()).toEqual(SPEC);
+  expect((await job()).state).toBe("claimed");
+  rmSync(join(dir(), "fail"));
+  await until(async () => (await job()).state === "done");
+  expect(read("acme_widgets_5.body")).toBe(SPEC.spec);
+});
+
+test("an answer that is not JSON gets one more turn asking for JSON only", async () => {
+  const prose = join(dir(), "prose.out");
+  writeFileSync(
+    prose,
+    JSON.stringify({
+      type: "result",
+      subtype: "success",
+      is_error: false,
+      result: "Let me think {about it",
+      session_id: "sess-1",
+      usage: { input_tokens: 10, output_tokens: 1 },
+    }) + "\n",
+  );
+  await grill({
+    CLAUDE_STUB_OUT: prose,
+    CLAUDE_STUB_RESUME_OUT: session("q.out", "sess-1", QUESTIONS),
+  });
+  await until(async () =>
+    lines("plannotator.log").some((l) => l.includes("send_message")),
+  );
+  expect(prompts()[1]).toContain("one JSON object");
+  expect(lines("claude.log")[1]).toContain("--resume sess-1");
+});
+
+test("a session event from a station that does not hold the job is ignored", async () => {
+  await grill({ CLAUDE_STUB_OUT: session("q.out", "sess-1", QUESTIONS) });
+  await until(async () => (await job()).sessionId === "sess-1");
+  const res = await post(`/api/jobs/${(await job()).id}/events`, {
+    station: "laptop",
+    ts: "2026-11-21T10:00:00.000Z",
+    kind: "session",
+    data: { sessionId: "sess-other" },
+  });
+  expect(res.status).toBe(200);
+  expect((await job()).sessionId).toBe("sess-1");
 });
