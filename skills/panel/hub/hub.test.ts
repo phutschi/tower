@@ -25,6 +25,7 @@ import {
   setHead,
   setIssues,
   start,
+  until,
   useFixture,
 } from "../tests/fixture.ts";
 
@@ -299,7 +300,7 @@ test("a run for an issue with an open blocker is held, not claimable, and the Pa
   const twelve = (await api<PanelIssue[]>("/api/issues")).find(
     (i) => i.number === 12,
   );
-  expect(twelve!.blockedBy).toEqual([5]);
+  expect(twelve!.blockedBy).toEqual(["#5"]);
   const html = await (await fetch(`${hubUrl()}/`)).text();
   expect(html).toContain("held: waits on #5");
 });
@@ -616,8 +617,8 @@ test("a newer accepted bundle takes its issues out of older ones, and their wait
   expect((await runs()).map((j) => [j.issues, j.state])).toEqual([
     [[1, 2], "stopped"],
     [[3], "stopped"],
-    [[1], "queued"],
     [[2, 3], "queued"],
+    [[1], "queued"],
   ]);
   const bundles = (await api<PanelIssue[]>("/api/issues")).map((i) => [
     i.number,
@@ -675,4 +676,186 @@ test("unlisting a repo stops its waiting and claimed jobs, and keeps them", asyn
     state: "stopped",
     reason: "the repo was unlisted",
   });
+});
+
+test("a blocker in another repo holds the run, even with a bundle member's number", async () => {
+  setIssues("acme/widgets", [issue(1, "shaping"), issue(3, "shaping")]);
+  setIssues("acme/other", [issue(1)]);
+  blocks("acme/widgets", 3, 1, "acme/other");
+  setHead("acme/widgets", "aaa");
+  await start();
+  await acceptBundle(1, 3);
+  for (const n of [1, 3])
+    await post(`/api/issues/acme/widgets/${n}/stage`, {
+      stage: "ready-for-agent",
+    });
+  expect((await runs()).map((j) => [j.issues, j.state, j.reason])).toEqual([
+    [[1, 3], "held", "waits on acme/other#1"],
+  ]);
+  const three = (await api<PanelIssue[]>("/api/issues")).find(
+    (i) => i.number === 3,
+  );
+  expect(three!.blockedBy).toEqual(["acme/other#1"]);
+});
+
+test("an open blocker past GitHub's first page of 30 still holds the run", async () => {
+  setIssues("acme/widgets", [issue(12, "shaping"), issue(100)]);
+  for (let b = 200; b < 231; b++) blocks("acme/widgets", 12, b);
+  blocks("acme/widgets", 12, 100);
+  await start();
+  await post("/api/issues/acme/widgets/12/stage", { stage: "ready-for-agent" });
+  expect((await runs()).map((j) => [j.state, j.reason])).toEqual([
+    ["held", "waits on #100"],
+  ]);
+});
+
+/** A claimed run for #12, and a PR file the stub gh lists. */
+async function claimedRun() {
+  setIssues("acme/widgets", [issue(12, "shaping")]);
+  await start(["acme/widgets"], { serverStation: "server" });
+  await post("/api/issues/acme/widgets/12/stage", { stage: "ready-for-agent" });
+  const run = (await (
+    await post("/api/jobs/claim", { station: "server", kinds: ["run"] })
+  ).json()) as Job;
+  const pr = (state: string, repo = "acme/widgets") => ({
+    number: 40,
+    isDraft: false,
+    state,
+    createdAt: new Date(Date.now() + 1000).toISOString(),
+    closingIssuesReferences: [
+      {
+        number: 12,
+        repository: {
+          name: repo.split("/")[1],
+          owner: { login: repo.split("/")[0] },
+        },
+      },
+    ],
+  });
+  const prs = (...list: unknown[]) =>
+    writeFileSync(join(dir(), "acme_widgets.prs.json"), JSON.stringify(list));
+  return { run, pr, prs };
+}
+
+test("a PR that closes another repo's issue of the same number does not end the run", async () => {
+  const { run, pr, prs } = await claimedRun();
+  prs(pr("OPEN", "acme/other"));
+  await polls(2);
+  expect((await jobsNow()).find((j) => j.id === run.id)!.state).toBe("claimed");
+});
+
+test("a run whose PR was merged between two polls is done, not stopped", async () => {
+  const { run, pr, prs } = await claimedRun();
+  prs(pr("MERGED"));
+  setIssues("acme/widgets", []);
+  await polls(2);
+  expect((await jobsNow()).find((j) => j.id === run.id)).toMatchObject({
+    state: "done",
+    reason: null,
+  });
+  expect(await api<unknown>(`/api/jobs/${run.id}/control`)).toEqual({
+    stop: false,
+    reason: null,
+  });
+});
+
+test("accepting a bundle starts no run for an issue it does not touch", async () => {
+  setIssues("acme/widgets", [
+    issue(1, "shaping"),
+    issue(2, "shaping"),
+    issue(5, "ready-for-agent"),
+  ]);
+  setHead("acme/widgets", "aaa");
+  await start();
+  await acceptBundle(1, 2);
+  expect(await runs()).toEqual([]);
+});
+
+test("closing one issue of a waiting bundle run queues a run for the rest", async () => {
+  setIssues("acme/widgets", [
+    issue(1, "shaping"),
+    issue(2, "shaping"),
+    issue(3, "shaping"),
+    issue(9),
+  ]);
+  blocks("acme/widgets", 1, 9);
+  setHead("acme/widgets", "aaa");
+  await start();
+  await acceptBundle(1, 2, 3);
+  for (const n of [1, 2, 3])
+    await post(`/api/issues/acme/widgets/${n}/stage`, {
+      stage: "ready-for-agent",
+    });
+  setIssues("acme/widgets", [
+    issue(1, "ready-for-agent"),
+    issue(2, "ready-for-agent"),
+    issue(9),
+  ]);
+  await polls(2);
+  expect((await runs()).map((j) => [j.issues, j.state, j.reason])).toEqual([
+    [[1, 2, 3], "stopped", "the issue was closed"],
+    [[1, 2], "held", "waits on #9"],
+  ]);
+});
+
+test("moving an issue on out of ready-for-agent stops its run not yet claimed", async () => {
+  setIssues("acme/widgets", [issue(1, "shaping"), issue(9)]);
+  blocks("acme/widgets", 1, 9);
+  await start();
+  await post("/api/issues/acme/widgets/1/stage", { stage: "ready-for-agent" });
+  await post("/api/issues/acme/widgets/1/stage", { stage: "in-review" });
+  expect((await runs()).map((j) => [j.state, j.reason])).toEqual([
+    ["stopped", "moved on to in-review"],
+  ]);
+});
+
+test("a claim made while a move back runs does not set in-progress over the move", async () => {
+  setIssues("acme/widgets", [issue(1, "shaping")]);
+  await start(["acme/widgets"], { serverStation: "server" });
+  await post("/api/issues/acme/widgets/1/stage", { stage: "ready-for-agent" });
+  writeFileSync(join(dir(), "slow"), "edit 0.5");
+  const back = post("/api/issues/acme/widgets/1/stage", { stage: "shaping" });
+  await Bun.sleep(200);
+  const claimed = await post("/api/jobs/claim", {
+    station: "server",
+    kinds: ["run"],
+  });
+  expect(((await claimed.json()) as Job).kind).toBe("run");
+  await back;
+  await polls(1);
+  expect(labelsOf(1)).toEqual(["shaping"]);
+});
+
+test("a run whose issue gains a blocker by an accepted order part is not claimable while gh writes it", async () => {
+  setIssues("acme/widgets", [issue(1), issue(2, "shaping")]);
+  setHead("acme/widgets", "aaa");
+  await start(["acme/widgets"], { serverStation: "server" });
+  await post("/api/issues/acme/widgets/2/stage", { stage: "ready-for-agent" });
+  setHead("acme/widgets", "bbb");
+  await polls(2);
+  const job = await held("advice");
+  await post(`/api/jobs/${job.id}/events`, {
+    station: job.station,
+    ts: new Date().toISOString(),
+    kind: "proposal",
+    data: {
+      order: [{ repo: "acme/widgets", issue: 2, after: [1], reason: "r" }],
+      bundles: [],
+    },
+  });
+  writeFileSync(join(dir(), "slow"), "repos 0.3");
+  const accept = post(`/api/advice/${job.id}/accept`, {
+    order: [0],
+    bundles: [],
+  });
+  // gh looks up the blocker's id, then writes the dependency.
+  await until(async () =>
+    ghLog().includes("gh api repos/acme/widgets/issues/1"),
+  );
+  const claimed = await post("/api/jobs/claim", {
+    station: "server",
+    kinds: ["run"],
+  });
+  expect(await claimed.json()).toBeNull();
+  await accept;
 });

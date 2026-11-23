@@ -385,15 +385,15 @@ export class Store {
   }
 
   /**
-   * Holds a job not yet claimed while it waits on the open issues `waits`,
-   * or queues it once it waits on none.
+   * Holds a job not yet claimed while it waits on the open issues `waits`
+   * (refs: #5, acme/other#5), or queues it once it waits on none.
    */
-  hold(id: string, waits: number[]) {
+  hold(id: string, waits: string[]) {
     this.db.run(
       `UPDATE jobs SET state = ?, reason = ?
        WHERE id = ? AND state IN ('queued', 'held') AND stop_reason IS NULL`,
       waits.length
-        ? ["held", `waits on ${waits.map((n) => `#${n}`).join(", ")}`, id]
+        ? ["held", `waits on ${waits.join(", ")}`, id]
         : ["queued", null, id],
     );
   }

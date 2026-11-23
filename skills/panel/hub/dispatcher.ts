@@ -39,8 +39,9 @@ const STOPPABLE: readonly JobKind[] = ["grill", "run"];
 /**
  * Why a move stops one of the issue's jobs, or null when it does not. A
  * close stops every job; a step back the ones working the stage; a move on
- * out of shaping its grill, unless the grill made that move: it keeps its
- * spec on the hub before it moves the issue.
+ * out of shaping its grill, unless the grill made that move (it keeps its
+ * spec on the hub before it moves the issue); a move on out of
+ * ready-for-agent its run not yet claimed.
  */
 function stopsJob(store: Store, j: Job, from: Stage, to: Stage): string | null {
   if (to === "closed") return "the issue was closed";
@@ -51,6 +52,9 @@ function stopsJob(store: Store, j: Job, from: Stage, to: Stage): string | null {
     from === "shaping" &&
     !store.events(j.id).some((e) => e.kind === "spec")
   )
+    return `moved on to ${to}`;
+  // A run not yet claimed: the hub's own in-progress move follows a claim.
+  if (j.kind === "run" && from === "ready-for-agent" && j.state !== "claimed")
     return `moved on to ${to}`;
   return null;
 }
@@ -127,39 +131,51 @@ export function record(
     const prev = store.issue(next.repo, next.number);
     store.putIssue(next);
     if (!prev || prev.stage === next.stage || prev.stage === "closed") return;
+    const left: number[] = [];
     for (const j of store.activeJobs(next.repo, next.number)) {
       const stop = stopsJob(store, j, prev.stage, next.stage);
-      if (stop) store.requestStop(j.id, stop);
+      if (!stop) continue;
+      store.requestStop(j.id, stop);
+      if (next.stage === "closed" && j.kind === "run")
+        left.push(...j.issues.filter((n) => n !== next.number));
     }
     const kind = jobFor(next.stage);
     if (kind) queue(store, next.repo, next.number, kind, now, bundleOf);
+    // A closed issue left its bundle: the rest of a waiting run runs without it.
+    for (const n of left)
+      if (store.issue(next.repo, n)?.stage === "ready-for-agent")
+        queue(store, next.repo, n, "run", now, bundleOf);
   });
 }
 
 /**
- * After the bundles of `repo` changed: stops each waiting run whose issues
- * are no longer what their bundle builds, and queues the runs the bundles
- * ask for now. A claimed run keeps its issues.
+ * After bundles of `repo` were accepted around `issues`: stops each waiting
+ * run whose issues are no longer what their bundle builds, and queues the
+ * runs those issues, and the stopped runs' issues, ask for now. A claimed
+ * run keeps its issues; an issue nothing touched gets no run (ADR 0016).
  */
 export function regroup(
   store: Store,
   repo: string,
+  issues: number[],
   now: Date,
   bundleOf: BundleOf,
 ) {
   store.transaction(() => {
+    const touched = new Set(issues);
     for (const j of store.jobs()) {
       if (j.kind !== "run" || j.repo !== repo) continue;
       if (j.state !== "queued" && j.state !== "held") continue;
       const wants = j.issues.map((n) =>
         runIssues(store, repo, n, bundleOf)?.join(),
       );
-      if (wants.some((w) => w !== j.issues.join()))
-        store.requestStop(j.id, "its bundle changed");
+      if (wants.every((w) => w === j.issues.join())) continue;
+      store.requestStop(j.id, "its bundle changed");
+      for (const n of j.issues) touched.add(n);
     }
-    for (const i of store.issues(repo))
-      if (i.stage === "ready-for-agent")
-        queue(store, repo, i.number, "run", now, bundleOf);
+    for (const n of touched)
+      if (store.issue(repo, n)?.stage === "ready-for-agent")
+        queue(store, repo, n, "run", now, bundleOf);
   });
 }
 

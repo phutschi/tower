@@ -45,11 +45,16 @@ export const setIssues = (repo: string, issues: Issue[]) =>
   writeFileSync(fixture(repo), JSON.stringify(issues));
 export const ghIssues = (repo: string) =>
   JSON.parse(readFileSync(fixture(repo), "utf8")) as Issue[];
-/** Makes `issue` wait on `blocker`, as a GitHub issue dependency. */
-export const blocks = (repo: string, issue: number, blocker: number) =>
+/** Makes `issue` wait on `blocker` (of `blockerRepo`), as a GitHub issue dependency. */
+export const blocks = (
+  repo: string,
+  issue: number,
+  blocker: number,
+  blockerRepo = repo,
+) =>
   appendFileSync(
     join(root, `${repo.replace("/", "_")}.deps`),
-    `${issue} ${1000 + blocker}\n`,
+    `${issue} ${1000 + blocker} ${blockerRepo}\n`,
   );
 
 /**

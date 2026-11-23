@@ -207,8 +207,11 @@ test("a ready PR opened for the run sets in-review and marks the job done; the r
   const pr = (number: number, isDraft: boolean, createdAt: string) => ({
     number,
     isDraft,
+    state: "OPEN",
     createdAt,
-    closingIssuesReferences: [{ number: 12 }],
+    closingIssuesReferences: [
+      { number: 12, repository: { name: "widgets", owner: { login: "acme" } } },
+    ],
   });
   // A ready PR from before the run, and the run's own PR still a draft.
   const before = "2026-01-01T00:00:00Z";

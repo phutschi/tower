@@ -13,7 +13,7 @@ import {
 } from "../types.ts";
 import { AdviceStore, keepOpen, parseProposal } from "./advice.ts";
 import { isStageLabel, merged, record, regroup, sync } from "./dispatcher.ts";
-import { GitHub } from "./github.ts";
+import { GitHub, type IssueRef } from "./github.ts";
 import { sendInboxNote } from "../station/inbox.ts";
 import { renderPanel, type PanelData } from "./panel-page.ts";
 import { ACTIVE, Store, type SnapshotIssue } from "./store.ts";
@@ -225,8 +225,13 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
     }
   }
 
-  // The open issues each issue waits on, from the last blocker check.
-  const blockers = new Map<string, number[]>();
+  // The open issues each issue waits on, from the last blocker check, as
+  // refs: #5 in the same repo, acme/other#5 in another.
+  const blockers = new Map<string, string[]>();
+  const sameRepo = (a: string, b: string) =>
+    a.toLowerCase() === b.toLowerCase();
+  const refOf = (b: IssueRef, repo: string) =>
+    sameRepo(b.repo, repo) ? `#${b.number}` : `${b.repo}#${b.number}`;
 
   /**
    * Holds each run not yet claimed while one of its issues waits on an open
@@ -242,15 +247,22 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
           j.repo === repo &&
           (j.state === "held" || j.state === "queued"),
       );
-    const seen = new Map<string, number[]>();
+    const seen = new Map<string, string[]>();
     for (const job of waiting) {
-      const waits = new Set<number>();
-      for (const n of job.issues)
-        for (const b of await github.openBlockers(repo, n))
-          if (!job.issues.includes(b)) waits.add(b);
-      const sorted = [...waits].sort((a, b) => a - b);
-      store.hold(job.id, sorted);
-      for (const n of job.issues) seen.set(`${repo}#${n}`, sorted);
+      const waits = new Set<string>();
+      for (const n of job.issues) {
+        const own = (await github.openBlockers(repo, n))
+          .filter(
+            (b) => !(sameRepo(b.repo, repo) && job.issues.includes(b.number)),
+          )
+          .map((b) => refOf(b, repo));
+        for (const r of own) waits.add(r);
+        seen.set(`${repo}#${n}`, own);
+      }
+      store.hold(
+        job.id,
+        [...waits].sort((a, b) => a.localeCompare(b, "en", { numeric: true })),
+      );
     }
     // Swapped in whole, so a read meanwhile sees the last check, not none.
     for (const key of blockers.keys())
@@ -266,16 +278,9 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
     }
   };
 
-  /**
-   * Keeps each claimed run's issues true on GitHub. Issues still in
-   * ready-for-agent get in-progress (the claim's own try may have failed). A
-   * run whose issues one ready (not draft) PR opened since the run closes is
-   * over: its issues go to in-review and the job is done. Until the labels
-   * are set the job stays claimed, so a gh failure is tried again on the next
-   * poll. An older PR is the work of an earlier run or of a person.
-   */
-  const followRuns = async (repo: string) => {
-    const runs = store
+  /** The claimed runs of `repo` nobody is stopping. */
+  const claimedRuns = (repo: string) =>
+    store
       .jobs()
       .filter(
         (j) =>
@@ -284,26 +289,37 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
           j.repo === repo &&
           !store.control(j.id)?.stop,
       );
-    if (runs.length === 0) return;
-    for (const run of runs)
-      if (
+
+  type Pulls = Awaited<ReturnType<GitHub["readyPulls"]>>;
+  /** The ready PR, opened since the run, that closes all its issues. */
+  const prOf = (run: Job, pulls: Pulls) =>
+    pulls.find(
+      (p) =>
+        Date.parse(p.createdAt) > Date.parse(run.createdAt) &&
+        run.issues.every((n) => p.closes.includes(n)),
+    );
+
+  /**
+   * Keeps each claimed run's issues true on GitHub. Issues still in
+   * ready-for-agent get in-progress (the claim's own try may have failed). A
+   * run whose issues one ready (not draft) PR opened since the run closes is
+   * over: its issues go to in-review and the job is done. Until the labels
+   * are set the job stays claimed, so a gh failure is tried again on the next
+   * poll. An older PR is the work of an earlier run or of a person.
+   */
+  const followRuns = async (repo: string, pulls: Pulls) => {
+    for (const run of claimedRuns(repo)) {
+      const pr = prOf(run, pulls);
+      if (pr && !pr.merged) {
+        await setStages(run, "in-review");
+        store.finishClaimed(run.id, now());
+      } else if (
         run.issues.some(
           (n) => store.issue(repo, n)?.stage === "ready-for-agent",
         )
       )
         await setStages(run, "in-progress");
-    const pulls = await github.readyPulls(repo);
-    for (const run of runs)
-      if (
-        pulls.some(
-          (p) =>
-            Date.parse(p.createdAt) > Date.parse(run.createdAt) &&
-            run.issues.every((n) => p.closes.includes(n)),
-        )
-      ) {
-        await setStages(run, "in-review");
-        store.finishClaimed(run.id, now());
-      }
+    }
   };
 
   const poll = () =>
@@ -311,6 +327,14 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
       for (const { name, baselined } of store.repos()) {
         try {
           const open = await github.openIssues(name);
+          // Read after the issues: a merge that closed one is in the list.
+          const pulls = claimedRuns(name).length
+            ? await github.readyPulls(name)
+            : [];
+          // A run whose PR was merged since the last poll is done before
+          // its issues' close is recorded, which would stop it.
+          for (const run of claimedRuns(name))
+            if (prOf(run, pulls)?.merged) store.finishClaimed(run.id, now());
           // Asked only when the poll brings a new issue to label.
           const fresh =
             baselined && open.some((i) => !store.issue(name, i.number));
@@ -318,7 +342,7 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
           sync(store, name, open, now(), bundleOf, labelAreas);
           await sendBack(name);
           await gate(name);
-          await followRuns(name);
+          await followRuns(name, pulls);
           merged(store, advice, name, await github.head(name), now());
         } catch (err) {
           console.error(`hub: polling ${name} failed: ${String(err)}`);
@@ -364,6 +388,18 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
       if (decision === "accepted")
         for (const i of new Set(order)) {
           const part = p.order[i]!;
+          // Held at once: a claim must not take the run while gh writes the
+          // dependency. The blocker check after it says all it waits on.
+          const waits = part.after.map((n) => `#${n}`);
+          for (const j of store.jobs())
+            if (
+              j.kind === "run" &&
+              j.repo === part.repo &&
+              j.issues.includes(part.issue) &&
+              !part.after.some((n) => j.issues.includes(n)) &&
+              (j.state === "queued" || j.state === "held")
+            )
+              store.hold(j.id, waits);
           try {
             await github.addBlockedBy(part.repo, part.issue, part.after);
           } catch (err) {
@@ -376,16 +412,22 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
       advice.decide(id, decision, [], bundles, now());
       // What was accepted holds now, not at the next poll: runs follow
       // their bundles, and wait on their new blockers.
-      if (decision === "accepted")
-        for (const repo of new Set([
+      if (decision === "accepted") {
+        const accepted = p.bundles.filter((x) => bundles.includes(x.id));
+        const repos = new Set([
           ...order.map((i) => p.order[i]!.repo),
-          ...p.bundles.filter((x) => bundles.includes(x.id)).map((x) => x.repo),
-        ])) {
-          regroup(store, repo, now(), bundleOf);
+          ...accepted.map((x) => x.repo),
+        ]);
+        for (const repo of repos) {
+          const issues = accepted
+            .filter((x) => x.repo === repo)
+            .flatMap((x) => x.issues);
+          regroup(store, repo, issues, now(), bundleOf);
           await gate(repo).catch((err: unknown) =>
             console.error(`hub: checking ${repo}'s blockers: ${String(err)}`),
           );
         }
+      }
       return Response.json(advice.proposal(id));
     });
 

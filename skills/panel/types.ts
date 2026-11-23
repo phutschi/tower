@@ -22,7 +22,8 @@ export interface PanelIssue {
   stage: Stage;
   issueArea: string | null;
   bundleId: string | null;
-  blockedBy: number[];
+  /** The open issues it waits on, as refs: #5, or acme/other#5 in another repo. */
+  blockedBy: string[];
   jobId: string | null;
   stuck: boolean;
 }

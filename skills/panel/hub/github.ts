@@ -10,14 +10,36 @@ export interface GhIssue {
   labels: { name: string }[];
 }
 
+/** An issue in some repo: a closing reference or a blocker may be in another. */
+export interface IssueRef {
+  repo: string;
+  number: number;
+}
+
+/** owner/name of a repository object as GitHub's GraphQL gives it. */
+const nameOf = (r: { name: string; owner: { login: string } }) =>
+  `${r.owner.login}/${r.name}`.toLowerCase();
+
 export class GitHub {
-  constructor(private readonly bin = "gh") {}
+  /** `timeoutMs`: a gh that hangs is killed, so it cannot hold every poll and move. */
+  constructor(
+    private readonly bin = "gh",
+    private readonly timeoutMs = 120_000,
+  ) {}
 
   private async gh(args: string[]): Promise<string> {
     const { stdout } = await run(this.bin, args, {
       maxBuffer: 64 * 1024 * 1024,
+      timeout: this.timeoutMs,
+      killSignal: "SIGKILL",
     });
     return stdout;
+  }
+
+  /** Every page of a REST list, as one list. */
+  private async pages<T>(path: string): Promise<T[]> {
+    const out = await this.gh(["api", "--paginate", "--slurp", path]);
+    return (JSON.parse(out) as T[][]).flat();
   }
 
   /** shortcut: the first 1000 open issues only, page with gh api once a repo has more. */
@@ -53,34 +75,50 @@ export class GitHub {
     );
   }
 
-  /** The issues each open, non-draft pull request closes, and when it was opened. */
-  async readyPulls(
-    repo: string,
-  ): Promise<{ number: number; closes: number[]; createdAt: string }[]> {
+  /**
+   * The issues of `repo` each ready pull request closes, and when it was
+   * opened: the open non-draft ones, and the merged ones (a merge between two
+   * polls closes its issues before the hub sees the PR ready).
+   */
+  async readyPulls(repo: string): Promise<
+    {
+      number: number;
+      closes: number[];
+      createdAt: string;
+      merged: boolean;
+    }[]
+  > {
     const out = await this.gh([
       "pr",
       "list",
       "--repo",
       repo,
       "--state",
-      "open",
+      "all",
       "--limit",
       "200",
       "--json",
-      "number,isDraft,createdAt,closingIssuesReferences",
+      "number,isDraft,state,createdAt,closingIssuesReferences",
     ]);
     const pulls = JSON.parse(out) as {
       number: number;
       isDraft: boolean;
+      state: "OPEN" | "MERGED" | "CLOSED";
       createdAt: string;
-      closingIssuesReferences: { number: number }[];
+      closingIssuesReferences: {
+        number: number;
+        repository: { name: string; owner: { login: string } };
+      }[];
     }[];
     return pulls
-      .filter((p) => !p.isDraft)
+      .filter((p) => p.state === "MERGED" || (p.state === "OPEN" && !p.isDraft))
       .map((p) => ({
         number: p.number,
         createdAt: p.createdAt,
-        closes: p.closingIssuesReferences.map((i) => i.number),
+        merged: p.state === "MERGED",
+        closes: p.closingIssuesReferences
+          .filter((i) => nameOf(i.repository) === repo.toLowerCase())
+          .map((i) => i.number),
       }));
   }
 
@@ -121,26 +159,36 @@ export class GitHub {
     }
   }
 
-  /** The open issues `issue` waits on, as GitHub's native issue dependencies. */
-  async openBlockers(repo: string, issue: number): Promise<number[]> {
-    const out = await this.gh([
-      "api",
-      `repos/${repo}/issues/${issue}/dependencies/blocked_by`,
-    ]);
-    return (JSON.parse(out) as { number: number; state: string }[])
-      .filter((b) => b.state === "open")
-      .map((b) => b.number);
+  /** The issues `issue` waits on, as GitHub's native issue dependencies. */
+  private async blockedBy(repo: string, issue: number) {
+    const all = await this.pages<{
+      number: number;
+      state: string;
+      repository_url: string;
+    }>(`repos/${repo}/issues/${issue}/dependencies/blocked_by`);
+    return all.map((b) => ({
+      repo: b.repository_url.replace(/^.*\/repos\//, ""),
+      number: b.number,
+      open: b.state === "open",
+    }));
+  }
+
+  /** The open issues `issue` waits on, in any repo. */
+  async openBlockers(repo: string, issue: number): Promise<IssueRef[]> {
+    return (await this.blockedBy(repo, issue))
+      .filter((b) => b.open)
+      .map(({ repo, number }) => ({ repo, number }));
   }
 
   /**
-   * Makes `issue` wait on each of `blockers`, as GitHub's native issue
-   * dependencies; one it waits on already is left as it is.
+   * Makes `issue` wait on each of `blockers` (issues of `repo`), as GitHub's
+   * native issue dependencies; one it waits on already is left as it is.
    */
   async addBlockedBy(repo: string, issue: number, blockers: number[]) {
     const path = `repos/${repo}/issues/${issue}/dependencies/blocked_by`;
-    const has = (
-      JSON.parse(await this.gh(["api", path])) as { number: number }[]
-    ).map((b) => b.number);
+    const has = (await this.blockedBy(repo, issue))
+      .filter((b) => b.repo.toLowerCase() === repo.toLowerCase())
+      .map((b) => b.number);
     for (const blocker of blockers.filter((b) => !has.includes(b))) {
       const { id } = JSON.parse(
         await this.gh(["api", `repos/${repo}/issues/${blocker}`]),
