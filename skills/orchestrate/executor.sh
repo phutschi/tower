@@ -129,7 +129,7 @@ start_agent() {
   case "$EXECUTOR_KIND" in
     # SESSION_ROLE and SESSION_TOPIC (roles.sh; set by the caller only when
     # the run has roles) go to the Claude launcher.
-    claude) herdr agent start "$name" --kind claude --pane "$pane" -- --model "$EXECUTOR_MODEL" \
+    claude) runner_agent_start "$name" claude "$pane" -- --model "$EXECUTOR_MODEL" \
       ${SESSION_ROLE:+--role "$SESSION_ROLE"} ${SESSION_TOPIC:+--topic "$SESSION_TOPIC"} ;;
     cursor)
       # --trust is the only guard against cursor's trust box: herdr reports
@@ -142,7 +142,7 @@ start_agent() {
       # lane worktree) are added dirs.
       local common
       common=$(git -C "$(agent_checkout)" rev-parse --path-format=absolute --git-common-dir) || return 1
-      herdr agent start "$name" --kind cursor --pane "$pane" -- --model "$EXECUTOR_MODEL" \
+      runner_agent_start "$name" cursor "$pane" -- --model "$EXECUTOR_MODEL" \
         --trust --force --disable-auto-update ${RUN_DIR:+--add-dir "$RUN_DIR"} --add-dir "$common" ;;
     codex)
       local extra=() common gitdir roots="" p co
@@ -174,7 +174,7 @@ start_agent() {
           extra+=(-c "shell_environment_policy.set.$v=$q")
         done
       fi
-      herdr agent start "$name" --kind codex --pane "$pane" -- -m "$EXECUTOR_MODEL" \
+      runner_agent_start "$name" codex "$pane" -- -m "$EXECUTOR_MODEL" \
         -a never -s workspace-write -c sandbox_workspace_write.network_access=true \
         -c check_for_update_on_startup=false "${extra[@]}" ;;
   esac
@@ -225,7 +225,7 @@ until_ready() {
   local name="$1" pane="$2" state checks=0
   [ "${DRY_RUN:-0}" = 1 ] || sleep "${START_SETTLE_SECONDS:-3}"
   while :; do
-    state=$(ready_of "$name"); checks=$((checks+1))
+    state=$(ready_of "$name" "$pane"); checks=$((checks+1))
     case "$state" in
       ready) return 0 ;;
       gone)  return 1 ;;
@@ -245,7 +245,7 @@ until_ready() {
 # unreadable (common.sh agent_of), or its state when it does not accept input
 # yet ("idle, not ready for input" when herdr says idle but not ready).
 ready_of() {
-  local a; a=$(agent_of "$1")
+  local a; a=$(agent_of "$1" "${2:-}")
   case "$a" in
     "idle True"|"working True")   echo ready ;;
     "idle False"|"working False") echo "${a%% *}, not ready for input" ;;
@@ -269,13 +269,13 @@ start_answering_trust() {
       # Every failure returns 1 itself: callers run this under || too, where
       # errexit is off.
       local keys=(Enter); [ "$EXECUTOR_KIND" = codex ] || keys=(Down Enter)
-      herdr pane send-keys "$pane" "${keys[@]}" >/dev/null || {
+      runner_send_keys "$pane" "${keys[@]}" || {
         echo "agent start: could not answer $name's trust prompt in pane $pane (herdr pane send-keys failed); answer it there, and the agent runs" >&2; return 1; }
       [ "${DRY_RUN:-0}" = 1 ] || sleep 3
       # Started again only when herdr says the agent is not there (common.sh
       # state_of): a failing herdr call must not put a second agent beside it.
       # Only working or idle is an agent running; any other state fails.
-      local state; state=$(state_of "$name")
+      local state; state=$(state_of "$name" "$pane")
       case "$state" in
         working|idle) return 0 ;;
         gone) start_agent "$name" "$pane" >/dev/null || {

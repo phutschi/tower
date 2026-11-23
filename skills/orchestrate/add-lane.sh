@@ -197,7 +197,7 @@ if [ -n "$PANE" ]; then
   case "$(grep -E "^lane $LANE:" "$MAP")" in
     *" starting") STARTING=" starting" ;;
   esac
-  state=$(state_of "$NAME")
+  state=$(state_of "$NAME" "$PANE")
   case "$state" in
     gone) ;;
     unreadable) die "lane $LANE: herdr cannot say whether agent $NAME runs; rerun once herdr answers" ;;
@@ -209,7 +209,7 @@ if [ -n "$PANE" ]; then
     start_agent_with_trust_retry "$NAME" "$PANE" \
       || die "add-lane: agent $NAME is not ready in $PANE; lane $LANE is in the pane map, starting: rerun  $RERUN  to resume it"
   else
-    ready=$(ready_of "$NAME")
+    ready=$(ready_of "$NAME" "$PANE")
     [ "$ready" = ready ] || die "add-lane: agent $NAME is in $PANE but does not accept input ($ready): answer or end it there, then rerun  $RERUN"
     STARTED_AGAIN="resumed"
   fi
