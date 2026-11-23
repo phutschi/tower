@@ -11,19 +11,21 @@
 # selector_not_found for a worktree it did not create.
 # Agent states, one per terminal, come from ORCA_STUB_STATES_DIR/<handle>: a
 # state word (working, waiting, blocked, done), "gone" (the terminal is
-# closed: terminal_handle_stale, and the agent is not listed), "unlisted" (the
-# terminal is open but its agent has not reported to Orca yet, so it is not
-# listed; its TUI is busy), "unlisted-idle" (the same, its TUI idle), "unreadable"
-# (Orca does not answer: runtime_unavailable) or "trust" (a trust menu: the
-# agent shows blocked, a text-plus-Enter send is refused with
-# agent_prompt_blocked, and an Enter sent alone answers the menu, dropping the
-# line). With no file, the agent is working. With several lines, each call
+# closed: terminal_handle_stale, and the agent is not listed), "unlisted"
+# (the terminal is open but its agent has not reported to Orca yet, so it is
+# not listed; its TUI is busy), "unlisted-idle" (the same, its TUI idle),
+# "unreadable" (Orca does not answer: runtime_unavailable) or "trust" (a trust
+# menu: the agent shows blocked, a text-plus-Enter send is refused with
+# agent_prompt_blocked, and an Enter sent alone answers the menu, dropping
+# the line). With no file, the agent is working. With several lines, each call
 # that reports the state answers the first and drops it; the last one stays.
 # `terminal read` answers ORCA_STUB_STATES_DIR/<handle>.tail as its tail.
 # `terminal wait --for tui-idle` is satisfied by waiting, done or
-# unlisted-idle, and answers timeout otherwise. `terminal close` makes the terminal gone.
-# ORCA_STUB_WORKTREE_FAIL=1: every `worktree create` fails (runtime_unavailable);
-# =garbled: it succeeds with an answer that has no worktree in it.
+# unlisted-idle, and answers timeout otherwise. `terminal close` makes the
+# terminal gone.
+# ORCA_STUB_WORKTREE_FAIL=1: every `worktree create` fails
+# (runtime_unavailable); =garbled: it succeeds with an answer that has no
+# worktree in it.
 # ORCA_STUB_STATUS=fail: `status` answers runtime_unavailable (Orca not
 # reachable). ORCA_STUB=absent refuses to run, so orca counts as not
 # installed; it logs each refused call as "orca-absent <argv>".

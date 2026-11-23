@@ -71,7 +71,7 @@ export DRY_RUN=1 HERDR_ENV=1 HERDR_STUB_LOG="$TMP/log" HERDR_STUB_COUNTER="$TMP/
 # The fake orca logs to the same log, and keeps its states (per terminal
 # handle) in the same dir.
 export ORCA_STUB_LOG="$TMP/log" ORCA_STUB_COUNTER="$TMP/orca-counter" ORCA_STUB_STATES_DIR="$TMP/states"
-unset ORCA_STUB ORCA_STUB_STATUS
+unset ORCA_STUB ORCA_STUB_STATUS ORCA_STUB_WORKTREE_FAIL
 # common.sh only defaults HERDR_PANE_ID/HERDR_TAB_ID when unset, so running
 # test.sh from inside a real herdr pane (as its own agent does) would
 # otherwise leak this pane's real ids into every assertion instead of the
@@ -271,14 +271,14 @@ if section executor; then
   rm -f "$S"/term-*
   # A trust menu at start (the agent blocked, text-plus-Enter refused):
   # answered with separate sends, Down then Enter for claude, Enter for codex.
-  printf 'unlisted\ntrust\ntrust\nwaiting\n' > "$S/term-1"
+  printf 'unlisted\nunlisted\ntrust\ntrust\nwaiting\n' > "$S/term-1"
   out=$(ostart claude)
   log=$(cat "$ORCA_STUB_LOG")
   assert_match "orca trust: the start goes on" "$out" 'exit=0$'
   assert_match "orca trust: Down sent alone" "$log" $'^orca terminal send --terminal term-1 --text \e\\[B --json$'
   assert_match "orca trust: ... then Enter alone" "$log" '^orca terminal send --terminal term-1 --enter --json$'
   assert_eq "orca trust: the agent is not started twice" "$(grep -c '^orca terminal send --terminal term-1 --text claude' "$ORCA_STUB_LOG")" 1
-  printf 'unlisted\ntrust\ntrust\nwaiting\n' > "$S/term-1"
+  printf 'unlisted\nunlisted\ntrust\ntrust\nwaiting\n' > "$S/term-1"
   out=$(ostart codex)
   assert_nomatch "orca trust, codex: no Down" "$(cat "$ORCA_STUB_LOG")" 'B --json$'
   assert_match "orca trust, codex: Enter alone" "$(cat "$ORCA_STUB_LOG")" '^orca terminal send --terminal term-1 --enter --json$'
