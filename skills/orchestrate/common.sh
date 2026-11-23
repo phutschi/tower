@@ -71,6 +71,9 @@ agent_of() { runner_agent_state "$1" "${2:-}"; }
 # An agent's state: the runner's status (herdr's own unknown included: an
 # agent herdr cannot classify), gone or unreadable (agent_of).
 state_of() { local a; a=$(agent_of "$1" "${2:-}"); echo "${a%% *}"; }
+# The orchestrator's pane or workspace in pane map MAP: its whole line after
+# the label (an Orca workspace id holds its checkout's path, spaces and all).
+orchestrator_of() { sed -nE 's/^orchestrator: +//p' "$1" | head -1; }
 # The pane of agent NAME in pane map MAP: the one lane or Reviewer line that
 # names it, read literally (the agent name is no pattern). Fails, saying why,
 # when no line names it or more than one does.

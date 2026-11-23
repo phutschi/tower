@@ -841,6 +841,15 @@ if section add-lane; then
   assert_match "orca D, a create answer with no worktree: refused" "$out" 'exit=1$'
   assert_match "orca D, a create answer with no worktree: ... saying what to remove" "$out" "Orca made lane D's worktree but its answer names none .*remove it \\(orca worktree list --json\\) and branch feat/d"
   assert_nomatch "orca D, a create answer with no worktree: no terminal" "$(cat "$ORCA_STUB_LOG")" '^orca terminal create '
+  # Ids and paths with a space are kept whole: the orchestrator's workspace
+  # (its checkout's path) and the worktree Orca makes.
+  rs=$(fixture_repo bun-vitest); mkdir -p "$TMP/team space"; mv "$(dirname "$rs")" "$TMP/team space/r"; rs="$TMP/team space/r/bun-vitest"
+  RUNS="$TMP/run-orca-space"; reset_stub; (cd "$rs" && "$KIT/bootstrap.sh" "$RUNS" "Orca space" main "$KIT/example-tasks.tsv" >/dev/null 2>&1)
+  : > "$ORCA_STUB_LOG"; out=$(cd "$rs" && ORCA_STUB_WORKTREES="/orca-stub/team repo" "$KIT/add-lane.sh" "$RUNS" B feat/b main 2,3 2>&1; echo "exit=$?"); log=$(cat "$ORCA_STUB_LOG")
+  assert_match "orca, a space in the paths: add-lane finishes" "$out" 'exit=0$'
+  assert_match "orca, a space in the paths: the whole workspace id is the parent" "$log" "^orca worktree create .* --parent-worktree id:repo-0::$rs --setup skip --json\$"
+  assert_match "orca, a space in the paths: the terminal opens in the whole worktree" "$log" '^orca terminal create --worktree id:repo-0::/orca-stub/team repo/wt-[0-9]+ --title bun-vitest-lane-b --command cd /orca-stub/team\\ repo/wt-[0-9]+ --json$'
+  assert_match "orca, a space in the paths: the checkout recorded whole" "$(cat "$RUNS/panes.txt")" '^lane B: +term-[0-9]+ +\(agent "bun-vitest-lane-b", .*checkout /orca-stub/team repo/wt-[0-9]+, model '
   # Orca gives a taken branch name a numeric suffix: an existing branch is
   # refused before any worktree is made, or the lane would commit elsewhere.
   git -C "$r" branch feat/c

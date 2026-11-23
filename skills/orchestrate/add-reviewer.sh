@@ -305,7 +305,7 @@ ID="$SLOT-$N"
 # A tab for the slots opens in the run's workspace, the orchestrator pane's;
 # not whichever workspace the human is looking at.
 if [ -z "$TAB_LINE" ]; then
-  ORCH=$(sed -nE 's/^orchestrator: +([^ ]+).*/\1/p' "$MAP")
+  ORCH=$(orchestrator_of "$MAP")
   [ -n "$ORCH" ] || die "no orchestrator line in $MAP: run bootstrap.sh first"
   WS=$(runner_workspace "$ORCH" 2>/dev/null) \
     || die "no workspace for the orchestrator pane $ORCH (herdr pane get): is it still open?"

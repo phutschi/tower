@@ -146,7 +146,7 @@ reviewer_column() {
 # PREFLIGHT, from MAP's switches: line.  open_tab_with MAP LABEL PANE
 open_tab_with() {
   local orch ws moved pane tab column="" line LANE_REVIEW PREFLIGHT
-  orch=$(sed -nE 's/^orchestrator: +([^ ]+).*/\1/p' "$1")
+  orch=$(orchestrator_of "$1")
   ws=$(runner_workspace "$orch" 2>/dev/null) \
     || die "no workspace for the orchestrator pane $orch (herdr pane get): is it still open?"
   moved=$(herdr pane move "$3" --new-tab --workspace "$ws" --tab-label "$2" --no-focus) \

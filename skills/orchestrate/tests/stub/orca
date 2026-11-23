@@ -3,7 +3,8 @@
 # for herdr. Logs argv to ORCA_STUB_LOG and answers with the JSON shapes of
 # `orca … --json`: {"ok":true,"result":…}, or {"ok":false,"error":{"code":…}}
 # on stdout with exit 1. Terminal handles (term-<n>, in tab-<n>, leaf-<n>) and
-# worktree ids (repo-0::/orca-stub/worktrees/wt-<n>) count up per process tree
+# worktree ids (repo-0::<root>/wt-<n>, root ORCA_STUB_WORKTREES, default
+# /orca-stub/worktrees) count up per process tree
 # through ORCA_STUB_COUNTER (common.sh gives a DRY_RUN script a private one);
 # a split stays in the tab it splits. The caller's workspace (`worktree
 # current`, `--parent-worktree active|current`) is repo-0::<cwd>. `worktree
@@ -79,7 +80,7 @@ case "${1:-} ${2:-}" in
       1)       err runtime_unavailable ;;
       garbled) ok '{}' ;;
     esac
-    n=$(next_n); path="/orca-stub/worktrees/wt-$n"; parent=$(flag parent-worktree); [ -z "$parent" ] || parent=$(wt_id "$parent")
+    n=$(next_n); path="${ORCA_STUB_WORKTREES:-/orca-stub/worktrees}/wt-$n"; parent=$(flag parent-worktree); [ -z "$parent" ] || parent=$(wt_id "$parent")
     printf '%s|%s|%s|%s|%s\n' "repo-0::$path" "$path" "$(flag name)" "$(flag branch)" "$parent" >> "$counter.worktrees"
     ok "{\"worktree\":{\"id\":\"repo-0::$path\",\"path\":\"$path\"}}" ;;
   "worktree show")

@@ -143,14 +143,14 @@ runner_read_cmd()    { echo "orca terminal read --terminal <id> --json"; }
 # installs. Prints "<pane> <checkout>"; dies saying what to remove.
 # shortcut: Orca also opens the worktree's first terminal, left as an idle shell; reuse it once `worktree create --json` is known to name its handle.
 runner_open_lane() {
-  local branch="$2" base="$3" label="$5" ws out info id="" path="" pane
+  local branch="$2" base="$3" label="$5" ws out id="" path="" pane
   # Orca gives a taken branch name a numeric suffix: the lane would commit elsewhere.
   ! git -C "$1" show-ref --verify --quiet "refs/heads/$branch" \
     || die "add-lane: branch $branch exists, and Orca would make lane $LANE's worktree on another branch: remove it or pick another, then rerun  $RERUN"
-  ws=$(sed -nE 's/^orchestrator: +([^ ]+).*/\1/p' "$MAP")
+  ws=$(orchestrator_of "$MAP")
   out=$(orca worktree create --name "$label" --branch "$branch" --base-branch "$base" --parent-worktree "id:$ws" --setup skip --json) \
     || die "add-lane: Orca could not create lane $LANE's worktree ($out): remove branch $branch if it exists, then rerun  $RERUN"
-  info=$(echo "$out" | jsonq '"%s %s" % (d["result"]["worktree"]["id"], d["result"]["worktree"]["path"])' 2>/dev/null) && read -r id path <<< "$info"
+  id=$(echo "$out" | jsonq 'd["result"]["worktree"]["id"]' 2>/dev/null) && path=$(echo "$out" | jsonq 'd["result"]["worktree"]["path"]' 2>/dev/null) || path=""
   [ -n "$path" ] || die "add-lane: Orca made lane $LANE's worktree but its answer names none ($out): remove it (orca worktree list --json) and branch $branch, then rerun  $RERUN"
   read -r pane _ <<< "$(orca_new terminal create --worktree "id:$id" --title "$label" --command "cd $(printf %q "$path")")"
   [ -n "$pane" ] || die "add-lane: Orca created lane $LANE's worktree $path but no terminal in it: remove it (orca worktree rm --worktree id:$id --force) and branch $branch, then rerun  $RERUN"
@@ -192,7 +192,7 @@ runner_reviewer_pane() {
     0) echo "$2"; return ;;
     2) echo "Orca cannot say whether Reviewer slot $1's terminal $2 is open" >&2; return 1 ;;
   esac
-  ws=$(sed -nE 's/^orchestrator: +([^ ]+).*/\1/p' "$MAP")
+  ws=$(orchestrator_of "$MAP")
   read -r pane _ <<< "$(orca_new terminal create --worktree "id:$ws" --title "$1" --command "cd $(printf %q "$3")")" && [ -n "$pane" ] || return 1
   echo "$pane"
 }
