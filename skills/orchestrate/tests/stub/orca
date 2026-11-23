@@ -33,7 +33,8 @@
 # `terminal wait --for tui-idle` is satisfied by waiting, done or
 # unlisted-idle, fails for "unlisted-waitfail" (an unlisted agent whose wait
 # Orca cannot answer: runtime_unavailable) and "unlisted-waittimeout" (Orca's
-# timeout code), and otherwise answers satisfied false, as Orca does. `terminal close` makes the terminal gone.
+# timeout code), and otherwise answers satisfied false with exit 1, as Orca
+# does. `terminal close` makes the terminal gone.
 # ORCA_STUB_WORKTREE_FAIL=1: every `worktree create` fails
 # (runtime_unavailable); =garbled: it succeeds with an answer that has no
 # worktree in it; =suffix: it makes the worktree on <branch>-2, as Orca does
@@ -155,7 +156,7 @@ case "${1:-} ${2:-}" in
       waiting|done|unlisted-idle|unlisted-trust|unlisted-shell) ok "{\"wait\":{\"handle\":\"$h\",\"condition\":\"$(flag for)\",\"satisfied\":true}}" ;;
       unlisted-waitfail) err runtime_unavailable ;;
       unlisted-waittimeout) err timeout ;;
-      *) ok "{\"wait\":{\"handle\":\"$h\",\"condition\":\"$(flag for)\",\"satisfied\":false}}" ;;
+      *) printf '{"id":"stub","ok":true,"result":{"wait":{"handle":"%s","condition":"%s","satisfied":false}}}\n' "$h" "$(flag for)"; exit 1 ;;
     esac ;;
   "terminal close")
     h=$(flag terminal); [ -z "$states" ] || echo gone > "$states/$h"

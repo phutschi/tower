@@ -4180,7 +4180,7 @@ if section fake-orca; then
   echo working > "$st/term-1"
   out=$(o terminal wait --terminal term-1 --for tui-idle --timeout-ms 1000 --json; echo "exit=$?")
   assert_match "fake orca: ... a working one leaves it unsatisfied" "$out" '"satisfied": *false'
-  assert_match "fake orca: ... exit 0" "$out" 'exit=0$'
+  assert_match "fake orca: ... exit 1, as Orca sets it for an unsatisfied wait" "$out" 'exit=1$'
   o terminal close --terminal term-1 --json >/dev/null
   assert_eq "fake orca: a closed terminal's agent is gone" "$(state 1)" none
   # Reachability and installation.
