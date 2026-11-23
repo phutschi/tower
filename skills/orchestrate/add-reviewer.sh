@@ -240,6 +240,7 @@ PREV_LINE=$(grep -E "^reviewer $SLOT: " "$MAP" || true)
 PREV=$(echo "$PREV_LINE" | sed -nE "s/^reviewer $SLOT: +[^ ]+ +\\(agent \"([^\"]+)\".*/\\1/p")
 N=1; RESUME=0; KEEP=0
 if [ -n "$PREV" ]; then
+  PANE=$(slot_pane "$SLOT")   # the slot the previous Reviewer is in
   N=$(( ${PREV##*-} + 1 ))
   case "$PREV_LINE" in
     *" starting")
@@ -256,31 +257,30 @@ if [ -n "$PREV" ]; then
   # ran out, one more read decides: still starting fails, saying a rerun
   # resumes it; gone, unreadable or any other state goes on below.
   if [ "$RESUME" = 1 ] && [[ "$PREV_LINE" == *", kind $R_KIND, model $R_MODEL, review "* ]]; then
-    case "$(ready_of "$PREV")" in
+    case "$(ready_of "$PREV" "$PANE")" in
       ready) KEEP=1 ;;
       *", not ready for input")
-        rc=0; until_ready "$PREV" "$(slot_pane "$SLOT")" 2>/dev/null || rc=$?
+        rc=0; until_ready "$PREV" "$PANE" 2>/dev/null || rc=$?
         [ "$rc" != 0 ] || KEEP=1
         if [ "$rc" = 2 ]; then
-          case "$(ready_of "$PREV")" in
+          case "$(ready_of "$PREV" "$PANE")" in
             ready) KEEP=1 ;;
             *", not ready for input")
-              die "Reviewer $PREV is still starting in $(slot_pane "$SLOT"): rerun  $KIT/add-reviewer.sh$RERUN_ARGS  to resume it once it accepts input" ;;
+              die "Reviewer $PREV is still starting in $PANE: rerun  $KIT/add-reviewer.sh$RERUN_ARGS  to resume it once it accepts input" ;;
           esac
         fi ;;
     esac
   fi
-  [ "$KEEP" = 1 ] || case "$(state_of "$PREV")" in
+  [ "$KEEP" = 1 ] || case "$(state_of "$PREV" "$PANE")" in
     gone) ;;
     working) die "Reviewer $PREV is still working in $SLOT: wait until the slot is free, or use the other slot" ;;
     unreadable) die "herdr cannot say whether Reviewer $PREV is still there (herdr agent get $PREV fails); rerun once herdr answers" ;;
     *)
-      PANE=$(slot_pane "$SLOT")
       runner_send_text "$PANE" "/exit"
       [ "${DRY_RUN:-0}" = 1 ] || sleep 1
       runner_send_keys "$PANE" Enter
       waited=0
-      until state=$(state_of "$PREV"); [ "$state" = gone ]; do
+      until state=$(state_of "$PREV" "$PANE"); [ "$state" = gone ]; do
         if [ "$waited" -ge "${EXIT_WAIT_SECONDS:-15}" ]; then
           [ "$state" != unreadable ] || die "herdr cannot say whether Reviewer $PREV exited; check $PANE, and rerun once herdr answers"
           die "Reviewer $PREV did not exit; end it in $PANE and rerun"
