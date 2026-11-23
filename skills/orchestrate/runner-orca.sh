@@ -6,7 +6,7 @@
 
 # Every orca call runs the CLI the session names (ORCA_CLI_COMMAND: orca,
 # orca-ide or a path), not whichever orca is on PATH.
-orca() { command "${ORCA_CLI_COMMAND:-orca}" "$@"; }
+orca() { command "$ORCA_CLI_COMMAND" "$@"; }   # set: runner_detect saw it
 
 # NAME's agent CLI of KIND, started in terminal PANE with HARNESS_ARGS: its
 # command line typed into the terminal's shell. Orca's error, if any, is
