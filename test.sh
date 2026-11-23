@@ -495,10 +495,10 @@ if section bootstrap; then
   WS="repo-0::$r"
   assert_match "orca: bootstrap finishes" "$out" 'exit=0$'
   assert_nomatch "orca: no herdr call" "$log" '^herdr '
-  assert_match "orca: a tower tab in the orchestrator's workspace, the console running tower" "$log" "^orca terminal create --worktree id:$WS --title tower --command tower --stale 30 --json$"
-  assert_match "orca: ... the shell below the console, running nothing" "$log" '^orca terminal split --terminal term-1 --direction horizontal --json$'
+  assert_match "orca: a tower tab in the orchestrator's workspace, the console running tower" "$log" "^orca terminal create --worktree id:$WS --title tower --command cd $r && tower --stale 30 --json$"
+  assert_match "orca: ... the shell below the console, running nothing" "$log" '^orca terminal split --terminal term-1 --direction horizontal --command cd '"$r"' --json$'
   assert_nomatch "orca: no dev tab by default" "$log" '--title dev '
-  assert_match "orca: lane A in a terminal of the orchestrator's workspace" "$log" "^orca terminal create --worktree id:$WS --title lane-a --json$"
+  assert_match "orca: lane A in a terminal of the orchestrator's workspace" "$log" "^orca terminal create --worktree id:$WS --title lane-a --command cd $r --json$"
   assert_match "orca: ... its agent started there" "$log" '^orca terminal send --terminal term-3 --text claude --model claude-opus-5-5\\\[1m\\\] --enter --json$'
   assert_match "pane map (orca): the orchestrator's workspace" "$map" "^orchestrator: +$WS$"
   assert_match "pane map (orca): the console's terminal" "$map" '^console: +term-1 '
@@ -510,6 +510,14 @@ if section bootstrap; then
   assert_match "pane map (orca): read a pane, with orca" "$map" '^read a pane: +orca terminal read --terminal <id> --json$'
   assert_match "pane map (orca): message a pane, with orca" "$map" '^message a pane: orca terminal send --terminal <id> --text "<text>" --enter --json$'
   assert_match "orca: the next step sends the brief with the message line" "$out" 'message a pane'
+  # A layout call that fails (the console's terminal closed before its split)
+  # stops bootstrap, with no pane map line for what did not open.
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-orca-fail"; reset_stub; echo gone > "$ORCA_STUB_STATES_DIR/term-1"
+  out=$(boot "$r" "$RUN" "Orca fail" main; echo "exit=$?")
+  rm -f "$ORCA_STUB_STATES_DIR/term-1"
+  assert_match "orca: a failing layout call: bootstrap fails" "$out" 'exit=1$'
+  assert_match "orca: ... with Orca's error" "$out" 'terminal_handle_stale'
+  assert_nomatch "orca: ... and no shell line" "$(cat "$RUN/panes.txt" 2>/dev/null)" '^shell:'
   r=$(fixture_repo contract); RUN="$TMP/run-orca-dev"; reset_stub
   out=$(boot "$r" "$RUN" "Orca dev" main; echo "exit=$?")
   log=$(cat "$ORCA_STUB_LOG"); map=$(cat "$RUN/panes.txt" 2>/dev/null)

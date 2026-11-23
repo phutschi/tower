@@ -4,7 +4,7 @@
 #   bootstrap.sh <run-dir> "<title>" <branch> [plan.md | tasks.tsv]
 #
 # Run it FROM the orchestrator's pane, inside the repo checkout on the
-# integration branch (the feature branch), with HERDR_ENV=1.
+# integration branch (the feature branch), in a herdr pane or in Orca.
 #
 # With a plan or task file (the planned opening) the task list is loaded and
 # every task goes to lane A unless LANES="A=1-4 B=5,6" is set (<lane>=all
@@ -254,12 +254,12 @@ read -r LANE_A_PANE TAB_REST <<< "$out"
 } > "$RUN_DIR/panes.txt"
 
 # bootstrap has no rerun: an agent left running is briefed once it accepts
-# input; with none there, the run starts over; when herdr cannot answer, a
+# input; with none there, the run starts over; when the runner cannot answer, a
 # look at the pane tells which it is.
 if ! start_agent_with_trust_retry "$LANE_A" "$LANE_A_PANE"; then
   case "$(state_of "$LANE_A" "$LANE_A_PANE")" in
     gone) die "bootstrap: lane A's agent $LANE_A is not running in $LANE_A_PANE: see above for why, then rerun bootstrap.sh with a new run dir" ;;
-    unreadable) die "bootstrap: herdr cannot say whether lane A's agent $LANE_A runs in $LANE_A_PANE; the run and its pane map ($RUN_DIR/panes.txt) are set up: check that pane, and with the agent there brief it once  herdr agent get $LANE_A  shows interactive_ready true; with none, rerun bootstrap.sh with a new run dir" ;;
+    unreadable) die "bootstrap: $(runner_name) cannot say whether lane A's agent $LANE_A runs in $LANE_A_PANE; the run and its pane map ($RUN_DIR/panes.txt) are set up: check that pane, and with the agent there brief it once  $(runner_ready_hint "$LANE_A"); with none, rerun bootstrap.sh with a new run dir" ;;
   esac
   die "bootstrap: lane A's agent $LANE_A is not ready in $LANE_A_PANE; the run and its pane map ($RUN_DIR/panes.txt) are set up: see above for the agent, and brief it once it accepts input"
 fi

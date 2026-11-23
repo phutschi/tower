@@ -82,12 +82,15 @@ runner_self() {
 runner_workspace() { [ -n "$1" ] && echo "$1"; }
 # In workspace WS: a tower tab, the console (CONSOLE_CMD) over an empty
 # shell; the dev server, when given, in a tab of its own, running DEV_CMD in
-# REPO/DEV_DIR. Prints "<console> <shell> [<dev>]", then the tabs' pane map
-# lines.
+# REPO/DEV_DIR. Each starts in REPO: Orca opens a terminal in its workspace's
+# root, which may be a checkout REPO is nested in. Prints "<console> <shell>
+# [<dev>]", then the tabs' pane map lines. A failed call leaves its pane
+# empty, which fails the function.
 runner_open_run_panes() {
-  local ws="$1" repo="$2" console tab shell dev="" devtab=""
-  read -r console tab <<< "$(orca_new terminal create --worktree "id:$ws" --title tower --command "$3")" && [ -n "$console" ] || return 1
-  read -r shell _ <<< "$(orca_new terminal split --terminal "$console" --direction horizontal)" && [ -n "$shell" ] || return 1
+  local ws="$1" repo="$2" cd console tab shell dev="" devtab=""
+  cd="cd $(printf %q "$repo")"
+  read -r console tab <<< "$(orca_new terminal create --worktree "id:$ws" --title tower --command "$cd && $3")" && [ -n "$console" ] || return 1
+  read -r shell _ <<< "$(orca_new terminal split --terminal "$console" --direction horizontal --command "$cd")" && [ -n "$shell" ] || return 1
   if [ $# -ge 5 ]; then
     read -r dev devtab <<< "$(orca_new terminal create --worktree "id:$ws" --title dev --command "cd $(printf %q "$repo/$4") && $5")" && [ -n "$dev" ] || return 1
   fi
@@ -95,11 +98,11 @@ runner_open_run_panes() {
   printf '%-16s%s   (console over shell)\n' "tower tab:" "$tab"
   [ -z "$dev" ] || printf '%-16s%s\n' "dev tab:" "$devtab"
 }
-# Lane A's terminal in workspace WS (the user's checkout), a tab of its own.
-# Prints "<pane> <tab>".
+# Lane A's terminal in workspace WS, a tab of its own, started in REPO (the
+# user's checkout). Prints "<pane> <tab>".
 runner_open_lane_a() {
   local pane tab
-  read -r pane tab <<< "$(orca_new terminal create --worktree "id:$1" --title lane-a)" && [ -n "$pane" ] || return 1
+  read -r pane tab <<< "$(orca_new terminal create --worktree "id:$1" --title lane-a --command "cd $(printf %q "$2")")" && [ -n "$pane" ] || return 1
   echo "$pane $tab"
 }
 runner_read_cmd()    { echo "orca terminal read --terminal <id> --json"; }
