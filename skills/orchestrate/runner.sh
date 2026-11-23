@@ -27,7 +27,8 @@ need_runner() {
 # The runner functions, herdr's until need_runner says otherwise (each
 # runner-<runner>.sh documents them):
 #   runner_agent_start NAME KIND PANE -- HARNESS_ARGS...
-#   runner_agent_state NAME PANE   "<status> <ready>", gone or unreadable
+#   runner_agent_state NAME PANE   "<status> <ready>", gone or unreadable;
+#                                  gone: herdr, the agent is not found; Orca, its terminal is closed
 #   runner_agent_tail NAME PANE LINES
 #   runner_name                    the runner's name, for a message
 #   runner_ready_hint NAME         how a human sees NAME accept input

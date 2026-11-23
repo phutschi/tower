@@ -48,7 +48,8 @@
 # reviewer_for LANE_KIND [LANE_MODEL] (the Reviewer's kind and model; see below),
 # preflight_reviewer LANE_KIND [LANE_MODEL] (the same, for a preflight slot).
 # START_TRIES (default 10) is how often an agent start is tried, a second apart,
-# while herdr answers agent_pane_busy (a new pane's shell is not ready yet).
+# while herdr answers agent_pane_busy (a new pane's shell is not ready yet);
+# with Orca, how often the agent is read for a trust menu once its line is typed.
 # START_SETTLE_SECONDS (default 3) is how long a started agent is given before
 # it is read again; READY_WAIT_SECONDS (default 30) how many reads, about a
 # second apart, it then gets to accept input.

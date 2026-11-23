@@ -260,7 +260,7 @@ if section executor; then
   echo unlisted > "$S/term-1"
   out=$(ostart claude READY_WAIT_SECONDS=2)
   assert_match "orca: never ready: the start fails, saying so" "$out" 'acme-lane-a does not accept input in pane term-1 after 2 checks'
-  assert_match "orca: ... and how to see when it does, with orca" "$out" 'brief it once  orca agent list --json  shows it waiting'
+  assert_match "orca: ... and how to see when it does, with orca" "$out" 'brief it once  orca agent list --json  shows it waiting or done'
   assert_nomatch "orca: ... naming no herdr command" "$out" 'herdr'
   rm -f "$S"/term-*
   # A trust menu at start (the agent blocked, text-plus-Enter refused):
@@ -276,6 +276,12 @@ if section executor; then
   out=$(ostart codex)
   assert_nomatch "orca trust, codex: no Down" "$(cat "$ORCA_STUB_LOG")" 'B --json$'
   assert_match "orca trust, codex: Enter alone" "$(cat "$ORCA_STUB_LOG")" '^orca terminal send --terminal term-1 --enter --json$'
+  echo done > "$S/term-1"
+  out=$(ostart claude)
+  assert_match "orca: done (a finished turn) is ready for input" "$out" 'exit=0$'
+  echo gone > "$S/term-1"
+  out=$(ostart claude)
+  assert_match "orca: a closed terminal: the start fails with Orca's error" "$out" 'terminal_handle_stale'
   rm -f "$S"/term-*
   out=$(ostart claude CLAUDE_STUB=absent)
   assert_match "orca: claude not installed: the start fails" "$out" 'exit=1$'
@@ -2093,8 +2099,8 @@ if section watch; then
   assert_match "orca: waiting reads as idle, after the final report" "$out" '^attention: a idle-after-final-report'
   echo waiting > "$S/term-1"; printf 'thinking about it\n' > "$S/term-1.tail"; out=$(watch a)
   assert_match "orca: waiting without the end line: idle-unexplained" "$out" '^attention: a idle-unexplained'
-  echo done > "$S/term-1"; out=$(watch a)
-  assert_match "orca: done: attention"                "$out" '^attention: a done'
+  echo done > "$S/term-1"; printf '[[ALL DONE]]\n' > "$S/term-1.tail"; out=$(watch a)
+  assert_match "orca: done (a finished turn, Orca's resting state) reads as idle" "$out" '^attention: a idle-after-final-report'
   echo gone > "$S/term-1"; out=$(watch a)
   assert_match "orca: a closed terminal: gone"        "$out" '^attention: a gone'
   echo unreadable > "$S/term-1"; out=$(UNREADABLE_POLLS=2 watch a)
