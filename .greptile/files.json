@@ -30,7 +30,7 @@
     },
     {
       "path": "docs/adr/0005-harness-and-runner-neutral.md",
-      "description": "Harness and runner neutrality; orchestrate is the one herdr-only skill"
+      "description": "Harness and runner neutrality; orchestrate is the one skill that names a runner (herdr, Orca)"
     },
     {
       "path": "docs/adr/0010-reviewers-report-the-orchestrator-decides.md",

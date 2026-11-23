@@ -16,8 +16,9 @@ implements.
 2. `/tower:spec-to-plan <spec>` slices it into tasks, groups them into lanes
    with their merge points, and writes `plan.md`. It writes no code.
 3. `/tower:orchestrate <plan.md>`, from a pane in [herdr](https://herdr.dev)
-   (a terminal for running coding agents side by side), opens the run. Each
-   lane, up to four (A to D), gets an executor: Claude Code, Codex or Cursor
+   (a terminal for running coding agents side by side) or a chat in Orca (a
+   desktop app that runs coding agents in worktrees), opens the run. Each lane,
+   up to four (A to D), gets an executor: Claude Code, Codex or Cursor
    (`cursor-agent`). Lane A works in your checkout, lanes B to D each in a
    worktree. The executors implement and report each task to tower.
 4. A Reviewer, a fresh agent that wrote none of the lane, reviews each
@@ -36,9 +37,9 @@ read-only: it starts nothing and sends nothing, so closing it only makes you
 blind; the run goes on. The demo above is a scripted run, from the first task
 to the close. `NO_COLOR` is respected.
 
-## Without herdr
+## Without herdr or Orca
 
-`/tower:run` is a lighter orchestrator that needs no herdr. You start the
+`/tower:run` is a lighter orchestrator for runs outside both. You start the
 executor sessions yourself, in whatever tool you use; it briefs them, watches,
 and closes the run. It does not review, merge or open a PR. The skills use the
 open Agent Skills format. They are tested with Claude Code, and
@@ -74,8 +75,8 @@ On Linux, check with `sha256sum -c --ignore-missing SHA256SUMS` instead. Put
 
 **From a clone** (`git clone https://github.com/phutschi/tower`),
 `./install.sh` fetches and checks the release binary when tower is missing,
-installs the plugin, and links the skills for Codex. It needs herdr, git,
-python3 and node, and stops if one is missing.
+installs the plugin, and links the skills for Codex. It needs herdr or Orca,
+git, python3 and node, and stops if one is missing.
 
 **From git**, with Node ≥ 22.12 and nothing else:
 
@@ -99,8 +100,8 @@ cursor lanes).
 
 ## Docs
 
-- [docs/orchestrate.md](docs/orchestrate.md): a run in herdr, step by step,
-  and the switches.
+- [docs/orchestrate.md](docs/orchestrate.md): a run in herdr or Orca, step by
+  step, and the switches.
 - [docs/cli.md](docs/cli.md): the commands, the screen, how the record works.
 - [docs/agents.md](docs/agents.md): pointing your agents at tower.
 - [docs/plan-format.md](docs/plan-format.md),

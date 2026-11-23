@@ -8,7 +8,7 @@ that way.
 `src/` is the CLI. It observes and never acts, and it knows no harness and no
 runner. `skills/` is the plugin: `run` is the neutral orchestrator skill, and
 `orchestrate`, `spec-to-plan` and `preflight` are the orchestrate kit.
-`orchestrate` is the one skill that is openly herdr-only
+`orchestrate` is the one skill that names a runner, herdr or Orca
 ([ADR 0005](docs/adr/0005-harness-and-runner-neutral.md)). The kit is bash
 and markdown, and drives a run through the CLI.
 
@@ -17,8 +17,8 @@ and markdown, and drives a run through the CLI.
 To work on tower you need Bun, Node ≥ 22.12 (`bun install` builds `dist/` with
 Node) and jq (a test runs the tracker commands), and for the kit shellcheck, git
 and python3.
-Users need only git for the CLI; `/tower:orchestrate` also needs herdr,
-python3 and node.
+Users need only git for the CLI; `/tower:orchestrate` also needs herdr or
+Orca, python3 and node.
 
 ```sh
 bun install
@@ -44,8 +44,8 @@ shellcheck -S warning *.sh skills/*/*.sh skills/orchestrate/tests/stub/*
 - Actions in the CLI: starting, unblocking, messaging or re-briefing agents.
   tower observes; that boundary is the design. The acting lives in the
   skills.
-- A second runner for `/tower:orchestrate`. `/tower:run` covers every runner
-  that is not herdr; a new layout belongs in `docs/recipes/`.
+- A third runner for `/tower:orchestrate`. `/tower:run` covers every runner
+  that is not herdr or Orca; a new layout belongs in `docs/recipes/`.
 - A web UI, a server, a port.
 - Windows support, for now.
 

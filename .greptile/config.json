@@ -48,7 +48,7 @@
     },
     {
       "id": "harness-neutral",
-      "rule": "Nothing in src/, skills/run, skills/spec-to-plan or skills/preflight names a harness or a runner (herdr, tmux, a specific agent CLI) or depends on one (ADR 0005). Only skills/orchestrate may name herdr. Flag any new mention or dependency outside it.",
+      "rule": "Nothing in src/, skills/run, skills/spec-to-plan or skills/preflight names a harness or a runner (herdr, tmux, a specific agent CLI) or depends on one (ADR 0005). Only skills/orchestrate may name herdr or Orca. Flag any new mention or dependency outside it.",
       "scope": [
         "src/**",
         "skills/run/**",

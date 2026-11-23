@@ -44,8 +44,8 @@ board and exit 0 — never a hung terminal app.
 
 The agent (or person) running the loop uses the [orchestrator
 skill](../skills/run/SKILL.md), `/tower:run`, which is harness-neutral. Inside
-herdr, `/tower:orchestrate` runs the whole loop instead, from the layout to
-the pull request ([docs/orchestrate.md](orchestrate.md)). The loop:
+herdr or Orca, `/tower:orchestrate` runs the whole loop instead, from the
+layout to the pull request ([docs/orchestrate.md](orchestrate.md)). The loop:
 
 ```
 tower init --plan <plan> --lane A=… --lane B=…

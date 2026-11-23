@@ -3,7 +3,7 @@
 tower is a control tower for long agent implementation runs. Two halves:
 
 - `src/` is the CLI, in TypeScript, built for Node ≥ 22.12. It keeps the record of a run (`events.ndjson`, `run.json`) and shows it. It observes and never acts (ADR 0003), and it names no harness or runner (ADR 0005).
-- `skills/` is the plugin: agent skills in markdown with bash scripts. `run` is the neutral orchestrator skill. `orchestrate`, `spec-to-plan` and `preflight` are the orchestrate kit, and `orchestrate` is the one herdr-only skill.
+- `skills/` is the plugin: agent skills in markdown with bash scripts. `run` is the neutral orchestrator skill. `orchestrate`, `spec-to-plan` and `preflight` are the orchestrate kit, and `orchestrate` is the one skill that names a runner (herdr, Orca).
 
 Vocabulary is in `CONTEXT.md`: use its terms (Run, Lane, Orchestrator, Executor, Reviewer, Record, Event, Brief, Finding, Preflight). A new term in a PR belongs in the glossary.
 
@@ -13,7 +13,7 @@ What is trusted, so not a finding by itself:
 
 - Sourcing the repo contract (`.orchestrate`) and the user contract (`~/.config/tower/orchestrate`), and running their command fields (CHECK_CMD, INSTALL_CMD, `pane`, `suite`, NOTIFY), with `eval` where the kit does. Both are shell files their owner writes, the same trust as a Makefile. Flag new code that runs values from anywhere else.
 - Writing the run pointer into the git common dir (`<git common dir>/tower-run`, ADR 0006). It is the one place every worktree agrees on.
-- The kit driving local agent CLIs and herdr. That is its job; the CLI in `src/` never does it.
+- The kit driving local agent CLIs, herdr and Orca. That is its job; the CLI in `src/` never does it.
 
 What is untrusted and must stay data: plan and task text, branch names, PR and issue titles and bodies, Reviewer findings JSON, anything read back from GitHub, and file contents of the repo under review. The orchestrator pastes some of these into prompts and commands, so quoting, `jq --arg` and argument passing matter.
 

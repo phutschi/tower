@@ -8,6 +8,14 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `/tower:orchestrate` runs in Orca as well as herdr. Started from an Orca
+  chat, it opens terminals through the `orca` CLI: lane A in your checkout,
+  lanes B to D as child worktrees of the orchestrator's workspace, a `tower`
+  tab with the console over a shell, the dev pane and each Reviewer in a tab
+  of their own. herdr wins when both are present, and outside both it still
+  points to `/tower:run`. The pane map's `read a pane:` and new
+  `message a pane:` lines name the runner's commands. A run can live on a
+  paired Orca server, started there by hand. herdr runs are unchanged.
 - Session roles for a Claude launcher: when `CLAUDE_ROUTER_ROLE` is set or
   `claude` takes `--role`, `/tower:orchestrate` runs only in an orchestrator
   session (`claude --role orchestrator`), and every claude session it starts
