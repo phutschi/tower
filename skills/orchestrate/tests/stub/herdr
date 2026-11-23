@@ -42,7 +42,7 @@
 # HERDR_STUB=absent refuses to run, so herdr counts as not installed; it logs
 # each refused call as "herdr-absent <argv>".
 [ "${HERDR_STUB:-}" = absent ] && { printf 'herdr-absent %s\n' "$*" >> "${HERDR_STUB_LOG:-/dev/null}"; echo "herdr: not installed (stub)" >&2; exit 127; }
-# --version is in_herdr's probe (common.sh); it acts on nothing, so it is not
+# --version is runner_detect's probe (runner.sh); it acts on nothing, so it is not
 # logged.
 [ "${1:-}" = --version ] && { echo "herdr 0.0.0 (stub)"; exit 0; }
 printf 'herdr %s\n' "$*" >> "${HERDR_STUB_LOG:-/dev/null}"

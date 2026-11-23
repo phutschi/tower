@@ -89,7 +89,7 @@ mkdir -p "$HERDR_STUB_STATES_DIR"
 # DRY_RUN PATH shim. If a stub is missing, not executable, or shadowed by
 # something earlier on PATH, refuse outright rather than risk a script under
 # test touching the real herdr or tower (this happened once: HERDR_ENV=1 is
-# inherited from the orchestrating pane, so `in_herdr` alone does not stop a
+# inherited from the orchestrating pane, so `need_runner` alone does not stop a
 # script run outside test.sh and outside DRY_RUN=1 from driving real panes).
 for _tool in herdr tower claude codex semgrep gitleaks cursor-agent; do
   _which=$(bash -c ". \"$KIT/common.sh\"; command -v $_tool" 2>/dev/null || true)
@@ -176,7 +176,7 @@ if section common; then
   assert_nomatch "need_runner: outside both it stops the script" "$out" "^after$"
   for s in bootstrap add-lane add-reviewer watch-lanes; do
     assert_match "$s.sh: outside both it refuses, naming herdr, Orca and /tower:run" "$(HERDR_ENV=0 "$KIT/$s.sh" 2>&1)" "needs herdr.*Orca.*/tower:run"
-    assert_eq "$s.sh: in Orca it passes the runner check" "$(env PATH="$TMP/orca-bin:$PATH" ORCA_CLI_COMMAND=orca HERDR_ENV=0 "$KIT/$s.sh" 2>&1 | grep -cE 'needs herdr|not reachable')" 0
+    assert_match "$s.sh: in Orca it passes the runner check" "$(env PATH="$TMP/orca-bin:$PATH" ORCA_CLI_COMMAND=orca HERDR_ENV=0 "$KIT/$s.sh" 2>&1)" '^usage: '
   done
   assert_match "DRY_RUN puts the stubs on PATH"  "$(in_kit 'command -v herdr')" "tests/stub/herdr$"
   reset_stub
