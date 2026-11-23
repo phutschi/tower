@@ -170,10 +170,34 @@ ${quote(issue.body)}
       return run;
     };
 
-    const writeSpec = (spec: string) =>
-      retry(
-        () =>
-          gh(
+    /**
+     * Writes the spec to the issue, unless the person moved it on from
+     * shaping first: their move wins. Checked before each try but a first
+     * one straight after the session (`checked`). Whether it wrote.
+     */
+    const writeSpec = async (spec: string, checked: boolean) => {
+      let moved = false;
+      await retry(
+        async () => {
+          if (!checked) {
+            const { labels } = JSON.parse(
+              await gh([
+                "issue",
+                "view",
+                String(number),
+                "--repo",
+                job.repo,
+                "--json",
+                "labels",
+              ]),
+            ) as { labels: { name: string }[] };
+            if (!labels.some((l) => l.name === "shaping")) {
+              moved = true;
+              return "";
+            }
+          }
+          checked = false;
+          return gh(
             [
               "issue",
               "edit",
@@ -188,18 +212,23 @@ ${quote(issue.body)}
               "shaping",
             ],
             spec,
-          ),
+          );
+        },
         signal,
         RETRY,
       );
+      return !moved;
+    };
+    const movedOn = {
+      outcome: "stopped" as const,
+      reason: "moved on by the person",
+    };
 
     // A failure after a session ran keeps its session id.
     try {
       // An earlier claim finished the spec: only its write to GitHub is left.
-      if (typeof kept === "string") {
-        await writeSpec(kept);
-        return { outcome: "done" };
-      }
+      if (typeof kept === "string")
+        return (await writeSpec(kept, false)) ? { outcome: "done" } : movedOn;
       let run: HeadlessRun | null = null;
       if (!last) run = await turn(opening);
       else if (last.kind === "replied")
@@ -222,8 +251,9 @@ ${quote(issue.body)}
           if (typeof answer?.spec === "string" && answer.spec.trim()) {
             // Kept on the hub first, so a GitHub that stays down loses no spec.
             await checkpoint("spec", { spec: answer.spec });
-            await writeSpec(answer.spec);
-            return { outcome: "done", ...ran };
+            return (await writeSpec(answer.spec, true))
+              ? { outcome: "done", ...ran }
+              : { ...movedOn, ...ran };
           }
           if (
             typeof answer?.questions === "string" &&

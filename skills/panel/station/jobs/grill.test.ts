@@ -326,6 +326,28 @@ test("a grill stopped while it retries its GitHub write writes nothing more", as
   expect(existsSync(join(dir(), "acme_widgets_5.body"))).toBe(false);
 });
 
+test("a grill whose spec write fails stops without writing once the person moves the issue on", async () => {
+  // A slow poll makes the retry's wait long enough to move the issue in.
+  await grill({
+    PANEL_GRILL_POLL_MS: "2500",
+    CLAUDE_STUB_OUT: session("spec.out", "sess-1", SPEC),
+    CLAUDE_STUB_RUN: `printf edit > '${join(dir(), "fail")}'`,
+  });
+  const specWrites = () =>
+    ghLog().filter((l) => l.includes("--body-file")).length;
+  await until(async () => specWrites() > 0, 10_000);
+  // The person's move goes through gh too.
+  rmSync(join(dir(), "fail"));
+  await post("/api/issues/acme/widgets/5/stage", { stage: "ready-for-agent" });
+  await until(async () => (await job()).state === "stopped", 10_000);
+  expect(await job()).toMatchObject({
+    reason: "moved on by the person",
+    sessionId: "sess-1",
+  });
+  expect(specWrites()).toBe(1);
+  expect(existsSync(join(dir(), "acme_widgets_5.body"))).toBe(false);
+});
+
 test("a grill stopped by a move back says why, and keeps its tokens", async () => {
   await grill({ CLAUDE_STUB_OUT: session("q.out", "sess-1", QUESTIONS, 100) });
   await until(async () => reads() > 0);
