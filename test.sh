@@ -324,6 +324,11 @@ if section executor; then
   out=$(ostart codex)
   assert_match "orca trust, not listed yet: the start goes on" "$out" 'exit=0$'
   assert_match "orca trust, not listed yet: answered with Enter alone" "$(cat "$ORCA_STUB_LOG")" '^orca terminal send --terminal term-1 --enter --json$'
+  # launch_line prints a start's command for a person: its words split back
+  # into the same arguments, TOML quotes and all.
+  ll=$(cd "$r" && env HOME="$TMP/rev-home" EXECUTOR_KIND=codex EXECUTOR_MODEL=gpt-6-astra RUN_DIR="$TMP/run x" AGENT_TMP="$TMP/t \"q\"" bash -c '. "$KIT/common.sh"; need_runner; . "$KIT/executor.sh"; launch_line' 2>&1)
+  assert_eq "launch_line: the CLI and model first" "$(eval "set -- $ll"; echo "$1 $2 $3")" "codex -m gpt-6-astra"
+  assert_match "launch_line: a grant with a space and quotes survives the round trip" "$(eval "set -- $ll"; printf '%s\n' "$@")" "^shell_environment_policy.set.TMPDIR=\"$TMP/t \\\\\"q\\\\\"\"\$"
   # The start's return code says what was sent: 3, Orca refused the launch
   # line (nothing typed); 4, Orca took it without a receipt (unknown); any
   # other failure, it may have been typed.
@@ -873,7 +878,13 @@ if section add-lane; then
   assert_match "orca B rerun, a stale handle: fails" "$out" 'exit=1$'
   assert_match "orca B rerun, a stale handle: asks to rebind it" "$out" "Orca says lane B's terminal handle $bpane is stale: it may still be open under a new handle\\. Find lane B's terminal in Orca, put its handle on lane B's line in $RUN/panes.txt, then rerun"
   assert_nomatch "orca B rerun, a stale handle: no removal advised" "$out" 'remove'
-  assert_match "orca B rerun, a stale handle: if it was closed, how to restart the agent by hand, with its model and grants" "$out" "if Orca has no such terminal, it was closed: open a terminal in /orca-stub/worktrees/wt-4, start the agent there with  cd /orca-stub/worktrees/wt-4 && claude --model [^ ]+ *, put that terminal's handle on lane B's line"
+  # Its restart command, only when the lane's line and checkout are checked:
+  # the fake's worktree is not on disk, so the default text.
+  assert_match "orca B rerun, a stale handle, its checkout unchecked: the default text" "$out" "if Orca has no such terminal, it was closed: open one where it worked and put that handle there"
+  assert_nomatch "orca B rerun, a stale handle, its checkout unchecked: no restart command" "$out" 'start the agent there with'
+  # A lane whose checkout git names (lane D, made real below): the command,
+  # whose words split back into the CLI with its model.
+
   assert_nomatch "orca B rerun, a stale handle: nothing created or started" "$(cat "$ORCA_STUB_LOG")" '^orca (worktree create|terminal create|terminal send) '
   rm -f "$ORCA_STUB_STATES_DIR/$bpane"
   # A worktree create that fails, or answers with no worktree: refused,
@@ -926,6 +937,14 @@ if section add-lane; then
   assert_eq "orca D rerun: its agent typed once, in the same terminal" "$(grep -c "^orca terminal send --terminal $dpane --text claude " "$ORCA_STUB_LOG")" 1
   assert_nomatch "orca D rerun: no new worktree or terminal" "$(cat "$ORCA_STUB_LOG")" '^orca (worktree create|terminal create) '
   assert_match "orca D rerun: the line is a started lane" "$(cat "$RUN/panes.txt")" '^lane D: .*, tab lanes\)$'
+  echo gone > "$ORCA_STUB_STATES_DIR/$dpane"
+  out=$(lane D feat/d2 main 5; echo "exit=$?")
+  cmd=$(echo "$out" | sed -nE 's/.*start the agent there with  cd [^&]+ && (.*), put that terminal.*/\1/p')
+  assert_match "orca D, its terminal closed: how to restart its agent by hand" "$out" "it was closed: open a terminal in .*, start the agent there with  cd .* && claude --model "
+  assert_eq "orca D, ... the command's words split back into the CLI and its model" "$(eval "set -- $cmd"; echo "$1 $2")" "claude --model"
+  out=$(EXECUTOR_KIND=codex lane D feat/d2 main 5; echo "exit=$?")
+  assert_nomatch "orca D, a rerun of another kind: no restart command" "$out" 'start the agent there with'
+  rm -f "$ORCA_STUB_STATES_DIR/$dpane"
   # A branch Orca's answer leaves unread: nothing is named for removal (it may
   # be another process's); the worktree is named for a look, one argument.
   : > "$ORCA_STUB_LOG"; out=$(ORCA_STUB_WORKTREE_FAIL=nobranch ORCA_STUB_WORKTREES="/orca-stub/team repo" lane C feat/c4 main 4; echo "exit=$?")

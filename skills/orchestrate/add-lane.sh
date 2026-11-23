@@ -176,7 +176,8 @@ check_rerun() {
         [ "$3" != "unplaced line" ] \
           || die "lane $LANE's pane $2 is gone ($(runner_pane_check)), or was moved without its new id recorded: look for $WT in the grid; if a pane has it, turn  unplaced lane $LANE: $2  in $MAP into  lane $LANE: <that pane's id>  (the rest as it is) and rerun, else remove the unplaced line from $MAP and the worktree $WT, then add the lane again"
         die "lane $LANE's pane $2 is gone ($(runner_pane_check)): remove its $3 from $MAP and the worktree $WT, then add the lane again" ;;
-      3) stale_handle "lane $LANE" "$2" "its $3" "$(restart_by_hand)"; exit 1 ;;
+      3) [ "$3" = line ] || { stale_handle "lane $LANE" "$2" "its $3"; exit 1; }
+         stale_handle "lane $LANE" "$2" "its $3" "$(restart_by_hand)"; exit 1 ;;
       *) die "$(runner_name) cannot say whether lane $LANE's pane $2 is open; rerun once $(runner_name) answers ($(runner_name): ${err:-no output})" ;;
     esac
   fi
@@ -218,10 +219,17 @@ set_lane_line() {
   mv "$tmp" "$MAP"
 }
 RERUN="$KIT/add-lane.sh $RUN_DIR $LANE $BRANCH $BASE $TASKS"
-# For a lane whose terminal was closed: how to start its agent again by hand,
-# with the model and grants a start gives it (executor.sh launch_line).
+# For a placed lane whose terminal was closed: how to start its agent again
+# by hand, with the model and grants a start gives it (executor.sh
+# launch_line). Only when the lane's line is this call's (kind, model) and
+# git names its checkout: the map is lane-writable. Otherwise nothing, and
+# stale_handle says its default.
 restart_by_hand() {
-  echo "open a terminal in $WT, start the agent there with  cd $(printf %q "$WT") && $(launch_line) , put that terminal's handle on lane $LANE's line in $MAP, and brief it with send-brief.sh (no rerun)"
+  local line
+  [ "$(grep -E "^lane $LANE: " "$MAP")" = "$(lane_line "$PANE")${STARTING:-}" ] || return 0
+  [ -d "$WT" ] && [ "$(branch_worktree)" = "$(cd "$WT" && pwd -P)" ] || return 0
+  line=$(launch_line 2>/dev/null) || return 0
+  echo "open a terminal in $WT, start the agent there with  cd $(printf %q "$WT") && $line, put that terminal's handle on lane $LANE's line in $MAP, and brief it with send-brief.sh (no rerun)"
 }
 STARTED_AGAIN="started again"
 # Starts the lane's agent in $PANE, or dies saying how to resume. A launch the
