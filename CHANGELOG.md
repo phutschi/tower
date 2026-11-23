@@ -18,8 +18,9 @@ All notable changes to this project are documented here. The format follows
   a tab of their own. herdr wins when both are present, and outside both it
   still points to `/tower:run`. The pane map's `read a pane:` line names the
   runner's command, and the orchestrator sends every brief with the new
-  `send-brief.sh`, which runs nothing from the pane map (a lane can write it). A run can live on a
-  paired Orca server, started there by hand. herdr runs are unchanged.
+  `send-brief.sh`, which runs nothing from the pane map (a lane can write
+  it). A run can live on a paired Orca server, started there by hand. herdr
+  runs are unchanged.
 - Session roles for a Claude launcher: when `CLAUDE_ROUTER_ROLE` is set or
   `claude` takes `--role`, `/tower:orchestrate` runs only in an orchestrator
   session (`claude --role orchestrator`), and every claude session it starts
