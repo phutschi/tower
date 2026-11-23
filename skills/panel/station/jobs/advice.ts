@@ -38,7 +38,7 @@ async function latestCommits(repo: string): Promise<string[]> {
 
 registerJobRunner(
   "advice",
-  async ({ job, hubUrl, workspace, emit, signal }) => {
+  async ({ job, hubUrl, workspace, emit, checkpoint, signal }) => {
     const res = await fetch(`${hubUrl}/api/issues`);
     if (!res.ok) throw new Error(`the hub refused its issues: ${res.status}`);
     const open = ((await res.json()) as PanelIssue[])
@@ -105,7 +105,8 @@ ${data(merges)}
         reason: `malformed proposal: ${dropped[0]}`,
         ...ran,
       };
-    await emit("proposal", { ...proposal });
+    // Stored on the hub before the note points the person to it.
+    await checkpoint("proposal", { ...proposal });
     const parts = proposal.order.length + proposal.bundles.length;
     try {
       // The key makes a note that got through and is sent again post once.
