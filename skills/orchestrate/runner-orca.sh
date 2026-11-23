@@ -10,8 +10,10 @@ orca_cli() { case "$1" in cursor) echo cursor-agent ;; *) echo "$1" ;; esac; }
 # NAME's agent CLI of KIND, started in terminal PANE with HARNESS_ARGS: its
 # command line typed into the terminal's shell. Orca's error, if any, is
 # printed. It then reads the agent until Orca lists it as working, waiting or
-# done (START_TRIES reads, a second apart): one blocked shows a trust menu, said as herdr says
-# it ("agent blocked during startup"), for executor.sh to answer.
+# done (START_TRIES reads, a second apart). One blocked on the workspace trust
+# menu, its terminal showing it, is said as herdr says it ("agent blocked
+# during startup"), for executor.sh to answer; blocked on any other prompt, it
+# fails, the prompt left for the operator.
 runner_agent_start() {
   local name="$1" kind="$2" pane="$3" line out tries=0; shift 4
   # A missing CLI would leave a shell saying "command not found" (executor.sh kind_installed).
@@ -20,7 +22,13 @@ runner_agent_start() {
   out=$(orca terminal send --terminal "$pane" --text "$line" --enter --json) || { echo "$out" >&2; return 1; }
   while :; do
     case "$(runner_agent_state "$name" "$pane")" in
-      blocked*) echo "agent blocked during startup" >&2; return 1 ;;
+      blocked*)
+        if runner_agent_tail "$name" "$pane" 40 2>/dev/null | grep -qiE 'trust (this|the files in this) folder|trust the contents of this directory'; then
+          echo "agent blocked during startup" >&2
+        else
+          echo "agent start: $name is blocked on a prompt in terminal $pane that is not the workspace trust menu: answer it there, then brief it" >&2
+        fi
+        return 1 ;;
       *" True"|gone|unreadable) return 0 ;;   # until_ready decides
     esac
     tries=$((tries+1)); [ "$tries" -lt "${START_TRIES:-10}" ] || return 0

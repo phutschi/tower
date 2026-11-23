@@ -19,7 +19,9 @@
 # agent_prompt_blocked, and an Enter sent alone answers the menu, dropping
 # the line). With no file, the agent is working. With several lines, each call
 # that reports the state answers the first and drops it; the last one stays.
-# `terminal read` answers ORCA_STUB_STATES_DIR/<handle>.tail as its tail.
+# `terminal read` answers ORCA_STUB_STATES_DIR/<handle>.tail as its tail;
+# without one, a trust menu's tail shows the workspace trust prompt (a plain
+# blocked is any other prompt).
 # `terminal wait --for tui-idle` is satisfied by waiting, done or
 # unlisted-idle, and answers timeout otherwise. `terminal close` makes the
 # terminal gone.
@@ -100,6 +102,7 @@ case "${1:-} ${2:-}" in
   "terminal read")
     h=$(flag terminal); live "$h"
     tail=$([ -n "$states" ] && [ -f "$states/$h.tail" ] && python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().splitlines()))' < "$states/$h.tail") || tail='[]'
+    [ "$(peek "$h")" != trust ] || [ "$tail" != '[]' ] || tail='["Do you trust the files in this folder?", " 1. No, exit", " 2. Yes, I trust this folder"]'
     ok "{\"terminal\":{\"handle\":\"$h\",\"status\":\"running\",\"tail\":$tail}}" ;;
   "terminal wait")
     h=$(flag terminal); live "$h"
