@@ -802,6 +802,12 @@ if section bootstrap; then
     assert_nomatch "lane A unreadable: not told to brief it once it accepts input" "$out" 'brief it once it accepts input'
     assert_nomatch "lane A unreadable: not told to rerun once herdr answers" "$out" 'rerun once herdr answers'
   fi
+  # Lane A's kind not installed: refused before tower init, naming its CLI.
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-nokind-${RUNNER:-herdr}"; reset_stub
+  out=$(cd "$r" && EXECUTOR_KIND=cursor CURSOR_STUB=absent "$KIT/bootstrap.sh" "$RUN" "No kind" main 2>&1; echo "exit=$?")
+  assert_match "lane A's kind not installed: refused" "$out" 'exit=1$'
+  assert_match "lane A's kind not installed: ... naming its CLI" "$out" "bootstrap: lane A's kind cursor runs as cursor-agent, which is not installed: install it, or set EXECUTOR_KIND to another kind"
+  assert_eq "lane A's kind not installed: no run dir" "$([ -e "$RUN" ] && echo made || echo none)" none
 fi
 
 # --- add-lane ----------------------------------------------------------------
@@ -1226,6 +1232,16 @@ if section add-lane; then
     reset_stub; out=$(cd "$r" && HERDR_STUB_WORKTREE_FAIL=garbled "$KIT/add-lane.sh" "$RUNW" B feat/b main 2,3 2>&1; echo "exit=$?")
     assert_match "worktree create answered without a pane: says to close it too" "$out" "herdr created .*/\.worktrees/feat/b but its answer names no pane: close the pane labelled bun-vitest-lane-b, remove .*/\.worktrees/feat/b and branch feat/b, then rerun "
   fi
+  # A lane whose kind is not installed: refused before tower assign and the
+  # worktree, naming its CLI.
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-nokind-lane-${RUNNER:-herdr}"; reset_stub
+  (cd "$r" && "$KIT/bootstrap.sh" "$RUN" "No kind lane" main "$KIT/example-tasks.tsv" >/dev/null 2>&1)
+  : > "$HERDR_STUB_LOG"; : > "$ORCA_STUB_LOG"
+  out=$(cd "$r" && EXECUTOR_KIND=codex CODEX_STUB=absent "$KIT/add-lane.sh" "$RUN" B feat/b main 2,3 2>&1; echo "exit=$?")
+  assert_match "a lane's kind not installed: refused" "$out" 'exit=1$'
+  assert_match "a lane's kind not installed: ... naming its CLI" "$out" "add-lane: lane B's kind codex runs as codex, which is not installed: install it, or set EXECUTOR_KIND to another kind"
+  assert_eq "a lane's kind not installed: no lane B on the board" "$(board "$RUN" '"B" in d["lanes"]')" False
+  assert_nomatch "a lane's kind not installed: no worktree" "$(cat "$HERDR_STUB_LOG" "$ORCA_STUB_LOG")" '(herdr|orca) worktree create'
 fi
 
 # --- add-reviewer ------------------------------------------------------------

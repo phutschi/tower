@@ -4,9 +4,6 @@
 # Every call takes --json; an error is {"ok":false,"error":{"code":…}} on
 # stdout with a non-zero exit, and the code decides, never the wording.
 
-# The CLI a kind runs as (CONTEXT.md Kind).
-orca_cli() { case "$1" in cursor) echo cursor-agent ;; *) echo "$1" ;; esac; }
-
 # NAME's agent CLI of KIND, started in terminal PANE with HARNESS_ARGS: its
 # command line typed into the terminal's shell. Orca's error, if any, is
 # printed. It then reads the agent until Orca lists it as working, waiting or
@@ -17,8 +14,8 @@ orca_cli() { case "$1" in cursor) echo cursor-agent ;; *) echo "$1" ;; esac; }
 runner_agent_start() {
   local name="$1" kind="$2" pane="$3" line out tries=0; shift 4
   # A missing CLI would leave a shell saying "command not found" (executor.sh kind_installed).
-  kind_installed "$kind" || { echo "agent start: $(orca_cli "$kind") is not installed: install it, or use another kind" >&2; return 1; }
-  line=$(printf '%q ' "$(orca_cli "$kind")" "$@"); line=${line% }
+  kind_installed "$kind" || { echo "agent start: $(kind_cli "$kind") is not installed: install it, or use another kind" >&2; return 1; }
+  line=$(printf '%q ' "$(kind_cli "$kind")" "$@"); line=${line% }
   out=$(orca terminal send --terminal "$pane" --text "$line" --enter --json) || { echo "$out" >&2; return 1; }
   while :; do
     case "$(runner_agent_state "$name" "$pane")" in

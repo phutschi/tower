@@ -156,6 +156,7 @@ need_tower
 
 . "$KIT/detect-stack.sh"  # PM, CHECK_CMD, PANE_*, INSTALL_CMD, and .orchestrate's EXECUTOR_*/reviewer models
 . "$KIT/executor.sh"      # EXECUTOR_KIND, EXECUTOR_MODEL, agent_name, start_agent*
+need_kind "bootstrap: lane A" "$EXECUTOR_KIND"
 [ -n "${SPEC_REVIEWER_MODEL:-}" ] || SPEC_REVIEWER_MODEL=$(kind_default SPEC_REVIEWER_MODEL "$EXECUTOR_KIND")
 [ -n "${QUALITY_REVIEWER_MODEL:-}" ] || QUALITY_REVIEWER_MODEL=$(kind_default QUALITY_REVIEWER_MODEL "$EXECUTOR_KIND")
 STALE="${STALE:-30}"

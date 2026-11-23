@@ -44,7 +44,8 @@
 # Expects `set -u`; provides agent_name SUFFIX, start_agent NAME PANE,
 # start_agent_with_trust_retry NAME PANE (it returns once the agent accepts
 # input; one that exits right after its start is started once more, then the
-# start fails), kind_installed KIND and
+# start fails), kind_installed KIND, kind_cli KIND (the CLI it runs as),
+# need_kind WHO KIND (dies naming that CLI when it is not installed) and
 # reviewer_for LANE_KIND [LANE_MODEL] (the Reviewer's kind and model; see below),
 # preflight_reviewer LANE_KIND [LANE_MODEL] (the same, for a preflight slot).
 # START_TRIES (default 10) is how often an agent start is tried, a second apart,
@@ -301,8 +302,13 @@ start_answering_trust() {
 # under a second; keep the probe that cheap (macOS has no timeout(1)). cursor's
 # CLI is cursor-agent (a plain cursor may be the editor).
 kind_installed() {
-  local c=$1; [ "$c" != cursor ] || c=cursor-agent
+  local c; c=$(kind_cli "$1")
   command -v "$c" >/dev/null && "$c" --version </dev/null >/dev/null 2>&1
+}
+kind_cli() { case "$1" in cursor) echo cursor-agent ;; *) echo "$1" ;; esac; }   # the CLI KIND runs as
+# Dies saying which CLI is missing when WHO's kind KIND is not installed.
+need_kind() {  # WHO KIND
+  kind_installed "$2" || die "$1's kind $2 runs as $(kind_cli "$2"), which is not installed: install it, or set EXECUTOR_KIND to another kind"
 }
 
 # The kinds that may review a lane of LANE_KIND, in order, one per line:

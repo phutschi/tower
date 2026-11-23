@@ -109,6 +109,7 @@ _here="$PWD"; cd "$REPO_ROOT"
 CONTRACT_RUN="$RUN_DIR" . "$KIT/detect-stack.sh"   # the run's pinned contract: INSTALL_CMD, .orchestrate's EXECUTOR_* (the environment wins); refuses a bad run switch
 cd "$_here"; unset _here
 . "$KIT/executor.sh"       # EXECUTOR_KIND, EXECUTOR_MODEL, agent_name, start_agent*
+need_kind "add-lane: lane $LANE" "$EXECUTOR_KIND"
 NAME="$(agent_name "-lane-$(echo "$LANE" | tr 'A-Z' 'a-z')")"
 # Session roles (roles.sh), when the pane map says the run has them: the role
 # the lane's tasks name (<run-dir>/roles.tsv), code when none does, refused
