@@ -551,7 +551,9 @@ test("the Panel groups issues by issue area, with ungrouped issues in their own 
   expect(group("parser")).not.toContain("acme/widgets#2");
   expect(group("billing")).toContain("acme/widgets#2");
   expect(group("")).toContain("acme/widgets#4");
-  expect(html).toContain('<a href="/?group=area">issue area</a>');
+  expect(html).toContain(
+    '<a href="/?group=area" aria-current="page">issue area</a>',
+  );
 });
 
 test("the hub listens on a Tailscale or loopback address only: it is reached on the tailnet", async () => {

@@ -72,8 +72,13 @@ test("a stuck issue and one that waits on another are marked on their card", () 
   expect(html).toContain("1 stuck");
 });
 
-test("the group the page shows is marked in its nav", () => {
-  expect(renderPanel(data({ group: "area" }))).toContain(
-    '<nav class="groups g-area"',
+test("the group the page shows is its nav's current page", () => {
+  const html = renderPanel(data({ group: "area" }));
+  expect(html).toContain(
+    '<a href="/?group=area" aria-current="page">issue area</a>',
+  );
+  expect(html.match(/aria-current="page"/g)).toHaveLength(1);
+  expect(renderPanel(data())).toContain(
+    '<a href="/" aria-current="page">stage</a>',
   );
 });

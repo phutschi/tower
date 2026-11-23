@@ -65,7 +65,7 @@ function card(i: PanelIssue, reasons: PanelData["stuckReasons"]): string {
 
 /** A section's heading: its name and how many issues it holds. */
 const head = (name: string, n: number) =>
-  `${esc(name)} <span class="count">${n}</span>`;
+  `<span class="name">${esc(name)}</span> <span class="count">${n}</span>`;
 
 function stageSection(
   stage: string,
@@ -238,7 +238,8 @@ function jobList(jobs: PanelData["jobs"]): string {
 
 // Dark by default: ink surfaces, warm text, one brass accent. Each state has
 // its own colour, the same wherever it shows: stuck coral, waiting lavender,
-// running blue, done green. Every text colour passes WCAG AA on its surface.
+// running blue, done green. Every text colour passes WCAG AA on its surface,
+// and control borders reach 3:1 against it.
 const STYLE = `
 :root {
   color-scheme: dark;
@@ -248,6 +249,7 @@ const STYLE = `
   --field: #0f1318;
   --line: #232a33;
   --line-strong: #343d48;
+  --control-line: #5f6b78;
   --track: #262e38;
   --text: #e7e3da;
   --muted: #9ba5b0;
@@ -341,9 +343,7 @@ h1::before {
   font-weight: 500;
 }
 .groups a:hover { color: var(--text); }
-.g-stage a[href="/"],
-.g-bundle a[href="/?group=bundle"],
-.g-area a[href="/?group=area"] {
+.groups a[aria-current] {
   background: var(--surface-2);
   color: var(--text);
   box-shadow: inset 0 0 0 1px var(--line-strong);
@@ -369,7 +369,9 @@ h2 {
   letter-spacing: .08em;
   text-transform: uppercase;
   color: var(--muted);
+  overflow-wrap: anywhere;
 }
+h2 .name { min-width: 0; overflow-wrap: anywhere; }
 .count {
   min-width: 1.5rem;
   padding: 0 .45rem;
@@ -442,7 +444,7 @@ select, input:not([type="checkbox"]), button { min-height: var(--tap); border-ra
 select, input:not([type="checkbox"]) {
   padding: .5rem .75rem;
   background-color: var(--field);
-  border: 1px solid var(--line-strong);
+  border: 1px solid var(--control-line);
 }
 select {
   -webkit-appearance: none;
@@ -460,7 +462,7 @@ input::placeholder { color: var(--faint); }
 button {
   padding: .5rem 1rem;
   background: var(--surface-2);
-  border: 1px solid var(--line-strong);
+  border: 1px solid var(--control-line);
   font-weight: 550;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
@@ -537,7 +539,7 @@ button.quiet { background: transparent; color: var(--muted); }
   height: 1.6rem;
   border-radius: 999px;
   background: var(--track);
-  box-shadow: inset 0 0 0 1px var(--line-strong);
+  box-shadow: inset 0 0 0 1px var(--control-line);
   cursor: pointer;
   transition: background-color .15s;
 }
@@ -555,7 +557,7 @@ button.quiet { background: transparent; color: var(--muted); }
 .switch input:checked { background: var(--go-bg); box-shadow: inset 0 0 0 1px var(--go); }
 .switch input:checked::before { transform: translateX(1.15rem); background: var(--go); }
 .cap { display: flex; align-items: center; gap: .5rem; font-size: .875rem; color: var(--muted); }
-.cap input { width: 4.5rem; text-align: center; color: var(--text); font-variant-numeric: tabular-nums; }
+.cap input { width: 4.5rem; font-size: 1rem; text-align: center; color: var(--text); font-variant-numeric: tabular-nums; }
 .busy { grid-column: 1 / -1; font-size: .875rem; color: var(--run); }
 .busy.idle { color: var(--muted); }
 
@@ -666,6 +668,19 @@ document.querySelectorAll("[data-events]").forEach((d) => d.addEventListener("to
 document.querySelector("[data-list]")?.addEventListener("submit", (e) => { e.preventDefault(); call("/api/repos", "POST", { repo: e.target.repo.value }); });
 `;
 
+const GROUPS = [
+  ["stage", "/", "stage"],
+  ["bundle", "/?group=bundle", "bundle"],
+  ["area", "/?group=area", "issue area"],
+] as const;
+
+/** The ways to group the issues; the one shown is the current page. */
+const groupLinks = (group: PanelData["group"]) =>
+  GROUPS.map(
+    ([g, href, label]) =>
+      `<a href="${href}"${g === group ? ' aria-current="page"' : ""}>${label}</a>`,
+  ).join(" ");
+
 /** The page's header: what needs a look, before any section. */
 function summary(issues: PanelIssue[]): string {
   const open = issues.filter((i) => i.stage !== "closed");
@@ -686,7 +701,7 @@ export function renderPanel(data: PanelData): string {
 <meta name="theme-color" content="#0d1014">
 <title>Panel</title><style>${STYLE}</style></head>
 <body><header class="top"><h1>Panel</h1><p class="summary">${summary(data.issues)}</p>
-<nav class="groups g-${data.group}" aria-label="Group issues by"><a href="/">stage</a> <a href="/?group=bundle">bundle</a> <a href="/?group=area">issue area</a></nav></header>
+<nav class="groups" aria-label="Group issues by">${groupLinks(data.group)}</nav></header>
 <div class="layout"><main class="board">
 ${adviceView(data.advice)}
 ${
