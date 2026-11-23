@@ -347,10 +347,11 @@ test("a grill whose spec write fails stops without writing once the person moves
 });
 
 // The station's check before the write and the hub's poll race to stop it:
-// a session that lingers after the move lets the hub win.
-for (const [who, linger] of [
-  ["the station", ""],
-  ["the hub", "; sleep 0.5"],
+// a session that lingers after the move lets the hub win, and the hub's
+// reason shows it did. Without a linger either may win.
+for (const [who, linger, reason] of [
+  ["the station", "", /^moved on /],
+  ["the hub", "; sleep 0.5", /^moved on to ready-for-agent$/],
 ] as const)
   test(`a grill whose issue the person moved on while its session wrote the spec writes nothing, stopped by ${who}`, async () => {
     const moved = JSON.stringify([
@@ -361,8 +362,7 @@ for (const [who, linger] of [
       CLAUDE_STUB_RUN: `printf '%s' '${moved}' > '${join(dir(), "acme_widgets.json")}'${linger}`,
     });
     await until(async () => (await job()).state === "stopped", 10_000);
-    // Either names the move: "moved on by the person" or "moved on to …".
-    expect((await job()).reason).toMatch(/^moved on /);
+    expect((await job()).reason).toMatch(reason);
     expect(ghLog().some((l) => l.includes("--body-file"))).toBe(false);
   });
 
