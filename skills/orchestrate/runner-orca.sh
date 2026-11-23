@@ -142,7 +142,7 @@ runner_read_cmd()    { echo "orca terminal read --terminal <id> --json"; }
 # picks its path (WT is unused), and skips the repo's setup hooks: add-lane
 # installs. A worktree Orca made on any branch but BRANCH is refused before
 # its terminal opens. Prints "<pane> <checkout>"; dies saying what to remove.
-# shortcut: Orca also opens the worktree's first terminal, left as an idle shell; reuse it once `worktree create --json` is known to name its handle.
+# shortcut: Orca's own first terminal in the worktree is left as an idle shell, reuse it once `worktree create --json` is known to name its handle.
 runner_open_lane() {
   local branch="$2" base="$3" label="$5" ws out id="" path="" got pane
   # Orca gives a taken branch name a numeric suffix: the lane would commit elsewhere.
@@ -189,7 +189,7 @@ runner_open_reviewer_slots() {
 # A Reviewer that exits leaves its terminal at a shell, which Orca still
 # lists as done: its terminal is closed, so it reads gone, and the next
 # Reviewer gets a tab of its own.
-# shortcut: a fixed pause for /exit to finish; wait instead once Orca can tell that an agent left its terminal.
+# shortcut: a fixed pause for /exit to finish, wait instead once Orca can tell that an agent left its terminal.
 runner_end_agent() { [ "${DRY_RUN:-0}" = 1 ] || sleep 2; orca terminal close --terminal "$1" --json >/dev/null; }
 # PANE while it is open, else a new terminal tab SLOT in the orchestrator's
 # workspace ($MAP is add-reviewer's), started in REPO.
