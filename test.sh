@@ -2958,6 +2958,7 @@ if section install; then
   assert_match "install: installs tower@phutschi-tower" "$(cat "$TMP/log")" '^claude plugin install tower@phutschi-tower$'
   assert_nomatch "install: without the old plugin, removes nothing" "$(cat "$TMP/log")" '^claude plugin (uninstall|remove|marketplace (remove|rm)) '
   assert_eq "install: claude has the tower plugin and its marketplace" "$(sort "$CLAUDE_STUB_STATE")" "$(printf 'marketplace phutschi-tower\nplugin tower@phutschi-tower user')"
+  assert_match "install: the closing message runs from herdr or Orca" "$out" 'from a herdr pane or an Orca chat'
   for n in herdr-orchestrate preflight; do
     [ -e "$H/.claude/skills/$n" ] || [ -L "$H/.claude/skills/$n" ] && bad "install: old ~/.claude/skills/$n link removed" || ok "install: old ~/.claude/skills/$n link removed"
   done
@@ -3111,6 +3112,16 @@ if section install; then
   ln -sf "$KIT/tests/stub/herdr" "$B/herdr"; ln -sf "$(command -v node)" "$B/node"
   out=$(HOME="$H2" DRY_RUN=0 PATH="$B" "$ROOT/install.sh" --check 2>&1; echo "exit=$?")
   assert_match "check: no tower on PATH is missing"    "$out" 'MISSING +tower'
+  assert_match "check: ... and fails"                  "$out" 'exit=1$'
+  # The runner: herdr or orca on the PATH (only its presence is checked).
+  O="$TMP/bin-orca"; mkdir -p "$O"; printf '#!/bin/sh\nexec "%s" "$@"\n' "$KIT/tests/stub/tower" > "$O/tower"; chmod +x "$O/tower"; ln -sf "$(command -v bun)" "$O/bun"
+  ln -sf "$(command -v node)" "$O/node"; printf '#!/bin/sh\nexit 0\n' > "$O/orca"; chmod +x "$O/orca"
+  rm "$B/herdr"; out=$(HOME="$H2" DRY_RUN=0 PATH="$O:$B" "$ROOT/install.sh" --check 2>&1; echo "exit=$?")
+  assert_match "check: orca without herdr is a runner" "$out" '^  ok        orca$'
+  assert_nomatch "check: ... herdr is then not missing" "$out" 'MISSING +herdr'
+  assert_match "check: ... and passes"                 "$out" 'exit=0$'
+  rm "$O/orca"; out=$(HOME="$H2" DRY_RUN=0 PATH="$O:$B" "$ROOT/install.sh" --check 2>&1; echo "exit=$?")
+  assert_match "check: neither herdr nor orca is missing" "$out" 'MISSING +herdr or orca +the terminal this kit runs in'
   assert_match "check: ... and fails"                  "$out" 'exit=1$'
   : > "$CLAUDE_STUB_STATE"
   # tower missing: install.sh fetches the release binary for this version.
