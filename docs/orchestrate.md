@@ -221,7 +221,9 @@ lanes B to D: child worktrees of that workspace, each with its lane's terminal
 - **dev**, when the run has one, is a tab of its own, in lane A's checkout.
 - **R1 and R2**, the Reviewer slots, are terminal tabs in the orchestrator's
   workspace. A new Reviewer in a busy slot ends the one before it with
-  `/exit`, as on herdr.
+  `/exit`, as on herdr. About 2 seconds later the kit closes the old
+  Reviewer's terminal, and the new Reviewer starts in a new terminal tab
+  named for the slot.
 
 Watching reads Orca's agent status: working and blocked as on herdr; waiting
 and done read as idle. An Orca that does not answer reads as unreadable, and a
@@ -300,9 +302,10 @@ by preflight on the strongest model. In this order:
    still on the screen never reads as done. A fix loop stops after the
    second re-review and comes to you. With `TRIAGE=auto` the open finding is
    deferred to preflight instead, and the lane merges.
-2. **The Reviewer slots.** R1 and R2 are the lanes tab's right column
-   (`add-reviewer.sh`); a run whose lanes tab is not open yet gets it from
-   the first review, the column alone. Every review starts a new agent in
+2. **The Reviewer slots.** On herdr, R1 and R2 are the lanes tab's right
+   column (`add-reviewer.sh`). A run whose lanes tab is not open yet gets it
+   from the first review, the column alone. On Orca they are terminal tabs
+   (see [On Orca](#on-orca)). Every review starts a new agent in
    a slot and becomes a task on the board owned by that slot. The slots
    stay open after the run.
 3. **Merge.** The orchestrator merges each lane as it reports ready (with
