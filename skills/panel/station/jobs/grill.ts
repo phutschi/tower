@@ -168,7 +168,14 @@ ${quote(issue.body)}
       const run = await headless(prompt);
       // Claude deleted the transcript (its cleanup, or the person's): once
       // more as a new session.
-      if (!run.error || !sessionId || !grilled.length || signal.aborted)
+      // Not at a usage limit, which a new session meets too.
+      if (
+        !run.error ||
+        run.error.category === "rate_limit" ||
+        !sessionId ||
+        !grilled.length ||
+        signal.aborted
+      )
         return run;
       sessionId = "";
       return headless(withHistory(prompt));
@@ -194,48 +201,39 @@ ${quote(issue.body)}
 
     /**
      * Writes the spec to the issue, unless the person moved it on from
-     * shaping first: their move wins. Checked before each try but a first
-     * one straight after the session (`checked`). Whether it is written: a
-     * try that failed to hear back may have got through.
+     * shaping first: their move wins. Checked before each try. Whether it is
+     * written: a try that failed to hear back may have got through.
      */
-    const writeSpec = async (spec: string, checked: boolean) => {
+    const writeSpec = async (spec: string) => {
       let moved = false;
       await retry(
         async () => {
-          if (!checked) {
-            const now = JSON.parse(
-              await gh([
-                "issue",
-                "view",
-                String(number),
-                "--repo",
-                job.repo,
-                "--json",
-                "labels,body",
-              ]),
-            ) as { labels: { name: string }[]; body: string };
-            if (!now.labels.some((l) => l.name === "shaping")) {
-              moved = now.body.trim() !== spec.trim();
-              return "";
-            }
-          }
-          checked = false;
-          return gh(
-            [
+          const now = JSON.parse(
+            await gh([
               "issue",
-              "edit",
+              "view",
               String(number),
               "--repo",
               job.repo,
-              "--body-file",
-              "-",
-              "--add-label",
-              "ready-for-agent",
-              "--remove-label",
-              "shaping",
-            ],
-            spec,
-          );
+              "--json",
+              "labels,body",
+            ]),
+          ) as { labels: { name: string }[]; body: string };
+          if (!now.labels.some((l) => l.name === "shaping")) {
+            moved = now.body.trim() !== spec.trim();
+            return;
+          }
+          // The body before the labels: shaping gone with another body is
+          // then only ever the person's move.
+          const edit = ["issue", "edit", String(number), "--repo", job.repo];
+          await gh([...edit, "--body-file", "-"], spec);
+          await gh([
+            ...edit,
+            "--add-label",
+            "ready-for-agent",
+            "--remove-label",
+            "shaping",
+          ]);
         },
         signal,
         RETRY,
@@ -274,7 +272,7 @@ ${quote(issue.body)}
     try {
       // An earlier claim finished the spec: only its write to GitHub is left.
       if (typeof kept === "string")
-        return (await writeSpec(kept, false)) ? { outcome: "done" } : movedOn;
+        return (await writeSpec(kept)) ? { outcome: "done" } : movedOn;
       let run: HeadlessRun | null = null;
       if (unsent !== null) await ask(unsent);
       else if (!last) run = await turn(opening);
@@ -298,7 +296,7 @@ ${quote(issue.body)}
           if (typeof answer?.spec === "string" && answer.spec.trim()) {
             // Kept on the hub first, so a GitHub that stays down loses no spec.
             await checkpoint("spec", { spec: answer.spec });
-            return (await writeSpec(answer.spec, true))
+            return (await writeSpec(answer.spec))
               ? { outcome: "done", ...ran }
               : { ...movedOn, ...ran };
           }

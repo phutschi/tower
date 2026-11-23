@@ -151,8 +151,12 @@ ${data(merges)}
       tools: [],
       signal,
     });
+    // Sent now, not with the result: a claim that dies before it still counts.
+    await emit("tokens", { ...session.tokens });
+    if (session.sessionId)
+      await emit("session", { sessionId: session.sessionId });
     await reportLimits(session, emit);
-    const ran = { sessionId: session.sessionId, tokens: session.tokens };
+    const ran = { sessionId: session.sessionId };
     if (session.error)
       return {
         outcome: "failed",

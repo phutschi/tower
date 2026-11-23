@@ -255,7 +255,12 @@ test("a station that takes over an advice job whose proposal is on the hub only 
   rmSync(down);
   station(env);
   await until(over, 15000);
-  expect((await latest()).state).toBe("done");
+  // The first claim's session and tokens count, though it never posted a result.
+  expect(await latest()).toMatchObject({
+    state: "done",
+    sessionId: "sess-1",
+    tokens: { input: 1500, output: 80 },
+  });
   expect(read("claude.log").split("\n").filter(Boolean)).toHaveLength(1);
   const notes = read("plannotator.log").split("\n").filter(Boolean);
   expect(notes.at(-1)).toContain("2 parts to accept or reject");

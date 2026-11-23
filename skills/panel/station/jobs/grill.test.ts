@@ -346,6 +346,19 @@ test("a grill whose spec write fails stops without writing once the person moves
   expect(existsSync(join(dir(), "acme_widgets_5.body"))).toBe(false);
 });
 
+test("a grill whose issue the person moved on while its session wrote the spec writes nothing", async () => {
+  const moved = JSON.stringify([
+    { number: 5, title: "Issue 5", labels: [{ name: "ready-for-agent" }] },
+  ]);
+  await grill({
+    CLAUDE_STUB_OUT: session("spec.out", "sess-1", SPEC),
+    CLAUDE_STUB_RUN: `printf '%s' '${moved}' > '${join(dir(), "acme_widgets.json")}'`,
+  });
+  await until(async () => (await job()).state === "stopped", 10_000);
+  expect((await job()).reason).toBe("moved on by the person");
+  expect(ghLog().some((l) => l.includes("--body-file"))).toBe(false);
+});
+
 test("a grill stopped by a move back says why, and keeps its tokens", async () => {
   await grill({ CLAUDE_STUB_OUT: session("q.out", "sess-1", QUESTIONS, 100) });
   await until(async () => reads() > 0);
