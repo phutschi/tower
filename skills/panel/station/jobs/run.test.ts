@@ -417,6 +417,8 @@ test("a stalled run is stuck and its workspace closed, unless its Inbox thread w
       threads,
       JSON.stringify({
         threads: [
+          // A thread nobody named yet.
+          { thread_name: null, questions: { open: 0, picked: 0 } },
           {
             thread_name: "acme/widgets#12",
             last_author: "agent",

@@ -110,12 +110,14 @@ export async function waitsOnPerson(
     cwd,
   )) as {
     threads?: {
-      thread_name?: string;
+      // null: a thread nobody named yet.
+      thread_name?: string | null;
       questions?: { open?: number; picked?: number };
     }[];
   };
   // The Inbox ignores case and spacing in a thread's name.
-  const norm = (n = "") => n.toLowerCase().replace(/\s+/g, "");
+  const norm = (n?: string | null) =>
+    (n ?? "").toLowerCase().replace(/\s+/g, "");
   return (list.threads ?? []).some(
     (t) =>
       norm(t.thread_name) === norm(thread) &&
