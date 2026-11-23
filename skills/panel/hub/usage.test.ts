@@ -285,14 +285,17 @@ test("a pause note the Inbox refused is sent again until it goes through", async
   const resetsAt = new Date(Date.now() + 60 * 60_000).toISOString();
   await limit(job, { status: "rejected", resetsAt });
   const sends = () => notes().filter((l) => l.includes("send_message"));
-  // Refused, it is tried again: sweeps run every 100ms.
-  await until(async () => sends().length > 1);
-  // A try in flight may go through as the refusal lifts: count none here.
+  // How many sends the Inbox refused before the fail file went: one or more.
+  const refusedLog = join(dir(), "plannotator.log.refused");
+  const refused = () =>
+    existsSync(refusedLog)
+      ? readFileSync(refusedLog, "utf8").split("\n").filter(Boolean).length
+      : 0;
+  await until(async () => refused() > 0);
   rmSync(fail);
-  await Bun.sleep(500);
-  const sent = sends().length;
+  await until(async () => sends().length > refused());
   expect(sends().at(-1)).toContain(`panel-pause-${resetsAt}`);
-  // Once through, it is sent no more.
   await Bun.sleep(300);
-  expect(sends().length).toBe(sent);
+  // Every send but the last was refused: once through, it is not sent again.
+  expect(sends().length).toBe(refused() + 1);
 });
