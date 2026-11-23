@@ -449,6 +449,13 @@ test("a result that comes in after the user stopped the job leaves it stopped, a
     data: { spec: "late" },
   });
   expect(spec.status).toBe(409);
+  const asking = await post(`/api/jobs/${job!.id}/events`, {
+    station: "server",
+    ts: new Date().toISOString(),
+    kind: "asking",
+    data: { round: 1, questions: "late" },
+  });
+  expect(asking.status).toBe(409);
   await post(`/api/jobs/${job!.id}/result`, {
     station: "server",
     outcome: "done",

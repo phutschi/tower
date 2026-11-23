@@ -58,7 +58,7 @@ async function body(req: Request): Promise<Record<string, unknown>> {
 
 const NAME = /^[\w.-]+$/;
 /** The events a station acts on once the hub has them (JobContext.checkpoint). */
-const CHECKPOINTS = ["spec", "proposal", "asked", "replied"];
+const CHECKPOINTS = ["spec", "proposal", "asking", "asked", "replied"];
 const isObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v);
 const isCount = (v: unknown): v is number =>
