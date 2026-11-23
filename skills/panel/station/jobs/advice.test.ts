@@ -2,7 +2,7 @@
  * Seam 2 for the advice job: a station process claims it from a real hub and
  * runs it with the stub claude and plannotator.
  */
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, setDefaultTimeout, test } from "bun:test";
 
@@ -119,6 +119,35 @@ test("a new proposal sends one Inbox note", async () => {
   expect(note.idempotency_key).toContain(
     (await api<Job[]>("/api/jobs"))[0]!.id,
   );
+});
+
+test("an Inbox note that fails at first is sent again", async () => {
+  const down = join(dir(), "inbox-down");
+  writeFileSync(down, "");
+  const sends = () =>
+    read("plannotator.log")
+      .split("\n")
+      .filter((l) => l.includes("send_message")).length;
+  void until(async () => sends() > 0, 15_000).then(() => rmSync(down));
+  const job = await advise({
+    ...answers(JSON.stringify(PROPOSAL)),
+    PLANNOTATOR_STUB_FAIL: down,
+  });
+  expect(job.state).toBe("done");
+  expect(sends()).toBe(2);
+});
+
+test("an Inbox note that never gets through fails the job, and the proposal stays on the Panel", async () => {
+  const down = join(dir(), "inbox-down");
+  writeFileSync(down, "");
+  const job = await advise({
+    ...answers(JSON.stringify(PROPOSAL)),
+    PLANNOTATOR_STUB_FAIL: down,
+  });
+  expect(job.state).toBe("stuck");
+  expect(job.reason).toContain("Inbox note failed");
+  expect(job.sessionId).toBe("sess-1");
+  expect((await api<AdviceProposal>("/api/advice")).id).toBe(job.id);
 });
 
 test("a malformed proposal fails the job with the reason, stores nothing and sends no note", async () => {

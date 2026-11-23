@@ -11,7 +11,6 @@
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { setTimeout as sleep } from "node:timers/promises";
 
 import type { JobEvent } from "../../types.ts";
 import {
@@ -21,6 +20,7 @@ import {
   type HeadlessRun,
 } from "../claude.ts";
 import { readThread, sendMessage } from "../inbox.ts";
+import { retry, wait } from "../retry.ts";
 import { registerJobRunner, stopReason } from "../station.ts";
 
 const PROMPT = join(import.meta.dir, "../../prompts/grill.md");
@@ -42,10 +42,6 @@ ${replies.map((r) => `<person-reply>\n${quote(r.body)}\n</person-reply>`).join("
 Answer as before: one JSON object, with more questions or the spec.
 `;
 
-/** Waits `ms`, or less when `signal` aborts. */
-const wait = (ms: number, signal: AbortSignal) =>
-  sleep(ms, undefined, { signal }).catch(() => {});
-
 async function gh(args: string[], stdin = ""): Promise<string> {
   const proc = Bun.spawn(["gh", ...args], {
     stdin: new Blob([stdin]),
@@ -63,20 +59,8 @@ async function gh(args: string[], stdin = ""): Promise<string> {
   return out;
 }
 
-/** `fn` until it works, for about an hour: a passing outage must not end a grill of days. */
-async function retry<T>(fn: () => Promise<T>, signal: AbortSignal) {
-  for (let n = 1; ; n++) {
-    // A stopped grill writes nothing more, even mid-retry.
-    signal.throwIfAborted();
-    try {
-      return await fn();
-    } catch (err) {
-      if (n >= 60 || signal.aborted) throw err;
-      console.error(`grill: ${String(err)}; trying again`);
-      await wait(Math.min(1000 * 2 ** n, POLL_MS), signal);
-    }
-  }
-}
+/** About an hour of tries: a passing outage must not end a grill of days. */
+const RETRY = { tries: 60, maxWaitMs: POLL_MS };
 
 registerJobRunner("grill", async ({ job, hubUrl, workspace, emit, signal }) => {
   const [number] = job.issues;
@@ -94,16 +78,21 @@ registerJobRunner("grill", async ({ job, hubUrl, workspace, emit, signal }) => {
           "title,body",
         ]),
       signal,
+      RETRY,
     ),
   ) as { title: string; body: string };
 
   // Where an earlier claim of this job left off.
-  const { events } = (await retry(async () => {
-    const res = await fetch(`${hubUrl}/api/jobs/${job.id}`);
-    if (!res.ok)
-      throw new Error(`the hub refused job ${job.id}: ${res.status}`);
-    return res.json();
-  }, signal)) as { events: JobEvent[] };
+  const { events } = (await retry(
+    async () => {
+      const res = await fetch(`${hubUrl}/api/jobs/${job.id}`);
+      if (!res.ok)
+        throw new Error(`the hub refused job ${job.id}: ${res.status}`);
+      return res.json();
+    },
+    signal,
+    RETRY,
+  )) as { events: JobEvent[] };
   const asked = events.filter((e) => e.kind === "asked").at(-1)?.data;
   const replied = events.filter((e) => e.kind === "replied");
   const kept = events.filter((e) => e.kind === "spec").at(-1)?.data.spec;
@@ -158,6 +147,7 @@ registerJobRunner("grill", async ({ job, hubUrl, workspace, emit, signal }) => {
           spec,
         ),
       signal,
+      RETRY,
     );
 
   // A failure after a session ran keeps what the grill cost.
@@ -211,6 +201,7 @@ ${quote(issue.body)}
                 idempotencyKey: `panel-grill-${job.id}-${round}`,
               }),
             signal,
+            RETRY,
           );
           thread = sent.threadId;
           // Read on from where the last read stopped: a reply sent while the

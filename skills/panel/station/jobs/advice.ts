@@ -12,6 +12,7 @@ import { keepOpen, parseProposal } from "../../hub/advice.ts";
 import type { PanelIssue } from "../../types.ts";
 import { jsonIn, reportLimits, runHeadless } from "../claude.ts";
 import { sendInboxNote } from "../inbox.ts";
+import { retry } from "../retry.ts";
 import { registerJobRunner } from "../station.ts";
 
 const run = promisify(execFile);
@@ -89,12 +90,26 @@ ${data(merges.trim().split("\n"))}
       };
     await emit("proposal", { ...proposal });
     const parts = proposal.order.length + proposal.bundles.length;
-    await sendInboxNote({
-      thread: "Order advice",
-      subject: "A new order advice",
-      body: `A new order advice is on the Panel after a merge to ${job.repo}: ${parts} part${parts === 1 ? "" : "s"} to accept or reject.`,
-      idempotencyKey: `panel-advice-${job.id}`,
-    }).catch((err: unknown) => emit("inbox-failed", { error: String(err) }));
+    try {
+      // The key makes a note that got through and is sent again post once.
+      await retry(
+        () =>
+          sendInboxNote({
+            thread: "Order advice",
+            subject: "A new order advice",
+            body: `A new order advice is on the Panel after a merge to ${job.repo}: ${parts} part${parts === 1 ? "" : "s"} to accept or reject.`,
+            idempotencyKey: `panel-advice-${job.id}`,
+          }),
+        signal,
+        { tries: 3, maxWaitMs: 1000 },
+      );
+    } catch (err) {
+      return {
+        outcome: "failed",
+        reason: `the proposal is on the Panel, but its Inbox note failed: ${String(err)}`,
+        ...ran,
+      };
+    }
     return { outcome: "done", ...ran };
   },
 );
