@@ -38,7 +38,8 @@ PANE=$(printf '%s' "$out" | jsonq 'd["result"]["root_pane"]["pane_id"]' 2>/dev/n
 # An agent name herdr accepts (executor.sh agent_name): a lowercase letter
 # first, then lowercase letters, digits, '-' or '_', at most 32 characters.
 # A long name keeps its tail behind a letter, never losing the issue numbers
-# at its end: herdr addresses the agent by it, and two runs must differ.
+# at its end: herdr addresses the agent by it. Two long names that share
+# their last 30 characters (two owners' same-named repos) still collide.
 AGENT=$(printf '%s' "$NAME" | tr 'A-Z' 'a-z' | sed 's/[^a-z0-9_-]/-/g')
 if [ "${#AGENT}" -gt 32 ]; then AGENT="r-${AGENT: -30}"
 else AGENT=$(printf '%s' "$AGENT" | sed 's/^[^a-z]*//'); [ -n "$AGENT" ] || AGENT=run

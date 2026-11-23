@@ -379,8 +379,7 @@ test("moving one bundle issue back stops the run and moves its other issues back
     });
   await polls(1);
   await post("/api/jobs/claim", { station: "server", kinds: ["run"] });
-  for (let i = 0; i < 100 && !labelsOf(3).includes("in-progress"); i++)
-    await Bun.sleep(20);
+  await until(async () => labelsOf(3).includes("in-progress"));
   await post("/api/issues/acme/widgets/1/stage", { stage: "shaping" });
   const [run] = await runs();
   expect(await api<unknown>(`/api/jobs/${run!.id}/control`)).toEqual({
@@ -433,8 +432,7 @@ test("a bundle issue moved back on GitHub sends the others back, again on a late
     });
   await polls(1);
   await post("/api/jobs/claim", { station: "server", kinds: ["run"] });
-  for (let i = 0; i < 100 && !labelsOf(3).includes("in-progress"); i++)
-    await Bun.sleep(20);
+  await until(async () => labelsOf(3).includes("in-progress"));
   process.env.GH_STUB_FAIL = "edit";
   setIssues("acme/widgets", [issue(1, "shaping"), issue(3, "in-progress")]);
   await polls(2);

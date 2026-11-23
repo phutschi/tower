@@ -446,7 +446,9 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
       ];
       const listed = store.repos().map((r) => r.name);
       const gone = chosen.find((r) => r && !listed.some((l) => sameRepo(l, r)));
-      if (gone) return bad(`${gone} is not listed on the Panel`);
+      // Rejecting writes nothing, so a part of an unlisted repo may go.
+      if (gone && decision === "accepted")
+        return bad(`${gone} is not listed on the Panel`);
       if (decision === "accepted") {
         // Held at once, every part first: a claim must not take a run while
         // gh writes a dependency. The blocker check after says all it waits on.

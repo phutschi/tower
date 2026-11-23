@@ -169,7 +169,10 @@ export class Store {
       throw new Error(
         `${path} is a hub database from an earlier development build of the Panel: delete it and start the hub again`,
       );
-    this.db.exec("PRAGMA user_version = 1");
+    const version = this.db
+      .query<{ user_version: number }, []>("PRAGMA user_version")
+      .get()!.user_version;
+    if (version === 0) this.db.exec("PRAGMA user_version = 1");
   }
 
   close() {
