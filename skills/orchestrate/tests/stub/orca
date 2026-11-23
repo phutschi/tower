@@ -1,0 +1,116 @@
+#!/usr/bin/env bash
+# Stand-in for Orca's CLI under DRY_RUN=1 and test.sh, as tests/stub/herdr is
+# for herdr. Logs argv to ORCA_STUB_LOG and answers with the JSON shapes of
+# `orca … --json`: {"ok":true,"result":…}, or {"ok":false,"error":{"code":…}}
+# on stdout with exit 1. Terminal handles (term-<n>, in tab-<n>, leaf-<n>) and
+# worktree ids (repo-0::/orca-stub/worktrees/wt-<n>) count up per process tree
+# through ORCA_STUB_COUNTER; a split stays in the tab it splits. The caller's
+# workspace (`worktree current`, `--parent-worktree active|current`) is
+# repo-0::<cwd>. `worktree create` records its --name, --branch and its
+# parent; `worktree show` reports them back (parentWorktreeId), and answers
+# selector_not_found for a worktree it did not create.
+# Agent states, one per terminal, come from ORCA_STUB_STATES_DIR/<handle>: a
+# state word (working, waiting, blocked, done), "gone" (the terminal is
+# closed: terminal_handle_stale, and the agent is not listed), "unreadable"
+# (Orca does not answer: runtime_unavailable) or "trust" (a trust menu: the
+# agent shows blocked, a text-plus-Enter send is refused with
+# agent_prompt_blocked, and an Enter sent alone answers the menu, dropping the
+# line). With no file, the agent is working. With several lines, each call
+# that reports the state answers the first and drops it; the last one stays.
+# `terminal read` answers ORCA_STUB_STATES_DIR/<handle>.tail as its tail.
+# `terminal wait --for tui-idle` is satisfied by waiting or done, and answers
+# timeout otherwise. `terminal close` makes the terminal gone.
+# ORCA_STUB_STATUS=fail: `status` answers runtime_unavailable (Orca not
+# reachable). ORCA_STUB=absent refuses to run, so orca counts as not
+# installed; it logs each refused call as "orca-absent <argv>".
+[ "${ORCA_STUB:-}" = absent ] && { printf 'orca-absent %s\n' "$*" >> "${ORCA_STUB_LOG:-/dev/null}"; echo "orca: not installed (stub)" >&2; exit 127; }
+ok()  { printf '{"id":"stub","ok":true,"result":%s}\n' "$1"; exit 0; }
+err() { printf '{"id":"stub","ok":false,"error":{"code":"%s","message":"%s"}}\n' "$1" "$1"; exit 1; }
+# status is runner_detect's probe (runner.sh); it acts on nothing, so it is not
+# logged.
+if [ "${1:-}" = status ]; then
+  [ "${ORCA_STUB_STATUS:-}" != fail ] || err runtime_unavailable
+  ok '{"runtime":{"state":"ready","reachable":true}}'
+fi
+printf 'orca %s\n' "$*" >> "${ORCA_STUB_LOG:-/dev/null}"
+counter="${ORCA_STUB_COUNTER:-${TMPDIR:-/tmp}/orca-stub-counter}"
+states="${ORCA_STUB_STATES_DIR:-}"
+next_n() { local n; n=$(cat "$counter" 2>/dev/null || echo 0); n=$((n+1)); echo "$n" > "$counter"; echo "$n"; }
+# flag NAME: the value after --NAME in the call, empty when absent.
+flag() { local a prev=""; for a in "${ARGS[@]}"; do [ "$prev" != "--$1" ] || { printf '%s' "$a"; return; }; prev=$a; done; }
+has()  { local a; for a in "${ARGS[@]}"; do [ "$a" != "--$1" ] || return 0; done; return 1; }
+ARGS=("$@")
+current="repo-0::$(pwd -P)"
+# js TEXT: TEXT as a JSON string; js "" is null.
+js() { if [ -z "$1" ]; then echo null; else python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$1"; fi; }
+# A selector as a worktree id: id:<id> and active/current resolved.
+wt_id() { case "$1" in active|current) echo "$current" ;; id:*) echo "${1#id:}" ;; *) echo "$1" ;; esac; }
+# peek HANDLE: the state word without dropping it; take HANDLE: dropping it.
+peek() { if [ -n "$states" ] && [ -f "$states/$1" ]; then head -1 "$states/$1"; else echo working; fi; }
+take() {
+  local f="$states/$1"; peek "$1"
+  [ -n "$states" ] && [ -f "$f" ] && [ "$(wc -l < "$f")" -gt 1 ] && { tail -n +2 "$f" > "$f.next"; mv "$f.next" "$f"; }
+  return 0
+}
+# A terminal's own errors: gone or unreadable.
+live() { case "$(peek "$1")" in gone) err terminal_handle_stale ;; unreadable) err runtime_unavailable ;; esac; }
+reported() { case "$1" in trust) echo blocked ;; *) echo "$1" ;; esac; }
+row() { awk -v h="$1" '$1 == h' "$counter.terminals" 2>/dev/null; }
+case "${1:-} ${2:-}" in
+  "worktree current") ok "{\"worktree\":{\"id\":$(js "$current"),\"path\":$(js "$(pwd -P)"),\"parentWorktreeId\":null}}" ;;
+  "worktree create")
+    n=$(next_n); path="/orca-stub/worktrees/wt-$n"; parent=$(flag parent-worktree); [ -z "$parent" ] || parent=$(wt_id "$parent")
+    printf '%s|%s|%s|%s|%s\n' "repo-0::$path" "$path" "$(flag name)" "$(flag branch)" "$parent" >> "$counter.worktrees"
+    ok "{\"worktree\":{\"id\":\"repo-0::$path\",\"path\":\"$path\"}}" ;;
+  "worktree show")
+    id=$(wt_id "$(flag worktree)")
+    [ "$id" != "$current" ] || ok "{\"worktree\":{\"id\":$(js "$current"),\"path\":$(js "$(pwd -P)"),\"parentWorktreeId\":null}}"
+    IFS='|' read -r id path name branch parent < <(awk -F'|' -v i="$id" '$1 == i' "$counter.worktrees" 2>/dev/null) || err selector_not_found
+    ok "{\"worktree\":{\"id\":\"$id\",\"path\":\"$path\",\"displayName\":$(js "$name"),\"branch\":$(js "$branch"),\"parentWorktreeId\":$(js "$parent")}}" ;;
+  "terminal create")
+    n=$(next_n); wt=$(flag worktree); wt=$(wt_id "${wt:-current}")
+    echo "term-$n tab-$n leaf-$n $wt" >> "$counter.terminals"
+    ok "{\"terminal\":{\"handle\":\"term-$n\",\"tabId\":\"tab-$n\",\"worktreeId\":\"$wt\",\"title\":$(js "$(flag title)")}}" ;;
+  "terminal split")
+    h=$(flag terminal); live "$h"; read -r _ tab _ wt < <(row "$h") || err terminal_handle_stale
+    n=$(next_n); echo "term-$n $tab leaf-$n $wt" >> "$counter.terminals"
+    ok "{\"split\":{\"handle\":\"term-$n\",\"tabId\":\"$tab\"}}" ;;
+  "terminal show")
+    h=$(flag terminal); live "$h"; read -r _ tab leaf wt < <(row "$h") || err terminal_handle_stale
+    ok "{\"terminal\":{\"handle\":\"$h\",\"tabId\":\"$tab\",\"leafId\":\"$leaf\",\"worktreeId\":\"$wt\"}}" ;;
+  "terminal send")
+    h=$(flag terminal); live "$h"
+    if [ "$(peek "$h")" = trust ]; then
+      if has text && has enter; then err agent_prompt_blocked; fi
+      if has enter; then
+        if [ "$(wc -l < "$states/$h")" -gt 1 ]; then tail -n +2 "$states/$h" > "$states/$h.next"; mv "$states/$h.next" "$states/$h"; else rm -f "$states/$h"; fi
+      fi
+    fi
+    ok "{\"send\":{\"handle\":\"$h\",\"accepted\":true}}" ;;
+  "terminal read")
+    h=$(flag terminal); live "$h"
+    tail=$([ -n "$states" ] && [ -f "$states/$h.tail" ] && python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().splitlines()))' < "$states/$h.tail") || tail='[]'
+    ok "{\"terminal\":{\"handle\":\"$h\",\"status\":\"running\",\"tail\":$tail}}" ;;
+  "terminal wait")
+    h=$(flag terminal); live "$h"
+    case "$(reported "$(take "$h")")" in
+      waiting|done) ok "{\"wait\":{\"handle\":\"$h\",\"condition\":\"$(flag for)\",\"satisfied\":true}}" ;;
+      *)            err timeout ;;
+    esac ;;
+  "terminal close")
+    h=$(flag terminal); [ -z "$states" ] || echo gone > "$states/$h"
+    ok "{\"close\":{\"handle\":\"$h\"}}" ;;
+  "agent list")
+    rows=""
+    while read -r h tab leaf wt; do [ "$(peek "$h")" != unreadable ] || err runtime_unavailable; done < <(cat "$counter.terminals" 2>/dev/null)
+    while read -r h tab leaf wt; do
+      s=$(reported "$(take "$h")"); [ "$s" != gone ] || continue
+      rows="$rows${rows:+,}{\"orcaSessionId\":\"session-${h#term-}\",\"kind\":\"terminal\",\"state\":\"$s\",\"worktreeId\":\"$wt\",\"paneKey\":\"$tab:$leaf\"}"
+    done < <(cat "$counter.terminals" 2>/dev/null)
+    ok "{\"agents\":[$rows]}" ;;
+  "agent show")
+    id=${3#orca_session_id:}; h="term-${id#session-}"; live "$h"; read -r _ tab leaf wt < <(row "$h") || err agent_not_found
+    s=$(reported "$(take "$h")")
+    ok "{\"agent\":{\"orcaSessionId\":\"$id\",\"kind\":\"terminal\",\"state\":\"$s\",\"worktreeId\":\"$wt\",\"paneKey\":\"$tab:$leaf\",\"terminal\":\"$h\"}}" ;;
+  *) ok '{}' ;;
+esac

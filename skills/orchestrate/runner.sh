@@ -43,4 +43,4 @@ need_runner() {
 #   runner_pane_exists PANE        0 open, 1 gone, 2 the runner cannot say
 #   runner_read_cmd, runner_message_cmd   the pane map's read a pane and message a pane lines
 # shellcheck source=/dev/null  # runner-herdr.sh or runner-orca.sh
-. "$KIT/runner-${RUNNER:-herdr}.sh"
+[ ! -f "$KIT/runner-${RUNNER:-herdr}.sh" ] || . "$KIT/runner-${RUNNER:-herdr}.sh"   # shortcut: as need_runner's

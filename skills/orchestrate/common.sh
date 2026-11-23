@@ -42,11 +42,17 @@ SWITCHES="TASK_REVIEW LANE_REVIEW PREFLIGHT STATIC_BASELINE PR METHOD REVIEWER_K
 if [ "${DRY_RUN:-0}" = 1 ]; then
   # A broken or non-executable stub would otherwise fall through silently to
   # whatever herdr/tower is next on PATH — the real ones. Refuse instead.
-  [ -x "$KIT/tests/stub/herdr" ] || die "DRY_RUN=1 but $KIT/tests/stub/herdr is missing or not executable — refusing to fall through to the real herdr"
+  for _stub in herdr orca; do
+    [ -x "$KIT/tests/stub/$_stub" ] || die "DRY_RUN=1 but $KIT/tests/stub/$_stub is missing or not executable — refusing to fall through to the real $_stub"
+  done; unset _stub
   export PATH="$KIT/tests/stub:$PATH"
   export HERDR_STUB_LOG="${HERDR_STUB_LOG:-/dev/stderr}"
-  # Inside herdr unless the caller says otherwise (HERDR_ENV=0 tests the refusal).
+  export ORCA_STUB_LOG="${ORCA_STUB_LOG:-$HERDR_STUB_LOG}"
+  # Inside herdr unless the caller says otherwise (HERDR_ENV=0 tests the
+  # refusal); RUNNER=orca: inside Orca instead, with the fake orca as the
+  # session's CLI.
   export HERDR_ENV="${HERDR_ENV:-1}" HERDR_PANE_ID="${HERDR_PANE_ID:-pane-0}" HERDR_TAB_ID="${HERDR_TAB_ID:-tab-0}"
+  [ "${RUNNER:-}" != orca ] || export HERDR_ENV=0 ORCA_CLI_COMMAND="${ORCA_CLI_COMMAND:-$KIT/tests/stub/orca}"
 fi
 
 . "$KIT/runner.sh"
