@@ -1265,6 +1265,16 @@ if section add-reviewer; then
   assert_match "orca R1 resumed: in its own terminal" "$out" 'resuming bun-vitest-r1-2 in term-6'
   assert_nomatch "orca R1 resumed: nothing opened or closed" "$(cat "$ORCA_STUB_LOG")" '^orca terminal (create|close) '
   rm -f "$S"/*
+  # A workspace whose checkout path holds a space: the slots, and a new
+  # Reviewer's tab, open in the whole workspace.
+  rs=$(fixture_repo bun-vitest); mkdir -p "$TMP/review space"; mv "$(dirname "$rs")" "$TMP/review space/r"; rs="$TMP/review space/r/bun-vitest"
+  RUNS="$TMP/run-orca-review-space"; reset_stub; (cd "$rs" && "$KIT/bootstrap.sh" "$RUNS" "Orca review space" main "$KIT/example-tasks.tsv" >/dev/null 2>&1)
+  : > "$ORCA_STUB_LOG"; (cd "$rs" && EXIT_WAIT_SECONDS=3 "$KIT/add-reviewer.sh" "$RUNS" R1 claude "Lane review A" "$RUNS/findings/a.json" >/dev/null 2>&1)
+  assert_match "orca, a space in the workspace: the slots open in it whole" "$(cat "$ORCA_STUB_LOG")" "^orca terminal create --worktree id:repo-0::$rs --title R1 "
+  r1=$(sed -nE 's/^reviewer R1: +([^ ]+).*/\1/p' "$RUNS/panes.txt"); echo waiting > "$S/$r1"
+  : > "$ORCA_STUB_LOG"; (cd "$rs" && EXIT_WAIT_SECONDS=3 "$KIT/add-reviewer.sh" "$RUNS" R1 claude "Lane review A again" "$RUNS/findings/a-2.json" >/dev/null 2>&1)
+  assert_match "orca, a space in the workspace: a new Reviewer's tab opens in it whole" "$(cat "$ORCA_STUB_LOG")" "^orca terminal create --worktree id:repo-0::$rs --title R1 "
+  rm -f "$S"/*
   else
     S="$HERDR_STUB_STATES_DIR"
     r=$(fixture_repo bun-vitest); RUN="$TMP/run-review"; reset_stub
