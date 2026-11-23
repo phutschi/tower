@@ -3,9 +3,9 @@
 #
 #   send-brief.sh <run-dir> <agent> <brief-file>
 #
-# The agent's pane is its one lane or Reviewer line in <run-dir>/panes.txt
-# (common.sh agent_pane); nothing else in the map is read, and nothing in it
-# is run: a lane can write the run dir. The pane must be open; the runner then
+# The agent's pane is its one lane or Reviewer line in <run-dir>/panes.txt,
+# bound to the kit's launch record (common.sh bound_pane); nothing else in
+# the map is read, and nothing in it is run: a lane can write the run dir. The pane must be open; the runner then
 # sends the file's text as one prompt (runner_send_message), Orca only to an
 # agent it lists as ready. Otherwise nothing is sent: exit 1, saying why; a
 # send with no receipt fails too, saying to look at the terminal before

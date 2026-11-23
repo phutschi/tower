@@ -101,7 +101,8 @@ bound_pane() {  # RUN_DIR NAME
       runner_pane_exists "$launched" 2>/dev/null || rc=$?
       [ "$rc" = 3 ] && runner_pane_exists "$pane" 2>/dev/null \
         || { echo "the pane map gives $2 pane $pane, but the kit launched it in $launched; check its line in $1/panes.txt" >&2; return 1; }
-      echo "$2 $pane" >> "$(launch_record "$1")"
+      { echo "$2 $pane" >> "$(launch_record "$1")"; } 2>/dev/null \
+        || { echo "cannot write the launch record $(launch_record "$1")" >&2; return 1; }
     fi
   fi
   echo "$pane"

@@ -20,4 +20,7 @@ RUN_DIR="$1"; NAME="$2"; LINES="${3:-60}"
 [[ "$LINES" =~ ^[1-9][0-9]*$ ]] || die "$USAGE"
 [ -f "$RUN_DIR/panes.txt" ] || die "read-pane: no pane map at $RUN_DIR/panes.txt"
 PANE=$(bound_pane "$RUN_DIR" "$NAME" 2>&1) || die "read-pane: $PANE"
-runner_agent_tail "$NAME" "$PANE" "$LINES" || die "read-pane: $(runner_name) could not read $NAME's pane $PANE"
+runner_agent_tail "$NAME" "$PANE" "$LINES" && exit 0
+rc=0; runner_pane_exists "$PANE" 2>/dev/null || rc=$?
+[ "$rc" != 3 ] || { stale_handle "$NAME" "$PANE" "its line"; exit 1; }
+die "read-pane: $(runner_name) could not read $NAME's pane $PANE"

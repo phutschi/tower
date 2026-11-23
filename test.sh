@@ -4284,10 +4284,12 @@ if section send-brief; then
   echo "read a pane:    touch $TMP/read-pane-ran" >> "$RUN/panes.txt"
   out=$( (cd "$r" && "$KIT/read-pane.sh" "$RUN" bun-vitest-lane-a 1 2>&1; echo "exit=$?") )
   assert_match "read-pane: the agent's last lines" "$out" '^line two$'
+  assert_match "read-pane: ... exit 0" "$out" 'exit=0$'
   assert_nomatch "read-pane: ... as many as asked" "$out" '^line one$'
   assert_eq "read-pane: the map's read line is not run" "$([ -e "$TMP/read-pane-ran" ] && echo ran || echo not)" not
   out=$( (cd "$r" && "$KIT/read-pane.sh" "$RUN" bun-vitest-lane-z 2>&1; echo "exit=$?") )
   assert_match "read-pane, an agent no line names: refused" "$out" "read-pane: no lane or Reviewer line in $RUN/panes.txt names agent bun-vitest-lane-z"
+  assert_match "read-pane, an agent no line names: exit 1" "$out" 'exit=1$'
   rm -f "$S/$apane.tail" "$S/bun-vitest-lane-a.tail"; sed -i.bak '/^read a pane:    touch/d' "$RUN/panes.txt"; rm -f "$RUN/panes.txt.bak"
   # The brief is read once, from a regular file: a link (it could point
   # outside the run dir) or a directory is refused, with nothing sent.
