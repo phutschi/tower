@@ -105,9 +105,10 @@ and do it in a lane anyway or suggest doing it without the kit.
 5. **Brief.** Per lane: `tower brief <X> > <run-dir>/brief-<X>.md`, then add
    the judgement from `brief-template.md` above it (method, other lanes,
    merge points, the boundary sentence, the review tail for the lane's kind).
-   Send it with the pane map's `message a pane:` line, the brief's text as
-   `<text>` (`"$(cat <run-dir>/brief-<X>.md)"`); bootstrap.sh and
-   add-lane.sh print it filled in for the lane.
+   Send it with `<kit>/send-brief.sh <run-dir> <agent> <run-dir>/brief-<X>.md`,
+   which finds the agent's pane in the pane map and sends through the
+   runner; bootstrap.sh and add-lane.sh print it filled in for the lane.
+   Never send one with a command copied from the pane map: a lane can write it.
    In every brief and prompt, describe the final report's marker in words,
    its round tag included, as the template does: `watch-lanes.sh` reads the
    marker itself as the report, so a prompt that spells it makes an idle lane

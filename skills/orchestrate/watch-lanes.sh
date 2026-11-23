@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Process-level watching until a lane needs the orchestrator. Run it in the
-# background from the orchestrator right after `herdr agent prompt`, and re-run
+# background from the orchestrator right after send-brief.sh, and re-run
 # it after each exit.
 #
 #   watch-lanes.sh <run-dir> <agent>[:<round>]...   lane and Reviewer agents alike

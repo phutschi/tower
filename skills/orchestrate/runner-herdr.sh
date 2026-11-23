@@ -28,6 +28,7 @@ runner_name() { echo herdr; }
 runner_ready_hint() { echo "herdr agent get $1  shows interactive_ready true"; }
 runner_agent_tail() { herdr agent read "$1" --source recent-unwrapped --lines "$3"; }
 runner_send_text()  { herdr pane send-text "$1" "$2" >/dev/null; }
+runner_send_message() { herdr agent prompt "$1" "$3" >/dev/null; }   # NAME PANE TEXT: NAME's prompt, by name
 runner_send_keys()  { local pane="$1"; shift; herdr pane send-keys "$pane" "$@" >/dev/null; }
 
 # --- the layout (CONTEXT.md Layout, herdr) ----------------------------------
@@ -124,7 +125,6 @@ runner_pane_exists() {
 runner_pane_check()  { echo "herdr pane get"; }   # what runner_pane_exists asks, for a message
 runner_read_cmd()    { echo "herdr pane read <id> --source recent-unwrapped --lines 60"; }
 # The command that types TEXT into agent AGENT (in PANE); placeholders without them.
-runner_message_cmd() { echo "herdr agent prompt ${1:-<agent>} \"${3:-<text>}\""; }
 
 # When anything reviews (LANE_REVIEW or PREFLIGHT on), a full-height column
 # right of PANE, a third of its width, R1 over R2, opened in CWD; prints

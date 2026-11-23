@@ -236,19 +236,18 @@ lines and the same `switches:` line. On herdr it holds pane and tab ids. On
 Orca, the `orchestrator:` line holds the orchestrator's workspace
 (`<repo-id>::<path>`), each pane line an Orca terminal handle, and the
 `lanes tab:`, `tower tab:` and `dev tab:` lines the tabs the run opened; lanes
-B to D also record their worktree. Two of its lines are how the orchestrator, a lane or
-you reach a pane without naming a runner:
+B to D also record their worktree. Its `read a pane:` line is how a lane or
+you read a pane back without naming a runner:
+`herdr pane read <id> --source recent-unwrapped --lines 60` on herdr,
+`orca terminal read --terminal <id> --json` on Orca. The briefs tell lanes
+to read the dev pane with it.
 
-- `read a pane:` reads a pane back:
-  `herdr pane read <id> --source recent-unwrapped --lines 60` on herdr,
-  `orca terminal read --terminal <id> --json` on Orca.
-- `message a pane:` types a prompt into an agent's pane:
-  `herdr agent prompt <agent> "<text>"` on herdr, by the agent's name, and
-  `orca terminal send --terminal <id> --text "<text>" --enter --json` on
-  Orca, by its terminal handle.
-
-The orchestrator sends each brief and fix prompt with the `message a pane:`
-line, and the briefs tell lanes to read the dev pane with `read a pane:`.
+The orchestrator sends each brief and fix prompt with
+`send-brief.sh <run-dir> <agent> <file>`. It finds the agent's pane on its
+one lane or Reviewer line, checks that the pane is open, and sends the file
+through the runner: `herdr agent prompt` by the agent's name, or
+`orca terminal send` with Enter to its terminal. It runs nothing from the
+pane map, which a lane can write.
 
 ## A run on a paired Orca server
 

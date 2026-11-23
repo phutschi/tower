@@ -58,6 +58,8 @@ runner_name() { echo Orca; }
 runner_ready_hint() { echo "orca agent list --json  shows it waiting or done"; }
 runner_agent_tail() { orca terminal read --terminal "$2" --json | jsonq '"\n".join(d["result"]["terminal"]["tail"])' | tail -n "$3"; }
 runner_send_text()  { orca terminal send --terminal "$1" --text "$2" --json >/dev/null; }
+# NAME PANE TEXT: TEXT typed into terminal PANE, then Enter.
+runner_send_message() { orca terminal send --terminal "$2" --text "$3" --enter --json >/dev/null; }
 # Each key a send of its own: Orca refuses text and Enter together while an
 # agent shows a menu.
 runner_send_keys() {
@@ -114,7 +116,6 @@ runner_open_lane_a() {
   echo "$pane $tab"
 }
 runner_read_cmd()    { echo "orca terminal read --terminal <id> --json"; }
-runner_message_cmd() { echo "orca terminal send --terminal ${2:-<id>} --text \"${3:-<text>}\" --enter --json"; }
 # Lane LANE's worktree on BRANCH from BASE, a child worktree of the
 # orchestrator's workspace (the pane map's orchestrator line; $MAP is
 # add-lane's), named LABEL, with a terminal of its own, started in it. Orca

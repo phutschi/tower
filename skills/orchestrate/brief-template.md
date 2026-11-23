@@ -8,8 +8,8 @@ plan's conventions section, the model roles, and the two standing rules
     tower brief A > <run-dir>/brief-A.md
 
 Then add, above it, only what tower cannot know, and send the whole file
-with the pane map's `message a pane:` line, `"$(cat <run-dir>/brief-A.md)"`
-as its `<text>`. The agent names and pane ids are in `<run-dir>/panes.txt`.
+with `send-brief.sh <run-dir> <agent> <run-dir>/brief-A.md`. The agent
+names are in `<run-dir>/panes.txt`.
 
 ## The boundary (ADR 0008)
 
@@ -107,7 +107,7 @@ Begin now with task {{FIRST_ID}}.
 ## Fix prompts
 
 A lane review's fix tasks, and preflight's, go to the lane that wrote the
-code in one fix prompt, sent with the pane map's `message a pane:` line.
+code in one fix prompt, written to a file and sent with `send-brief.sh`.
 `{{REPORT_ROUND}}` is the report round `<n>` it starts (SKILL.md steps 8
 and 12). Moved tasks go out in a more-work prompt the same way (SKILL.md
 step 9).
@@ -124,10 +124,9 @@ Stay in this session: more may follow.
 
 ## Reviewer briefs
 
-A Reviewer gets its own brief, not a lane's: one message, sent with the pane
-map's `message a pane:` line, `"$(cat <run-dir>/brief-<task-id>.md)"` as its
-`<text>` (add-reviewer.sh prints the command, the task id and the findings
-file). No
+A Reviewer gets its own brief, not a lane's: one message,
+`<run-dir>/brief-<task-id>.md`, sent with `send-brief.sh` (add-reviewer.sh
+prints the command, the task id and the findings file). No
 `tower brief` part. Every kind uses the same text. In the empty opening
 there is no plan: name the tasks' titles from the board.
 `{{ROUND}}` is the preflight round `<n>` (SKILL.md step 11): the directory

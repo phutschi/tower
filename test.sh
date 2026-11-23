@@ -19,7 +19,7 @@
 set -u
 ROOT="$(cd "$(dirname "$0")" && pwd)"; KIT="$ROOT/skills/orchestrate"; PREFLIGHT_DIR="$ROOT/skills/preflight"; export KIT
 SLOW="look run"   # preflight's look.sh and one whole run: ~12 of ~35 seconds
-PER_RUNNER="dryrun executor watch bootstrap watchline add-lane add-reviewer cursor-reviewer credit-guard"   # the sections run once per runner: herdr, and <section>:orca
+PER_RUNNER="dryrun executor watch bootstrap watchline add-lane add-reviewer cursor-reviewer credit-guard send-brief"   # the sections run once per runner: herdr, and <section>:orca
 ONLY=""; LIST=0; FAST=0; MATCHED=0
 for _a in "$@"; do
   case "$_a" in
@@ -533,8 +533,8 @@ if section bootstrap; then
   assert_match "pane map (orca): lane A's tab" "$map" '^lanes tab: +tab-3$'
   assert_match "pane map (orca): the same switches line" "$map" '^switches: +TASK_REVIEW=on '
   assert_match "pane map (orca): read a pane, with orca" "$map" '^read a pane: +orca terminal read --terminal <id> --json$'
-  assert_match "pane map (orca): message a pane, with orca" "$map" '^message a pane: orca terminal send --terminal <id> --text "<text>" --enter --json$'
-  assert_match "orca: the next step sends the brief with the message line" "$out" 'message a pane'
+  assert_nomatch "pane map (orca): no message line, briefs go through the kit" "$map" '^message a pane:'
+  assert_match "orca: the next step sends the brief with send-brief.sh" "$out" "send-brief\\.sh $RUN bun-vitest-lane-a $RUN/brief-A\\.md\$"
   # A layout call that fails (the console's terminal closed before its split)
   # stops bootstrap, with no pane map line for what did not open.
   r=$(fixture_repo bun-vitest); RUN="$TMP/run-orca-fail"; reset_stub; echo gone > "$ORCA_STUB_STATES_DIR/term-1"
@@ -576,7 +576,7 @@ if section bootstrap; then
     assert_match "pane map: console line"                 "$map" '^console: +pane-1 '
     assert_match "pane map: check gate"                   "$map" '^check gate: +bun run typecheck && bun run test$'
     assert_match "pane map: read a pane, with herdr"      "$map" '^read a pane: +herdr pane read <id> --source recent-unwrapped --lines 60$'
-    assert_match "pane map: message a pane, with herdr"   "$map" '^message a pane: herdr agent prompt <agent> "<text>"$'
+    assert_nomatch "pane map: no message line, briefs go through the kit" "$map" '^message a pane:'
     assert_nomatch "pane map: no dev line by default"     "$map" '^dev:'
     assert_nomatch "pane map: no research tab line"       "$map" '^research tab:'
     assert_nomatch "layout: no research tab opened"       "$log" '(--label|--tab-label) research( |$)'
@@ -807,7 +807,7 @@ if section add-lane; then
   assert_match "orca B: ... the agent started in it" "$log" "^orca terminal send --terminal $bpane --text claude "
   assert_match "orca B: pane map line: the terminal and the worktree" "$map" '^lane B: +term-5 +\(agent "bun-vitest-lane-b", kind claude, branch feat/b, checkout /orca-stub/worktrees/wt-4, model [^,]+, tab lanes\)$'
   assert_nomatch "orca B: no unplaced line left" "$map" '^unplaced lane B:'
-  assert_match "orca B: the next step sends the brief with orca" "$out" "orca terminal send --terminal $bpane --text"
+  assert_match "orca B: the next step sends the brief with send-brief.sh" "$out" "send-brief\\.sh $RUN bun-vitest-lane-b $RUN/brief-B\\.md\$"
   : > "$ORCA_STUB_LOG"; out=$(lane B feat/b main 2,3; echo "exit=$?")
   assert_match "orca B rerun, running: refused, the lane exists" "$out" 'lane B already exists'
   assert_nomatch "orca B rerun, running: nothing created" "$(cat "$ORCA_STUB_LOG")" '^orca (worktree create|terminal create|terminal send) '
@@ -1205,7 +1205,7 @@ if section add-reviewer; then
   assert_match "orca R1: the Reviewer started in R1's terminal" "$log" '^orca terminal send --terminal term-4 --text codex -m gpt-6-astra '
   assert_match "pane map (orca): the review tabs" "$map" '^review tab: +tab-4,tab-5 +\(R1 term-4, R2 term-5\)$'
   assert_match "pane map (orca): reviewer R1's terminal" "$map" '^reviewer R1: +term-4 +\(agent "bun-vitest-r1-1", kind codex, model gpt-6-astra, review "Lane review A", findings '"$RUN"'/findings/lane-a.json\)$'
-  assert_match "orca R1: the next step sends the brief with orca" "$out" 'orca terminal send --terminal term-4 --text'
+  assert_match "orca R1: the next step sends the brief with send-brief.sh" "$out" 'send-brief\.sh .* bun-vitest-r1-1 .*/brief-R1-1\.md  and add'
   echo waiting > "$S/term-4"
   : > "$ORCA_STUB_LOG"; out=$(review R1 claude "Lane review A again" "$RUN/findings/lane-a-2.json"; echo "exit=$?"); log=$(cat "$ORCA_STUB_LOG"); map=$(cat "$RUN/panes.txt")
   assert_match "orca R1 again: add-reviewer finishes" "$out" 'exit=0$'
@@ -3932,6 +3932,53 @@ if section dryrun; then
     assert_eq "dryrun: runner_detect picks herdr" "$(in_kit 'runner_detect')" herdr
     assert_eq "dryrun: ... ORCA_CLI_COMMAND stays unset" "$(in_kit 'echo "[${ORCA_CLI_COMMAND:-}]"')" "[]"
   fi
+fi
+
+# --- send-brief ----------------------------------------------------------------
+# A brief goes through the kit, to the pane of the one lane or Reviewer line
+# that names the agent; nothing in the pane map is run.
+if section send-brief; then
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-send-brief-${RUNNER:-herdr}"; reset_stub
+  (cd "$r" && "$KIT/bootstrap.sh" "$RUN" "Send brief" main "$KIT/example-tasks.tsv" >/dev/null 2>&1)
+  if [ "${RUNNER:-herdr}" = orca ]; then S="$ORCA_STUB_STATES_DIR"; L="$ORCA_STUB_LOG"; else S="$HERDR_STUB_STATES_DIR"; L="$HERDR_STUB_LOG"; fi
+  send() { : > "$L"; (cd "$r" && "$KIT/send-brief.sh" "$@" 2>&1; echo "exit=$?"); }
+  sent() { grep -E '^(herdr agent prompt|orca terminal send)' "$L" || true; }
+  apane=$(sed -nE 's/^lane A: +([^ ]+).*/\1/p' "$RUN/panes.txt")
+  printf 'Do task 1.\nThen report.\n' > "$RUN/brief-A.md"
+  out=$(send "$RUN" bun-vitest-lane-a "$RUN/brief-A.md")
+  assert_match "send-brief: sent" "$out" 'exit=0$'
+  if [ "${RUNNER:-herdr}" = orca ]; then
+    assert_match "send-brief (orca): typed into lane A's terminal" "$(sent)" "^orca terminal send --terminal $apane --text Do task 1\\.\$"
+    assert_match "send-brief (orca): ... all of it, then Enter" "$(cat "$L")" '^Then report\. --enter --json$'
+
+  else
+    assert_match "send-brief (herdr): prompted to the agent by name" "$(sent)" '^herdr agent prompt bun-vitest-lane-a Do task 1\.$'
+  fi
+  assert_match "send-brief: says where it went" "$out" "brief $RUN/brief-A.md sent to bun-vitest-lane-a in $apane"
+  # No command in the map is run: a lane may write one there (an older map
+  # had a message line).
+  echo "message a pane: touch $TMP/send-brief-ran" >> "$RUN/panes.txt"
+  out=$(send "$RUN" bun-vitest-lane-a "$RUN/brief-A.md")
+  assert_match "send-brief, a message line in the map: still sent by the kit" "$out" 'exit=0$'
+  assert_eq "send-brief, a message line in the map: ... which is not run" "$([ -e "$TMP/send-brief-ran" ] && echo ran || echo not)" not
+  out=$(send "$RUN" bun-vitest-lane-z "$RUN/brief-A.md")
+  assert_match "send-brief, an agent no line names: refused" "$out" "send-brief: no lane or Reviewer line in $RUN/panes.txt names agent bun-vitest-lane-z"
+  assert_match "send-brief, an agent no line names: ... fails" "$out" 'exit=1$'
+  assert_eq "send-brief, an agent no line names: nothing sent" "$(sent)" ""
+  out=$(send "$RUN" 'bun-vitest-lane-.' "$RUN/brief-A.md")
+  assert_match "send-brief, a name read literally: no pattern matches" "$out" 'names agent bun-vitest-lane-\.'
+  out=$(send "$RUN" bun-vitest-lane-a "$RUN/brief-none.md")
+  assert_match "send-brief, no brief file: refused" "$out" "send-brief: no brief at $RUN/brief-none.md"
+  assert_eq "send-brief, no brief file: nothing sent" "$(sent)" ""
+  echo gone > "$S/$apane"
+  out=$(send "$RUN" bun-vitest-lane-a "$RUN/brief-A.md")
+  rm -f "$S/$apane"
+  assert_match "send-brief, its pane closed: refused" "$out" "send-brief: bun-vitest-lane-a's pane $apane is gone"
+  assert_eq "send-brief, its pane closed: nothing sent" "$(sent)" ""
+  grep '^lane A:' "$RUN/panes.txt" | sed 's/^lane A:/lane B:/' >> "$RUN/panes.txt"
+  out=$(send "$RUN" bun-vitest-lane-a "$RUN/brief-A.md")
+  assert_match "send-brief, two lines name the agent: refused" "$out" "send-brief: 2 lines in $RUN/panes.txt name agent bun-vitest-lane-a"
+  assert_eq "send-brief, two lines name the agent: nothing sent" "$(sent)" ""
 fi
 
 # --- runner ------------------------------------------------------------------

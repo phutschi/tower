@@ -250,7 +250,6 @@ read -r LANE_A_PANE TAB_REST <<< "$out"
   echo "roles:          $ROLES_LINE"
   echo "toolchain:      $PM"
   echo "read a pane:    $(runner_read_cmd)"
-  echo "message a pane: $(runner_message_cmd)"
 } > "$RUN_DIR/panes.txt"
 
 # bootstrap has no rerun: an agent left running is briefed once it accepts
@@ -273,6 +272,6 @@ else
   echo "       tower add \"<title>\" --area <area> --lane A   per task (lanes B-D: add-lane.sh, then --lane B …)"
   echo "       brief lane A (brief-template.md), then"
 fi
-echo "       $(runner_message_cmd "$LANE_A" "$LANE_A_PANE" "\$(cat $RUN_DIR/brief-A.md)")"
+echo "       $KIT/send-brief.sh $RUN_DIR $LANE_A $RUN_DIR/brief-A.md"
 echo "more lanes:  $KIT/add-lane.sh $RUN_DIR B <branch> $BRANCH <ids>"
 echo "watch:       tower wait --stale $STALE   and   $KIT/watch-lanes.sh $RUN_DIR $LANE_A   (both in the background)"

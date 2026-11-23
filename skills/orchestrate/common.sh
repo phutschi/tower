@@ -66,6 +66,19 @@ agent_of() { runner_agent_state "$1" "${2:-}"; }
 # agent herdr cannot classify), gone or unreadable (agent_of).
 state_of() { local a; a=$(agent_of "$1" "${2:-}"); echo "${a%% *}"; }
 # The main checkout's root, from any worktree of it.
+# The pane of agent NAME in pane map MAP: the one lane or Reviewer line that
+# names it, read literally (the agent name is no pattern). Fails, saying why,
+# when no line names it or more than one does.
+agent_pane() {  # MAP NAME
+  local lines n
+  lines=$(NAME=$2 awk '/^(lane [A-D]|reviewer [^:]+): / && index($0, "(agent \"" ENVIRON["NAME"] "\",")' "$1")
+  n=$(printf '%s' "$lines" | grep -c '^' || true)
+  case $n in
+    1) echo "$lines" | awk '{print $3}' ;;
+    0) echo "no lane or Reviewer line in $1 names agent $2" >&2; return 1 ;;
+    *) echo "$n lines in $1 name agent $2: keep the one that is the agent's" >&2; return 1 ;;
+  esac
+}
 repo_root() { git rev-parse --path-format=absolute --git-common-dir | sed 's#/\.git$##'; }
 
 TOWER_POINTER='install tower: a binary from github.com/phutschi/tower/releases into ~/.local/bin, or  npm i -g github:phutschi/tower'

@@ -34,6 +34,7 @@ need_runner() {
 #   runner_ready_hint NAME         how a human sees NAME accept input
 #   runner_send_text PANE TEXT
 #   runner_send_keys PANE KEY...
+#   runner_send_message NAME PANE TEXT   TEXT as one prompt to NAME (send-brief.sh)
 # and the layout (CONTEXT.md Layout):
 #   runner_self                    the orchestrator's pane or workspace, for the pane map
 #   runner_workspace PANE          the workspace the run's tabs open in
@@ -48,7 +49,6 @@ need_runner() {
 #   runner_reviewer_pane SLOT PANE REPO   the pane a fresh Reviewer in SLOT starts in
 #   runner_pane_exists PANE        0 open, 1 gone, 2 the runner cannot say
 #   runner_pane_check              what runner_pane_exists asks, for a message
-#   runner_read_cmd, runner_message_cmd [AGENT PANE TEXT]   the pane map's read a pane and
-#                                  message a pane lines; with arguments, the command for them
+#   runner_read_cmd                the pane map's read a pane line
 # shellcheck source=/dev/null  # runner-herdr.sh or runner-orca.sh
 . "$KIT/runner-${RUNNER:-herdr}.sh"
