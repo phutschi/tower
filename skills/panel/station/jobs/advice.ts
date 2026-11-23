@@ -18,22 +18,34 @@ import { registerJobRunner } from "../station.ts";
 const run = promisify(execFile);
 const PROMPT = join(import.meta.dir, "../../prompts/advice.md");
 
-/** `repo`'s latest 20 commits on main, one `sha date subject` line each. */
+interface Commit {
+  sha: string;
+  commit: { message: string; committer: { date: string } };
+  parents: { sha: string }[];
+}
+
+/**
+ * `repo`'s latest 20 commits on main, one `sha date subject` line each:
+ * main's own, following first parents as `git log --first-parent` does, so a
+ * merged branch's commits crowd out no merge.
+ */
 async function latestCommits(repo: string): Promise<string[]> {
   const { stdout } = await run(
     "gh",
-    ["api", `repos/${repo}/commits?per_page=20`],
+    ["api", `repos/${repo}/commits?per_page=100`],
     { timeout: 60_000 },
   );
-  return (
-    JSON.parse(stdout) as {
-      sha: string;
-      commit: { message: string; committer: { date: string } };
-    }[]
-  ).map(
-    (c) =>
+  // shortcut: first parents within the latest 100 commits only, page on when a merged branch outgrows them.
+  const listed = JSON.parse(stdout) as Commit[];
+  const bySha = new Map(listed.map((c) => [c.sha, c]));
+  const lines: string[] = [];
+  for (let c = listed[0]; c && lines.length < 20;) {
+    lines.push(
       `${c.sha.slice(0, 7)} ${c.commit.committer.date.slice(0, 10)} ${c.commit.message.split("\n")[0]}`,
-  );
+    );
+    c = c.parents[0] && bySha.get(c.parents[0].sha);
+  }
+  return lines;
 }
 
 registerJobRunner(
@@ -57,7 +69,15 @@ registerJobRunner(
       throw new Error(`the hub refused its repos: ${listed.status}`);
     const repos = (await listed.json()) as string[];
     const merges = Object.fromEntries(
-      await Promise.all(repos.map(async (r) => [r, await latestCommits(r)])),
+      await Promise.all(
+        repos.map(async (r) => [
+          r,
+          await retry(() => latestCommits(r), signal, {
+            tries: 3,
+            maxWaitMs: 1000,
+          }),
+        ]),
+      ),
     );
     // As JSON with < escaped, untrusted text cannot close the tag it sits in.
     const data = (v: unknown) => JSON.stringify(v).replaceAll("<", "\\u003c");

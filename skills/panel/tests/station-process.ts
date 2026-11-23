@@ -32,8 +32,8 @@ export function useStations() {
 const STATION_MAX_MS = 60_000;
 
 /**
- * Starts the station `server` with `env` on top of the test's, in `workdir`:
- * another workdir stands for another Mac.
+ * Starts the station `server` with `env` on top of the test's, working in
+ * the test's directory `at`: another directory stands for another Mac.
  */
 export function station(env: Record<string, string> = {}, at = "station") {
   const workdir = join(dir(), at);

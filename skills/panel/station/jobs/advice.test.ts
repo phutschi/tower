@@ -58,26 +58,47 @@ function answers(text: string) {
 }
 
 /** `subjects`, newest first, as GitHub lists a repo's latest commits. */
-const commits = (repo: string, ...subjects: string[]) =>
+/**
+ * `subjects` as GitHub lists a repo's latest commits: newest first, each the
+ * first parent of the one before. `side` is a commit of a merged branch: the
+ * first one's second parent, listed second.
+ */
+const commits = (repo: string, subjects: string[], side?: string) => {
+  const sha = (n: number) => `${n}abcdef0123`;
+  const at = (message: string) => ({
+    message,
+    committer: { date: "2026-11-20T10:00:00Z" },
+  });
+  const main = subjects.map((message, n) => ({
+    sha: sha(n),
+    commit: at(message),
+    parents: [
+      ...(n + 1 < subjects.length ? [{ sha: sha(n + 1) }] : []),
+      ...(n === 0 && side ? [{ sha: "side" }] : []),
+    ],
+  }));
+  const list = side
+    ? [
+        main[0],
+        { sha: "side", commit: at(side), parents: [] },
+        ...main.slice(1),
+      ]
+    : main;
   writeFileSync(
     join(dir(), `${repo.replace("/", "_")}.commits.json`),
-    JSON.stringify(
-      subjects.map((message, n) => ({
-        sha: `${n}abcdef0123`,
-        commit: { message, committer: { date: "2026-11-20T10:00:00Z" } },
-      })),
-    ),
+    JSON.stringify(list),
   );
+};
 
 /** A merge to main queues the advice job; the station takes it from there. */
 async function advise(env: Record<string, string>): Promise<Job> {
   remote();
   commits(
     "acme/widgets",
-    "Merge pull request #7\n\nfrom rex/parser",
-    "Add the parser",
+    ["Merge pull request #7\n\nfrom rex/parser", "Add the parser"],
+    "wip: rex's side work",
   );
-  commits("acme/gadgets", "Merge pull request #3 from sam/gauge");
+  commits("acme/gadgets", ["Merge pull request #3 from sam/gauge"]);
   setIssues("acme/widgets", [
     issue(1, "ready-for-agent"),
     issue(2),
@@ -120,6 +141,9 @@ test("an advice job asks Opus with the open issues and recent merges, and the hu
   // The latest commits of every listed repo, not only the one that merged.
   expect(prompt).toContain("Merge pull request #7");
   expect(prompt).not.toContain("from rex/parser");
+  // Main's own commits, as git log --first-parent: no merged branch's.
+  expect(prompt).toContain("Add the parser");
+  expect(prompt).not.toContain("side work");
   expect(prompt).toContain("Merge pull request #3 from sam/gauge");
   // Issue text cannot close the tag it sits in.
   expect(prompt.match(/<\/open-issues>/g)).toHaveLength(1);
