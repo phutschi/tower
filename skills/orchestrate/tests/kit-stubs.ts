@@ -28,6 +28,6 @@ export const kitLog = (dir: string) =>
     ? readFileSync(join(dir, "kit.log"), "utf8").replace(/^herdr /gm, "")
     : "";
 
-/** Makes the stub answer that `agent` exited. */
-export const agentExits = (dir: string, agent: string) =>
-  writeFileSync(join(dir, "kit-states", agent), "gone\n");
+/** Makes the stub answer `agent`'s state: working, idle, blocked, or gone once it exited. */
+export const agentIs = (dir: string, agent: string, state: string) =>
+  writeFileSync(join(dir, "kit-states", agent), `${state}\n`);

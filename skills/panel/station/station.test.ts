@@ -369,6 +369,9 @@ test("a job stopped while its station was cut off is stopped with its reason whe
   proc.kill("SIGSTOP");
   await post("/api/issues/acme/widgets/1/stage", { stage: "needs-triage" });
   await until(async () => (await jobs())[0]?.state === "stopped");
+  // Nobody claims it again, and its station posts no result: its lost claim
+  // is its duration.
+  expect((await jobs())[0]!.durationMs).toBeGreaterThan(0);
   proc.kill("SIGCONT");
   // The fake runner records how it was stopped: with the user's reason.
   await until(async () =>

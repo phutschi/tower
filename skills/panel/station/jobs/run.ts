@@ -107,11 +107,12 @@ registerJobRunner("run", async ({ job, workspace, emit, signal }) => {
     );
     if (state && state !== last) {
       last = state;
-      progress = Date.now();
       const read = JSON.parse(state) as Record<string, unknown>;
       tasks = Array.isArray(read.tasks) ? (read.tasks as typeof tasks) : [];
       const transcript = Array.isArray(read.transcript) ? read.transcript : [];
       if (transcript.length < sent) sent = 0; // another run's record
+      // Progress is a new event; tower marking a quiet task stale is not.
+      if (transcript.length !== sent) progress = Date.now();
       // The board as it is now, and only the transcript entries not sent yet.
       await emit("tower-state", {
         ...read,
@@ -122,8 +123,14 @@ registerJobRunner("run", async ({ job, workspace, emit, signal }) => {
     const now = await health();
     if (now?.agent === "gone")
       return { outcome: "failed", reason: "its orchestrator exited" };
-    // A blocked task waits on an answer: the clock stops meanwhile.
-    if (tasks.some((t) => t.status === "blocked")) progress = Date.now();
+    // A working orchestrator makes progress (planning has no record yet).
+    // So does an idle one with a blocked task: it waits on an answer. One
+    // blocked itself (a prompt nobody answers) does not.
+    if (
+      now?.agent === "working" ||
+      (now?.agent === "idle" && tasks.some((t) => t.status === "blocked"))
+    )
+      progress = Date.now();
     else if (now && Date.now() - progress > now.stale * 60_000)
       return { outcome: "failed", reason: `no progress for ${now.stale} min` };
     await sleep(POLL_MS, signal);

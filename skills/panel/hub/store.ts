@@ -48,6 +48,7 @@ interface JobRow {
   session_id: string | null;
   created_at: string;
   duration_ms: number | null;
+  lost_ms: number | null;
   tokens_in: number | null;
   tokens_out: number | null;
 }
@@ -63,7 +64,11 @@ const toJob = (r: JobRow): Job => ({
   reason: r.reason,
   sessionId: r.session_id,
   createdAt: r.created_at,
-  durationMs: r.duration_ms,
+  // A claim lost to an expired lease counts even if nobody claims it again.
+  durationMs:
+    r.duration_ms === null && r.lost_ms === null
+      ? null
+      : (r.duration_ms ?? 0) + (r.lost_ms ?? 0),
   tokens:
     r.tokens_in === null || r.tokens_out === null
       ? null

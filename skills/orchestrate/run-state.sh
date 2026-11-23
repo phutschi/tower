@@ -13,11 +13,18 @@ KIT="$(cd "$(dirname "$0")" && pwd)"
 . "$KIT/common.sh"
 [ $# -eq 1 ] || { echo "usage: run-state.sh <agent>" >&2; exit 2; }
 need herdr
-# shortcut: reads a plain  STALE=<n>  line, not the contract's bash; upgrade
-# to detect-stack.sh's loading if a contract computes it.
-stale_of() { [ -f "$1" ] && sed -n 's/^STALE=\([0-9][0-9]*\).*/\1/p' "$1" | tail -n 1; }
+# shortcut: reads a  STALE=<n>  line (quoted, exported or indented too), not
+# the contract's bash; upgrade to detect-stack.sh's loading if a contract
+# computes it.
+stale_of() {
+  [ -f "$1" ] || return 0
+  sed -n "s/^[[:space:]]*\(export[[:space:]]\{1,\}\)\{0,1\}STALE=[\"']\{0,1\}\([0-9][0-9]*\).*/\2/p" "$1" | tail -n 1
+}
 stale="${STALE:-}"
-[ -n "$stale" ] || stale=$(stale_of .orchestrate || true)
-[ -n "$stale" ] || stale=$(stale_of "${XDG_CONFIG_HOME:-$HOME/.config}/tower/orchestrate" || true)
+case $stale in *[!0-9]*) stale= ;; esac
+contract=.orchestrate
+[ -f "$contract" ] || contract=.herdr-orchestrate
+[ -n "$stale" ] || stale=$(stale_of "$contract")
+[ -n "$stale" ] || stale=$(stale_of "${XDG_CONFIG_HOME:-$HOME/.config}/tower/orchestrate")
 [ -n "$stale" ] || stale=30
 printf '{"agent":"%s","stale":%s}\n' "$(state_of "$1")" "$stale"

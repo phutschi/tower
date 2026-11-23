@@ -3562,6 +3562,9 @@ if section run-state; then
   assert_eq    "run-state: an exited agent, the repo's STALE" "$out" '{"agent":"gone","stale":45}'
   out=$(cd "$r" && STALE=5 "$KIT/run-state.sh" acme-widgets-12 2>&1)
   assert_eq    "run-state: STALE from the environment first"  "$out" '{"agent":"gone","stale":5}'
+  printf '  export STALE="60"\n' > "$r/.orchestrate"
+  out=$(cd "$r" && STALE=soon XDG_CONFIG_HOME="$TMP/no-config" "$KIT/run-state.sh" acme-widgets-12 2>&1)
+  assert_eq    "run-state: a quoted, exported STALE; no number in the environment" "$out" '{"agent":"gone","stale":60}'
   rm -f "$HERDR_STUB_STATES_DIR/acme-widgets-12" "$r/.orchestrate"
   out=$("$KIT/run-state.sh" 2>&1; echo "exit=$?")
   assert_match "run-state: a missing argument is refused"     "$out" 'usage: run-state.sh <agent>'

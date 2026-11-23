@@ -10,7 +10,7 @@ import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
 import type { Subprocess } from "bun";
 
 import {
-  agentExits,
+  agentIs,
   kitLog,
   kitStubEnv,
 } from "../../../orchestrate/tests/kit-stubs.ts";
@@ -405,7 +405,7 @@ test("a run whose orchestrator exited is stuck, and frees its station", async ()
   await until(async () => (await jobs())[0]?.state === "claimed");
   const id = (await jobs())[0]!.id;
   await until(async () => (await started(id)) !== undefined);
-  agentExits(dir(), "acme-widgets-12");
+  agentIs(dir(), "acme-widgets-12", "gone");
   await until(async () => (await jobs())[0]?.state === "stuck");
   expect((await jobs())[0]!.reason).toBe("its orchestrator exited");
 });
@@ -419,6 +419,9 @@ test("a run with no progress for the repo's stale threshold is stuck, unless it 
   await setup({}, undefined, undefined, { ".orchestrate": "STALE=0\n" });
   await ready(12);
   await until(async () => (await jobs())[0]?.state === "claimed");
+  const id = (await jobs())[0]!.id;
+  await until(async () => (await started(id)) !== undefined);
+  agentIs(dir(), "acme-widgets-12", "idle");
   await Bun.sleep(500);
   expect((await jobs())[0]!.state).toBe("claimed");
   writeFileSync(
@@ -429,4 +432,12 @@ test("a run with no progress for the repo's stale threshold is stuck, unless it 
   expect((await jobs())[0]!.reason).toBe("no progress for 0 min");
   // The orchestrator may still be at work: its workspace stays for a look.
   expect(log()).not.toMatch(/^workspace close/m);
+});
+
+test("a run whose orchestrator is working is not stuck, even before it has a tower record", async () => {
+  await setup({}, undefined, undefined, { ".orchestrate": "STALE=0\n" });
+  await ready(12);
+  await until(async () => (await jobs())[0]?.state === "claimed");
+  await Bun.sleep(500);
+  expect((await jobs())[0]!.state).toBe("claimed");
 });

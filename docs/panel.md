@@ -50,8 +50,9 @@ ready PR opened for the run closes its issues.
   others back to ready-for-agent.
 - **Stuck runs:** a run that fails, whose station stops reporting, whose
   orchestrator exited, or that made no progress for the repo's stale
-  threshold (`STALE` in its contract, 30 minutes by default; a blocked task,
-  waiting on your answer, stops that clock) is marked stuck, gets one Inbox
+  threshold (`STALE` in its contract, 30 minutes by default: no new event
+  while its orchestrator is not working, and not idle on a blocked task
+  that waits on an answer) is marked stuck, gets one Inbox
   message, and is never tried again: move its issues back to
   ready-for-agent to start a new one.
 - **Usage limits:** when Claude refuses a job at a usage limit, the
