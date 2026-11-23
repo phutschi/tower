@@ -30,7 +30,7 @@ runner_agent_start() {
         if orca_trust_menu "$pane"; then
           echo "agent blocked during startup" >&2
         else
-          echo "agent start: $name is blocked on a prompt in terminal $pane that does not show the workspace trust menu: answer it there, then brief it" >&2
+          echo "agent start: $name is blocked on a prompt in terminal $pane that Orca does not report as the workspace trust prompt: answer it there, then brief it" >&2
         fi
         return 1 ;;
       *" True"|gone|unreadable) return 0 ;;   # until_ready decides
@@ -60,8 +60,9 @@ runner_agent_state() {
   echo "$out"
 }
 # Is the agent in terminal PANE held at its workspace-trust prompt? Orca's own
-# wait reason says so (terminal show's agentWait), never words on the screen,
-# which can outlive the question they asked.
+# wait reason says so (terminal show's agentWait), which takes the prompt
+# lowest on the screen; old words above it, from a question already answered,
+# do not count.
 orca_trust_menu() {
   orca terminal show --terminal "$1" --json 2>/dev/null \
     | jsonq '((d["result"]["terminal"].get("agentWait") or {}).get("reason") or "") in ("agent-trust-workspace", "codex-trust-workspace")' 2>/dev/null \

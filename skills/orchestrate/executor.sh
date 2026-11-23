@@ -201,10 +201,10 @@ toml_string() { local s=${1//\\/\\\\}; printf '"%s"' "${s//\"/\\\"}"; }
 # agent_pane_busy. Try again once a second, START_TRIES times in all (default 10).
 # A fresh checkout shows the agent's trust prompt, which herdr reports as
 # "blocked during startup" (runner-orca.sh says so only on Orca's
-# workspace-trust wait reason; any other prompt fails the start). Claude's prompt wants
-# Down Enter ("Yes, I trust this folder" is the second option); codex's wants
-# Enter ("Yes, continue" is the first). Answer it, and try once more if herdr
-# then says the agent is gone.
+# workspace-trust wait reason; any other prompt fails the start). Claude's
+# prompt wants Down Enter ("Yes, I trust this folder" is the second option);
+# codex's wants Enter ("Yes, continue" is the first). Answer it, and try once
+# more if herdr then says the agent is gone.
 # cursor's is never answered: it starts with --trust, and one still blocked
 # fails the start, saying to check the pane.
 # It returns 1, saying why, when the answer cannot be sent or the agent is

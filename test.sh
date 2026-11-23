@@ -313,7 +313,6 @@ if section executor; then
   assert_match "orca trust: ... then Enter alone" "$log" '^orca terminal send --terminal term-1 --enter --json$'
   assert_eq "orca trust: the agent is not started twice" "$(grep -c '^orca terminal send --terminal term-1 --text claude' "$ORCA_STUB_LOG")" 1
   printf 'unlisted\nunlisted\ntrust\ntrust\nwaiting\n' > "$S/term-1"
-  printf 'Do you trust the contents of this directory?\n> 1. Yes, continue\n  2. No, quit\n' > "$S/term-1.tail"
   out=$(ostart codex)
   assert_match "orca trust, codex: Orca's trust reason, answered" "$out" 'exit=0$'
   assert_nomatch "orca trust, codex: no Down" "$(cat "$ORCA_STUB_LOG")" 'B --json$'
@@ -325,13 +324,6 @@ if section executor; then
   out=$(ostart codex)
   assert_match "orca trust, not listed yet: the start goes on" "$out" 'exit=0$'
   assert_match "orca trust, not listed yet: answered with Enter alone" "$(cat "$ORCA_STUB_LOG")" '^orca terminal send --terminal term-1 --enter --json$'
-  # A prompt answered long ago, still in the tail above the agent's screen,
-  # is no menu: only the bottom lines count.
-  rm -f "$S"/term-*; echo unlisted-idle > "$S/term-1"
-  { printf 'Do you trust the files in this folder?\n 2. Yes, I trust this folder\n'; for i in 1 2 3 4 5 6 7 8 9; do echo "welcome line $i"; done; } > "$S/term-1.tail"
-  out=$(ostart claude)
-  assert_match "orca: an answered trust prompt high in the tail: ready" "$out" 'exit=0$'
-  assert_nomatch "orca: ... and no keys sent" "$(cat "$ORCA_STUB_LOG")" '^orca terminal send --terminal term-1 (--enter|--text .\[B)'
   # The start's return code says what was sent: 3, Orca refused the launch
   # line (nothing typed); 4, Orca took it without a receipt (unknown); any
   # other failure, it may have been typed.
@@ -341,21 +333,16 @@ if section executor; then
   rm -f "$S"/term-*; assert_eq "orca: a launch Orca refused: 3" "$(rcstart ORCA_STUB_SEND_FAIL=refused)" rc=3
   rm -f "$S"/term-*; assert_eq "orca: a launch with no receipt: 4" "$(rcstart ORCA_STUB_SEND_FAIL=unknown)" rc=4
   rm -f "$S"/term-*; assert_eq "orca: a lost reply (runtime_unavailable) proves nothing: 4" "$(rcstart ORCA_STUB_SEND_FAIL=1)" rc=4
-  # The trust prompt is known by Orca's own wait reason: a screen still
-  # showing an answered trust question over a hooks-review menu gets no keys.
-  rm -f "$S"/term-*; printf 'unlisted\nblocked\n' > "$S/term-1"
-  printf 'Do you trust the files in this folder?\n 2. Yes, I trust this folder\nHooks changed: review them?\n> 1. Yes\n' > "$S/term-1.tail"
-  out=$(ostart claude)
-  assert_match "orca: trust words over a hooks review: the start fails" "$out" 'exit=1$'
-  assert_nomatch "orca: ... no keys sent" "$(cat "$ORCA_STUB_LOG")" '^orca terminal send --terminal term-1 (--enter|--text .\[B)'
   # Blocked on any other prompt (a hooks review, an update): no keys, the
-  # start fails, and the prompt stays for the operator.
+  # start fails, and the prompt stays for the operator. The trust prompt is
+  # known by Orca's own wait reason: an answered trust question still on the
+  # screen above the hooks-review menu changes nothing.
   rm -f "$S"/term-*
   printf 'unlisted\nblocked\n' > "$S/term-1"
-  printf 'Hooks changed since you last ran: review them?\n> 1. Yes\n  2. No\n' > "$S/term-1.tail"
+  printf 'Do you trust the files in this folder?\n 2. Yes, I trust this folder\nHooks changed since you last ran: review them?\n> 1. Yes\n  2. No\n' > "$S/term-1.tail"
   out=$(ostart claude)
   assert_match "orca blocked, not the trust menu: the start fails" "$out" 'exit=1$'
-  assert_match "orca blocked, not the trust menu: ... saying to answer it in its terminal" "$out" 'acme-lane-a is blocked on a prompt in terminal term-1 that does not show the workspace trust menu: answer it there'
+  assert_match "orca blocked, not the trust menu: ... saying to answer it in its terminal" "$out" 'acme-lane-a is blocked on a prompt in terminal term-1 that Orca does not report as the workspace trust prompt: answer it there'
   assert_nomatch "orca blocked, not the trust menu: ... and sends no keys" "$(cat "$ORCA_STUB_LOG")" '^orca terminal send --terminal term-1 (--enter|--text .\[B)'
   echo done > "$S/term-1"
   out=$(ostart claude)

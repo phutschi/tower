@@ -28,11 +28,9 @@
 # the line). With no file, the agent is working. With several lines, each call
 # that reports the state answers the first and drops it; the last one stays.
 # `terminal show` gives a trust menu Orca's agentWait reason
-# agent-trust-workspace, and blocked agent-hooks-review-prompt.
+# agent-trust-workspace, blocked agent-hooks-review-prompt, any other null.
 # `terminal read` answers ORCA_STUB_STATES_DIR/<handle>.tail as its tail
-# (with --screen, source "screen" and, without a .tail, a screen by state);
-# without one, a trust menu's tail shows Claude's workspace trust prompt (a
-# plain blocked is any other prompt).
+# (with --screen, source "screen" and, without a .tail, a screen by state).
 # `terminal wait --for tui-idle` is satisfied by waiting, done or
 # unlisted-idle, fails for "unlisted-waitfail" (an unlisted agent whose wait
 # Orca cannot answer: runtime_unavailable) and "unlisted-waittimeout" (Orca's
@@ -122,10 +120,9 @@ case "${1:-} ${2:-}" in
   "terminal show")
     h=$(flag terminal); live "$h"; read -r _ tab leaf wt < <(row "$h") || err terminal_handle_stale
     # agentWait: Orca's reason an agent waits on a prompt.
-    aw=""; case "$(peek "$h")" in
-      trust|unlisted-trust) aw=',"agentWait":{"source":"prompt-text","reason":"agent-trust-workspace"}' ;;
-      blocked) aw=',"agentWait":{"source":"prompt-text","reason":"agent-hooks-review-prompt"}' ;;
-    esac
+    aw=',"agentWait":null'
+    if trusty "$h"; then aw=',"agentWait":{"source":"prompt-text","reason":"agent-trust-workspace"}'
+    elif [ "$(peek "$h")" = blocked ]; then aw=',"agentWait":{"source":"prompt-text","reason":"agent-hooks-review-prompt"}'; fi
     ok "{\"terminal\":{\"handle\":\"$h\",\"tabId\":\"$tab\",\"leafId\":\"$leaf\",\"worktreeId\":\"$wt\"$aw}}" ;;
   "terminal send")
     h=$(flag terminal); live "$h"
@@ -146,7 +143,6 @@ case "${1:-} ${2:-}" in
   "terminal read")
     h=$(flag terminal); live "$h"
     tail=$([ -n "$states" ] && [ -f "$states/$h.tail" ] && python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().splitlines()))' < "$states/$h.tail") || tail='[]'
-    ! trusty "$h" || [ "$tail" != '[]' ] || tail='["Do you trust the files in this folder?", " 1. No, exit", " 2. Yes, I trust this folder"]'
     # --screen: the rendered screen, an agent's interface or, done-shell, a
     # shell prompt.
     src=""
