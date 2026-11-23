@@ -95,7 +95,9 @@ and do it in a lane anyway or suggest doing it without the kit.
    of the first, the third under the first, the fourth under the second),
    left of the Reviewer column. With session roles, a lane whose tasks name
    a role other than `code` or `review` goes to the `research` tab's grid
-   instead; a tab opens with its first lane. When the pane's move into the
+   instead; a tab opens with its first lane. In Orca the lane is a child
+   worktree of your workspace, where Orca puts it, with its own terminal and
+   no grid; a branch that already exists is refused. When the pane's move into the
    grid or its agent's start fails, rerun the same call: it moves the
    pane, starts the agent again, or takes the agent left running once it
    accepts input, and creates nothing again. Any other failure prints what

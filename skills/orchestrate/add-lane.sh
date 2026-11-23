@@ -25,7 +25,8 @@
 # goes there, and its line has no tab, as the others.
 #
 # The kind is per lane (executor.sh). Worktrees live at
-# <repo>/.worktrees/<branch>; INSTALL_CMD installs (from here, log in
+# <repo>/.worktrees/<branch> (in Orca, a child worktree of the orchestrator's
+# workspace, where Orca puts it, with no grid and no move); INSTALL_CMD installs (from here, log in
 # <run-dir>/install-<lane>.log): the repo contract's, else the package manager's
 # when there is a package.json, else nothing, said in one line. .env
 # (gitignored) is copied once the agent owns the pane. The worktree shares the

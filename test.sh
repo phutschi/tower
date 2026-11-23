@@ -774,10 +774,10 @@ if section add-lane; then
   assert_match "orca B: add-lane finishes" "$out" 'exit=0$'
   assert_nomatch "orca B: no herdr call" "$log" '^herdr '
   assert_eq "orca B: the board has lane B owning its tasks" "$(board "$RUN" '",".join(d["lanes"].get("B", []))')" "2,3"
-  assert_match "orca B: a child worktree of the orchestrator's workspace" "$log" "^orca worktree create --name bun-vitest-lane-b --branch feat/b --base-branch main --parent-worktree id:$WS --json$"
+  assert_match "orca B: a child worktree of the orchestrator's workspace" "$log" "^orca worktree create --name bun-vitest-lane-b --branch feat/b --base-branch main --parent-worktree id:$WS --setup skip --json$"
   wt=$(sed -nE 's/^lane B: .* checkout (.*), model .*/\1/p' "$RUN/panes.txt")
   assert_eq "orca B: its checkout is the worktree Orca made" "$wt" /orca-stub/worktrees/wt-4
-  assert_match "orca B: its executor in a terminal of that worktree" "$log" '^orca terminal create --worktree id:repo-0::/orca-stub/worktrees/wt-4 --title bun-vitest-lane-b --json$'
+  assert_match "orca B: its executor in a terminal of that worktree" "$log" '^orca terminal create --worktree id:repo-0::/orca-stub/worktrees/wt-4 --title bun-vitest-lane-b --command cd /orca-stub/worktrees/wt-4 --json$'
   bpane=$(sed -nE 's/^lane B: +([^ ]+).*/\1/p' "$RUN/panes.txt")
   assert_match "orca B: ... the agent started in it" "$log" "^orca terminal send --terminal $bpane --text claude "
   assert_match "orca B: pane map line: the terminal and the worktree" "$map" '^lane B: +term-5 +\(agent "bun-vitest-lane-b", kind claude, branch feat/b, checkout /orca-stub/worktrees/wt-4, model [^,]+, tab lanes\)$'
@@ -793,6 +793,13 @@ if section add-lane; then
   assert_match "orca B rerun, terminal gone: names the pane map line and the worktree to remove" "$out" "lane B's pane $bpane is gone \\(Orca\\): remove its line from $RUN/panes.txt and the worktree /orca-stub/worktrees/wt-4"
   assert_nomatch "orca B rerun, terminal gone: nothing created" "$(cat "$ORCA_STUB_LOG")" '^orca (worktree create|terminal create) '
   rm -f "$ORCA_STUB_STATES_DIR/$bpane"
+  # Orca gives a taken branch name a numeric suffix: an existing branch is
+  # refused before any worktree is made, or the lane would commit elsewhere.
+  git -C "$r" branch feat/c
+  : > "$ORCA_STUB_LOG"; out=$(lane C feat/c main 4; echo "exit=$?")
+  assert_match "orca C, its branch exists: refused" "$out" 'exit=1$'
+  assert_match "orca C, its branch exists: ... saying so" "$out" 'branch feat/c exists'
+  assert_nomatch "orca C, its branch exists: no worktree" "$(cat "$ORCA_STUB_LOG")" '^orca worktree create '
   else
     r=$(fixture_repo bun-vitest); RUN="$TMP/run-grid"; reset_stub
     (cd "$r" && "$KIT/bootstrap.sh" "$RUN" "Grid" main "$KIT/example-tasks.tsv" >/dev/null 2>&1)

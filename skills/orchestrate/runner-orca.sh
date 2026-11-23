@@ -109,15 +109,21 @@ runner_read_cmd()    { echo "orca terminal read --terminal <id> --json"; }
 runner_message_cmd() { echo "orca terminal send --terminal ${2:-<id>} --text \"${3:-<text>}\" --enter --json"; }
 # Lane LANE's worktree on BRANCH from BASE, a child worktree of the
 # orchestrator's workspace (the pane map's orchestrator line; $MAP is
-# add-lane's), named LABEL, with a terminal of its own. Orca picks its path
-# (WT is unused). Prints "<pane> <checkout>"; dies saying what to remove.
+# add-lane's), named LABEL, with a terminal of its own, started in it. Orca
+# picks its path (WT is unused), and skips the repo's setup hooks: add-lane
+# installs. Prints "<pane> <checkout>"; dies saying what to remove.
+# shortcut: Orca also opens the worktree's first terminal, left as an idle shell; reuse it once `worktree create --json` is known to name its handle.
 runner_open_lane() {
-  local branch="$2" base="$3" label="$5" ws out id path pane
+  local branch="$2" base="$3" label="$5" ws out info id="" path="" pane
+  # Orca gives a taken branch name a numeric suffix: the lane would commit elsewhere.
+  ! git -C "$1" show-ref --verify --quiet "refs/heads/$branch" \
+    || die "add-lane: branch $branch exists, and Orca would make lane $LANE's worktree on another branch: remove it or pick another, then rerun  $RERUN"
   ws=$(sed -nE 's/^orchestrator: +([^ ]+).*/\1/p' "$MAP")
-  out=$(orca worktree create --name "$label" --branch "$branch" --base-branch "$base" --parent-worktree "id:$ws" --json) \
+  out=$(orca worktree create --name "$label" --branch "$branch" --base-branch "$base" --parent-worktree "id:$ws" --setup skip --json) \
     || die "add-lane: Orca could not create lane $LANE's worktree ($out): remove branch $branch if it exists, then rerun  $RERUN"
-  read -r id path <<< "$(echo "$out" | jsonq '"%s %s" % (d["result"]["worktree"]["id"], d["result"]["worktree"]["path"])')"
-  read -r pane _ <<< "$(orca_new terminal create --worktree "id:$id" --title "$label")"
+  info=$(echo "$out" | jsonq '"%s %s" % (d["result"]["worktree"]["id"], d["result"]["worktree"]["path"])' 2>/dev/null) && read -r id path <<< "$info"
+  [ -n "$path" ] || die "add-lane: Orca made lane $LANE's worktree but its answer names none ($out): remove it (orca worktree list --json) and branch $branch, then rerun  $RERUN"
+  read -r pane _ <<< "$(orca_new terminal create --worktree "id:$id" --title "$label" --command "cd $(printf %q "$path")")"
   [ -n "$pane" ] || die "add-lane: Orca created lane $LANE's worktree $path but no terminal in it: remove it (orca worktree rm --worktree id:$id --force) and branch $branch, then rerun  $RERUN"
   echo "$pane $path"
 }
