@@ -125,11 +125,12 @@ panes and starts its agents. It decides before it creates anything:
 - **herdr** when the orchestrator runs in a herdr pane (`HERDR_ENV=1`) and
   herdr answers, even inside an Orca terminal.
 - **Orca** otherwise, when it runs in an Orca chat or terminal
-  (`ORCA_CLI_COMMAND` is set) and `"$ORCA_CLI_COMMAND" status` answers.
+  (`ORCA_CLI_COMMAND` is set) and `"$ORCA_CLI_COMMAND" status --json` says
+  its runtime is reachable.
 
 Outside both it refuses, names herdr, Orca and `/tower:run`, and creates no
-run. In an Orca whose runtime does not answer it refuses too, and says Orca is
-not reachable.
+run. In an Orca whose runtime does not answer, or answers that it is not
+reachable, it refuses too, and says Orca is not reachable.
 
 The run is the same in both: the same briefs, the same reviews, the same
 record. In Orca the kit drives terminals through Orca's CLI, the command

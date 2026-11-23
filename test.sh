@@ -176,7 +176,7 @@ if section common; then
   assert_match "TOWER_POINTER: says how to install tower" "$(in_kit 'echo "$TOWER_POINTER"')" 'github\.com/phutschi/tower'
   assert_nomatch "TOWER_POINTER: names no version" "$(in_kit 'echo "$TOWER_POINTER"')" '[0-9]+\.[0-9]+'
   assert_match "need names the missing tool"     "$(in_kit 'need git nosuchtool')" "missing dependency: nosuchtool"
-  # The fake orca is on PATH under DRY_RUN; ORCA_STUB_STATUS=fail: Orca not reachable.
+  # The fake orca is on PATH under DRY_RUN; ORCA_STUB_STATUS=fail or offline: Orca not reachable.
   in_orca() { env ORCA_CLI_COMMAND=orca "$@" bash -c ". \"\$KIT/common.sh\"; runner_detect" 2>&1; }
   assert_eq "runner_detect: herdr when HERDR_ENV=1 and herdr answers" "$(in_kit 'runner_detect')" herdr
   assert_eq "runner_detect: orca when ORCA_CLI_COMMAND is set, herdr is absent and orca status answers" "$(in_orca HERDR_ENV=0)" orca
@@ -184,6 +184,10 @@ if section common; then
   assert_eq "runner_detect: herdr when both herdr and Orca are present" "$(in_orca HERDR_ENV=1)" herdr
   out=$(in_orca HERDR_ENV=0 ORCA_STUB_STATUS=fail; echo "exit=$?")
   assert_match "runner_detect: Orca set but orca status fails, it says Orca is not reachable" "$out" "Orca is not reachable"
+  assert_match "runner_detect: ... and fails" "$out" 'exit=1$'
+  # Orca's JSON answer can succeed while its runtime is down: reachable false.
+  out=$(in_orca HERDR_ENV=0 ORCA_STUB_STATUS=offline; echo "exit=$?")
+  assert_match "runner_detect: orca status answers reachable false: Orca is not reachable" "$out" "Orca is not reachable"
   assert_match "runner_detect: ... and fails" "$out" 'exit=1$'
   out=$(HERDR_ENV=0 in_kit 'runner_detect; echo "exit=$?"')
   assert_match "runner_detect: outside both it refuses, naming herdr, Orca and /tower:run" "$out" "needs herdr.*Orca.*/tower:run"

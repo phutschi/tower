@@ -21,11 +21,11 @@ says how to install it.
 This skill drives herdr or Orca, whichever runner it was started in. Before
 anything else, check that this session runs in a herdr pane (`HERDR_ENV=1`)
 with `herdr` runnable, or in an Orca terminal or chat (`ORCA_CLI_COMMAND` is
-set) with `orca status` answering; herdr wins when both are there. If neither,
-stop: tell the user the skill needs herdr or Orca, and that `/tower:run` does
-the same job with any runner. If Orca is there but `orca status` fails, say
-Orca is not reachable. Every script refuses the same way, before it creates
-anything (`runner.sh`).
+set) with `orca status --json` saying its runtime is reachable; herdr wins
+when both are there. If neither, stop: tell the user the skill needs herdr
+or Orca, and that `/tower:run` does the same job with any runner. If Orca is
+there but not reachable, say Orca is not reachable. Every script refuses the
+same way, before it creates anything (`runner.sh`).
 
 ## Then: an orchestrator session
 
