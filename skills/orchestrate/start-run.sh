@@ -28,19 +28,22 @@ EXECUTOR_KIND=claude
 out=$(herdr workspace create --cwd "$CHECKOUT" --label "$NAME" --no-focus 2>&1) \
   || die "start-run: herdr could not open workspace $NAME: $out"
 WS=$(printf '%s' "$out" | jsonq 'd["result"]["workspace"]["workspace_id"]' 2>/dev/null) \
-  && PANE=$(printf '%s' "$out" | jsonq 'd["result"]["root_pane"]["pane_id"]' 2>/dev/null) \
-  || die "start-run: herdr opened workspace $NAME without naming its pane: $out"
+  || die "start-run: herdr opened workspace $NAME without naming it: $out"
 # From here a failure leaves no workspace behind: nobody would own it.
 trap '[ $? -eq 0 ] || herdr workspace close "$WS" >/dev/null 2>&1 || echo "start-run: could not close workspace $NAME ($WS)" >&2' EXIT
 # bash 3.2 runs no EXIT trap on a signal: launchd stopping the station mid-start.
 trap 'exit 143' TERM INT HUP
+PANE=$(printf '%s' "$out" | jsonq 'd["result"]["root_pane"]["pane_id"]' 2>/dev/null) \
+  || die "start-run: herdr opened workspace $NAME without naming its pane: $out"
 # An agent name herdr accepts (executor.sh agent_name): a lowercase letter
 # first, then lowercase letters, digits, '-' or '_', at most 32 characters.
-# A long name loses words from its front, never the issue number at its end:
-# herdr addresses the agent by it, and two runs of one repo must differ.
+# A long name keeps its tail behind a letter, never losing the issue numbers
+# at its end: herdr addresses the agent by it. Two long names that share
+# their last 30 characters (two owners' same-named repos) still collide.
 AGENT=$(printf '%s' "$NAME" | tr 'A-Z' 'a-z' | sed 's/[^a-z0-9_-]/-/g')
-[ "${#AGENT}" -le 32 ] || { AGENT="${AGENT: -32}"; AGENT="${AGENT#*-}"; }
-AGENT=$(printf '%s' "$AGENT" | sed 's/^[^a-z]*//'); [ -n "$AGENT" ] || AGENT=run
+if [ "${#AGENT}" -gt 32 ]; then AGENT="r-${AGENT: -30}"
+else AGENT=$(printf '%s' "$AGENT" | sed 's/^[^a-z]*//'); [ -n "$AGENT" ] || AGENT=run
+fi
 # With a Claude launcher (roles.sh), orchestration runs only in an
 # orchestrator session.
 if claude_launcher; then

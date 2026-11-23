@@ -117,7 +117,13 @@ export async function runStation(
     const started = Date.now();
     const event = (kind: string, data: Record<string, unknown>) => ({
       path: `/api/jobs/${job.id}/events`,
-      body: { ts: new Date().toISOString(), kind, data },
+      // The hub keeps one event per id: a resend after a lost answer is no second.
+      body: {
+        id: crypto.randomUUID(),
+        ts: new Date().toISOString(),
+        kind,
+        data,
+      },
     });
     const emit = (kind: string, data: Record<string, unknown>) => {
       outbox.push(event(kind, data));
@@ -194,18 +200,28 @@ export async function runStation(
   };
 
   const tick = async () => {
-    await flush();
+    // Not awaited: a backlog of events must not hold up the heartbeats.
+    void flush();
     for (const [id, job] of running) {
       const res = await call(`/api/jobs/${id}/heartbeat`, {}).catch(() => null);
       if (job.ended) continue;
       // The user stopped it: moved its issue back, or closed it.
       const control = await fetch(`${opts.hubUrl}/api/jobs/${id}/control`)
-        .then((r) => (r.ok ? (r.json() as Promise<Control>) : null))
+        // 404: the hub knows the job no more (a new database): no stop.
+        .then((r) =>
+          r.ok
+            ? (r.json() as Promise<Control>)
+            : r.status === 404
+              ? { stop: false, reason: null }
+              : null,
+        )
         .catch(() => null);
       // 409: the job is no longer this station's: let go. If the user
       // stopped it meanwhile (its lease ran out while the station was cut
       // off), it is stopped as they asked: a run's workspace closes.
       if (res?.status === 409) {
+        // Acted on only once the control is read: the next tick tries again.
+        if (control === null) continue;
         job.ended = true;
         job.abort.abort(
           control?.stop ? { stop: control.reason ?? "stopped" } : undefined,
@@ -220,7 +236,14 @@ export async function runStation(
     await executor.prune().catch((err: unknown) => {
       console.error(`station: pruning kept checkouts: ${String(err)}`);
     });
-    for (let job = await claim(); job; job = await claim()) {
+    // A station quitting takes nothing new; a job claimed meanwhile is not
+    // started, and its lease runs out.
+    for (
+      let job = stopped ? null : await claim();
+      job;
+      job = stopped ? null : await claim()
+    ) {
+      if (stopped) break;
       if (running.has(job.id)) continue;
       const abort = new AbortController();
       running.set(job.id, { abort, done: work(job, abort) });

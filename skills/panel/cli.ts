@@ -4,7 +4,14 @@
  * a station on any Mac; `install` and `uninstall` make either a launchd agent.
  */
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir, hostname } from "node:os";
 import { dirname, join } from "node:path";
 import { parseArgs } from "node:util";
@@ -152,15 +159,24 @@ function install(args: string[]) {
   }
   // Unloaded first: a plist written over a running agent's would outlive it.
   bootout("install", role);
+  const old = join(values.dir, `${label(role)}.plist`);
+  const previous = existsSync(old) ? readFileSync(old, "utf8") : null;
   const path = writePlist({ role, args: run, dir: values.dir });
   try {
     execFileSync("launchctl", ["bootstrap", domain(), path], { stdio: "pipe" });
   } catch (err) {
-    // Left in place, the agent would start at the next login anyway.
-    rmSync(path, { force: true });
     console.error(
       `install ${role}: launchctl could not load ${path}: ${String(err)}`,
     );
+    // The new plist, left in place, would start at the next login: the
+    // previous one goes back instead, still stopped.
+    if (previous === null) rmSync(path, { force: true });
+    else {
+      writeFileSync(path, previous);
+      console.error(
+        `install ${role}: the previous agent is back in ${path} but stopped; it loads at the next login, or now with  launchctl bootstrap ${domain()} ${path}`,
+      );
+    }
     process.exit(1);
   }
   console.log(`install ${role}: ${path} is loaded`);

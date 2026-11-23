@@ -3,7 +3,13 @@
  * runStation with fake runners) against a real hub, with real git against a
  * temp bare repo standing in for GitHub's.
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import {
   afterEach,
@@ -408,6 +414,86 @@ test("a failed job the user stopped keeps its tokens", async () => {
   await post("/api/issues/acme/widgets/1/stage", { stage: "needs-triage" });
   await until(async () => (await jobs())[0]?.state === "stopped");
   expect((await jobs())[0]!.tokens).toEqual({ input: 7, output: 3 });
+});
+
+test("an event sent again with its id is stored, and its tokens counted, once", async () => {
+  await setup();
+  await grills(1);
+  const [job] = await jobs();
+  await post("/api/jobs/claim", { station: "server", kinds: ["grill"] });
+  const send = () =>
+    post(`/api/jobs/${job!.id}/events`, {
+      station: "server",
+      id: "event-1",
+      ts: new Date().toISOString(),
+      kind: "tokens",
+      data: { input: 100, output: 10 },
+    });
+  expect((await send()).status).toBe(200);
+  expect((await send()).status).toBe(200);
+  const stored = await api<JobWithEvents>(`/api/jobs/${job!.id}`);
+  expect(stored.events.length).toBe(1);
+  expect(stored.tokens).toEqual({ input: 100, output: 10 });
+});
+
+test("a result that comes in after the user stopped the job leaves it stopped, and its checkpoints are refused", async () => {
+  await setup();
+  await grills(1);
+  const [job] = await jobs();
+  await post("/api/jobs/claim", { station: "server", kinds: ["grill"] });
+  await post("/api/issues/acme/widgets/1/stage", { stage: "needs-triage" });
+  const spec = await post(`/api/jobs/${job!.id}/events`, {
+    station: "server",
+    ts: new Date().toISOString(),
+    kind: "spec",
+    data: { spec: "late" },
+  });
+  expect(spec.status).toBe(409);
+  await post(`/api/jobs/${job!.id}/result`, {
+    station: "server",
+    outcome: "done",
+    durationMs: 5,
+    sessionId: "",
+    tokens: { input: 1, output: 1 },
+  });
+  expect((await jobs())[0]).toMatchObject({
+    state: "stopped",
+    reason: "moved back to needs-triage",
+    tokens: { input: 1, output: 1 },
+  });
+});
+
+test("an empty session id in a result keeps the session the job reported", async () => {
+  await setup();
+  await grills(1);
+  const [job] = await jobs();
+  await post("/api/jobs/claim", { station: "server", kinds: ["grill"] });
+  await post(`/api/jobs/${job!.id}/events`, {
+    station: "server",
+    ts: new Date().toISOString(),
+    kind: "session",
+    data: { sessionId: "s-1" },
+  });
+  await post(`/api/jobs/${job!.id}/result`, {
+    station: "server",
+    outcome: "failed",
+    reason: "boom",
+    durationMs: 5,
+    sessionId: "",
+  });
+  expect((await jobs())[0]!.sessionId).toBe("s-1");
+});
+
+test("a job the hub knows no more (a new database) is let go", async () => {
+  await setup();
+  await grills(1);
+  const { workdir } = station();
+  await until(async () => (await jobs())[0]?.state === "claimed");
+  const id = (await jobs())[0]!.id;
+  await stopHub();
+  rmSync(join(dir(), "hub.db"), { force: true });
+  await restart();
+  await until(async () => existsSync(join(workdir, `aborted-${id}`)));
 });
 
 test("the Panel lists stations with switch, limit and current jobs, and each job's events", async () => {

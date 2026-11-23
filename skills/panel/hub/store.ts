@@ -150,9 +150,29 @@ export class Store {
         job_id TEXT NOT NULL,
         ts TEXT NOT NULL,
         kind TEXT NOT NULL,
-        data TEXT NOT NULL
+        data TEXT NOT NULL,
+        event_id TEXT UNIQUE
       );
+      CREATE INDEX IF NOT EXISTS job_events_job ON job_events(job_id, seq);
     `);
+    const columns = (table: string) =>
+      this.db
+        .query<{ name: string }, []>(`PRAGMA table_info(${table})`)
+        .all()
+        .map((c) => c.name);
+    // No migration while the Panel is unreleased (user_version 0 and the
+    // tables of an earlier build); a released schema change starts from 1.
+    if (
+      !columns("jobs").includes("lost_ms") ||
+      !columns("job_events").includes("event_id")
+    )
+      throw new Error(
+        `${path} is a hub database from an earlier development build of the Panel: delete it and start the hub again`,
+      );
+    const version = this.db
+      .query<{ user_version: number }, []>("PRAGMA user_version")
+      .get()!.user_version;
+    if (version === 0) this.db.exec("PRAGMA user_version = 1");
   }
 
   close() {
@@ -460,10 +480,13 @@ export class Store {
     this.db.run("UPDATE jobs SET noted = 1 WHERE id = ?", [id]);
   }
 
-  addEvent(e: JobEvent) {
-    this.db.run(
-      "INSERT INTO job_events (job_id, ts, kind, data) VALUES (?, ?, ?, ?)",
-      [e.jobId, e.ts, e.kind, JSON.stringify(e.data)],
+  /** Stores an event; false when one with its id is stored already. */
+  addEvent(e: JobEvent, id?: string): boolean {
+    return (
+      this.db.run(
+        "INSERT OR IGNORE INTO job_events (job_id, ts, kind, data, event_id) VALUES (?, ?, ?, ?, ?)",
+        [e.jobId, e.ts, e.kind, JSON.stringify(e.data), id ?? null],
+      ).changes === 1
     );
   }
 
@@ -514,7 +537,8 @@ export class Store {
    * holds the job, or once its lease ran out and nobody claimed it since: a
    * finished job beats a second try. False when it does not count. Its
    * tokens add to what tokens events reported; a result with no session
-   * keeps the one the job reported while it ran. Its duration adds to the
+   * keeps the one the job reported while it ran. A job the user stopped is
+   * stopped, whatever the result says. Its duration adds to the
    * claims other stations lost; the station's own lost claim is in its own.
    */
   finish(station: string, r: JobResult): boolean {
@@ -522,12 +546,16 @@ export class Store {
     // NULL + n is NULL: a result with no tokens keeps the totals.
     return (
       this.db.run(
-        `UPDATE jobs SET state = ?, reason = ?, session_id = COALESCE(?, session_id),
-           duration_ms = COALESCE(duration_ms, 0) + ?, lost_ms = NULL,
-           tokens_in = COALESCE(COALESCE(tokens_in, 0) + ?, tokens_in),
-           tokens_out = COALESCE(COALESCE(tokens_out, 0) + ?, tokens_out),
-           lease_until = NULL, station = ?, lost_by = NULL
-         WHERE id = ? AND ${FINISHES}`,
+        `UPDATE jobs SET
+           state = CASE WHEN stop_reason IS NOT NULL THEN 'stopped' ELSE ?1 END,
+           -- A stopped result's own reason may say more (a workspace left open).
+           reason = CASE WHEN stop_reason IS NOT NULL AND ?1 != 'stopped' THEN stop_reason ELSE ?2 END,
+           session_id = COALESCE(?3, session_id),
+           duration_ms = COALESCE(duration_ms, 0) + ?4, lost_ms = NULL,
+           tokens_in = COALESCE(COALESCE(tokens_in, 0) + ?5, tokens_in),
+           tokens_out = COALESCE(COALESCE(tokens_out, 0) + ?6, tokens_out),
+           lease_until = NULL, station = ?7, lost_by = NULL
+         WHERE id = ?8 AND ${FINISHES}`,
         [
           OUTCOME[r.outcome],
           r.reason ?? null,

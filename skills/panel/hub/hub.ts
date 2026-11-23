@@ -57,6 +57,8 @@ async function body(req: Request): Promise<Record<string, unknown>> {
 }
 
 const NAME = /^[\w.-]+$/;
+/** The events a station acts on once the hub has them (JobContext.checkpoint). */
+const CHECKPOINTS = ["spec", "proposal", "asked", "replied"];
 const isObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v);
 const isCount = (v: unknown): v is number =>
@@ -70,7 +72,7 @@ function jobResult(id: string, b: Record<string, unknown>): JobResult | null {
   if (!isCount(durationMs)) return null;
   const r: JobResult = { jobId: id, outcome, durationMs };
   if (typeof reason === "string") r.reason = reason;
-  if (typeof sessionId === "string") r.sessionId = sessionId;
+  if (typeof sessionId === "string" && sessionId) r.sessionId = sessionId;
   if (isObject(tokens) && isCount(tokens.input) && isCount(tokens.output))
     r.tokens = { input: tokens.input, output: tokens.output };
   return r;
@@ -438,6 +440,15 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
         return bad("order lists part indexes, bundles lists bundle ids");
       const closed = advice.undecided(p, order, bundles);
       if (closed) return bad(closed);
+      const chosen = [
+        ...order.map((i) => p.order[i]?.repo),
+        ...p.bundles.filter((x) => bundles.includes(x.id)).map((x) => x.repo),
+      ];
+      const listed = store.repos().map((r) => r.name);
+      const gone = chosen.find((r) => r && !listed.some((l) => sameRepo(l, r)));
+      // Rejecting writes nothing, so a part of an unlisted repo may go.
+      if (gone && decision === "accepted")
+        return bad(`${gone} is not listed on the Panel`);
       if (decision === "accepted") {
         // Held at once, every part first: a claim must not take a run while
         // gh writes a dependency. The blocker check after says all it waits on.
@@ -491,15 +502,18 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
           ...order.map((i) => p.order[i]!.repo),
           ...accepted.map((x) => x.repo),
         ]);
+        // Every repo regroups before any gh call, so no claim meanwhile
+        // takes a run its bundle has left.
         for (const repo of repos) {
           const issues = [...accepted, ...cut]
             .filter((x) => x.repo === repo)
             .flatMap((x) => x.issues);
           regroup(store, repo, issues, now(), bundleOf);
+        }
+        for (const repo of repos)
           await gate(repo).catch((err: unknown) =>
             console.error(`hub: checking ${repo}'s blockers: ${String(err)}`),
           );
-        }
       }
       return Response.json(advice.proposal(id));
     });
@@ -668,7 +682,7 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
       },
       "/api/jobs/:id/events": {
         POST: async (req) => {
-          const { station, ts, kind, data } = await body(req);
+          const { station, id, ts, kind, data } = await body(req);
           const job = store.job(req.params.id);
           if (!job) return bad("no such job", 404);
           if (
@@ -680,6 +694,9 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
           // Only from the station working the job: one that lost it says nothing.
           if (typeof station !== "string" || !store.holds(job.id, station))
             return bad("the station holds this job no more", 409);
+          // A checkpoint is what a job acts on next: a stopped job acts no more.
+          if (CHECKPOINTS.includes(kind) && store.control(job.id)?.stop)
+            return bad("the job is being stopped", 409);
           if (
             kind === "tokens" &&
             !(isCount(data.input) && isCount(data.output))
@@ -710,8 +727,11 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
             });
             advice.add(job.id, kept, now());
           }
-          // One write: an event sent again after a failure counts once.
+          // An event sent again with its id (its answer was lost) counts once.
           store.transaction(() => {
+            const eventId = typeof id === "string" ? id : undefined;
+            if (!store.addEvent({ jobId: job.id, ts, kind, data }, eventId))
+              return;
             if (kind === "session" && typeof data.sessionId === "string")
               store.setSession(job.id, data.sessionId);
             if (kind === "tokens")
@@ -719,7 +739,6 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
                 input: data.input as number,
                 output: data.output as number,
               });
-            store.addEvent({ jobId: job.id, ts, kind, data });
           });
           return Response.json({ ok: true });
         },
@@ -765,7 +784,9 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
           const { repo } = await body(req);
           if (typeof repo !== "string" || !/^[\w.-]+\/[\w.-]+$/.test(repo))
             return bad("repo must be owner/name");
-          store.addRepo(repo);
+          // GitHub ignores case: one repo is listed once.
+          if (!store.repos().some((r) => sameRepo(r.name, repo)))
+            store.addRepo(repo);
           return Response.json(store.repos().map((r) => r.name));
         },
       },
@@ -783,7 +804,7 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
   void loop();
 
   return {
-    url: `http://${opts.host}:${server.port}`,
+    url: `http://${opts.host.includes(":") ? `[${opts.host}]` : opts.host}:${server.port}`,
     async stop() {
       stopped = true;
       clearTimeout(timer);
