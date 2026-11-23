@@ -27,6 +27,8 @@
 # agent_prompt_blocked, and an Enter sent alone answers the menu, dropping
 # the line). With no file, the agent is working. With several lines, each call
 # that reports the state answers the first and drops it; the last one stays.
+# `terminal show` gives a trust menu Orca's agentWait reason
+# agent-trust-workspace, and blocked agent-hooks-review-prompt.
 # `terminal read` answers ORCA_STUB_STATES_DIR/<handle>.tail as its tail
 # (with --screen, source "screen" and, without a .tail, a screen by state);
 # without one, a trust menu's tail shows Claude's workspace trust prompt (a
@@ -119,7 +121,12 @@ case "${1:-} ${2:-}" in
     ok "{\"split\":{\"handle\":\"term-$n\",\"tabId\":\"$tab\"}}" ;;
   "terminal show")
     h=$(flag terminal); live "$h"; read -r _ tab leaf wt < <(row "$h") || err terminal_handle_stale
-    ok "{\"terminal\":{\"handle\":\"$h\",\"tabId\":\"$tab\",\"leafId\":\"$leaf\",\"worktreeId\":\"$wt\"}}" ;;
+    # agentWait: Orca's reason an agent waits on a prompt.
+    aw=""; case "$(peek "$h")" in
+      trust|unlisted-trust) aw=',"agentWait":{"source":"prompt-text","reason":"agent-trust-workspace"}' ;;
+      blocked) aw=',"agentWait":{"source":"prompt-text","reason":"agent-hooks-review-prompt"}' ;;
+    esac
+    ok "{\"terminal\":{\"handle\":\"$h\",\"tabId\":\"$tab\",\"leafId\":\"$leaf\",\"worktreeId\":\"$wt\"$aw}}" ;;
   "terminal send")
     h=$(flag terminal); live "$h"
     if has text; then

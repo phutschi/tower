@@ -13,7 +13,7 @@ orca() { command "$ORCA_CLI_COMMAND" "$@"; }   # set: runner_detect saw it
 # printed, and 3 returned when Orca proves nothing was typed, 4 when it may
 # have been (no receipt, a lost reply). It then reads the agent until
 # Orca lists it as working, waiting or done (START_TRIES reads, a second
-# apart). One blocked on the workspace trust menu, its terminal showing it, is
+# apart). One blocked on the workspace trust menu, by Orca's wait reason, is
 # said as herdr says it ("agent blocked during startup"), for executor.sh to
 # answer; blocked on any other prompt, it fails, the prompt left for the
 # operator.
@@ -42,8 +42,8 @@ runner_agent_start() {
 # The agent in terminal PANE as Orca reads it, as herdr's: "<status> <ready>"
 # (Orca's waiting and done, a finished turn and its resting state, are idle);
 # an agent Orca does not list yet (a terminal agent reports on its first turn)
-# is idle once its terminal's TUI is, "blocked False" if the TUI then shows
-# the trust prompt, else "unknown False"; never gone (not when the agent
+# is idle once its terminal's TUI is, "blocked False" if Orca then gives the
+# workspace-trust wait reason, else "unknown False"; never gone (not when the agent
 # exits, and a stale handle may name a terminal still open under another);
 # unreadable when Orca does not answer, a stale handle and a wait included.
 runner_agent_state() {
@@ -59,10 +59,13 @@ runner_agent_state() {
   [ "$out" != "idle True" ] || ! orca_trust_menu "$2" || out="blocked False"
   echo "$out"
 }
-# Does terminal PANE show Claude's or codex's workspace trust prompt, in its
-# last 8 lines that are not blank, where a live menu sits?
+# Is the agent in terminal PANE held at its workspace-trust prompt? Orca's own
+# wait reason says so (terminal show's agentWait), never words on the screen,
+# which can outlive the question they asked.
 orca_trust_menu() {
-  runner_agent_tail "" "$1" 40 2>/dev/null | grep -v '^[[:space:]]*$' | tail -n 8 | grep -qiE 'trust[[:space:]]+(this|the[[:space:]]+files[[:space:]]+in[[:space:]]+this)[[:space:]]+folder|trust[[:space:]]+the[[:space:]]+contents[[:space:]]+of[[:space:]]+this[[:space:]]+directory'
+  orca terminal show --terminal "$1" --json 2>/dev/null \
+    | jsonq '((d["result"]["terminal"].get("agentWait") or {}).get("reason") or "") in ("agent-trust-workspace", "codex-trust-workspace")' 2>/dev/null \
+    | grep -qx True
 }
 # The state Orca's agent list gives the agent in terminal PANE (working,
 # waiting, done, blocked, ...), unlisted, or unreadable.

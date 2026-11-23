@@ -315,11 +315,11 @@ if section executor; then
   printf 'unlisted\nunlisted\ntrust\ntrust\nwaiting\n' > "$S/term-1"
   printf 'Do you trust the contents of this directory?\n> 1. Yes, continue\n  2. No, quit\n' > "$S/term-1.tail"
   out=$(ostart codex)
-  assert_match "orca trust, codex: its own wording is the trust menu" "$out" 'exit=0$'
+  assert_match "orca trust, codex: Orca's trust reason, answered" "$out" 'exit=0$'
   assert_nomatch "orca trust, codex: no Down" "$(cat "$ORCA_STUB_LOG")" 'B --json$'
   assert_match "orca trust, codex: Enter alone" "$(cat "$ORCA_STUB_LOG")" '^orca terminal send --terminal term-1 --enter --json$'
   # A trust menu before Orca lists the agent (its TUI idle, so it would read
-  # ready): its terminal shows the prompt, so it is blocked, and answered.
+  # ready): Orca's wait reason names it, so it is blocked, and answered.
   rm -f "$S"/term-*
   printf 'unlisted-trust\nunlisted-trust\nunlisted-trust\nwaiting\n' > "$S/term-1"
   out=$(ostart codex)
@@ -341,6 +341,13 @@ if section executor; then
   rm -f "$S"/term-*; assert_eq "orca: a launch Orca refused: 3" "$(rcstart ORCA_STUB_SEND_FAIL=refused)" rc=3
   rm -f "$S"/term-*; assert_eq "orca: a launch with no receipt: 4" "$(rcstart ORCA_STUB_SEND_FAIL=unknown)" rc=4
   rm -f "$S"/term-*; assert_eq "orca: a lost reply (runtime_unavailable) proves nothing: 4" "$(rcstart ORCA_STUB_SEND_FAIL=1)" rc=4
+  # The trust prompt is known by Orca's own wait reason: a screen still
+  # showing an answered trust question over a hooks-review menu gets no keys.
+  rm -f "$S"/term-*; printf 'unlisted\nblocked\n' > "$S/term-1"
+  printf 'Do you trust the files in this folder?\n 2. Yes, I trust this folder\nHooks changed: review them?\n> 1. Yes\n' > "$S/term-1.tail"
+  out=$(ostart claude)
+  assert_match "orca: trust words over a hooks review: the start fails" "$out" 'exit=1$'
+  assert_nomatch "orca: ... no keys sent" "$(cat "$ORCA_STUB_LOG")" '^orca terminal send --terminal term-1 (--enter|--text .\[B)'
   # Blocked on any other prompt (a hooks review, an update): no keys, the
   # start fails, and the prompt stays for the operator.
   rm -f "$S"/term-*
