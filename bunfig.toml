@@ -1,0 +1,3 @@
+[test]
+# Each test run gets its own temp folder and removes it after: src/test-tmpdir.ts.
+preload = ["./src/test-tmpdir.ts"]
