@@ -191,7 +191,7 @@ start_agent() {
   launch_note "$name" "$pane"
 }
 # The run's launch record (common.sh launch_record) gains NAME in PANE.
-launch_note() { [ -z "${RUN_DIR:-}" ] || echo "$1 $2 $EXECUTOR_KIND" >> "$(launch_record "$RUN_DIR")"; }
+launch_note() { [ -z "${RUN_DIR:-}" ] || echo "$1 $2" >> "$(launch_record "$RUN_DIR")"; }
 
 # S as a TOML basic string, for a codex -c value.
 toml_string() { local s=${1//\\/\\\\}; printf '"%s"' "${s//\"/\\\"}"; }

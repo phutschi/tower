@@ -19,7 +19,8 @@
 # "unlisted-waitfail" and "unlisted-waittimeout" (the same, its wait failing),
 # "unlisted-trust" (the same, a trust menu on screen, its TUI idle: an Enter
 # sent alone answers it, dropping the line), "done-shell" (listed done, its
-# agent exited: the screen shows a shell prompt),
+# agent exited: the screen shows a shell prompt), "unlisted-shell" (not
+# listed, an idle shell on screen),
 # "unreadable" (Orca does not answer: runtime_unavailable) or "trust" (a trust
 # menu: the agent shows blocked, a text-plus-Enter send is refused with
 # agent_prompt_blocked, and an Enter sent alone answers the menu, dropping
@@ -131,8 +132,7 @@ case "${1:-} ${2:-}" in
     if has screen; then
       src=',"source":"screen"'
       [ "$tail" != '[]' ] || case "$(peek "$h")" in
-        done-shell) tail='["Bye!", "acme $ "]' ;;
-        unlisted*)  tail='["acme $ "]' ;;
+        done-shell|unlisted-shell) tail='["Bye!", "acme $ "]' ;;
         *)          tail='["> ", "  ? for shortcuts"]' ;;
       esac
     fi
@@ -140,7 +140,7 @@ case "${1:-} ${2:-}" in
   "terminal wait")
     h=$(flag terminal); live "$h"
     case "$(reported "$(take "$h")")" in
-      waiting|done|unlisted-idle|unlisted-trust) ok "{\"wait\":{\"handle\":\"$h\",\"condition\":\"$(flag for)\",\"satisfied\":true}}" ;;
+      waiting|done|unlisted-idle|unlisted-trust|unlisted-shell) ok "{\"wait\":{\"handle\":\"$h\",\"condition\":\"$(flag for)\",\"satisfied\":true}}" ;;
       unlisted-waitfail) err runtime_unavailable ;;
       unlisted-waittimeout) err timeout ;;
       *) ok "{\"wait\":{\"handle\":\"$h\",\"condition\":\"$(flag for)\",\"satisfied\":false}}" ;;

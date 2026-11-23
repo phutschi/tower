@@ -4217,7 +4217,7 @@ if section send-brief; then
       out=$(send "$RUN" bun-vitest-lane-a "$RUN/brief-A.md")
       assert_match "send-brief (orca), agent $st: sent" "$out" 'exit=0$'
     done
-    for st in done-shell:"lists bun-vitest-lane-a as done, but terminal $apane's screen does not show the agent" unlisted:"Orca lists no agent in terminal $apane, and its screen is not idle" blocked:"terminal $apane as blocked: not ready for input"; do
+    for st in unlisted-shell:"Orca lists no agent in terminal $apane, and its screen shows a shell" done-shell:"lists bun-vitest-lane-a as done, but terminal $apane's screen does not show the agent" unlisted:"Orca lists no agent in terminal $apane, and its screen is not idle" blocked:"terminal $apane as blocked: not ready for input"; do
       echo "${st%%:*}" > "$S/$apane"
       out=$(send "$RUN" bun-vitest-lane-a "$RUN/brief-A.md")
       assert_match "send-brief (orca), agent ${st%%:*}: held, saying why" "$out" "send-brief: Orca did not take the brief for bun-vitest-lane-a in $apane; nothing was sent, send again \\(.*${st#*:}"
@@ -4256,15 +4256,28 @@ if section send-brief; then
   else
     assert_match "send-brief (herdr), no launch record: sent by name" "$out" "sent to bun-vitest-r1-1 in $spane\$"
   fi
-  echo "bun-vitest-r1-1 $spane" >> "$(dirname "$RUN")/.$(basename "$RUN").launched"
+  assert_match "the kit records lane A's launch beside the run dir" "$(in_kit "launched '$RUN' bun-vitest-lane-a")" "^bun-vitest-lane-a $apane\$"
+  echo "bun-vitest-r1-1 $spane" >> "$(in_kit "launch_record '$RUN'")"
   out=$(send "$RUN" bun-vitest-r1-1 "$RUN/brief-A.md")
   assert_match "send-brief, a Reviewer: sent to its pane" "$out" "sent to bun-vitest-r1-1 in $spane\$"
   # A swapped handle: the map gives lane A's agent another live pane.
   cp "$RUN/panes.txt" "$TMP/sb-map"; sed -i.bak "/^lane A:/s|$apane|$spane|" "$RUN/panes.txt"; rm -f "$RUN/panes.txt.bak"
   sed -i.bak '/^reviewer R1:/d' "$RUN/panes.txt"; rm -f "$RUN/panes.txt.bak"
   out=$(send "$RUN" bun-vitest-lane-a "$RUN/brief-A.md")
-  assert_match "send-brief, a swapped handle: refused" "$out" "send-brief: the pane map gives bun-vitest-lane-a pane $spane, but the kit launched it in $apane"
-  assert_eq "send-brief, a swapped handle: nothing sent" "$(sent)" ""
+  if [ "${RUNNER:-herdr}" = orca ]; then
+    assert_match "send-brief (orca), a swapped handle: refused" "$out" "send-brief: the pane map gives bun-vitest-lane-a pane $spane, but the kit launched it in $apane"
+    assert_eq "send-brief (orca), a swapped handle: nothing sent" "$(sent)" ""
+    # Orca restarted: the recorded handle is stale, and the operator put the
+    # terminal's new handle in the map (stale_handle): it is sent, and the
+    # record follows.
+    echo gone > "$S/$apane"
+    out=$(send "$RUN" bun-vitest-lane-a "$RUN/brief-A.md")
+    assert_match "send-brief (orca), the recorded handle stale, the map rebound: sent" "$out" "sent to bun-vitest-lane-a in $spane\$"
+    assert_match "send-brief (orca), ... the record follows" "$(in_kit "launched '$RUN' bun-vitest-lane-a")" "^bun-vitest-lane-a $spane\$"
+    rm -f "$S/$apane"; echo "bun-vitest-lane-a $apane" >> "$(in_kit "launch_record '$RUN'")"
+  else
+    assert_match "send-brief (herdr), another pane in the map: sent by name all the same" "$(sent)" '^herdr agent prompt bun-vitest-lane-a '
+  fi
   cp "$TMP/sb-map" "$RUN/panes.txt"
   echo gone > "$S/$apane"
   out=$(send "$RUN" bun-vitest-lane-a "$RUN/brief-A.md")

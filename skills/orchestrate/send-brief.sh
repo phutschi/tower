@@ -30,12 +30,18 @@ with os.fdopen(fd, "rb") as f: sys.stdout.write(f.read().decode())' "$BRIEF" 2>/
 [ -n "$TEXT" ] || die "send-brief: no brief, or an empty one, at $BRIEF"
 PANE=$(agent_pane "$MAP" "$NAME" 2>&1) || die "send-brief: $PANE"
 # The kit's launch record binds the agent to its pane (common.sh launched): a
-# lane can rewrite the pane map. herdr, which prompts by name, needs no record.
-read -r _ LAUNCHED _ <<< "$(launched "$RUN_DIR" "$NAME")"
-if [ -n "$LAUNCHED" ]; then
-  [ "$LAUNCHED" = "$PANE" ] || die "send-brief: the pane map gives $NAME pane $PANE, but the kit launched it in $LAUNCHED: nothing sent; check its line in $MAP"
-else
-  runner_names_agents || die "send-brief: the kit has no record of launching $NAME ($(launch_record "$RUN_DIR")): nothing sent"
+# lane can rewrite the pane map. herdr, which prompts by name, needs neither.
+# A recorded handle gone stale (Orca's handles end with its runtime) yields
+# to the map's, once that one is open: the operator rebound it (stale_handle).
+if ! runner_names_agents; then
+  read -r _ LAUNCHED <<< "$(launched "$RUN_DIR" "$NAME")"
+  [ -n "$LAUNCHED" ] || die "send-brief: the kit has no record of launching $NAME ($(launch_record "$RUN_DIR")): nothing sent"
+  if [ "$LAUNCHED" != "$PANE" ]; then
+    rc=0; runner_pane_exists "$LAUNCHED" 2>/dev/null || rc=$?
+    [ "$rc" = 3 ] && runner_pane_exists "$PANE" 2>/dev/null \
+      || die "send-brief: the pane map gives $NAME pane $PANE, but the kit launched it in $LAUNCHED: nothing sent; check its line in $MAP"
+    echo "$NAME $PANE" >> "$(launch_record "$RUN_DIR")"
+  fi
 fi
 rc=0; err=$(runner_pane_exists "$PANE" 2>&1) || rc=$?
 case $rc in

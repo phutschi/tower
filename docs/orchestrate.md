@@ -257,15 +257,16 @@ tell lanes to read the dev pane with it.
 
 The orchestrator sends each brief and fix prompt with
 `send-brief.sh <run-dir> <agent> <file>`. It finds the agent's pane on its
-one lane or Reviewer line and checks it against the kit's own launch record,
-kept beside the run dir where a lane cannot write (an agent the kit never
-launched is refused on Orca). It checks that the pane is open, and sends the
+one lane or Reviewer line and, on Orca, checks it against the kit's own
+launch record, kept beside the run dir, outside the dirs a sandboxed lane is
+granted: an agent the kit never launched is refused, and a recorded handle
+gone stale yields to the map's once that terminal is open. It checks that the pane is open, and sends the
 file through the runner: `herdr agent prompt` by the agent's name, or
 `orca terminal send` with Enter to its terminal. On Orca the brief goes to an
 agent listed working or waiting; to one listed done only while the screen
 shows the agent, since an agent that exited stays listed done at its shell;
 and to one not listed yet once its screen is idle, as the start counts it
-ready. Otherwise it holds the brief and says why. It runs nothing from the
+ready, unless the screen ends in a shell prompt. Otherwise it holds the brief and says why. It runs nothing from the
 pane map, which a lane can write.
 
 ## A run on a paired Orca server

@@ -87,15 +87,24 @@ orca_listed() {
     *) echo "$s False" ;;
   esac
 }
-# Does terminal PANE's rendered screen show an agent's interface, not a shell?
+# Terminal PANE's rendered screen, its lines that are not blank; empty when
+# Orca has no rendered screen to give.
+orca_screen() {
+  orca terminal read --terminal "$1" --screen --json 2>/dev/null \
+    | jsonq '"\n".join(d["result"]["terminal"]["tail"]) if d["result"]["terminal"].get("source") == "screen" else ""' 2>/dev/null \
+    | grep -v '^[[:space:]]*$'
+}
+# Does SCREEN end in a shell prompt (bash, zsh, oh-my-zsh, fish)?
+screen_ends_in_shell() {
+  echo "$1" | tail -1 | grep -qE '([^0-9]%|[$#>❯➜])[[:space:]]*$|^[[:space:]]*➜'
+}
+# Does terminal PANE's screen show an agent's interface, not a shell: its
+# footer words in the last 3 lines, and no prompt on the last?
 # shortcut: an agent is told from a shell by its interface's own words, upgrade once Orca's CLI says what runs in a terminal.
 orca_screen_shows_agent() {
-  local screen last
-  screen=$(orca terminal read --terminal "$1" --screen --json 2>/dev/null \
-    | jsonq '"\n".join(d["result"]["terminal"]["tail"]) if d["result"]["terminal"].get("source") == "screen" else ""' 2>/dev/null) || return 1
-  echo "$screen" | grep -qiE '\? for shortcuts|esc to interrupt|bypass permissions|context left|add a follow-up' || return 1
-  last=$(echo "$screen" | grep -v '^[[:space:]]*$' | tail -1)
-  ! echo "$last" | grep -qE '[$%#❯][[:space:]]*$'
+  local screen; screen=$(orca_screen "$1") || return 1
+  echo "$screen" | tail -3 | grep -qiE '\? for shortcuts|shift\+tab to cycle|esc to interrupt|bypass permissions|context left|add a follow-up|/ commands' || return 1
+  ! screen_ends_in_shell "$screen"
 }
 runner_name() { echo Orca; }
 runner_ready_hint() { echo "\"\$ORCA_CLI_COMMAND\" agent list --json  shows it waiting or done"; }
@@ -108,7 +117,8 @@ runner_names_agents() { return 1; }   # Orca reaches an agent only through its t
 # goes only while the screen shows the agent: Orca keeps an agent that exited
 # to its shell listed as done. Unlisted, it goes once the screen is idle, by
 # the start's rule (runner_agent_state): a terminal agent reports to Orca on
-# its first turn. Held, it fails, saying why: nothing was sent.
+# its first turn; but not to a screen ending in a shell prompt. Held, it
+# fails, saying why: nothing was sent.
 runner_send_message() {
   local s out
   s=$(orca_raw "$2")
@@ -116,8 +126,12 @@ runner_send_message() {
     working|waiting) ;;
     done) orca_screen_shows_agent "$2" \
       || { echo "Orca lists $1 as done, but terminal $2's screen does not show the agent (it may have exited to its shell): check it there" >&2; return 1; } ;;
-    unlisted) [ "$(runner_agent_state "$1" "$2")" = "idle True" ] \
-      || { echo "Orca lists no agent in terminal $2, and its screen is not idle: send once  \"\$ORCA_CLI_COMMAND\" agent list --json  shows $1's terminal waiting or done" >&2; return 1; } ;;
+    unlisted)
+      [ "$(runner_agent_state "$1" "$2")" = "idle True" ] \
+        || { echo "Orca lists no agent in terminal $2, and its screen is not idle: send once  \"\$ORCA_CLI_COMMAND\" agent list --json  shows $1's terminal waiting or done" >&2; return 1; }
+      # An agent that exited before its first turn leaves an idle shell.
+      ! screen_ends_in_shell "$(orca_screen "$2")" \
+        || { echo "Orca lists no agent in terminal $2, and its screen shows a shell: check it there" >&2; return 1; } ;;
     *) echo "Orca lists $1's terminal $2 as $s: not ready for input" >&2; return 1 ;;
   esac
   out=$(orca terminal send --terminal "$2" --text "$3" --enter --json) || { echo "$out" >&2; return 1; }
