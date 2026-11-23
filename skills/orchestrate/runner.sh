@@ -43,12 +43,14 @@ need_runner() {
 #   runner_self                    the orchestrator's pane or workspace, for the pane map
 #   runner_workspace PANE          the workspace the run's tabs open in
 #   runner_open_run_panes WS REPO CONSOLE_CMD [DEV_DIR DEV_CMD]
-#                                  "<console> <shell> [<dev>]", then the pane map lines it adds
+#                                  "<console> <shell> [<dev>]", then the pane map lines it adds;
+#                                  failing, the panes it opened before (to close)
 #   runner_open_lane_a WS REPO LABEL                          "<pane> <tab line after the label>"
 #   runner_open_lane REPO BRANCH BASE WT LABEL                "<pane> [<checkout>]": makes the
 #                                  worktree, at WT unless the runner names another checkout
 #   runner_place_lane MAP LABEL PANE                          the pane's id once placed
-#   runner_open_reviewer_slots WS REPO LABEL                  "<tab(s)> <r1> <r2>"
+#   runner_open_reviewer_slots WS REPO LABEL [R1 TAB]         "<tab(s)> <r1> <r2>"; R1 given,
+#                                  only R2 opens; failing after R1 (Orca), "<tab> <r1>"
 #   runner_end_agent PANE          after /exit: whatever else ends the agent in PANE; 0 when
 #                                  that ended it for sure, 1 when the caller waits for gone
 #   runner_reviewer_pane SLOT PANE REPO   the pane a fresh Reviewer in SLOT starts in (PANE

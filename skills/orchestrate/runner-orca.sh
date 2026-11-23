@@ -125,15 +125,17 @@ runner_workspace() { [ -n "$1" ] && echo "$1"; }
 # shell; the dev server, when given, in a tab of its own, running DEV_CMD in
 # REPO/DEV_DIR. Each starts in REPO: Orca opens a terminal in its workspace's
 # root, which may be a checkout REPO is nested in. Prints "<console> <shell>
-# [<dev>]", then the tabs' pane map lines. A failed call leaves its pane
-# empty, which fails the function.
+# [<dev>]", then the tabs' pane map lines. A failed call fails the function,
+# which then prints what opened before it ("<console> [<shell>]"), to close.
 runner_open_run_panes() {
   local ws="$1" repo="$2" cd console tab shell dev="" devtab=""
   cd="cd $(printf %q "$repo")"
   read -r console tab <<< "$(orca_new terminal create --worktree "id:$ws" --title tower --command "$cd && $3")" && [ -n "$console" ] || return 1
-  read -r shell _ <<< "$(orca_new terminal split --terminal "$console" --direction horizontal --command "$cd")" && [ -n "$shell" ] || return 1
+  read -r shell _ <<< "$(orca_new terminal split --terminal "$console" --direction horizontal --command "$cd")"
+  [ -n "$shell" ] || { echo "$console"; return 1; }
   if [ $# -ge 5 ]; then
-    read -r dev devtab <<< "$(orca_new terminal create --worktree "id:$ws" --title dev --command "cd $(printf %q "$repo/$4") && $5")" && [ -n "$dev" ] || return 1
+    read -r dev devtab <<< "$(orca_new terminal create --worktree "id:$ws" --title dev --command "cd $(printf %q "$repo/$4") && $5")"
+    [ -n "$dev" ] || { echo "$console $shell"; return 1; }
   fi
   echo "$console $shell${dev:+ $dev}"
   printf '%-16s%s   (console over shell)\n' "tower tab:" "$tab"
@@ -190,12 +192,16 @@ runner_pane_exists() {
 }
 runner_pane_check() { echo Orca; }
 # The Reviewer slots R1 and R2: a terminal tab each in workspace WS, started
-# in REPO (LABEL is herdr's). Prints "<tab>,<tab> <r1> <r2>".
+# in REPO (LABEL is herdr's); R1 and its tab given, only R2's opens. Prints
+# "<tab>,<tab> <r1> <r2>"; when R2's fails, "<tab> <r1>" and returns 1.
 runner_open_reviewer_slots() {
-  local r1 t1 r2 t2 cd
+  local r1="${4:-}" t1="${5:-}" r2 t2 cd
   cd="cd $(printf %q "$2")"
-  read -r r1 t1 <<< "$(orca_new terminal create --worktree "id:$1" --title R1 --command "$cd")" && [ -n "$r1" ] || return 1
-  read -r r2 t2 <<< "$(orca_new terminal create --worktree "id:$1" --title R2 --command "$cd")" && [ -n "$r2" ] || return 1
+  if [ -z "$r1" ]; then
+    read -r r1 t1 <<< "$(orca_new terminal create --worktree "id:$1" --title R1 --command "$cd")" && [ -n "$r1" ] || return 1
+  fi
+  read -r r2 t2 <<< "$(orca_new terminal create --worktree "id:$1" --title R2 --command "$cd")"
+  [ -n "$r2" ] || { echo "$t1 $r1"; return 1; }
   echo "$t1,$t2 $r1 $r2"
 }
 # A Reviewer that exits leaves its terminal at a shell, which Orca still

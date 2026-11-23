@@ -592,6 +592,8 @@ if section bootstrap; then
   assert_match "orca: a failing layout call: bootstrap fails" "$out" 'exit=1$'
   assert_match "orca: ... with Orca's error" "$out" 'terminal_handle_stale'
   assert_nomatch "orca: ... and no shell line" "$(cat "$RUN/panes.txt" 2>/dev/null)" '^shell:'
+  assert_match "orca: ... the console it opened recorded in the pane map" "$(cat "$RUN/panes.txt" 2>/dev/null)" '^opened: +term-1 +\(before a failure: close it\)$'
+  assert_match "orca: ... and named to close" "$out" "opened term-1 before it failed: close it"
   r=$(fixture_repo contract); RUN="$TMP/run-orca-dev"; reset_stub
   out=$(boot "$r" "$RUN" "Orca dev" main; echo "exit=$?")
   log=$(cat "$ORCA_STUB_LOG"); map=$(cat "$RUN/panes.txt" 2>/dev/null)
@@ -1370,6 +1372,22 @@ if section add-reviewer; then
   : > "$ORCA_STUB_LOG"; out=$(cd "$rs" && EXIT_WAIT_SECONDS=3 "$KIT/add-reviewer.sh" "$RUNS" R1 claude "Lane review A fourth" "$RUNS/findings/a-4.json" 2>&1; echo "exit=$?")
   assert_match "orca R1, its last Reviewer ended by this script: goes on" "$out" 'exit=0$'
   assert_match "orca R1, ... in a new tab" "$(cat "$ORCA_STUB_LOG")" "^orca terminal create --worktree id:repo-0::$rs --title R1 "
+  rm -f "$S"/*
+  # R2's tab failing after R1's opened: R1 is recorded at once, and the rerun
+  # opens R2 alone.
+  rp=$(fixture_repo bun-vitest); RUNP="$TMP/run-orca-partial"; reset_stub
+  (cd "$rp" && "$KIT/bootstrap.sh" "$RUNP" "Orca partial" main "$KIT/example-tasks.tsv" >/dev/null 2>&1)
+  : > "$ORCA_STUB_LOG"; out=$(cd "$rp" && ORCA_STUB_CREATE_FAIL=R2 EXIT_WAIT_SECONDS=3 "$KIT/add-reviewer.sh" "$RUNP" R1 claude "Lane review A" "$RUNP/findings/a.json" 2>&1; echo "exit=$?")
+  p1=$(sed -nE 's/^orca terminal create .*--title R1 .*/x/p' "$ORCA_STUB_LOG" | wc -l | tr -d ' ')
+  assert_match "orca, R2's tab fails: refused" "$out" 'exit=1$'
+  assert_match "orca, R2's tab fails: R1 recorded at once" "$(cat "$RUNP/panes.txt")" '^review tab: +tab-[0-9]+ +\(R1 term-[0-9]+\)$'
+  assert_match "orca, R2's tab fails: says the rerun opens R2" "$out" "opened R1's tab but not R2's: rerun  .*add-reviewer\\.sh"
+  : > "$ORCA_STUB_LOG"; out=$(cd "$rp" && EXIT_WAIT_SECONDS=3 "$KIT/add-reviewer.sh" "$RUNP" R1 claude "Lane review A" "$RUNP/findings/a.json" 2>&1; echo "exit=$?")
+  assert_match "orca, rerun: goes on" "$out" 'exit=0$'
+  assert_eq "orca, rerun: R2's tab opened" "$(grep -c '^orca terminal create .*--title R2 ' "$ORCA_STUB_LOG")" 1
+  assert_eq "orca, rerun: no second R1 tab" "$(grep -c '^orca terminal create .*--title R1 ' "$ORCA_STUB_LOG")" 0
+  assert_match "orca, rerun: both slots recorded" "$(cat "$RUNP/panes.txt")" '^review tab: +tab-[0-9]+,tab-[0-9]+ +\(R1 term-[0-9]+, R2 term-[0-9]+\)$'
+  assert_eq "orca, rerun: one review tab line" "$(grep -c '^review tab:' "$RUNP/panes.txt")" 1
   rm -f "$S"/*
   else
     S="$HERDR_STUB_STATES_DIR"

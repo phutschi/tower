@@ -319,8 +319,10 @@ fi
 ID="$SLOT-$N"
 
 # A tab for the slots opens in the run's workspace, the orchestrator pane's;
-# not whichever workspace the human is looking at.
-if [ -z "$TAB_LINE" ]; then
+# not whichever workspace the human is looking at. A tab line with R1 alone is
+# a call that opened R1, then failed: R2 is still to open.
+SLOTS_OPEN=1; [ -n "$TAB_LINE" ] && [ -n "$(slot_pane R2)" ] || SLOTS_OPEN=0
+if [ "$SLOTS_OPEN" = 0 ]; then
   ORCH=$(orchestrator_of "$MAP")
   [ -n "$ORCH" ] || die "no orchestrator line in $MAP: run bootstrap.sh first"
   WS=$(runner_workspace "$ORCH" 2>/dev/null) \
@@ -351,15 +353,21 @@ elif [ "$REUSED" = 1 ]; then echo "reusing task $ID: an earlier call for $SLOT a
 # (layout.sh). Else a reviews tab, R2 right of R1: a lanes tab without a
 # column (nothing reviewed at bootstrap), or a pane map from before the lanes
 # tab (lane lines without a tab), whose lanes are in the orchestrator's tab.
-if [ -z "$TAB_LINE" ]; then
+# Each tab is recorded as soon as it opens: a call that fails after R1 leaves
+# R1 on the line, and the rerun opens R2 alone.
+if [ "$SLOTS_OPEN" = 0 ]; then
   LABEL=reviews; KEY="review tab:    "
   if [ -z "$LANES_LINE" ] && grep -qE '^lane A: .*, tab [a-z]+\)( starting| unsent)?$' "$MAP"; then
     LABEL=lanes; KEY="lanes tab:     "
   fi
-  out=$(runner_open_reviewer_slots "$WS" "$REPO" "$LABEL")
+  R1_PANE=$(slot_pane R1); TAB=${TAB_LINE%% *}
+  rc=0; out=$(runner_open_reviewer_slots "$WS" "$REPO" "$LABEL" ${R1_PANE:+"$R1_PANE" "$TAB"}) || rc=$?
   read -r TAB R1_PANE R2_PANE <<< "$out"
-  TAB_LINE="$TAB   (R1 $R1_PANE, R2 $R2_PANE)"
-  echo "$KEY $TAB_LINE" >> "$MAP"
+  [ -n "$R1_PANE" ] || exit 1   # nothing opened; the runner said why
+  TAB_LINE="$TAB   (R1 $R1_PANE${R2_PANE:+, R2 $R2_PANE})"
+  tmp=$(mktemp "$MAP.XXXXXX"); { grep -v "^${KEY%%:*}:" "$MAP" || [ $? -eq 1 ]; } > "$tmp"
+  echo "$KEY $TAB_LINE" >> "$tmp"; mv "$tmp" "$MAP"
+  [ "$rc" = 0 ] || die "add-reviewer: $(runner_name) opened R1's tab but not R2's: rerun  $KIT/add-reviewer.sh$RERUN_ARGS  to open it"
   echo "$LABEL tab: $TAB — slots R1 $R1_PANE, R2 $R2_PANE"
 fi
 # The kept Reviewer's pane stays; a fresh one gets the slot's pane, or a new

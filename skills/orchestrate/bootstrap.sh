@@ -218,13 +218,22 @@ LANE_A_SESSION=""; [ -z "$SESSION_ROLE" ] || LANE_A_SESSION="role $SESSION_ROLE,
 SELF=$(runner_self) || die "bootstrap: $(runner_name) cannot say where the orchestrator runs"
 WS=$(runner_workspace "$SELF") \
   || die "bootstrap: no workspace for the orchestrator pane $SELF ($(runner_name) cannot say)"
+# A layout call that fails after others opened panes records them in the pane
+# map and names them to close: bootstrap has no rerun.
+opened_and_die() {  # the panes opened before the failure
+  local opened; opened=$(echo "$*" | xargs)
+  { echo "run dir:        $RUN_DIR"; echo "orchestrator:   $SELF"
+    [ -z "$opened" ] || printf '%-16s%s   (before a failure: close it)\n' "opened:" "$opened"; } > "$RUN_DIR/panes.txt"
+  die "bootstrap: $(runner_name) could not open the run's panes${opened:+; it opened $opened before it failed: close it}, then rerun bootstrap.sh with a new run dir"
+}
 # The console, the shell, and dev when declared (runner_open_run_panes).
-DEV_I=$(pane_index dev); DEV_PANE=""
+DEV_I=$(pane_index dev); DEV_PANE=""; rc=0
 if [ -n "$DEV_I" ]; then
-  out=$(runner_open_run_panes "$WS" "$REPO" "tower --stale $STALE" "${PANE_DIRS[$DEV_I]}" "${PANE_CMDS[$DEV_I]}")
+  out=$(runner_open_run_panes "$WS" "$REPO" "tower --stale $STALE" "${PANE_DIRS[$DEV_I]}" "${PANE_CMDS[$DEV_I]}") || rc=$?
 else
-  out=$(runner_open_run_panes "$WS" "$REPO" "tower --stale $STALE")
+  out=$(runner_open_run_panes "$WS" "$REPO" "tower --stale $STALE") || rc=$?
 fi
+[ "$rc" = 0 ] || opened_and_die "$out"
 read -r CONSOLE_PANE SHELL_PANE DEV_PANE <<< "${out%%$'\n'*}"
 RUN_PANES_LINES=$(sed 1d <<< "$out")
 # Lane A's tab, lane A its root: the lanes tab, with the Reviewer column when
@@ -232,7 +241,7 @@ RUN_PANES_LINES=$(sed 1d <<< "$out")
 # than code or review (layout.sh lane_tab), and the lanes tab waits for its
 # first pane.
 LANE_A_TAB=lanes; [ "$ROLES" != on ] || LANE_A_TAB=$(lane_tab "$LANE_A_ROLE")
-out=$(runner_open_lane_a "$WS" "$REPO" "$LANE_A_TAB")
+out=$(runner_open_lane_a "$WS" "$REPO" "$LANE_A_TAB") || opened_and_die "$CONSOLE_PANE $SHELL_PANE $DEV_PANE"
 read -r LANE_A_PANE TAB_REST <<< "$out"
 
 # --- the pane map, before the agent start so add-lane and the brief have it even if that fails

@@ -229,6 +229,11 @@ lanes B to D: child worktrees of that workspace, each with its lane's terminal
   Reviewer's terminal, and the new Reviewer starts in a new terminal tab
   named for the slot.
 
+Each tab goes into the pane map as soon as it opens. When R2's tab fails
+after R1's opened, the rerun of add-reviewer opens R2 alone. When bootstrap
+fails after it opened the console or the shell, the pane map's `opened:` line
+and the message name what to close; bootstrap has no rerun.
+
 Watching reads Orca's agent status: working and blocked as on herdr; waiting
 and done read as idle. An Orca that does not answer reads as unreadable, and
 so does a stale terminal handle: Orca's handles end with its runtime, so the
