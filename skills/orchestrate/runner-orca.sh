@@ -69,12 +69,12 @@ runner_send_text()  { orca terminal send --terminal "$1" --text "$2" --json >/de
 # lists an agent there ready for input: anything else at that address (a
 # shell, a menu) would take the text as its own input.
 runner_send_message() {
-  local s; s=$(orca_listed "$2")
+  local s out; s=$(orca_listed "$2")
   case "$s" in
     "idle True"|"working True") ;;
-    *) echo "Orca does not list an agent ready for input in terminal $2 ($s): the brief is held; send it again once  orca agent list --json  shows $1's terminal waiting or done" >&2; return 1 ;;
+    *) echo "Orca lists no agent ready for input in terminal $2 ($s): send once  orca agent list --json  shows $1's terminal waiting or done" >&2; return 1 ;;
   esac
-  orca terminal send --terminal "$2" --text "$3" --enter --json >/dev/null
+  out=$(orca terminal send --terminal "$2" --text "$3" --enter --json) || { echo "$out" >&2; return 1; }
 }
 # Each key a send of its own: Orca refuses text and Enter together while an
 # agent shows a menu.

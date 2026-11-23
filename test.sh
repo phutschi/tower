@@ -4009,11 +4009,21 @@ if section send-brief; then
     for st in unlisted-idle blocked; do
       echo "$st" > "$S/$apane"
       out=$(send "$RUN" bun-vitest-lane-a "$RUN/brief-A.md")
-      assert_match "send-brief (orca), agent $st: held" "$out" "send-brief: Orca does not list an agent ready for input in terminal $apane \\(${st%-idle}"
+      assert_match "send-brief (orca), agent $st: held, saying why" "$out" "send-brief: Orca did not take the brief for bun-vitest-lane-a in $apane; nothing was sent, send again \\(Orca lists no agent ready for input in terminal $apane \\(${st%-idle}"
       assert_match "send-brief (orca), agent $st: ... fails" "$out" 'exit=1$'
       assert_eq "send-brief (orca), agent $st: nothing sent" "$(sent)" ""
     done
+    echo waiting > "$S/$apane"
+    out=$(send "$RUN" bun-vitest-lane-a "$RUN/brief-A.md")
+    assert_match "send-brief (orca), agent waiting: sent" "$out" 'exit=0$'
     rm -f "$S/$apane"
+  else
+    # herdr not taking the prompt: said, with herdr's error.
+    echo gone > "$S/bun-vitest-lane-a"
+    out=$(send "$RUN" bun-vitest-lane-a "$RUN/brief-A.md")
+    rm -f "$S/bun-vitest-lane-a"
+    assert_match "send-brief (herdr), the prompt refused: says so, with herdr's error" "$out" "send-brief: herdr did not take the brief for bun-vitest-lane-a in $apane; nothing was sent, send again \\(.*agent_not_found"
+    assert_match "send-brief (herdr), the prompt refused: fails" "$out" 'exit=1$'
   fi
   # A Reviewer's line names its agent the same way.
   spane=$(sed -nE 's/^shell: +([^ ]+).*/\1/p' "$RUN/panes.txt")
