@@ -3,7 +3,7 @@
 A console for watching a crew of coding agents implement a plan, and the
 record they report into. tower keeps the record and draws the board; it never
 acts on the run. The acting lives in the plugin's skills: `/tower:run` for any
-runner, `/tower:orchestrate` for herdr, and `/tower:spec-to-plan` and
+runner, `/tower:orchestrate` for herdr or Orca, and `/tower:spec-to-plan` and
 `/tower:preflight` around them.
 
 ## Language
