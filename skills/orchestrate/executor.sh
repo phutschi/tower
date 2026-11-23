@@ -307,8 +307,8 @@ kind_installed() {
 }
 kind_cli() { case "$1" in cursor) echo cursor-agent ;; *) echo "$1" ;; esac; }   # the CLI KIND runs as
 # Dies saying which CLI is missing when WHO's kind KIND is not installed.
-need_kind() {  # WHO KIND
-  kind_installed "$2" || die "$1's kind $2 runs as $(kind_cli "$2"), which is not installed: install it, or set EXECUTOR_KIND to another kind"
+need_kind() {  # WHO KIND [HINT: what else to do, after "install it"]
+  kind_installed "$2" || die "$1's kind $2 runs as $(kind_cli "$2"), which is not installed: install it${3:-, or set EXECUTOR_KIND to another kind}"
 }
 
 # The kinds that may review a lane of LANE_KIND, in order, one per line:

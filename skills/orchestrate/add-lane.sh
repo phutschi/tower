@@ -58,6 +58,8 @@
 # worktree; and a starting lane's agent left running is taken ("resumed") once
 # it accepts input, or refused, saying to answer or end it, while it does not.
 # Nothing else is redone (the worktree exists and the task ids are assigned).
+# Refused before anything is created: a kind whose CLI is not installed
+# (executor.sh need_kind, which names it), on a rerun too.
 # Refused: a started lane whose agent runs, any answer from herdr other than
 # agent_not_found, a rerun with another branch, kind, model or task ids than
 # the first call's (ids expanded by `tower ids`, so an id tower refuses is
@@ -109,7 +111,9 @@ _here="$PWD"; cd "$REPO_ROOT"
 CONTRACT_RUN="$RUN_DIR" . "$KIT/detect-stack.sh"   # the run's pinned contract: INSTALL_CMD, .orchestrate's EXECUTOR_* (the environment wins); refuses a bad run switch
 cd "$_here"; unset _here
 . "$KIT/executor.sh"       # EXECUTOR_KIND, EXECUTOR_MODEL, agent_name, start_agent*
-need_kind "add-lane: lane $LANE" "$EXECUTOR_KIND"
+# A rerun keeps the lane's kind: installing it is the only way on.
+grep -qE "^(unplaced )?lane $LANE: " "$MAP" && _hint=", then rerun"
+need_kind "add-lane: lane $LANE" "$EXECUTOR_KIND" "${_hint:-}"; unset _hint
 NAME="$(agent_name "-lane-$(echo "$LANE" | tr 'A-Z' 'a-z')")"
 # Session roles (roles.sh), when the pane map says the run has them: the role
 # the lane's tasks name (<run-dir>/roles.tsv), code when none does, refused

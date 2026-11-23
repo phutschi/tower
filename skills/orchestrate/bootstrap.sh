@@ -14,7 +14,8 @@
 # before briefing anyone. LANES without a source is an error.
 #
 # tower is the record and the console. When tower does not run, bootstrap
-# refuses before it creates anything and says how to install it.
+# refuses before it creates anything and says how to install it; so it does
+# when lane A's kind's CLI is not installed, naming it (executor.sh need_kind).
 #
 # The layout, two tabs in the orchestrator pane's workspace (the lane grid
 # grows with add-lane.sh):
