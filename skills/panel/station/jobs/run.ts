@@ -16,7 +16,7 @@ import { promisify } from "node:util";
 
 import type { Job } from "../../types.ts";
 import type { Workspace } from "../executor.ts";
-import { waitsOnPerson } from "../inbox.ts";
+import { threadName, waitsOnPerson } from "../inbox.ts";
 import { wait } from "../retry.ts";
 import { registerJobRunner, stopReason } from "../station.ts";
 
@@ -33,17 +33,13 @@ const POLL_MS = Number(process.env.PANEL_RUN_POLL_MS) || 30_000;
 export const workspaceName = (job: Job) =>
   `${job.repo.replace("/", "-")}-${job.issues.join("-")}`;
 
-/** The run's Inbox thread: its issues' refs. */
-export const threadName = (job: Job) =>
-  job.issues.map((n) => `${job.repo}#${n}`).join(" + ");
-
 export function brief(job: Job, ws: Workspace): string {
   const refs = job.issues.map((n) => `${job.repo}#${n}`);
   const fill: Record<string, string> = {
     issues: refs.join(", "),
     // GitHub links an issue to the PR only with a keyword of its own.
     closes: job.issues.map((n) => `Closes #${n}`).join(", "),
-    thread: threadName(job),
+    thread: threadName(job.repo, job.issues),
     path: ws.path,
     branch: ws.branch,
     database: ws.databaseName,
@@ -143,15 +139,16 @@ registerJobRunner("run", async ({ job, workspace, emit, signal }) => {
     if (now?.agent === "working") progress = Date.now();
     else if (Date.now() - progress > stale * 60_000) {
       // A question in the run's thread with no answer yet is no stall.
-      const waits = await waitsOnPerson(threadName(job), workspace.path).catch(
-        (err: unknown) => {
-          // An Inbox that cannot answer now ends no run that waits on it.
-          console.error(
-            `station: reading the run's Inbox thread: ${String(err)}`,
-          );
-          return true;
-        },
-      );
+      const waits = await waitsOnPerson(
+        threadName(job.repo, job.issues),
+        workspace.path,
+      ).catch((err: unknown) => {
+        // An Inbox that cannot answer now ends no run that waits on it.
+        console.error(
+          `station: reading the run's Inbox thread: ${String(err)}`,
+        );
+        return true;
+      });
       if (waits) progress = Date.now();
       else
         return {

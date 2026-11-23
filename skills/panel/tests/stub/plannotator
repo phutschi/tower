@@ -3,7 +3,8 @@
 # PLANNOTATOR_STUB_LOG as `plannotator <args>`, the JSON argument last.
 # `inbox call send_message` answers a message in thread thr_1, at cursor s<n>
 # for the nth send.
-# While a file PLANNOTATOR_STUB_LOG.fail exists, `send_message` fails.
+# While a file PLANNOTATOR_STUB_LOG.fail exists, `send_message` fails; when
+# the file holds text, only a send whose JSON argument contains it fails.
 # `inbox call read_thread` with no thread_id lists the file
 # PLANNOTATOR_STUB_THREADS names ({"threads":[]} without one); with one it answers the thread in the file PLANNOTATOR_STUB_THREAD
 # names, or an empty one while there is no file or its cursor is the `after`
@@ -13,7 +14,10 @@ printf 'plannotator %s\n' "$*" >> "${PLANNOTATOR_STUB_LOG:-/dev/null}"
 [ -n "${PLANNOTATOR_STUB_FAIL:-}" ] && [ -f "$PLANNOTATOR_STUB_FAIL" ] && { echo "plannotator: the Inbox is down (stub)" >&2; exit 1; }
 case "${1:-} ${2:-} ${3:-}" in
   "inbox call send_message")
-    [ ! -e "${PLANNOTATOR_STUB_LOG:-/dev/null}.fail" ] || { echo "plannotator: the Inbox is not answering (stub)" >&2; exit 1; }
+    fail="${PLANNOTATOR_STUB_LOG:-/dev/null}.fail"
+    if [ -e "$fail" ] && { [ ! -s "$fail" ] || printf '%s' "${4:-}" | grep -qF -- "$(cat "$fail")"; }; then
+      echo "plannotator: the Inbox is not answering (stub)" >&2; exit 1
+    fi
     n=$(grep -c "send_message" "${PLANNOTATOR_STUB_LOG:-/dev/null}" 2>/dev/null || echo 1)
     printf '{"message_id":"msg_s%s","thread_id":"thr_1","cursor":"s%s"}\n' "$n" "$n" ;;
   "inbox call read_thread")

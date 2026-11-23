@@ -4,7 +4,7 @@
  * edits.
  */
 import { Database } from "bun:sqlite";
-import { writeFileSync } from "node:fs";
+import { rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, setDefaultTimeout, test } from "bun:test";
 
@@ -19,6 +19,7 @@ import {
   ghLog,
   held,
   hubUrl,
+  inboxLog,
   issue,
   polls,
   post,
@@ -276,6 +277,51 @@ test("a run stuck after its lease ran out stays stuck when its station reports a
   });
   expect(res.status).toBe(409);
   expect((await api<Job[]>("/api/jobs"))[0]!.state).toBe("stuck");
+});
+
+test("a stuck bundle's note fits the Inbox's 120-character thread name, and a refused note holds up no other", async () => {
+  const seven = [101, 102, 103, 104, 105, 106, 107];
+  setIssues("acme/widgets", [
+    issue(1, "needs-triage"),
+    ...seven.map((n) => issue(n, "shaping")),
+  ]);
+  await start(["acme/widgets"], { leaseMs: 300, serverStation: "server" });
+  await acceptBundle(...seven);
+  for (const n of seven)
+    await post(`/api/issues/acme/widgets/${n}/stage`, {
+      stage: "ready-for-agent",
+    });
+  // The Inbox refuses the stuck note, and only that.
+  const fail = join(dir(), "plannotator.log.fail");
+  writeFileSync(fail, "stuck-");
+  await post("/api/jobs/claim", { station: "server", kinds: ["run"] });
+  const run = async () => (await jobsNow()).find((j) => j.kind === "run")!;
+  await until(async () => (await run()).state === "stuck");
+  const sends = () => inboxLog().filter((l) => l.includes("send_message"));
+  await until(async () => sends().some((l) => l.includes("stuck-")));
+  // A pause note comes after it, and goes through.
+  await post("/api/issues/acme/widgets/1/stage", { stage: "shaping" });
+  const grill = await held("grill");
+  const resetsAt = new Date(Date.now() + 60 * 60_000).toISOString();
+  await post(`/api/jobs/${grill.id}/events`, {
+    station: grill.station,
+    ts: new Date().toISOString(),
+    kind: "rate-limit",
+    data: { status: "rejected", resetsAt },
+  });
+  await until(async () => sends().some((l) => l.includes("panel-pause-")));
+  rmSync(fail);
+  const { id } = await run();
+  const stuck = () =>
+    sends()
+      .filter((l) => l.includes(`stuck-${id}`))
+      .map(
+        (l) => JSON.parse(l.slice(l.indexOf("{"))) as Record<string, string>,
+      );
+  await until(async () => stuck().length > 1);
+  const { thread } = stuck().at(-1)!;
+  expect(thread!.length).toBeLessThanOrEqual(120);
+  expect(thread).toMatch(/^acme\/widgets#101 \+ 6 more \([0-9a-f]+\)$/);
 });
 
 const jobsNow = () => api<Job[]>("/api/jobs");

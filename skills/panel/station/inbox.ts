@@ -3,6 +3,7 @@
  * station's jobs and the hub's notes.
  */
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import { promisify } from "node:util";
 
 const run = promisify(execFile);
@@ -25,6 +26,24 @@ const call = async (
       )
     ).stdout,
   ) as unknown;
+
+/** The Inbox takes a thread name of 1 to 120 characters. */
+const THREAD_MAX = 120;
+
+/**
+ * A run's Inbox thread, named after its issues: every ref while they fit,
+ * else the first, how many more, and a hash of them all.
+ */
+export function threadName(repo: string, issues: number[]): string {
+  const full = issues.map((n) => `${repo}#${n}`).join(" + ");
+  if (full.length <= THREAD_MAX) return full;
+  const hash = createHash("sha256")
+    .update(issues.join(","))
+    .digest("hex")
+    .slice(0, 8);
+  const tail = ` + ${issues.length - 1} more (${hash})`;
+  return `${repo}#${issues[0]}`.slice(0, THREAD_MAX - tail.length) + tail;
+}
 
 /** One message to the user in `thread`; the same key never posts twice. */
 export async function sendMessage(opts: {

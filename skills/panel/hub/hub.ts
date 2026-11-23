@@ -14,7 +14,7 @@ import {
 import { AdviceStore, keepOpen, parseProposal } from "./advice.ts";
 import { isStageLabel, merged, record, regroup, sync } from "./dispatcher.ts";
 import { GitHub, sameRepo, type IssueRef } from "./github.ts";
-import { sendInboxNote } from "../station/inbox.ts";
+import { sendInboxNote, threadName } from "../station/inbox.ts";
 import { renderPanel, type PanelData } from "./panel-page.ts";
 import { ACTIVE, Store, type SnapshotIssue } from "./store.ts";
 import { UsageStore, parseRateLimit, readUsageReport } from "./usage.ts";
@@ -177,13 +177,23 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
       return;
     }
     noting = true;
+    // One note the Inbox refuses holds up no other: the next sweep tries it again.
+    const send = async (note: Parameters<typeof sendInboxNote>[0]) => {
+      try {
+        await sendInboxNote(note);
+        return true;
+      } catch (err) {
+        console.error(`hub: an Inbox note failed: ${String(err)}`);
+        return false;
+      }
+    };
     try {
       do {
         again = false;
         for (const run of store.unnotedStuckRuns()) {
           const refs = run.issues.map((n) => `${run.repo}#${n}`);
-          await sendInboxNote({
-            thread: refs.join(" + "),
+          const sent = await send({
+            thread: threadName(run.repo, run.issues),
             subject: `Stuck: ${refs.join(", ")}`,
             body: [
               `The run for ${refs.join(", ")} is stuck: ${run.reason ?? "no reason given"}.`,
@@ -192,15 +202,14 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
             ].join("\n\n"),
             idempotencyKey: `stuck-${run.id}`,
           });
-          store.markNoted(run.id);
+          if (sent) store.markNoted(run.id);
         }
-        for (const n of store.unsentNotes()) {
-          await sendInboxNote({ ...n, idempotencyKey: n.key });
-          store.markSent(n.key);
-        }
+        for (const n of store.unsentNotes())
+          if (await send({ ...n, idempotencyKey: n.key }))
+            store.markSent(n.key);
       } while (again);
     } catch (err) {
-      console.error(`hub: an Inbox note failed: ${String(err)}`);
+      console.error(`hub: sending Inbox notes: ${String(err)}`);
     } finally {
       noting = false;
     }
