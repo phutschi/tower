@@ -1223,7 +1223,11 @@ if section add-lane; then
     reset_stub; out=$(cd "$r" && HERDR_STUB_MOVE_FAIL=1 "$KIT/add-lane.sh" "$RUNM" B feat/b main 2,3 2>&1; echo "exit=$?")
     assert_match "failed move, a checkout through a link: installed in git's path" "$out" "\\[dry-run\\] \\(cd $real && bun install\\)"
     assert_nomatch "failed move, a checkout through a link: ... not the link" "$out" "cd $RUNM/link"
-    rm -f "$RUNM/link"; printf '%s\n' "$before" > "$RUNM/panes.txt"
+    echo 'KEY=1' > "$r/.env"
+    reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNM" B feat/b main 2,3 2>&1; echo "exit=$?")
+    assert_match "a checkout through a link, placed: the map records git's path" "$(cat "$RUNM/panes.txt")" "^lane B: .*checkout $real, model "
+    assert_eq "a checkout through a link, placed: .env copied into git's path" "$(cat "$real/.env" 2>/dev/null)" KEY=1
+    rm -f "$RUNM/link" "$r/.env" "$real/.env"; printf '%s\n' "$before" > "$RUNM/panes.txt"
     echo gone > "$HERDR_STUB_STATES_DIR/$wtpane"
     reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNM" B feat/b main 2,3 2>&1; echo "exit=$?")
     assert_match "failed move, pane closed: says the move may have gone through" "$out" "lane B's pane $wtpane is gone \(herdr pane get\).*look for .*/\.worktrees/feat/b in the grid"
