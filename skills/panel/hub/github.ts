@@ -16,9 +16,9 @@ export interface IssueRef {
   number: number;
 }
 
-/** owner/name of a repository object as GitHub's GraphQL gives it. */
-const nameOf = (r: { name: string; owner: { login: string } }) =>
-  `${r.owner.login}/${r.name}`.toLowerCase();
+/** Whether two owner/name strings name one repo: GitHub ignores case. */
+export const sameRepo = (a: string, b: string) =>
+  a.toLowerCase() === b.toLowerCase();
 
 export class GitHub {
   /** `timeoutMs`: a gh that hangs is killed, so it cannot hold every poll and move. */
@@ -88,17 +88,24 @@ export class GitHub {
       merged: boolean;
     }[]
   > {
-    const out = await this.gh([
-      "pr",
-      "list",
-      "--repo",
-      repo,
-      "--state",
-      "all",
-      "--limit",
-      "200",
-      "--json",
-      "number,isDraft,state,createdAt,closingIssuesReferences",
+    // shortcut: the newest 200 open and 50 merged PRs; a run's PR is among
+    // them unless a repo opens or merges more between a run and its PR.
+    const list = (state: string, limit: string) =>
+      this.gh([
+        "pr",
+        "list",
+        "--repo",
+        repo,
+        "--state",
+        state,
+        "--limit",
+        limit,
+        "--json",
+        "number,isDraft,state,createdAt,closingIssuesReferences",
+      ]);
+    const out = JSON.stringify([
+      ...(JSON.parse(await list("open", "200")) as unknown[]),
+      ...(JSON.parse(await list("merged", "50")) as unknown[]),
     ]);
     const pulls = JSON.parse(out) as {
       number: number;
@@ -117,7 +124,9 @@ export class GitHub {
         createdAt: p.createdAt,
         merged: p.state === "MERGED",
         closes: p.closingIssuesReferences
-          .filter((i) => nameOf(i.repository) === repo.toLowerCase())
+          .filter((i) =>
+            sameRepo(`${i.repository.owner.login}/${i.repository.name}`, repo),
+          )
           .map((i) => i.number),
       }));
   }
@@ -187,7 +196,7 @@ export class GitHub {
   async addBlockedBy(repo: string, issue: number, blockers: number[]) {
     const path = `repos/${repo}/issues/${issue}/dependencies/blocked_by`;
     const has = (await this.blockedBy(repo, issue))
-      .filter((b) => b.repo.toLowerCase() === repo.toLowerCase())
+      .filter((b) => sameRepo(b.repo, repo))
       .map((b) => b.number);
     for (const blocker of blockers.filter((b) => !has.includes(b))) {
       const { id } = JSON.parse(

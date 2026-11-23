@@ -13,7 +13,7 @@ import {
 } from "../types.ts";
 import { AdviceStore, keepOpen, parseProposal } from "./advice.ts";
 import { isStageLabel, merged, record, regroup, sync } from "./dispatcher.ts";
-import { GitHub, type IssueRef } from "./github.ts";
+import { GitHub, sameRepo, type IssueRef } from "./github.ts";
 import { sendInboxNote } from "../station/inbox.ts";
 import { renderPanel, type PanelData } from "./panel-page.ts";
 import { ACTIVE, Store, type SnapshotIssue } from "./store.ts";
@@ -264,8 +264,6 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
   // The open issues each issue waits on, from the last blocker check, as
   // refs: #5 in the same repo, acme/other#5 in another.
   const blockers = new Map<string, string[]>();
-  const sameRepo = (a: string, b: string) =>
-    a.toLowerCase() === b.toLowerCase();
   const refOf = (b: IssueRef, repo: string) =>
     sameRepo(b.repo, repo) ? `#${b.number}` : `${b.repo}#${b.number}`;
 
@@ -369,8 +367,10 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
             : [];
           // A run whose PR was merged since the last poll is done before
           // its issues' close is recorded, which would stop it.
-          for (const run of claimedRuns(name))
-            if (prOf(run, pulls)?.merged) store.finishClaimed(run.id, now());
+          const mergedRuns = claimedRuns(name).filter(
+            (run) => prOf(run, pulls)?.merged,
+          );
+          for (const run of mergedRuns) store.finishClaimed(run.id, now());
           // Asked only when the poll brings a new issue to label.
           const fresh =
             baselined && open.some((i) => !store.issue(name, i.number));
@@ -379,6 +379,9 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
           await sendBack(name);
           await gate(name);
           await followRuns(name, pulls);
+          // A merge that closed no issue (another base, no auto-close)
+          // leaves them in review; setStages skips the closed ones.
+          for (const run of mergedRuns) await setStages(run, "in-review");
           merged(store, advice, name, await github.head(name), now());
         } catch (err) {
           console.error(`hub: polling ${name} failed: ${String(err)}`);
@@ -434,21 +437,28 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
         return bad("order lists part indexes, bundles lists bundle ids");
       const closed = advice.undecided(p, order, bundles);
       if (closed) return bad(closed);
-      if (decision === "accepted")
+      if (decision === "accepted") {
+        // Held at once, every part first: a claim must not take a run while
+        // gh writes a dependency. The blocker check after says all it waits on.
         for (const i of new Set(order)) {
           const part = p.order[i]!;
-          // Held at once: a claim must not take the run while gh writes the
-          // dependency. The blocker check after it says all it waits on.
-          const waits = part.after.map((n) => `#${n}`);
-          for (const j of store.jobs())
+          for (const j of store.jobs()) {
+            const waits = part.after.filter((n) => !j.issues.includes(n));
             if (
               j.kind === "run" &&
-              j.repo === part.repo &&
+              sameRepo(j.repo, part.repo) &&
               j.issues.includes(part.issue) &&
-              !part.after.some((n) => j.issues.includes(n)) &&
+              waits.length &&
               (j.state === "queued" || j.state === "held")
             )
-              store.hold(j.id, waits);
+              store.hold(
+                j.id,
+                waits.map((n) => `#${n}`),
+              );
+          }
+        }
+        for (const i of new Set(order)) {
+          const part = p.order[i]!;
           try {
             await github.addBlockedBy(part.repo, part.issue, part.after);
           } catch (err) {
@@ -457,18 +467,31 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
           // Each part counts once its dependencies are on GitHub.
           advice.decide(id, decision, [i], [], now());
         }
-      else advice.decide(id, decision, order, [], now());
+      } else advice.decide(id, decision, order, [], now());
+      const accepted = p.bundles.filter((x) => bundles.includes(x.id));
+      // The older bundles the accepted ones cut down: their issues regroup too.
+      const cut =
+        decision === "accepted"
+          ? advice
+              .bundles()
+              .filter((o) =>
+                accepted.some(
+                  (x) =>
+                    sameRepo(x.repo, o.repo) &&
+                    x.issues.some((n) => o.issues.includes(n)),
+                ),
+              )
+          : [];
       advice.decide(id, decision, [], bundles, now());
       // What was accepted holds now, not at the next poll: runs follow
       // their bundles, and wait on their new blockers.
       if (decision === "accepted") {
-        const accepted = p.bundles.filter((x) => bundles.includes(x.id));
         const repos = new Set([
           ...order.map((i) => p.order[i]!.repo),
           ...accepted.map((x) => x.repo),
         ]);
         for (const repo of repos) {
-          const issues = accepted
+          const issues = [...accepted, ...cut]
             .filter((x) => x.repo === repo)
             .flatMap((x) => x.issues);
           regroup(store, repo, issues, now(), bundleOf);
@@ -607,8 +630,12 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
           // again if this fails (followRuns).
           if (job?.kind === "run")
             void serial(async () => {
-              // Not if the user stopped it while a move ran ahead of it.
-              if (!store.control(job.id)?.stop)
+              // Not if the user stopped it while a move ran ahead of it, or
+              // a poll ahead of it found its PR.
+              if (
+                store.job(job.id)?.state === "claimed" &&
+                !store.control(job.id)?.stop
+              )
                 await setStages(job, "in-progress");
             }).catch((err) =>
               console.error(`hub: setting in-progress failed: ${String(err)}`),

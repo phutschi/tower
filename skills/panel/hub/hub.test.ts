@@ -895,3 +895,32 @@ test("a run whose issue gains a blocker by an accepted order part is not claimab
   expect(await claimed.json()).toBeNull();
   await accept;
 });
+
+test("issues left in an older bundle cut down by a newer one get their run", async () => {
+  setIssues("acme/widgets", [
+    issue(1, "shaping"),
+    issue(2, "shaping"),
+    issue(3, "shaping"),
+    issue(4, "shaping"),
+  ]);
+  setHead("acme/widgets", "aaa");
+  await start();
+  await acceptBundle(1, 2, 3);
+  for (const n of [1, 2])
+    await post(`/api/issues/acme/widgets/${n}/stage`, {
+      stage: "ready-for-agent",
+    });
+  expect(await runs()).toEqual([]);
+  await acceptBundle(3, 4);
+  expect((await runs()).map((j) => [j.issues, j.state])).toEqual([
+    [[1, 2], "queued"],
+  ]);
+});
+
+test("a run whose PR merged without closing its issue puts it in review", async () => {
+  const { run, pr, prs } = await claimedRun();
+  prs(pr("MERGED"));
+  await polls(2);
+  expect((await jobsNow()).find((j) => j.id === run.id)!.state).toBe("done");
+  expect(labelsOf(12)).toEqual(["in-review"]);
+});

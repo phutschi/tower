@@ -8,7 +8,8 @@
 # changes its labels in the file, so the next list sees the edit, and with
 # `--body-file -` writes the body it reads to GH_STUB_DIR/<owner>_<repo>_N.body.
 # Its pull requests live in GH_STUB_DIR/<owner>_<repo>.prs.json, as `gh pr
-# list --json number,isDraft,state,createdAt,closingIssuesReferences` prints them.
+# list --json number,isDraft,state,createdAt,closingIssuesReferences` prints them;
+# --state open or merged lists those only (a PR without a state is open).
 # `api repos/<owner>/<repo>/contents/CONTEXT-MAP.md` answers {} when the file
 # GH_STUB_DIR/<owner>_<repo>.context-map exists, and GitHub's 404 when not.
 # `api repos/<owner>/<repo>/commits/HEAD` answers the head of main from
@@ -24,7 +25,7 @@
 # A file GH_STUB_DIR/slow holding `<verb> <seconds>` makes that verb (edit,
 # list, or a path's first word after api: repos) take that long.
 printf 'gh %s\n' "$*" >> "${GH_STUB_LOG:-/dev/null}"
-repo=""; add=(); remove=(); args=(); method=GET; field=""; body_file=""; paginate=false
+repo=""; add=(); remove=(); args=(); method=GET; field=""; body_file=""; paginate=false; state=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --repo) repo=$2; shift ;;
@@ -35,7 +36,8 @@ while [ $# -gt 0 ]; do
     -F) field=$2; shift ;;
     --paginate) paginate=true ;;
     --slurp) ;;
-    --json|--limit|--state|--jq|-H|-f) shift ;;
+    --state) state=$2; shift ;;
+    --json|--limit|--jq|-H|-f) shift ;;
     *) args+=("$1") ;;
   esac
   shift
@@ -48,7 +50,9 @@ read -r slow_verb slow_s < "$GH_STUB_DIR/slow" 2>/dev/null || true
 [ -n "${slow_verb:-}" ] && { [ "${args[1]:-}" = "$slow_verb" ] || [ "${args[1]%%/*}" = "$slow_verb" ]; } && sleep "$slow_s"
 case "$verb" in
   "issue list") if [ -f "$file" ]; then cat "$file"; else echo "[]"; fi ;;
-  "pr list") if [ -f "${file%.json}.prs.json" ]; then cat "${file%.json}.prs.json"; else echo "[]"; fi ;;
+  "pr list") if [ -f "${file%.json}.prs.json" ]; then
+      jq --arg s "$state" 'map(select($s == "" or $s == "all" or ((.state // "OPEN") | ascii_downcase) == $s))' "${file%.json}.prs.json"
+    else echo "[]"; fi ;;
   "issue view") jq --argjson n "${args[2]:?}" '.[] | select(.number == $n) | {title, body: (.body // ""), labels}' "$file" ;;
   "label create") labels="${file%.json}.labels"
     if grep -qxF -- "${args[2]:?}" "$labels" 2>/dev/null; then

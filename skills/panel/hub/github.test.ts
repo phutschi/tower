@@ -12,8 +12,9 @@ test("a gh that hangs is killed after the timeout, so it holds up nothing", asyn
   chmodSync(gh, 0o755);
   try {
     const started = Date.now();
-    expect(new GitHub(gh, 200).openIssues("acme/widgets")).rejects.toThrow();
-    await new GitHub(gh, 200).openIssues("acme/widgets").catch(() => {});
+    await expect(
+      new GitHub(gh, 200).openIssues("acme/widgets"),
+    ).rejects.toThrow();
     expect(Date.now() - started).toBeLessThan(5000);
   } finally {
     rmSync(dir, { recursive: true, force: true });
