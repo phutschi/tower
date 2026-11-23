@@ -31,7 +31,8 @@ export function brief(job: Job, ws: Workspace): string {
   const refs = job.issues.map((n) => `${job.repo}#${n}`);
   const fill: Record<string, string> = {
     issues: refs.join(", "),
-    closes: job.issues.map((n) => `#${n}`).join(", "),
+    // GitHub links an issue to the PR only with a keyword of its own.
+    closes: job.issues.map((n) => `Closes #${n}`).join(", "),
     thread: refs.join(" + "),
     path: ws.path,
     branch: ws.branch,

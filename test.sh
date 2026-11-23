@@ -3533,6 +3533,19 @@ if section start-run; then
   assert_match "start-run: a workspace herdr refuses fails it" "$out" 'start-run: herdr could not open workspace acme-widgets-12'
   assert_match "start-run: non-zero"                          "$out" 'exit=1$'
   assert_nomatch "start-run: and starts no agent"             "$(cat "$HERDR_STUB_LOG")" 'agent start'
+  reset_stub
+  "$KIT/start-run.sh" acme-widgets-12 "$r" "$brief" >/dev/null 2>&1
+  assert_nomatch "start-run: no launcher, no role"            "$(cat "$HERDR_STUB_LOG")" '--role'
+  reset_stub
+  CLAUDE_STUB_ROLE=1 "$KIT/start-run.sh" acme-widgets-12 "$r" "$brief" >/dev/null 2>&1
+  assert_match "start-run: with a launcher, an orchestrator session named after the run" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start acme-widgets-12 --kind claude --pane pane-1 .* --role orchestrator --topic acme-widgets-12$'
+  reset_stub; echo gone > "$HERDR_STUB_STATES_DIR/acme-widgets-12.started"
+  out=$("$KIT/start-run.sh" acme-widgets-12 "$r" "$brief" 2>&1; echo "exit=$?")
+  assert_match "start-run: an orchestrator that does not start fails it" "$out" 'start-run: the orchestrator did not start in workspace acme-widgets-12'
+  assert_match "start-run: non-zero, again"                   "$out" 'exit=1$'
+  assert_match "start-run: and closes the workspace it opened" "$(cat "$HERDR_STUB_LOG")" '^herdr workspace close ws-1$'
+  assert_eq    "start-run: the checkout stays for a look"     "$([ -d "$r" ] && echo kept)" kept
+  rm -f "$HERDR_STUB_STATES_DIR/acme-widgets-12.started"
 fi
 
 # --- stop-run ----------------------------------------------------------------

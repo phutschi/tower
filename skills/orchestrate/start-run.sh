@@ -9,8 +9,9 @@
 # (model-defaults, or the call's environment).
 #
 # Prints {"workspace":"<id>","pane":"<id>"} once the orchestrator has its
-# brief, and exits 0; exits non-zero, saying why, otherwise. Run outside herdr
-# (the station is a launchd service): it needs herdr runnable, not a pane.
+# brief, and exits 0; exits non-zero, saying why, otherwise, closing the
+# workspace if it opened one (the checkout stays, for a look). Run outside
+# herdr (the station is a launchd service): it needs herdr runnable, not a pane.
 set -euo pipefail
 KIT="$(cd "$(dirname "$0")" && pwd)"
 . "$KIT/common.sh"
@@ -27,6 +28,8 @@ out=$(herdr workspace create --cwd "$CHECKOUT" --label "$NAME" --no-focus 2>&1) 
 WS=$(printf '%s' "$out" | jsonq 'd["result"]["workspace"]["workspace_id"]' 2>/dev/null) \
   && PANE=$(printf '%s' "$out" | jsonq 'd["result"]["root_pane"]["pane_id"]' 2>/dev/null) \
   || die "start-run: herdr opened workspace $NAME without naming its pane: $out"
+# From here a failure leaves no workspace behind: nobody would own it.
+trap '[ $? -eq 0 ] || herdr workspace close "$WS" >/dev/null 2>&1 || true' EXIT
 # An agent name herdr accepts (executor.sh agent_name): a lowercase letter
 # first, then lowercase letters, digits, '-' or '_', at most 32 characters.
 # A long name loses words from its front, never the issue number at its end:
@@ -34,6 +37,11 @@ WS=$(printf '%s' "$out" | jsonq 'd["result"]["workspace"]["workspace_id"]' 2>/de
 AGENT=$(printf '%s' "$NAME" | tr 'A-Z' 'a-z' | sed 's/[^a-z0-9_-]/-/g')
 [ "${#AGENT}" -le 32 ] || { AGENT="${AGENT: -32}"; AGENT="${AGENT#*-}"; }
 AGENT=$(printf '%s' "$AGENT" | sed 's/^[^a-z]*//'); [ -n "$AGENT" ] || AGENT=run
+# With a Claude launcher (roles.sh), orchestration runs only in an
+# orchestrator session.
+if [ -n "${CLAUDE_ROUTER_ROLE:-}" ] || claude --help </dev/null 2>/dev/null | grep -qE -- '(^|[^a-z-])--role([^a-z-]|$)'; then
+  SESSION_ROLE=orchestrator; SESSION_TOPIC=$AGENT
+fi
 start_agent_with_trust_retry "$AGENT" "$PANE" \
   || die "start-run: the orchestrator did not start in workspace $NAME (pane $PANE)"
 herdr agent prompt "$AGENT" "$(cat "$BRIEF")" >/dev/null \

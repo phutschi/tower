@@ -13,7 +13,7 @@ import { startHub } from "./hub/hub.ts";
 import { label, stateDir, writePlist, type Role } from "./launchd.ts";
 import { runStation } from "./station/station.ts";
 
-const USAGE = `usage: bun skills/panel/cli.ts hub [--db <path>] [--host <addr>] [--port <n>] [--poll-seconds <n>] [--server-station <name>]
+const USAGE = `usage: bun skills/panel/cli.ts hub [--db <path>] [--host <addr>] [--port <n>] [--poll-seconds <n>] [--usage-seconds <n, 0 for never>] [--server-station <name>]
        bun skills/panel/cli.ts station --hub <url> [--name <mac>] [--workdir <dir>] [--heartbeat-seconds <n>]
        bun skills/panel/cli.ts install hub [--port <n>] [--server-station <name>] [--dir <dir>]
        bun skills/panel/cli.ts install station --hub <url> [--name <mac>] [--dir <dir>]
@@ -36,16 +36,19 @@ async function hub(args: string[]) {
       host: { type: "string", default: "127.0.0.1" },
       port: { type: "string", default: "7420" },
       "poll-seconds": { type: "string", default: "60" },
+      "usage-seconds": { type: "string", default: "300" },
       "server-station": { type: "string", default: hostname() },
     },
   });
   mkdirSync(dirname(values.db), { recursive: true });
+  const usageMs = Number(values["usage-seconds"]) * 1000;
   const hub = await startHub({
     dbPath: values.db,
     host: values.host,
     port: Number(values.port),
     pollMs: Number(values["poll-seconds"]) * 1000,
     serverStation: values["server-station"],
+    ...(usageMs > 0 ? { usageMs } : { readUsage: async () => null }),
   });
   console.log(`hub: listening on ${hub.url}`);
   onStop(() => hub.stop());
@@ -94,14 +97,23 @@ function tailscaleIp(): string {
   process.exit(1);
 }
 
-/** Unloads a role's agent, if it is loaded. */
-const bootout = (role: Role) => {
+/**
+ * Unloads a role's agent, if it is loaded; exits 1 when launchctl cannot,
+ * since the agent then still runs.
+ */
+const bootout = (cmd: string, role: Role) => {
   try {
     execFileSync("launchctl", ["bootout", `${domain()}/${label(role)}`], {
-      stdio: "ignore",
+      stdio: "pipe",
     });
-  } catch {
-    // not loaded
+  } catch (err) {
+    // 3 (older macOS) and 113 say the service is not loaded.
+    const { status } = err as { status?: number };
+    if (status === 3 || status === 113) return;
+    console.error(
+      `${cmd} ${role}: launchctl could not unload ${label(role)}: ${String(err)}`,
+    );
+    process.exit(1);
   }
 };
 
@@ -137,8 +149,9 @@ function install(args: string[]) {
     if (!values.hub) usage();
     run = ["station", "--hub", values.hub, "--name", values.name];
   }
+  // Unloaded first: a plist written over a running agent's would outlive it.
+  bootout("install", role);
   const path = writePlist({ role, args: run, dir: values.dir });
-  bootout(role);
   try {
     execFileSync("launchctl", ["bootstrap", domain(), path], { stdio: "pipe" });
   } catch (err) {
@@ -159,7 +172,7 @@ function uninstall(args: string[]) {
     args: rest,
     options: { dir: { type: "string", default: AGENTS } },
   });
-  bootout(role);
+  bootout("uninstall", role);
   rmSync(join(values.dir, `${label(role)}.plist`), { force: true });
   console.log(`uninstall ${role}: unloaded and removed`);
 }
