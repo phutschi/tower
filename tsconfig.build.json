@@ -9,5 +9,10 @@
     "types": ["node"]
   },
   "include": ["src"],
-  "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx", "src/testing.ts"]
+  "exclude": [
+    "src/**/*.test.ts",
+    "src/**/*.test.tsx",
+    "src/testing.ts",
+    "src/test-tmpdir.ts"
+  ]
 }

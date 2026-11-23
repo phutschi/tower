@@ -1,5 +1,4 @@
 CHECK_CMD="make check"
-pane checks "make watch"
 pane dev    "make dev" web
 EXECUTOR_KIND=codex
 EXECUTOR_MODEL=gpt-6-astra-mini

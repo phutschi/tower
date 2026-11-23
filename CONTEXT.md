@@ -41,7 +41,7 @@ _Avoid_: runway (rendering only), worker, thread, track, stream
 **Integration branch**:
 Lane A's branch, the feature branch of an orchestrate run. Lane A works on it
 in the checkout the run opens in, which may itself be a worktree. The
-orchestrator merges finished lanes into it, and the checks pane runs on it.
+orchestrator merges finished lanes into it, and the dev pane runs on it.
 _Avoid_: main lane, trunk
 
 **Merge point**:
@@ -64,7 +64,9 @@ briefs and its findings there. None of them is a second record.
 
 **Pane map**:
 `panes.txt` in the run dir: every pane of an orchestrate run by role and id,
-and a `switches:` line with the run switches the run used.
+each tab the run opened by label and id (`lanes tab:`, `research tab:`), and
+a `switches:` line with the run switches the run used. Each lane's line names
+its tab.
 
 ### The people and programs
 
@@ -97,9 +99,11 @@ _Avoid_: review lane, reviewer model (the spec and quality reviewer roles
 inside a lane)
 
 **Reviewer slot**:
-One of two places a Reviewer runs, R1 and R2. Each review in a slot is a task
-on the board, `R<n>-<k>` in lane `R<n>` with area `review`. A lane that
-reports ready while both slots are busy waits.
+One of two places a Reviewer runs, R1 and R2: the lanes tab's right column,
+R1 over R2 (a run whose lanes tab opened without one, with both review
+switches off, or opened before the lanes tab: its reviews tab). Each review
+in a slot is a task on the board, `R<n>-<k>` in lane `R<n>` with area
+`review`. A lane that reports ready while both slots are busy waits.
 _Avoid_: review lane, reviewer pane
 
 **Runner**:
@@ -338,25 +342,29 @@ _Avoid_: skin, mode, style, language
 ### The orchestrate layout
 
 **Layout**:
-The fixed pane arrangement of an orchestrate run on one herdr tab:
-orchestrator left, the lane grid right, and a bottom row of dev, checks and
-console.
+The fixed pane arrangement of an orchestrate run on herdr tabs of the
+orchestrator's workspace: the orchestrator's tab (orchestrator left; console,
+dev and shell right), the `lanes` tab (the lane grid left, the Reviewer slots
+right), and with session roles the `research` tab (a lane grid for lanes of
+any role but code or review). A tab opens with its first pane.
 
 **Lane grid**:
-The 2x2 area for lane panes: A and B on top, C and D below. It grows as lanes
-are added and is capped at four.
+The 2x2 area for lane panes in the lanes tab. It grows in the order lanes are
+added: the second right of the first, the third under the first, the fourth
+under the second; capped at four.
 
 **Console pane**:
-The bottom-right pane that runs the console. It stays open after the run until
+The pane right of the orchestrator that runs the console. It stays open after the run until
 the human quits it.
 _Avoid_: tower pane
 
-**Checks pane**:
-The bottom pane running the repo's checks on change, in lane A's checkout.
-_Avoid_: tests pane, typecheck pane, watch pane
+**Shell pane**:
+An empty pane under the console, in the orchestrator's checkout, for the human. It runs
+nothing.
+_Avoid_: spare pane, terminal pane
 
 **Dev pane**:
-An optional bottom pane running the repo's development server in lane A's
+An optional pane under the console running the repo's development server in lane A's
 checkout. One per run, never per lane.
 
 **Check gate**:
@@ -366,7 +374,7 @@ the repo contract, or the JS default.
 **Full suite**:
 The repo's thorough checks, run once in preflight on the whole branch: every
 test, typecheck, lint and build. Slower and broader than the check gate.
-_Avoid_: check gate (that runs per task), checks pane (that watches)
+_Avoid_: check gate (that runs per task)
 
 **Repo contract**:
 The `.orchestrate` file in a repo root: its panes, its install command, its

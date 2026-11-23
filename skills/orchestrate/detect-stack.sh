@@ -26,8 +26,9 @@
 #   CHECK_CMD="bun run check"           the check gate; one-shot, must pass before a commit
 #   INSTALL_CMD="make deps"             what add-lane.sh runs in a new lane's worktree; default:
 #                                       the package manager's install, none without a package.json
-#   pane checks "bun test --watch"      pane NAME "CMD" [DIR]; DIR relative to the checkout
-#   pane dev    "bun run dev" apps/web  only checks and dev are placed
+#   pane dev    "bun run dev" apps/web  pane NAME "CMD" [DIR]; DIR relative to the checkout.
+#                                       Only dev is placed; a  pane checks  line (the
+#                                       checks pane is gone) is ignored with an info: line
 #   EXECUTOR_KIND=codex                 the lanes' harness: claude (default) | codex | cursor
 #   EXECUTOR_MODEL=gpt-6-astra          the lanes' model (model-defaults has each kind's default)
 #   SPEC_REVIEWER_MODEL=sonnet          the two reviewer models tower records for the run
@@ -39,7 +40,7 @@
 # CLAUDE, CODEX, CURSOR: EXECUTOR_MODEL_<KIND>, REVIEWER_MODEL_<KIND>,
 # REVIEWER_MODEL_CLAUDE_SELF, PREFLIGHT_MODEL_CLAUDE, SPEC_/QUALITY_REVIEWER_MODEL_<KIND> and
 # REVIEWER_CREDITS_MIN;
-# plus PM, TYPECHECK_TASK, TEST_PKG and TEST_FILTER to steer the detection below,
+# plus PM and TYPECHECK_TASK to steer the detection below,
 # and the run switches (default first; a value outside the list, or on more than
 # one line, is refused):
 #   TASK_REVIEW PREFLIGHT STATIC_BASELINE               on | off
@@ -76,8 +77,6 @@
 #       the model-defaults keys a contract sets, unexported: executor.sh's
 #       model_default reads them in this shell
 #       PANE_NAMES PANE_CMDS PANE_DIRS   (parallel arrays; pane_index NAME finds one)
-#       NO_RUNNER   1 when no checks pane is declared and no test runner is detected
-#                   (the checks pane then only echoes a note), else 0
 #       SUITE_NAMES SUITE_CMDS SUITE_DIRS  (parallel arrays in contract order; empty without suite lines)
 #       contract_pin RUN_DIR  prints the path of that run's pinned contract
 #       every switch above, exported; switches_line prints them all on one line,
@@ -86,7 +85,7 @@
 # The per-kind model keys and the credit threshold: model-defaults' keys.
 # A missing file gives none here; executor.sh model_default then names it.
 MODEL_KEYS=$({ sed -n 's/^\([A-Z_]*\)=.*/\1/p' "${MODEL_DEFAULTS_FILE:-$KIT/model-defaults}" 2>/dev/null || true; } | tr '\n' ' ')
-CONTRACT_VARS="EXECUTOR_KIND EXECUTOR_MODEL SPEC_REVIEWER_MODEL QUALITY_REVIEWER_MODEL STALE PM TYPECHECK_TASK CHECK_CMD INSTALL_CMD TEST_PKG TEST_FILTER $SWITCHES $MODEL_KEYS"
+CONTRACT_VARS="EXECUTOR_KIND EXECUTOR_MODEL SPEC_REVIEWER_MODEL QUALITY_REVIEWER_MODEL STALE PM TYPECHECK_TASK CHECK_CMD INSTALL_CMD $SWITCHES $MODEL_KEYS"
 USER_CONTRACT_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/tower/orchestrate"
 USER_CONTRACT_VARS="EXECUTOR_KIND STALE TASK_REVIEW LANE_REVIEW PREFLIGHT STATIC_BASELINE METHOD REVIEWER_KIND REVIEWER_BY_CREDITS TRIAGE GUIDED_REVIEW NOTIFY $MODEL_KEYS"
 PANE_NAMES=(); PANE_CMDS=(); PANE_DIRS=()
@@ -99,8 +98,9 @@ if [ ! -f .orchestrate ] && [ -f .herdr-orchestrate ]; then
 fi
 pane() {
   case "${1:-}" in
-    checks|dev) ;;
-    *) die "$CONTRACT_FILE: unknown pane '${1:-}' (only checks and dev are placed)" ;;
+    dev) ;;
+    checks) echo "info: $CONTRACT_FILE: pane checks is ignored: the checks pane is gone (each lane runs the check gate itself)" >&2; return ;;
+    *) die "$CONTRACT_FILE: unknown pane '${1:-}' (only dev is placed)" ;;
   esac
   [ -n "${2:-}" ] || die "$CONTRACT_FILE: pane $1 needs a command"
   PANE_NAMES[${#PANE_NAMES[@]}]="$1"; PANE_CMDS[${#PANE_CMDS[@]}]="$2"; PANE_DIRS[${#PANE_DIRS[@]}]="${3:-.}"
@@ -323,46 +323,6 @@ if [ -z "${CHECK_CMD:-}" ]; then
   else
     CHECK_CMD="$PM_RUN $TYPECHECK_TASK"
   fi
-fi
-
-# --- the default checks pane -------------------------------------------------
-# The target package's test runner in watch mode. Scans that package's own
-# scripts: in a monorepo the package you watch often has no `test` script.
-herdr_default_test_cmd() {  # $1 = test filter; run from the package directory
-  local filter="$1"
-  PM="$PM" PM_RUN="$PM_RUN" PM_EXEC="$PM_EXEC" FILTER="$filter" node -e '
-  process.stdout.write((() => {
-    const fs = require("fs");
-    const { PM, PM_RUN, PM_EXEC, FILTER } = process.env;
-    const filter = FILTER ? " " + FILTER : "";
-    let scripts = {};
-    try { scripts = JSON.parse(fs.readFileSync("package.json", "utf8")).scripts || {}; } catch {}
-    for (const name of ["test:watch", "test:unit:watch"])
-      if (scripts[name]) return `${PM_RUN} ${name}${filter}`;
-    const name = ["test", "test:unit"].find(n => scripts[n]);
-    const body = name ? scripts[name] : "";
-    if (/\bvitest\b/.test(body))   return `${PM_EXEC} vitest --watch${filter}`;
-    if (/\bjest\b/.test(body))     return `${PM_EXEC} jest --watch${filter}`;
-    if (/\bbun test\b/.test(body)) return `bun test --watch${filter}`;
-    if (name)                        return `${PM_RUN} ${name} --${filter ? " --watch" + filter : " --watch"}`;
-    const has = re => fs.readdirSync(".").some(f => re.test(f));
-    if (has(/^vitest\.(config|workspace)\./)) return `${PM_EXEC} vitest --watch${filter}`;
-    if (has(/^jest\.config\./))               return `${PM_EXEC} jest --watch${filter}`;
-    if (PM === "bun")                           return `bun test --watch${filter}`;
-    return "";
-  })());
-  ' 2>/dev/null || true   # no node: no runner detected, not an error
-}
-NO_RUNNER=0
-if [ -z "$(pane_index checks)" ]; then
-  TEST_PKG="${TEST_PKG:-.}"
-  _cmd="$( cd "$TEST_PKG" 2>/dev/null || cd .; herdr_default_test_cmd "${TEST_FILTER:-}" )"
-  if [ -z "$_cmd" ]; then
-    NO_RUNNER=1
-    _cmd="echo 'orchestrate: no test runner detected; declare  pane checks \"<cmd>\"  in .orchestrate'"
-  fi
-  pane checks "$_cmd" "$TEST_PKG"
-  unset _cmd
 fi
 
 # --- the run switches --------------------------------------------------------

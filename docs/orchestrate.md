@@ -113,34 +113,56 @@ board — the gate.
 
 ## The layout
 
-One tab:
+Up to three tabs in the orchestrator's workspace, each opened without
+moving your focus: the orchestrator's own, `lanes`, and `research` (and
+`reviews` in the one case under **Lanes** below).
 
 ```
-┌──────────────┬──────────┬──────────┐
-│ orchestrator │ lane A   │ lane B   │
-│              ├──────────┼──────────┤
-│              │ lane C   │ lane D   │
-├──────┬───────┴──┬───────┴──────────┤
-│ dev  │ checks   │ console          │
-└──────┴──────────┴──────────────────┘
+the orchestrator's tab             lanes
+┌──────────────┬──────────────┐    ┌──────────┬──────────┬──────────┐
+│ orchestrator │ console      │    │ lane A   │ lane B   │ R1       │
+│              ├───────┬──────┤    ├──────────┼──────────┼──────────┤
+│              │ dev   │ shell│    │ lane C   │ lane D   │ R2       │
+└──────────────┴───────┴──────┘    └──────────┴──────────┴──────────┘
+
+research (opens with the first such lane)
+┌──────────┬──────────┐
+│ lane B   │ lane D   │
+└──────────┴──────────┘
 ```
+
+With session roles on (see [Session roles](#session-roles)), a lane whose
+tasks name a role other than `code` or `review` (data, research, any other)
+goes to the `research` tab, which opens with the first such lane and has a
+grid of its own. Lane A too: then the lanes tab opens with the first code
+or review lane, or Reviewer. Without roles, every lane is in the lanes tab.
 
 - **Lanes** are the executors. Lane A works in your checkout on the feature
   branch (the integration branch); B to D get worktrees under `.worktrees/`.
-  The grid grows one lane at a time: B right of A, C under A, D under B.
-  Four at most. A lane that needs another lane's work merges it at its own
-  merge point; until that work is done it does its other tasks, then
-  stops, and the orchestrator prompts it the moment the task is done. A
-  _finished_ lane is merged into the integration branch by the orchestrator,
-  right away — never by lane A — and, while other lanes still have tasks
-  nobody started, the orchestrator moves some to it, so no lane sits idle.
-- **checks** runs your test runner in watch mode, **dev** your development
-  server if you declare one. Both run in lane A's checkout.
+  The grid in the lanes tab grows one lane at a time, in the order they are
+  added: the second right of the first, the third under the first, the
+  fourth under the second. Four at most. When anything reviews
+  (`LANE_REVIEW` or `PREFLIGHT` on), the right third of the lanes tab is a
+  full-height column for the Reviewer slots, R1 over R2. A lanes tab opened
+  with both off has no column, and gets none later: a Reviewer started in
+  that run all the same gets a `reviews` tab for the slots, the one case
+  with a reviews tab. A lane that needs another lane's work
+  merges it at its own merge point; until that work is done it does its
+  other tasks, then stops, and the orchestrator prompts it the moment the
+  task is done. A _finished_ lane is merged into the integration branch by
+  the orchestrator, right away — never by lane A — and, while other lanes
+  still have tasks nobody started, the orchestrator moves some to it, so no
+  lane sits idle.
+- **dev** runs your development server if you declare one, in lane A's
+  checkout. **shell** is an empty shell in the same checkout, for you;
+  without dev it takes the whole space under the console. There is no
+  checks pane: each lane runs the check gate itself, and a `pane checks`
+  line in `.orchestrate` is ignored with one `info:` line.
 - **console** is tower's live board, the record of the run. It stays open
   after the run; you quit it with `q`. The run dir is no second record: it
   holds the pane map, the briefs, the findings and tower's own run files.
   Console is tower's minimum width, 60
-  columns; the bottom row always spans the full tab so it always gets them.
+  columns; it takes half the orchestrator's tab so it always gets them.
 
 Nothing is closed until you say so.
 
@@ -178,10 +200,11 @@ by preflight on the strongest model. In this order:
    still on the screen never reads as done. A fix loop stops after the
    second re-review and comes to you. With `TRIAGE=auto` the open finding is
    deferred to preflight instead, and the lane merges.
-2. **The review tab.** The first review opens a second tab with two
-   slots, R1 and R2 (`add-reviewer.sh`). Every review starts a new agent in
-   a slot and becomes a task on the board owned by that slot. The tab
-   stays open after the run.
+2. **The Reviewer slots.** R1 and R2 are the lanes tab's right column
+   (`add-reviewer.sh`); a run whose lanes tab is not open yet gets it from
+   the first review, the column alone. Every review starts a new agent in
+   a slot and becomes a task on the board owned by that slot. The slots
+   stay open after the run.
 3. **Merge.** The orchestrator merges each lane as it reports ready (with
    lane review: once reviewed), then `origin/main`.
    A merge that conflicts is aborted and becomes a task for lane A.
@@ -236,8 +259,7 @@ file in the root (see `skills/orchestrate/example.orchestrate`):
 ```bash
 CHECK_CMD="make check"            # the check gate every lane runs before a commit
 INSTALL_CMD="make deps"           # what each new lane's worktree runs; empty turns it off
-pane checks "make test-watch"     # pane NAME "COMMAND" [DIR]; NAME is checks or dev
-pane dev    "make dev" web
+pane dev    "make dev" web        # pane dev "COMMAND" [DIR]: the one pane a repo declares
 EXECUTOR_KIND=codex               # the lanes' harness: claude (default), codex or cursor
 EXECUTOR_MODEL=gpt-6-astra        # the lanes' model, for this repo's runs
 EXECUTOR_MODEL_CURSOR=grok-4.7-high-fast  # a kind's default model (see below)

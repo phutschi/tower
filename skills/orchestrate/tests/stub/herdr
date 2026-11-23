@@ -30,7 +30,12 @@
 # agent started since the last Enter (listed in HERDR_STUB_COUNTER.started,
 # which each Enter empties) is not one.
 # HERDR_STUB_MOVE_FAIL=1: every `pane move` fails, the pane staying where it is;
-# =garbled: it succeeds with an answer that has no pane in it.
+# =garbled: it succeeds with an answer that has no pane in it. A `pane move
+# --new-tab` answers the moved pane as any move does, and puts it in a tab of
+# its own, tab-<n> for pane-<n> (HERDR_STUB_COUNTER.tabs); `pane get` answers
+# that tab_id for it, and tab-0 for any other pane.
+# HERDR_STUB_NEW_TAB_LOCKS=FILE: a `pane move --new-tab` makes FILE read-only
+# after it moves the pane, as a disk that fills up just then.
 # HERDR_STUB_WORKTREE_FAIL=1: every `worktree create` fails; =garbled: it
 # succeeds with an answer that has no pane in it.
 # Errors are JSON on stderr with exit 1, as herdr answers them.
@@ -54,14 +59,20 @@ case "${1:-} ${2:-}" in
   "pane move")
     [ "${HERDR_STUB_MOVE_FAIL:-}" != garbled ] || { echo '{"result":{}}'; exit 0; }
     [ "${HERDR_STUB_MOVE_FAIL:-}" != 1 ] || { echo '{"error":{"code":"server_unavailable","message":"herdr server is not answering"}}' >&2; exit 1; }
-    echo "{\"result\":{\"move_result\":{\"pane\":{\"pane_id\":\"$(next_id)\"}}}}" ;;
+    p=$(next_id)
+    case " $* " in *" --new-tab "*)
+      echo "$p tab-${p#pane-}" >> "$counter.tabs"
+      [ -z "${HERDR_STUB_NEW_TAB_LOCKS:-}" ] || chmod a-w "$HERDR_STUB_NEW_TAB_LOCKS" ;;
+    esac
+    echo "{\"result\":{\"move_result\":{\"pane\":{\"pane_id\":\"$p\"}}}}" ;;
   "pane list")       echo '{"result":{"panes":[]}}' ;;
   "pane get")
     case "$([ -n "$states" ] && head -1 "$states/$3" 2>/dev/null)" in
       gone)        echo '{"error":{"code":"pane_not_found"}}' >&2; exit 1 ;;
       unreachable) echo '{"error":{"code":"server_unavailable","message":"herdr server is not answering"}}' >&2; exit 1 ;;
     esac
-    echo "{\"result\":{\"pane\":{\"pane_id\":\"$3\",\"workspace_id\":\"ws-0\"}}}" ;;
+    tab=$(awk -v p="$3" '$1 == p { print $2 }' "$counter.tabs" 2>/dev/null)
+    echo "{\"result\":{\"pane\":{\"pane_id\":\"$3\",\"workspace_id\":\"ws-0\",\"tab_id\":\"${tab:-tab-0}\"}}}" ;;
   "agent start")
     trust=$(cat "$counter.trust" 2>/dev/null || echo 0)
     if [ "$trust" -lt "${HERDR_STUB_TRUST_STARTS:-0}" ]; then
