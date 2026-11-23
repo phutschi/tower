@@ -4098,9 +4098,18 @@ if section fake-orca; then
   out=$(env -u ORCA_STUB_COUNTER TMPDIR="$TMP/stub-tmp" "$KIT/tests/stub/orca" terminal create --json)
   assert_match "fake orca, no counter: still answers" "$out" '"handle": *"term-1"'
   assert_eq "fake orca, no counter: leaves nothing in TMPDIR" "$(ls -A "$TMP/stub-tmp")" ""
-  c=$(env -u ORCA_STUB_COUNTER TMPDIR="$TMP/stub-tmp" bash -c '. "$KIT/common.sh"; echo "$ORCA_STUB_COUNTER"')
+  c=$(env -u ORCA_STUB_COUNTER TMPDIR="$TMP/stub-tmp" RUNNER=orca bash -c '. "$KIT/common.sh"; echo "$ORCA_STUB_COUNTER"')
   assert_match "DRY_RUN, no counter: the fake's state in a new dir of its own" "$c" '/tmp\.[^/]+/orca-counter$'
   assert_eq "DRY_RUN, no counter: ... only its owner can enter" "$(stat -c %a "$(dirname "$c")" 2>/dev/null || stat -f %Lp "$(dirname "$c")")" 700
+  # A run's scripts share one private state folder, beside its run dir: a
+  # dry-run bootstrap, then its printed send-brief, see the same terminals.
+  dr=$(fixture_repo bun-vitest); DRUN="$TMP/run-dry-chain"
+  (cd "$dr" && env -u ORCA_STUB_COUNTER -u ORCA_STUB_STATES_DIR RUNNER=orca "$KIT/bootstrap.sh" "$DRUN" "Dry chain" main "$KIT/example-tasks.tsv" >/dev/null 2>&1)
+  echo "Do task 1." > "$DRUN/brief-A.md"
+  out=$(cd "$dr" && env -u ORCA_STUB_COUNTER -u ORCA_STUB_STATES_DIR RUNNER=orca "$KIT/send-brief.sh" "$DRUN" bun-vitest-lane-a "$DRUN/brief-A.md" 2>&1; echo "exit=$?")
+  assert_match "DRY_RUN, a run's scripts: send-brief finds bootstrap's terminal" "$out" 'sent to bun-vitest-lane-a in term-3'
+  sd="$(dirname "$DRUN")/.$(basename "$DRUN").orca-stub"
+  assert_eq "DRY_RUN, a run's scripts: their state folder beside the run dir, private" "$(stat -c %a "$sd" 2>/dev/null || stat -f %Lp "$sd")" 700
   # Workspaces: the caller's, and child worktrees that record their parent.
   assert_match "fake orca: worktree current names the caller's workspace" "$(o worktree current --json)" "\"id\": *\"repo-0::$(pwd -P)\""
   reset_stub

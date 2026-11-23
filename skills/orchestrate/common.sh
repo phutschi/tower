@@ -48,10 +48,18 @@ if [ "${DRY_RUN:-0}" = 1 ]; then
   export PATH="$KIT/tests/stub:$PATH"
   export HERDR_STUB_LOG="${HERDR_STUB_LOG:-/dev/stderr}"
   export ORCA_STUB_LOG="${ORCA_STUB_LOG:-$HERDR_STUB_LOG}"
-  # The fake orca's state for this script and its calls, in a dir only it owns.
-  # shortcut: the dir is left behind (a few bytes a hand run), remove it on exit once DRY_RUN runs in a loop.
-  if [ -z "${ORCA_STUB_COUNTER:-}" ]; then
-    _own=$(mktemp -d) || die "DRY_RUN: mktemp -d failed, so the fake orca has nowhere to keep its state"
+  # The fake orca's state, in a dir only this user owns: one per run, beside
+  # its run dir (a run script's first argument), so every script of a dry run
+  # sees the same terminals; any other script gets one of its own. Only a dry
+  # run that can reach the fake (RUNNER=orca, or an Orca session) needs it.
+  if [ -z "${ORCA_STUB_COUNTER:-}" ] && { [ "${RUNNER:-}" = orca ] || [ -n "${ORCA_CLI_COMMAND:-}" ]; }; then
+    case "$(basename "$0")" in
+      bootstrap.sh|add-lane.sh|add-reviewer.sh|send-brief.sh|read-pane.sh|watch-lanes.sh)
+        _own="$(cd "$(dirname "${1:-.}")" 2>/dev/null && pwd)/.$(basename "${1:-.}").orca-stub"
+        { [ -d "$_own" ] || mkdir -m 700 "$_own"; } 2>/dev/null && [ ! -L "$_own" ] && [ -O "$_own" ] \
+          || die "DRY_RUN: the fake orca's state folder $_own is not a private dir of yours" ;;
+      *) _own=$(mktemp -d) || die "DRY_RUN: mktemp -d failed, so the fake orca has nowhere to keep its state" ;;
+    esac
     export ORCA_STUB_COUNTER="$_own/orca-counter"; unset _own
   fi
   # Inside herdr unless the caller says otherwise (HERDR_ENV=0 tests the
