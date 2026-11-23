@@ -243,3 +243,23 @@ test("an agent launchd cannot unload stays installed, and uninstall says so", as
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("a reinstall launchd refuses to load puts the previous plist back, and says how to load it", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "panel-cli-"));
+  const hub = ["--hub", "http://100.64.0.7:7420"];
+  const plist = join(dir, "dev.tower.panel.station.plist");
+  try {
+    await cli(["install", "station", "--dir", dir, ...hub, "--name", "laptop"]);
+    const r = await cli(
+      ["install", "station", "--dir", dir, ...hub, "--name", "desk"],
+      { LAUNCHCTL_STUB_FAIL: "bootstrap" },
+    );
+    expect(r.code).toBe(1);
+    expect(readFileSync(plist, "utf8")).toContain("<string>laptop</string>");
+    expect(r.err).toContain(
+      `launchctl bootstrap gui/${process.getuid!()} ${plist}`,
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

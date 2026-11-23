@@ -88,8 +88,7 @@ export class GitHub {
       merged: boolean;
     }[]
   > {
-    // shortcut: the newest 200 open and 50 merged PRs; a run's PR is among
-    // them unless a repo opens or merges more between a run and its PR.
+    // shortcut: the newest 200 open and 50 merged PRs, until a repo opens or merges more than that between a run's start and its PR.
     const list = (state: string, limit: string) =>
       this.gh([
         "pr",

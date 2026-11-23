@@ -3522,7 +3522,12 @@ if section start-run; then
   "$KIT/start-run.sh" acme-widgets-platform-infrastructure-12 "$r" "$brief" >/dev/null 2>&1
   "$KIT/start-run.sh" acme-widgets-platform-infrastructure-13 "$r" "$brief" >/dev/null 2>&1
   agents=$(sed -n 's/^herdr agent start \([^ ]*\) .*/\1/p' "$HERDR_STUB_LOG")
-  assert_eq "start-run: a long name keeps the issue number, so two runs get two agents" "$agents" "$(printf 'platform-infrastructure-12\nplatform-infrastructure-13')"
+  assert_eq "start-run: a long name keeps the issue number, so two runs get two agents" "$agents" "$(printf 'r-ets-platform-infrastructure-12\nr-ets-platform-infrastructure-13')"
+  reset_stub
+  "$KIT/start-run.sh" acme-averylongrepositorynamewithoutwordbreaks-12 "$r" "$brief" >/dev/null 2>&1
+  "$KIT/start-run.sh" acme-averylongrepositorynamewithoutwordbreaks-13 "$r" "$brief" >/dev/null 2>&1
+  agents=$(sed -n 's/^herdr agent start \([^ ]*\) .*/\1/p' "$HERDR_STUB_LOG")
+  assert_eq "start-run: a long name with no word break keeps its issue number too" "$agents" "$(printf 'r-sitorynamewithoutwordbreaks-12\nr-sitorynamewithoutwordbreaks-13')"
   out=$("$KIT/start-run.sh" acme-widgets-12 "$r" 2>&1; echo "exit=$?")
   assert_match "start-run: a missing argument is refused"     "$out" 'usage: start-run.sh <workspace-name> <worktree-path> <brief-file>'
   assert_match "start-run: and fails"                         "$out" 'exit=2$'
@@ -3534,6 +3539,11 @@ if section start-run; then
   assert_match "start-run: a workspace herdr refuses fails it" "$out" 'start-run: herdr could not open workspace acme-widgets-12'
   assert_match "start-run: non-zero"                          "$out" 'exit=1$'
   assert_nomatch "start-run: and starts no agent"             "$(cat "$HERDR_STUB_LOG")" 'agent start'
+  reset_stub
+  out=$(HERDR_STUB_WORKSPACE_FAIL=nopane "$KIT/start-run.sh" acme-widgets-12 "$r" "$brief" 2>&1; echo "exit=$?")
+  assert_match "start-run: a workspace opened without its pane fails it" "$out" 'without naming its pane'
+  assert_match "start-run: non-zero, without a pane"         "$out" 'exit=1$'
+  assert_match "start-run: and closes that workspace"         "$(cat "$HERDR_STUB_LOG")" '^herdr workspace close ws-1$'
   reset_stub
   "$KIT/start-run.sh" acme-widgets-12 "$r" "$brief" >/dev/null 2>&1
   assert_nomatch "start-run: no launcher, no role"            "$(cat "$HERDR_STUB_LOG")" '--role'
