@@ -8,6 +8,8 @@
 #   ./test.sh            all sections, in parallel (TEST_JOBS at once; the CPU count);
 #                        TEST_SHARD=i/n runs every nth section from the ith (CI)
 #   ./test.sh bootstrap  one section (a word from the "# ---" headings below)
+#   ./test.sh dryrun:orca  a section of PER_RUNNER, with the runner set to Orca
+#                        (RUNNER=orca); --list names each such section twice
 #   ./test.sh --fast     all sections but the slow ones (SLOW): the check gate's
 #                        mode; the full suite runs them all. A section named
 #                        with it runs even when slow.
@@ -17,6 +19,7 @@
 set -u
 ROOT="$(cd "$(dirname "$0")" && pwd)"; KIT="$ROOT/skills/orchestrate"; PREFLIGHT_DIR="$ROOT/skills/preflight"; export KIT
 SLOW="look run"   # preflight's look.sh and one whole run: ~12 of ~35 seconds
+PER_RUNNER="dryrun"   # the sections run once per runner: herdr, and <section>:orca
 ONLY=""; LIST=0; FAST=0; MATCHED=0
 for _a in "$@"; do
   case "$_a" in
@@ -26,6 +29,13 @@ for _a in "$@"; do
     *)      [ -z "$ONLY" ] || { echo "test.sh: one section at most" >&2; exit 2; }; ONLY=$_a ;;
   esac
 done; unset _a
+unset RUNNER   # herdr unless <section>:orca says Orca, whatever the calling shell exported
+case "$ONLY" in
+  *:*) SECTION_RUNNER=${ONLY#*:}; ONLY=${ONLY%%:*}
+       [ "$SECTION_RUNNER" = orca ] || { echo "test.sh: no runner $SECTION_RUNNER (herdr or orca)" >&2; exit 2; }
+       case " $PER_RUNNER " in *" $ONLY "*) ;; *) echo "test.sh: $ONLY does not run per runner" >&2; exit 2 ;; esac
+       export RUNNER=orca ;;
+esac
 pass=0; fail=0
 ok()  { pass=$((pass+1)); echo "ok   $1"; }
 bad() { fail=$((fail+1)); echo "FAIL $1"; shift; printf '     %s\n' "$@"; }
@@ -40,7 +50,7 @@ section() {
       *" $1 "*) return 1 ;;
     esac
   fi
-  [ "$LIST" = 0 ] || { echo "$1"; return 1; }
+  [ "$LIST" = 0 ] || { echo "$1"; case " $PER_RUNNER " in *" $1 "*) echo "$1:orca" ;; esac; return 1; }
 }
 
 TMP=$(cd "$(mktemp -d)" && pwd -P)
@@ -58,6 +68,10 @@ mkdir -p "$_lsb"; LOOK_STATE=$(cd "$(mktemp -d "$_lsb/tower-test-look.XXXXXX")" 
 # and TMPDIR.
 trap 'chmod -R u+w "$TMP" 2>/dev/null; rm -rf "$TMP" "$LOOK_STATE"' EXIT
 export DRY_RUN=1 HERDR_ENV=1 HERDR_STUB_LOG="$TMP/log" HERDR_STUB_COUNTER="$TMP/counter" HERDR_STUB_STATES_DIR="$TMP/states"
+# The fake orca logs to the same log, and keeps its states (per terminal
+# handle) in the same dir.
+export ORCA_STUB_LOG="$TMP/log" ORCA_STUB_COUNTER="$TMP/orca-counter" ORCA_STUB_STATES_DIR="$TMP/states"
+unset ORCA_STUB ORCA_STUB_STATUS
 # common.sh only defaults HERDR_PANE_ID/HERDR_TAB_ID when unset, so running
 # test.sh from inside a real herdr pane (as its own agent does) would
 # otherwise leak this pane's real ids into every assertion instead of the
@@ -73,7 +87,7 @@ unset CREDITS_TIMEOUT CODEX_STUB_RATE_LIMITS CLAUDE_CONFIG_DIR
 # Session roles (roles.sh): no launcher unless a test says so, whatever
 # session test.sh is started from.
 unset CLAUDE_ROUTER_ROLE CLAUDE_STUB_ROLE
-# The runner: herdr (HERDR_ENV=1 above) unless a test says Orca.
+# The runner: herdr (HERDR_ENV=1 above) unless a test, or <section>:orca, says Orca.
 unset ORCA_CLI_COMMAND
 # The repo contract's names and the run switches: the fixtures decide them,
 # not the shell test.sh is started from (a codex lane exports EXECUTOR_KIND).
@@ -91,7 +105,7 @@ mkdir -p "$HERDR_STUB_STATES_DIR"
 # test touching the real herdr or tower (this happened once: HERDR_ENV=1 is
 # inherited from the orchestrating pane, so `need_runner` alone does not stop a
 # script run outside test.sh and outside DRY_RUN=1 from driving real panes).
-for _tool in herdr tower claude codex semgrep gitleaks cursor-agent; do
+for _tool in herdr orca tower claude codex semgrep gitleaks cursor-agent; do
   _which=$(bash -c ". \"$KIT/common.sh\"; command -v $_tool" 2>/dev/null || true)
   [ "$_which" = "$KIT/tests/stub/$_tool" ] || { echo "test.sh: $_tool resolves to '$_which', not the stub ($KIT/tests/stub/$_tool) — refusing to run" >&2; exit 1; }
 done
@@ -124,7 +138,7 @@ if [ -z "$ONLY" ] && [ "$LIST" = 0 ]; then
   echo "$pass passed, $fail failed"
   [ "$fail" = 0 ]; exit
 fi
-reset_stub() { : > "$HERDR_STUB_LOG"; rm -f "$HERDR_STUB_COUNTER" "$HERDR_STUB_COUNTER.busy" "$HERDR_STUB_COUNTER.enters" "$HERDR_STUB_COUNTER.trust" "$HERDR_STUB_COUNTER.started" "$HERDR_STUB_COUNTER.tabs"; }
+reset_stub() { : > "$HERDR_STUB_LOG"; rm -f "$HERDR_STUB_COUNTER" "$HERDR_STUB_COUNTER.busy" "$HERDR_STUB_COUNTER.enters" "$HERDR_STUB_COUNTER.trust" "$HERDR_STUB_COUNTER.started" "$HERDR_STUB_COUNTER.tabs" "$ORCA_STUB_COUNTER" "$ORCA_STUB_COUNTER.terminals" "$ORCA_STUB_COUNTER.worktrees"; }
 # A new git repo built from tests/fixtures/<name> (or empty), named <name>, in
 # a directory of its own: every call is a fresh repo, so tower's run pointer
 # (in the repo's git dir) is never shared between two runs. Prints its path.
@@ -154,16 +168,13 @@ if section common; then
   assert_match "TOWER_POINTER: says how to install tower" "$(in_kit 'echo "$TOWER_POINTER"')" 'github\.com/phutschi/tower'
   assert_nomatch "TOWER_POINTER: names no version" "$(in_kit 'echo "$TOWER_POINTER"')" '[0-9]+\.[0-9]+'
   assert_match "need names the missing tool"     "$(in_kit 'need git nosuchtool')" "missing dependency: nosuchtool"
-  # A minimal orca answering `status` (ORCA_STATUS=fail: Orca not reachable).
-  mkdir -p "$TMP/orca-bin"
-  printf '#!/bin/sh\necho "orca $*" >> "$HERDR_STUB_LOG"\n[ "$1" = status ] && [ "${ORCA_STATUS:-}" != fail ] && { echo "{\\"result\\":{}}"; exit 0; }\nexit 1\n' > "$TMP/orca-bin/orca"
-  chmod +x "$TMP/orca-bin/orca"
-  in_orca() { env PATH="$TMP/orca-bin:$PATH" ORCA_CLI_COMMAND=orca "$@" bash -c ". \"\$KIT/common.sh\"; runner_detect" 2>&1; }
+  # The fake orca is on PATH under DRY_RUN; ORCA_STUB_STATUS=fail: Orca not reachable.
+  in_orca() { env ORCA_CLI_COMMAND=orca "$@" bash -c ". \"\$KIT/common.sh\"; runner_detect" 2>&1; }
   assert_eq "runner_detect: herdr when HERDR_ENV=1 and herdr answers" "$(in_kit 'runner_detect')" herdr
   assert_eq "runner_detect: orca when ORCA_CLI_COMMAND is set, herdr is absent and orca status answers" "$(in_orca HERDR_ENV=0)" orca
   assert_eq "runner_detect: ... and when herdr does not answer" "$(in_orca HERDR_STUB=absent)" orca
   assert_eq "runner_detect: herdr when both herdr and Orca are present" "$(in_orca HERDR_ENV=1)" herdr
-  out=$(in_orca HERDR_ENV=0 ORCA_STATUS=fail; echo "exit=$?")
+  out=$(in_orca HERDR_ENV=0 ORCA_STUB_STATUS=fail; echo "exit=$?")
   assert_match "runner_detect: Orca set but orca status fails, it says Orca is not reachable" "$out" "Orca is not reachable"
   assert_match "runner_detect: ... and fails" "$out" 'exit=1$'
   out=$(HERDR_ENV=0 in_kit 'runner_detect; echo "exit=$?"')
@@ -176,7 +187,7 @@ if section common; then
   assert_nomatch "need_runner: outside both it stops the script" "$out" "^after$"
   for s in bootstrap add-lane add-reviewer watch-lanes; do
     assert_match "$s.sh: outside both it refuses, naming herdr, Orca and /tower:run" "$(HERDR_ENV=0 "$KIT/$s.sh" 2>&1)" "needs herdr.*Orca.*/tower:run"
-    assert_match "$s.sh: in Orca it passes the runner check" "$(env PATH="$TMP/orca-bin:$PATH" ORCA_CLI_COMMAND=orca HERDR_ENV=0 "$KIT/$s.sh" 2>&1)" '^usage: '
+    assert_match "$s.sh: in Orca it passes the runner check" "$(env ORCA_CLI_COMMAND=orca HERDR_ENV=0 "$KIT/$s.sh" 2>&1)" '^usage: '
   done
   assert_match "DRY_RUN puts the stubs on PATH"  "$(in_kit 'command -v herdr')" "tests/stub/herdr$"
   reset_stub
@@ -3535,6 +3546,111 @@ EOF
   unset CLAUDE_ROUTER_ROLE
 fi
 
+# --- fake-orca ---------------------------------------------------------------
+# The fake orca itself (tests/stub/orca): what the Orca sections rely on.
+if section fake-orca; then
+  o() { in_kit "orca $*"; }
+  reset_stub
+  out=$(o terminal create --worktree active --title lane-a --command claude --json)
+  assert_match "fake orca: logs argv" "$(cat "$ORCA_STUB_LOG")" '^orca terminal create --worktree active --title lane-a --command claude --json$'
+  assert_match "fake orca: terminal create answers a handle" "$out" '"handle": *"term-1"'
+  assert_match "fake orca: ... and its tab" "$out" '"tabId": *"tab-1"'
+  assert_match "fake orca: handles count up" "$(o terminal split --terminal term-1 --direction horizontal --command sh --json)" '"handle": *"term-2"'
+  assert_match "fake orca: ... a split stays in the tab it splits" "$(o terminal split --terminal term-1 --direction horizontal --json)" '"tabId": *"tab-1"'
+  reset_stub
+  assert_match "fake orca: ... per test (reset_stub)" "$(o terminal create --json)" '"handle": *"term-1"'
+  assert_match "fake orca: ok on success" "$(o terminal create --json)" '"ok": *true'
+  # Workspaces: the caller's, and child worktrees that record their parent.
+  assert_match "fake orca: worktree current names the caller's workspace" "$(o worktree current --json)" "\"id\": *\"repo-0::$(pwd -P)\""
+  reset_stub
+  out=$(o worktree create --name acme-lane-b --branch feat/b --base-branch feat/a --parent-worktree id:repo-0::/work/acme --json)
+  assert_match "fake orca: worktree create answers an id" "$out" '"id": *"repo-0::/orca-stub/worktrees/wt-1"'
+  assert_match "fake orca: ... and its path" "$out" '"path": *"/orca-stub/worktrees/wt-1"'
+  assert_match "fake orca: worktree ids count up" "$(o worktree create --name acme-lane-c --parent-worktree active --json)" '"id": *"repo-0::/orca-stub/worktrees/wt-2"'
+  out=$(o worktree show --worktree id:repo-0::/orca-stub/worktrees/wt-1 --json)
+  assert_match "fake orca: worktree show reports the parent it was given" "$out" '"parentWorktreeId": *"repo-0::/work/acme"'
+  assert_match "fake orca: ... its name" "$out" '"displayName": *"acme-lane-b"'
+  assert_match "fake orca: ... its branch" "$out" '"branch": *"feat/b"'
+  assert_match "fake orca: --parent-worktree active is the caller's workspace" "$(o worktree show --worktree id:repo-0::/orca-stub/worktrees/wt-2 --json)" "\"parentWorktreeId\": *\"repo-0::$(pwd -P)\""
+  o worktree create --name acme-lane-d --json >/dev/null
+  assert_match "fake orca: a worktree with no parent reports null" "$(o worktree show --worktree id:repo-0::/orca-stub/worktrees/wt-3 --json)" '"parentWorktreeId": *null'
+  out=$(o terminal create --title "'lane \"a\"'" --json)
+  assert_eq "fake orca: free text is valid JSON" "$(printf '%s' "$out" | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["terminal"]["title"])')" 'lane "a"'
+  out=$(o worktree show --worktree id:repo-0::/nowhere --json; echo "exit=$?")
+  assert_match "fake orca: an unknown worktree is an error" "$out" '"code": *"selector_not_found"'
+  assert_match "fake orca: ... exit 1" "$out" 'exit=1$'
+  # Agent states, per terminal handle, from ORCA_STUB_STATES_DIR.
+  reset_stub; o terminal create --title lane-a --json >/dev/null; o terminal create --title lane-b --json >/dev/null
+  st="$ORCA_STUB_STATES_DIR"; rm -f "$st"/term-*
+  state() { in_kit "orca agent list --json" | python3 -c "import json,sys; d=json.load(sys.stdin); print(' '.join(a['state'] for a in d['result']['agents'] if a['paneKey'] == 'tab-$1:leaf-$1') or 'none')"; }
+  assert_eq "fake orca: an agent with no state file is working" "$(state 1)" working
+  for w in waiting blocked done; do
+    echo "$w" > "$st/term-1"; assert_eq "fake orca: state $w" "$(state 1)" "$w"
+  done
+  printf 'working\nwaiting\n' > "$st/term-1"
+  assert_eq "fake orca: several lines: the first, then dropped" "$(state 1) $(state 1) $(state 1)" "working waiting waiting"
+  echo gone > "$st/term-2"
+  assert_eq "fake orca: a gone agent is not listed" "$(state 2)" none
+  out=$(o terminal read --terminal term-2 --json; echo "exit=$?")
+  assert_match "fake orca: a gone terminal is a stale handle" "$out" '"code": *"terminal_handle_stale"'
+  assert_match "fake orca: ... exit 1" "$out" 'exit=1$'
+  echo unreadable > "$st/term-2"
+  out=$(o agent list --json; echo "exit=$?")
+  assert_match "fake orca: unreadable: Orca does not answer" "$out" '"code": *"runtime_unavailable"'
+  assert_match "fake orca: ... exit 1" "$out" 'exit=1$'
+  assert_match "fake orca: ... for a terminal too" "$(o terminal read --terminal term-2 --json)" '"code": *"runtime_unavailable"'
+  rm -f "$st/term-2"
+  assert_match "fake orca: terminal show names its tab and leaf" "$(o terminal show --terminal term-2 --json)" '"leafId": *"leaf-2"'
+  # The terminal's tail.
+  printf 'line one\nREADY "quoted"\n' > "$st/term-1.tail"
+  out=$(o terminal read --terminal term-1 --json)
+  assert_eq "fake orca: terminal read answers the tail file" "$(printf '%s' "$out" | python3 -c 'import json,sys; print("|".join(json.load(sys.stdin)["result"]["terminal"]["tail"]))')" 'line one|READY "quoted"'
+  # A trust menu refuses a text-plus-Enter send; separate sends answer it.
+  echo trust > "$st/term-1"
+  assert_eq "fake orca: a trust menu shows as blocked" "$(state 1)" blocked
+  out=$(o terminal send --terminal term-1 --text '"hello"' --enter --json; echo "exit=$?")
+  assert_match "fake orca: a trust menu refuses text plus Enter" "$out" '"code": *"agent_prompt_blocked"'
+  assert_match "fake orca: ... exit 1" "$out" 'exit=1$'
+  assert_match "fake orca: ... text alone is accepted" "$(o terminal send --terminal term-1 --text 1 --json)" '"accepted": *true'
+  assert_eq "fake orca: ... and leaves the menu" "$(state 1)" blocked
+  o terminal send --terminal term-1 --enter --json >/dev/null
+  assert_eq "fake orca: ... Enter alone answers it" "$(state 1)" working
+  assert_match "fake orca: then text plus Enter is accepted" "$(o terminal send --terminal term-1 --text '"go"' --enter --json)" '"accepted": *true'
+  # Waiting for an agent, and closing its terminal.
+  echo waiting > "$st/term-1"
+  assert_match "fake orca: terminal wait --for tui-idle: an idle agent satisfies it" "$(o terminal wait --terminal term-1 --for tui-idle --timeout-ms 1000 --json)" '"satisfied": *true'
+  echo working > "$st/term-1"
+  out=$(o terminal wait --terminal term-1 --for tui-idle --timeout-ms 1000 --json; echo "exit=$?")
+  assert_match "fake orca: ... a working one times out" "$out" '"code": *"timeout"'
+  assert_match "fake orca: ... exit 1" "$out" 'exit=1$'
+  o terminal close --terminal term-1 --json >/dev/null
+  assert_eq "fake orca: a closed terminal's agent is gone" "$(state 1)" none
+  # Reachability and installation.
+  assert_match "fake orca: status answers" "$(o status --json)" '"reachable": *true'
+  out=$(ORCA_STUB_STATUS=fail o status --json; echo "exit=$?")
+  assert_match "fake orca: ORCA_STUB_STATUS=fail: status fails" "$out" '"code": *"runtime_unavailable"'
+  assert_match "fake orca: ... exit 1" "$out" 'exit=1$'
+  reset_stub; out=$(ORCA_STUB=absent o terminal create --json; echo "exit=$?")
+  assert_match "fake orca: ORCA_STUB=absent: not installed" "$out" 'exit=127$'
+  assert_match "fake orca: ... the refused call is logged" "$(cat "$ORCA_STUB_LOG")" '^orca-absent terminal create --json$'
+  unset -f o state; unset st
+fi
+
+# --- dryrun ------------------------------------------------------------------
+# DRY_RUN's runner, run once per runner (./test.sh dryrun:orca for Orca).
+if section dryrun; then
+  if [ "${RUNNER:-herdr}" = orca ]; then
+    assert_eq "dryrun: RUNNER=orca: runner_detect picks orca" "$(in_kit 'runner_detect')" orca
+    assert_eq "dryrun: ... ORCA_CLI_COMMAND is the fake orca" "$(in_kit 'echo "$ORCA_CLI_COMMAND"')" "$KIT/tests/stub/orca"
+    assert_match "dryrun: ... the fake orca is on PATH" "$(in_kit 'command -v orca')" "tests/stub/orca$"
+    assert_eq "dryrun: ... need_runner exports RUNNER=orca" "$(in_kit 'need_runner; bash -c "echo \$RUNNER"')" orca
+    assert_eq "dryrun: ... even from a herdr pane" "$(HERDR_ENV=1 in_kit 'runner_detect')" orca
+  else
+    assert_eq "dryrun: runner_detect picks herdr" "$(in_kit 'runner_detect')" herdr
+    assert_eq "dryrun: ... ORCA_CLI_COMMAND stays unset" "$(in_kit 'echo "[${ORCA_CLI_COMMAND:-}]"')" "[]"
+  fi
+fi
+
 # --- runner ------------------------------------------------------------------
 if section runner; then
   list=$("$ROOT/test.sh" --list 2>&1)
@@ -3554,6 +3670,18 @@ if section runner; then
   assert_match "an unknown section fails"                "$out" 'exit=2$'
   assert_match "--fast with a slow section named runs it" "$("$ROOT/test.sh" --fast --list run 2>&1)" '^run$'
   assert_match "two sections are refused"                "$("$ROOT/test.sh" bootstrap detect 2>&1)" "test.sh: one section at most"
+  assert_match "--list: a per-runner section once per runner" "$list" '^dryrun$'
+  assert_match "--list: ... and with :orca"              "$list" '^dryrun:orca$'
+  out=$("$ROOT/test.sh" dryrun:orca 2>&1; echo "exit=$?")
+  assert_match "<section>:orca runs it with the runner set to orca" "$out" '^ok   dryrun: RUNNER=orca: runner_detect picks orca$'
+  assert_match "<section>:orca: ... and passes"          "$out" 'exit=0$'
+  assert_match "an inherited RUNNER does not make a section Orca's" "$(RUNNER=orca "$ROOT/test.sh" dryrun 2>&1)" '^ok   dryrun: runner_detect picks herdr$'
+  out=$("$ROOT/test.sh" dryrun:tmux 2>&1; echo "exit=$?")
+  assert_match "an unknown runner is refused"            "$out" 'test.sh: no runner tmux \(herdr or orca\)'
+  assert_match "an unknown runner fails"                 "$out" 'exit=2$'
+  out=$("$ROOT/test.sh" look:orca 2>&1; echo "exit=$?")
+  assert_match "a section that does not run per runner is refused with :orca" "$out" 'test.sh: look does not run per runner'
+  assert_match "... and fails"                           "$out" 'exit=2$'
 fi
 
 [ -z "$ONLY" ] || [ "$MATCHED" = 1 ] || { echo "test.sh: no section named $ONLY (./test.sh --list)" >&2; exit 2; }
