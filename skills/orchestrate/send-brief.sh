@@ -7,7 +7,9 @@
 # (common.sh agent_pane); nothing else in the map is read, and nothing in it
 # is run: a lane can write the run dir. The pane must be open; the runner then
 # sends the file's text as one prompt (runner_send_message), Orca only to an
-# agent it lists as ready. Otherwise nothing is sent: exit 1, saying why.
+# agent it lists as ready. Otherwise nothing is sent: exit 1, saying why; a
+# send with no receipt fails too, saying to look at the terminal before
+# sending again.
 #
 # Never run this for real to see what it does; use DRY_RUN=1, which answers
 # every herdr and orca call from tests/stub and sends nothing.

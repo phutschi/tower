@@ -911,7 +911,6 @@ if section add-lane; then
   : > "$ORCA_STUB_LOG"; out=$(lane D feat/d2 main 5; echo "exit=$?")
   assert_match "orca D rerun, its screen not a shell: refused" "$out" "lane D's launch was never sent, but terminal $dpane's screen does not show a shell"
   assert_nomatch "orca D rerun, its screen not a shell: nothing typed" "$(cat "$ORCA_STUB_LOG")" '^orca terminal send '
-  echo unlisted-shell > "$ORCA_STUB_STATES_DIR/$dpane"   # its terminal: a shell, no agent
   # An agent working there after all (started by hand): refused, nothing typed.
   echo working > "$ORCA_STUB_STATES_DIR/$dpane"
   : > "$ORCA_STUB_LOG"; out=$(lane D feat/d2 main 5; echo "exit=$?")
@@ -1011,6 +1010,9 @@ if section add-lane; then
     bpane=$(sed -nE 's/^lane B: +([^ ]+).*/\1/p' "$RUNF/panes.txt")
     echo gone > "$HERDR_STUB_STATES_DIR/bun-vitest-lane-b"
     mkwt "$r" feat/b   # the stub's worktree create makes none
+    # Recorded unsent (a start that failed before its launch, say a git
+    # error): herdr's own agent start guards the pane, so the rerun starts it.
+    sed -i.bak '/^lane B:/s/ starting$/ unsent/' "$RUNF/panes.txt"; rm -f "$RUNF/panes.txt.bak"
     reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNF" B feat/b main 2,3 2>&1; echo "exit=$?"); log=$(cat "$HERDR_STUB_LOG")
     assert_match "rerun: add-lane finishes"               "$out" 'exit=0$'
     assert_nomatch "rerun: no second worktree"            "$log" '^herdr worktree create'
@@ -1415,6 +1417,18 @@ if section add-reviewer; then
   assert_eq "orca, rerun: no second R1 tab" "$(grep -c '^orca terminal create .*--title R1 ' "$ORCA_STUB_LOG")" 0
   assert_match "orca, rerun: both slots recorded" "$(cat "$RUNP/panes.txt")" '^review tab: +tab-[0-9]+,tab-[0-9]+ +\(R1 term-[0-9]+, R2 term-[0-9]+\)$'
   assert_eq "orca, rerun: one review tab line" "$(grep -c '^review tab:' "$RUNP/panes.txt")" 1
+  # R1 is in the map before R2's tab is asked for (an interrupt there leaves
+  # it recorded); a findings dir that cannot be made stops the call before a
+  # Reviewer's tab opens.
+  rp=$(fixture_repo bun-vitest); RUNP="$TMP/run-orca-order"; reset_stub
+  (cd "$rp" && "$KIT/bootstrap.sh" "$RUNP" "Orca order" main "$KIT/example-tasks.tsv" >/dev/null 2>&1)
+  : > "$ORCA_STUB_LOG"; (cd "$rp" && ORCA_STUB_PEEK="$RUNP/panes.txt" EXIT_WAIT_SECONDS=3 "$KIT/add-reviewer.sh" "$RUNP" R1 claude "Lane review A" "$RUNP/findings/a.json" >/dev/null 2>&1)
+  assert_match "orca: R1 recorded before R2's tab is asked for" "$(grep -A2 -- '--title R2 ' "$ORCA_STUB_LOG")" '^peek: review tab: +tab-[0-9]+ +\(R1 term-[0-9]+\)$'
+  r1=$(sed -nE 's/^reviewer R1: +([^ ]+).*/\1/p' "$RUNP/panes.txt"); echo waiting > "$S/$r1"; : > "$RUNP/notadir"
+  : > "$ORCA_STUB_LOG"; out=$(cd "$rp" && EXIT_WAIT_SECONDS=3 "$KIT/add-reviewer.sh" "$RUNP" R1 claude "Lane review A again" "$RUNP/notadir/a.json" 2>&1; echo "exit=$?")
+  assert_match "orca: findings dir not made: refused" "$out" 'exit=1$'
+  assert_nomatch "orca: findings dir not made: no Reviewer tab opened" "$(cat "$ORCA_STUB_LOG")" '^orca terminal create '
+  rm -f "$S/$r1"
   # The same in a run whose slots open as its lanes tab (lane A in another
   # tab, no lanes tab yet): the rerun keeps that line's key.
   rp=$(fixture_repo bun-vitest); RUNP="$TMP/run-orca-partial-lanes"; reset_stub

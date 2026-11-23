@@ -38,6 +38,8 @@
 # (runtime_unavailable); =garbled: it succeeds with an answer that has no
 # worktree in it; =suffix: it makes the worktree on <branch>-2, as Orca does
 # when the branch is taken (`worktree show` says so).
+# ORCA_STUB_PEEK=<pane map>: each `terminal create` logs that map's tab
+# lines, as "peek: <line>", after its own log line.
 # ORCA_STUB_CREATE_FAIL=<title>: a `terminal create` with that --title fails
 # (runtime_unavailable).
 # ORCA_STUB_SEND_FAIL: every `terminal send` with text fails: =1 with
@@ -103,6 +105,7 @@ case "${1:-} ${2:-}" in
     IFS='|' read -r id path name branch parent < <(awk -F'|' -v i="$id" '$1 == i' "$counter.worktrees" 2>/dev/null) || err selector_not_found
     ok "{\"worktree\":{\"id\":\"$id\",\"path\":\"$path\",\"displayName\":$(js "$name"),\"branch\":$(js "$branch"),\"parentWorktreeId\":$(js "$parent")}}" ;;
   "terminal create")
+    [ -z "${ORCA_STUB_PEEK:-}" ] || grep -E '^(review|lanes) tab:' "$ORCA_STUB_PEEK" | sed 's/^/peek: /' >> "${ORCA_STUB_LOG:-/dev/null}"
     [ -z "${ORCA_STUB_CREATE_FAIL:-}" ] || [ "$(flag title)" != "$ORCA_STUB_CREATE_FAIL" ] || err runtime_unavailable
     n=$(next_n); wt=$(flag worktree); wt=$(wt_id "${wt:-current}")
     echo "term-$n tab-$n leaf-$n $wt" >> "$counter.terminals"

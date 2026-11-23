@@ -353,8 +353,9 @@ elif [ "$REUSED" = 1 ]; then echo "reusing task $ID: an earlier call for $SLOT a
 # (layout.sh). Else a reviews tab, R2 right of R1: a lanes tab without a
 # column (nothing reviewed at bootstrap), or a pane map from before the lanes
 # tab (lane lines without a tab), whose lanes are in the orchestrator's tab.
-# Each tab is recorded as soon as it opens: a call that fails after R1 leaves
-# R1 on the line, and the rerun opens R2 alone.
+# Each tab is recorded as soon as it opens, before the next is asked for: the
+# runner opens what it can at once (herdr: both; Orca: one a call), and a call
+# that fails after R1 leaves R1 on the line, for the rerun to open R2 alone.
 if [ "$SLOTS_OPEN" = 0 ]; then
   # A rerun keeps the key of the line that holds R1.
   LABEL=reviews; KEY="review tab:    "
@@ -362,29 +363,32 @@ if [ "$SLOTS_OPEN" = 0 ]; then
     || { [ -z "$LANES_LINE" ] && grep -qE '^lane A: .*, tab [a-z]+\)( starting| unsent)?$' "$MAP"; }; then
     LABEL=lanes; KEY="lanes tab:     "
   fi
-  R1_PANE=$(slot_pane R1); TAB=${TAB_LINE%% *}
-  rc=0; out=$(runner_open_reviewer_slots "$WS" "$REPO" "$LABEL" ${R1_PANE:+"$R1_PANE" "$TAB"}) || rc=$?
-  read -r TAB R1_PANE R2_PANE <<< "$out"
-  [ -n "$R1_PANE" ] || exit 1   # nothing to record; the runner said why
-  TAB_LINE="$TAB   (R1 $R1_PANE${R2_PANE:+, R2 $R2_PANE})"
-  tmp=$(mktemp "$MAP.XXXXXX"); { grep -v "^${KEY%%:*}:" "$MAP" || [ $? -eq 1 ]; } > "$tmp"
-  echo "$KEY $TAB_LINE" >> "$tmp"; mv "$tmp" "$MAP"
-  [ "$rc" = 0 ] || die "add-reviewer: $(runner_name) opened R1's tab but not R2's: rerun  $KIT/add-reviewer.sh$RERUN_ARGS  to open it"
+  while [ -z "$(slot_pane R2)" ]; do
+    R1_PANE=$(slot_pane R1); TAB=${TAB_LINE%% *}
+    out=$(runner_open_reviewer_slots "$WS" "$REPO" "$LABEL" ${R1_PANE:+"$R1_PANE" "$TAB"}) || {
+      [ -z "$R1_PANE" ] || die "add-reviewer: $(runner_name) opened R1's tab but not R2's: rerun  $KIT/add-reviewer.sh$RERUN_ARGS  to open it"
+      exit 1; }   # nothing opened; the runner said why
+    read -r TAB R1_PANE R2_PANE <<< "$out"
+    TAB_LINE="$TAB   (R1 $R1_PANE${R2_PANE:+, R2 $R2_PANE})"
+    tmp=$(mktemp "$MAP.XXXXXX"); { grep -v "^${KEY%%:*}:" "$MAP" || [ $? -eq 1 ]; } > "$tmp"
+    echo "$KEY $TAB_LINE" >> "$tmp"; mv "$tmp" "$MAP"
+  done
   echo "$LABEL tab: $TAB — slots R1 $R1_PANE, R2 $R2_PANE"
 fi
+# --- a fresh Reviewer in the slot ---------------------------------------------
+# What can fail is done before a new tab opens; the tab's line is written
+# right after it does.
+NAME="$(cd "$REPO" && agent_name "-$(echo "$SLOT" | tr 'A-Z' 'a-z')-$N")"
+mkdir -p "$(dirname "$FINDINGS")"
+# A codex Reviewer's sandbox writes only the checkout and the run dir: its
+# temp files and package caches (bunx, npm) go to the run dir's tmp.
+if [ "$R_KIND" = codex ]; then AGENT_TMP="$RUN_DIR/tmp"; mkdir -p "$AGENT_TMP"; fi
 # The kept Reviewer's pane stays; a fresh one gets the slot's pane, or a new
 # one where the runner closed the last (runner_reviewer_pane).
 if [ "$KEEP" != 1 ]; then
   PANE=$(slot_pane "$SLOT"); [ "$ENDED" != 1 ] || PANE=""
   PANE=$(runner_reviewer_pane "$SLOT" "$PANE" "$REPO")
 fi
-
-# --- a fresh Reviewer in the slot ---------------------------------------------
-NAME="$(cd "$REPO" && agent_name "-$(echo "$SLOT" | tr 'A-Z' 'a-z')-$N")"
-mkdir -p "$(dirname "$FINDINGS")"
-# A codex Reviewer's sandbox writes only the checkout and the run dir: its
-# temp files and package caches (bunx, npm) go to the run dir's tmp.
-if [ "$R_KIND" = codex ]; then AGENT_TMP="$RUN_DIR/tmp"; mkdir -p "$AGENT_TMP"; fi
 LINE=$(printf 'reviewer %s:    %s   (agent "%s", kind %s, model %s, review "%s", findings %s)' \
   "$SLOT" "$PANE" "$NAME" "$R_KIND" "$R_MODEL" "$TITLE" "$FINDINGS")
 slot_line "$LINE starting"

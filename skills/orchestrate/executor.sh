@@ -44,7 +44,7 @@
 # Expects `set -u`; provides agent_name SUFFIX, start_agent NAME PANE,
 # start_agent_with_trust_retry NAME PANE (it returns once the agent accepts
 # input; one that exits right after its start is started once more, then the
-# start fails), kind_installed KIND, kind_cli KIND (the CLI it runs as),
+# start fails: 3 when nothing was sent, 4 when sent without a receipt, else 1), kind_installed KIND, kind_cli KIND (the CLI it runs as),
 # need_kind WHO KIND (dies naming that CLI when it is not installed) and
 # reviewer_for LANE_KIND [LANE_MODEL] (the Reviewer's kind and model; see below),
 # preflight_reviewer LANE_KIND [LANE_MODEL] (the same, for a preflight slot).

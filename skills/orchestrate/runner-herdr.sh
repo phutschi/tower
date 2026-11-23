@@ -6,7 +6,7 @@
 runner_agent_start() {
   local name="$1" kind="$2" pane="$3" rc=0; shift 4
   herdr agent start "$name" --kind "$kind" --pane "$pane" -- "$@" || rc=$?
-  [ "$rc" != 3 ] || rc=1   # 3 is the runner contract's "nothing sent"; herdr's own 3 says no such thing
+  case $rc in 3|4) rc=1 ;; esac   # the contract's "nothing sent" and "no receipt"; herdr's own 3 and 4 say neither
   return "$rc"
 }
 # An agent as herdr reads it, one line: "<agent_status> <interactive_ready>"
@@ -30,8 +30,8 @@ runner_name() { echo herdr; }
 runner_ready_hint() { echo "herdr agent get $1  shows interactive_ready true"; }
 runner_agent_tail() { herdr agent read "$1" --source recent-unwrapped --lines "$3"; }
 runner_send_text()  { herdr pane send-text "$1" "$2" >/dev/null; }
-runner_names_agents() { :; }
-runner_pane_at_shell() { return 1; }   # herdr cannot tell; it never leaves a launch unsent (runner_agent_start)   # herdr prompts an agent by its name, whatever its pane
+runner_names_agents() { :; }   # herdr prompts an agent by its name, whatever its pane
+runner_pane_at_shell() { :; }   # herdr's agent start refuses a pane that is not a ready shell (agent_pane_busy)
 runner_send_message() { herdr agent prompt "$1" "$3" >/dev/null; }   # NAME PANE TEXT: NAME's prompt, by name
 runner_send_keys()  { local pane="$1"; shift; herdr pane send-keys "$pane" "$@" >/dev/null; }
 

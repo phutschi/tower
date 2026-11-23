@@ -245,17 +245,18 @@ runner_pane_exists() {
   esac
 }
 runner_pane_check() { echo Orca; }
-# The Reviewer slots R1 and R2: a terminal tab each in workspace WS, started
-# in REPO (LABEL is herdr's); R1 and its tab given, only R2's opens. Prints
-# "<tab>,<tab> <r1> <r2>"; when R2's fails, "<tab> <r1>" and returns 1.
+# The Reviewer slots R1 and R2, a terminal tab each in workspace WS, started
+# in REPO (LABEL is herdr's), one a call, for the caller to record each before
+# the next: with no R1, R1's (prints "<tab> <r1>"); R1 and its tab given,
+# R2's (prints "<tab>,<tab> <r1> <r2>").
 runner_open_reviewer_slots() {
   local r1="${4:-}" t1="${5:-}" r2 t2 cd
   cd="cd $(printf %q "$2")"
   if [ -z "$r1" ]; then
     read -r r1 t1 <<< "$(orca_new terminal create --worktree "id:$1" --title R1 --command "$cd")" && [ -n "$r1" ] || return 1
+    echo "$t1 $r1"; return
   fi
-  read -r r2 t2 <<< "$(orca_new terminal create --worktree "id:$1" --title R2 --command "$cd")"
-  [ -n "$r2" ] || { echo "$t1 $r1"; return 1; }
+  read -r r2 t2 <<< "$(orca_new terminal create --worktree "id:$1" --title R2 --command "$cd")" && [ -n "$r2" ] || return 1
   echo "$t1,$t2 $r1 $r2"
 }
 # A Reviewer that exits leaves its terminal at a shell, which Orca still
