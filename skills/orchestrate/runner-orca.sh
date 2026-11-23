@@ -152,7 +152,8 @@ runner_open_reviewer_slots() {
 # A Reviewer that exits leaves its terminal at a shell, which Orca still
 # lists as done: its terminal is closed, so it reads gone, and the next
 # Reviewer gets a tab of its own.
-runner_end_agent() { orca terminal close --terminal "$1" --json >/dev/null; }
+# shortcut: a fixed pause for /exit to finish; wait instead once Orca can tell that an agent left its terminal.
+runner_end_agent() { [ "${DRY_RUN:-0}" = 1 ] || sleep 2; orca terminal close --terminal "$1" --json >/dev/null; }
 # PANE while it is open, else a new terminal tab SLOT in the orchestrator's
 # workspace ($MAP is add-reviewer's), started in REPO.
 runner_reviewer_pane() {

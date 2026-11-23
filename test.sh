@@ -1172,6 +1172,14 @@ if section add-reviewer; then
   : > "$ORCA_STUB_LOG"; out=$(review R1 claude "Lane review A third" "$RUN/findings/lane-a-3.json"; echo "exit=$?")
   assert_match "orca R1, its Reviewer working: refused" "$out" 'Reviewer bun-vitest-r1-2 is still working in R1'
   assert_nomatch "orca R1, its Reviewer working: nothing sent or opened" "$(cat "$ORCA_STUB_LOG")" '^orca terminal (send|create|close) '
+  # A Reviewer whose start failed and that now accepts input is resumed in
+  # its own terminal, not the slot's first one.
+  echo waiting > "$S/term-6"; sed -i.bak '/^reviewer R1:/s/)$/) starting/' "$RUN/panes.txt"
+  tower_run() { "$KIT/tests/stub/tower" "$@" --run "$RUN" >/dev/null 2>&1; }
+  tower_run remove R1-3
+  : > "$ORCA_STUB_LOG"; out=$(review R1 claude "Lane review A again" "$RUN/findings/lane-a-2.json"; echo "exit=$?")
+  assert_match "orca R1 resumed: in its own terminal" "$out" 'resuming bun-vitest-r1-2 in term-6'
+  assert_nomatch "orca R1 resumed: nothing opened or closed" "$(cat "$ORCA_STUB_LOG")" '^orca terminal (create|close) '
   rm -f "$S"/*
   else
     S="$HERDR_STUB_STATES_DIR"
@@ -1923,7 +1931,7 @@ if section cursor-reviewer; then
   r=$(fixture_repo bun-vitest)
   assert_eq "REVIEWER_KIND=cursor: a valid switch value" "$(REVIEWER_KIND=cursor detect_in "$r" 'echo $REVIEWER_KIND')" cursor
   assert_match "REVIEWER_KIND: an unknown kind is refused, listing cursor" "$(REVIEWER_KIND=gemini detect_in "$r" true)" "REVIEWER_KIND must be other, claude, codex or cursor \\(got 'gemini'\\)"
-  # add-reviewer: a cursor Reviewer (the herdr cases below, unindented, run on herdr).
+  # add-reviewer: a cursor lane, and a cursor Reviewer.
   if [ "${RUNNER:-herdr}" = orca ]; then
   r=$(fixture_repo bun-vitest); RUN="$TMP/run-cr-orca"; C=$(git -C "$r" rev-parse --path-format=absolute --git-common-dir)
   (cd "$r" && env HOME="$TMP/cr-home" REVIEWER_KIND=cursor "$KIT/bootstrap.sh" "$RUN" "Cursor reviews" main "$KIT/example-tasks.tsv" >/dev/null 2>&1)
@@ -1933,26 +1941,25 @@ if section cursor-reviewer; then
     "^orca terminal send --terminal term-4 --text cursor-agent --model grok-4\\.7-high-fast --trust --force --disable-auto-update --add-dir $RUN --add-dir $C --enter --json\$"
   assert_match "orca, REVIEWER_KIND=cursor: the pane map's reviewer line" "$(cat "$RUN/panes.txt")" '^reviewer R1: +term-4 +\(agent "bun-vitest-r1-1", kind cursor, model grok-4\.7-high-fast, review '
   else
-  # add-reviewer: a cursor lane, and a cursor Reviewer.
-  review() { local d=$1; shift; (cd "$d" && env HOME="$TMP/cr-home" EXIT_WAIT_SECONDS=3 "$@" 2>&1); }
-  r=$(fixture_repo bun-vitest); RUN="$TMP/run-cr-lane"
-  out=$(review "$r" EXECUTOR_KIND=cursor "$KIT/bootstrap.sh" "$RUN" "Cursor" main "$KIT/example-tasks.tsv")
-  reset_stub; out=$(review "$r" "$KIT/add-reviewer.sh" "$RUN" R1 cursor "Lane review A" "$RUN/findings/a.json" A; echo "exit=$?")
-  assert_match "add-reviewer: lane kind cursor is accepted" "$out" 'exit=0$'
-  assert_match "add-reviewer: a cursor lane gets a claude Reviewer" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-r1-1 --kind claude --pane pane-[0-9]+ -- --model claude-opus-5-5$'
-  r=$(fixture_repo bun-vitest); RUN="$TMP/run-cr-kind"; C=$(git -C "$r" rev-parse --path-format=absolute --git-common-dir)
-  out=$(review "$r" REVIEWER_KIND=cursor "$KIT/bootstrap.sh" "$RUN" "Cursor reviews" main "$KIT/example-tasks.tsv")
-  assert_match "REVIEWER_KIND=cursor: the tower note names the cursor Reviewer" "$(notes "$RUN")" '^reviewer: kind cursor, model grok-4\.7-high-fast$'
-  reset_stub; out=$(review "$r" "$KIT/add-reviewer.sh" "$RUN" R1 claude "Lane review A" "$RUN/findings/a.json")
-  assert_match "REVIEWER_KIND=cursor: started with the cursor argv" "$(cat "$HERDR_STUB_LOG")" \
-    "^herdr agent start bun-vitest-r1-1 --kind cursor --pane pane-[0-9]+ -- --model grok-4\\.7-high-fast --trust --force --disable-auto-update --add-dir $RUN --add-dir $C\$"
-  assert_match "REVIEWER_KIND=cursor: the pane map's reviewer line" "$(cat "$RUN/panes.txt")" '^reviewer R1: +pane-[0-9]+ +\(agent "bun-vitest-r1-1", kind cursor, model grok-4\.7-high-fast, review '
-  # A cursor lane reviewed by cursor: the lane named, its line read from the pane map.
-  r=$(fixture_repo bun-vitest); RUN="$TMP/run-cr-self"
-  out=$(review "$r" EXECUTOR_KIND=cursor EXECUTOR_MODEL=lane-m "$KIT/bootstrap.sh" "$RUN" "Cursor" main "$KIT/example-tasks.tsv")
-  reset_stub; out=$(review "$r" CLAUDE_STUB=absent CODEX_STUB=absent "$KIT/add-reviewer.sh" "$RUN" R1 cursor "Lane review A" "$RUN/findings/a.json" A)
-  assert_match "cursor reviews cursor: on REVIEWER_MODEL_CURSOR" "$(cat "$RUN/panes.txt")" '^reviewer R1: .*kind cursor, model grok-4\.7-high-fast, review '
-  assert_match "cursor reviews cursor: ... with the fallback note" "$out" '^reviewer: fallback: claude and codex are not installed, so a fresh cursor agent reviews cursor$'
+    review() { local d=$1; shift; (cd "$d" && env HOME="$TMP/cr-home" EXIT_WAIT_SECONDS=3 "$@" 2>&1); }
+    r=$(fixture_repo bun-vitest); RUN="$TMP/run-cr-lane"
+    out=$(review "$r" EXECUTOR_KIND=cursor "$KIT/bootstrap.sh" "$RUN" "Cursor" main "$KIT/example-tasks.tsv")
+    reset_stub; out=$(review "$r" "$KIT/add-reviewer.sh" "$RUN" R1 cursor "Lane review A" "$RUN/findings/a.json" A; echo "exit=$?")
+    assert_match "add-reviewer: lane kind cursor is accepted" "$out" 'exit=0$'
+    assert_match "add-reviewer: a cursor lane gets a claude Reviewer" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-r1-1 --kind claude --pane pane-[0-9]+ -- --model claude-opus-5-5$'
+    r=$(fixture_repo bun-vitest); RUN="$TMP/run-cr-kind"; C=$(git -C "$r" rev-parse --path-format=absolute --git-common-dir)
+    out=$(review "$r" REVIEWER_KIND=cursor "$KIT/bootstrap.sh" "$RUN" "Cursor reviews" main "$KIT/example-tasks.tsv")
+    assert_match "REVIEWER_KIND=cursor: the tower note names the cursor Reviewer" "$(notes "$RUN")" '^reviewer: kind cursor, model grok-4\.7-high-fast$'
+    reset_stub; out=$(review "$r" "$KIT/add-reviewer.sh" "$RUN" R1 claude "Lane review A" "$RUN/findings/a.json")
+    assert_match "REVIEWER_KIND=cursor: started with the cursor argv" "$(cat "$HERDR_STUB_LOG")" \
+      "^herdr agent start bun-vitest-r1-1 --kind cursor --pane pane-[0-9]+ -- --model grok-4\\.7-high-fast --trust --force --disable-auto-update --add-dir $RUN --add-dir $C\$"
+    assert_match "REVIEWER_KIND=cursor: the pane map's reviewer line" "$(cat "$RUN/panes.txt")" '^reviewer R1: +pane-[0-9]+ +\(agent "bun-vitest-r1-1", kind cursor, model grok-4\.7-high-fast, review '
+    # A cursor lane reviewed by cursor: the lane named, its line read from the pane map.
+    r=$(fixture_repo bun-vitest); RUN="$TMP/run-cr-self"
+    out=$(review "$r" EXECUTOR_KIND=cursor EXECUTOR_MODEL=lane-m "$KIT/bootstrap.sh" "$RUN" "Cursor" main "$KIT/example-tasks.tsv")
+    reset_stub; out=$(review "$r" CLAUDE_STUB=absent CODEX_STUB=absent "$KIT/add-reviewer.sh" "$RUN" R1 cursor "Lane review A" "$RUN/findings/a.json" A)
+    assert_match "cursor reviews cursor: on REVIEWER_MODEL_CURSOR" "$(cat "$RUN/panes.txt")" '^reviewer R1: .*kind cursor, model grok-4\.7-high-fast, review '
+    assert_match "cursor reviews cursor: ... with the fallback note" "$out" '^reviewer: fallback: claude and codex are not installed, so a fresh cursor agent reviews cursor$'
   fi
   assert_match "no candidate and a codex lane's own kind absent: refused, naming cursor's way in" "$(CLAUDE_STUB=absent CODEX_STUB=absent EXECUTOR_KIND=codex rev codex)" \
     'no Reviewer for a codex lane: claude and codex are not installed \(cursor reviews a codex lane only with REVIEWER_KIND=cursor\)'
@@ -2099,7 +2106,7 @@ SH
   out=$(detect_in "$r" switches_line)
   assert_match "user contract: sets the guard and its threshold" "$out" ' REVIEWER_BY_CREDITS=on REVIEWER_CREDITS_MIN=60 '
   assert_nomatch "user contract: ... both its keys" "$out" 'not a setting|repo contract setting'
-  # add-reviewer under the guard (the herdr cases below, unindented, run on herdr).
+  # add-reviewer under the guard.
   if [ "${RUNNER:-herdr}" = orca ]; then
   kit() { local d=$1; shift; (cd "$d" && env CREDITS_FAKES="$CG/bin" HOME="$TMP/cg-home" XDG_CONFIG_HOME="$TMP/cg-none" EXIT_WAIT_SECONDS=3 "$@" 2>&1); }
   left codex 12; left claude 90
@@ -2109,70 +2116,70 @@ SH
   assert_match "orca: a claude lane with codex at 12% gets claude, in its terminal" "$(cat "$ORCA_STUB_LOG")" '^orca terminal send --terminal term-4 --text claude --model '
   assert_match "orca: the record gets the skip note" "$(notes "$RUN")" '^reviewer: skipped codex, 12% credits left$'
   else
-  # add-reviewer: the skip notes go to the record, for a lane review and a
-  # preflight slot alike; the run's switches come from the pane map.
-  kit() { local d=$1; shift; (cd "$d" && env CREDITS_FAKES="$CG/bin" HOME="$TMP/cg-home" XDG_CONFIG_HOME="$TMP/cg-none" EXIT_WAIT_SECONDS=3 "$@" 2>&1); }
-  left codex 12; left claude 90
-  r=$(fixture_repo bun-vitest); RUN="$TMP/run-cg"; : > "$CG/probes.log"; reset_stub
-  out=$(kit "$r" REVIEWER_BY_CREDITS=on "$KIT/bootstrap.sh" "$RUN" "Credits" main "$KIT/example-tasks.tsv")
-  map=$(cat "$RUN/panes.txt")
-  assert_match "bootstrap: its reviewer line is a forecast, probing nothing" "$map" '^reviewer: +kind codex, model gpt-6-astra \(credit guard on: each review skips a kind below 20% credits left\)$'
-  assert_eq "bootstrap: ... no probe ran" "$(cat "$CG/probes.log"; grep '^codex app-server' "$HERDR_STUB_LOG")" ""
-  reset_stub; out=$(kit "$r" "$KIT/add-reviewer.sh" "$RUN" R1 claude "Lane review A" "$RUN/findings/a.json" A)
-  assert_match "add-reviewer: a claude lane with codex at 12% gets claude" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-r1-1 --kind claude '
-  assert_match "add-reviewer: the record gets the skip note" "$(notes "$RUN")" '^reviewer: skipped codex, 12% credits left$'
-  assert_eq "add-reviewer: ... and prints it once" "$(printf '%s\n' "$out" | grep -c '^reviewer: skipped codex, 12% credits left$')" 1
-  assert_match "add-reviewer: ... and the fallback" "$out" '^reviewer: fallback: codex is low on credits, so claude reviews claude$'
-  left codex 50
-  reset_stub; out=$(kit "$r" "$KIT/add-reviewer.sh" "$RUN" R2 claude "Preflight: security" "$RUN/findings/security.json")
-  assert_match "preflight slot: the same guard, codex at 50% reviews" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-r2-1 --kind codex '
-  # A cursor lane with both candidates low: each skip in the record, the fallback printed.
-  rc=$(fixture_repo bun-vitest); RUNC="$TMP/run-cg-cursor"; left claude 5; left codex 9
-  out=$(kit "$rc" REVIEWER_BY_CREDITS=on EXECUTOR_KIND=cursor "$KIT/bootstrap.sh" "$RUNC" "Credits" main "$KIT/example-tasks.tsv")
-  out=$(kit "$rc" "$KIT/add-reviewer.sh" "$RUNC" R1 cursor "Lane review A" "$RUNC/findings/a.json" A)
-  assert_eq "add-reviewer: two skips, two notes in the record" "$(notes "$RUNC" | grep '^reviewer: skipped' | tr '\n' '|')" \
-    "reviewer: skipped claude, 5% credits left|reviewer: skipped codex, 9% credits left|"
-  assert_match "add-reviewer: ... and the fallback printed" "$out" '^reviewer: fallback: claude and codex are low on credits, so a fresh cursor agent reviews cursor$'
-  left codex 3; echo gone > "$HERDR_STUB_STATES_DIR/bun-vitest-r1-1"   # R1's first Reviewer has exited
-  reset_stub; out=$(kit "$r" "$KIT/add-reviewer.sh" "$RUN" R1 claude "Preflight: tests" "$RUN/findings/tests.json")
-  assert_match "preflight slot: codex at 3% is skipped" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-r1-2 --kind claude '
-  assert_match "preflight slot: ... noted in the record" "$(notes "$RUN")" '^reviewer: skipped codex, 3% credits left$'
-  rm -f "$HERDR_STUB_STATES_DIR"/bun-vitest-r1-* "$HERDR_STUB_STATES_DIR"/bun-vitest-r2-*
-  # The user's path: a user contract turns the guard on at 60%, bootstrap
-  # records both, and add-reviewer skips a candidate at 50%, which the
-  # default 20% would keep.
-  UCG="$CG/uc-guard"; mkdir -p "$UCG/tower"; printf '%s\n' REVIEWER_BY_CREDITS=on REVIEWER_CREDITS_MIN=60 > "$UCG/tower/orchestrate"
-  left claude 50; left codex 90
-  r=$(fixture_repo bun-vitest); RUN="$TMP/run-cg-user"
-  out=$(kit "$r" XDG_CONFIG_HOME="$UCG" EXECUTOR_KIND=cursor "$KIT/bootstrap.sh" "$RUN" "User guard" main "$KIT/example-tasks.tsv")
-  assert_match "user contract guard: bootstrap records it" "$(cat "$RUN/panes.txt")" '^switches: .* REVIEWER_BY_CREDITS=on REVIEWER_CREDITS_MIN=60 '
-  # add-reviewer without the user contract: only the pane map carries on/60.
-  reset_stub; out=$(kit "$r" "$KIT/add-reviewer.sh" "$RUN" R1 cursor "Lane review A" "$RUN/findings/a.json" A)
-  assert_match "user contract guard: claude at 50% is skipped" "$(notes "$RUN")" '^reviewer: skipped claude, 50% credits left$'
-  assert_match "user contract guard: ... and codex, the next candidate, reviews" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-r1-1 --kind codex '
-  # The user contract changed mid-run to 40%: the pane map's 60% still holds.
-  printf '%s\n' REVIEWER_BY_CREDITS=on REVIEWER_CREDITS_MIN=40 > "$UCG/tower/orchestrate"
-  reset_stub; out=$(kit "$r" XDG_CONFIG_HOME="$UCG" "$KIT/add-reviewer.sh" "$RUN" R2 cursor "Preflight: security" "$RUN/findings/security.json")
-  assert_eq "user contract guard: a mid-run change to it does not reach a review" "$(notes "$RUN" | grep -c '^reviewer: skipped claude, 50% credits left$')" 2
-  assert_match "user contract guard: ... codex still reviews" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-r2-1 --kind codex '
-  r=$(fixture_repo bun-vitest); RUN="$TMP/run-cg-default"
-  out=$(kit "$r" REVIEWER_BY_CREDITS=on EXECUTOR_KIND=cursor "$KIT/bootstrap.sh" "$RUN" "Default guard" main "$KIT/example-tasks.tsv")
-  assert_match "without the user contract: the guard is on, at the default 20%" "$(cat "$RUN/panes.txt")" '^switches: .* REVIEWER_BY_CREDITS=on REVIEWER_CREDITS_MIN=20 '
-  reset_stub; out=$(kit "$r" "$KIT/add-reviewer.sh" "$RUN" R1 cursor "Lane review A" "$RUN/findings/a.json" A)
-  assert_match "without the user contract: claude at 50% reviews (the default 20%)" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-r1-1 --kind claude '
-  assert_nomatch "without the user contract: ... with no skip note" "$(notes "$RUN")" '^reviewer: skipped'
-  rm -f "$HERDR_STUB_STATES_DIR"/bun-vitest-r1-* "$HERDR_STUB_STATES_DIR"/bun-vitest-r2-*
-  # add-reviewer writes an unreadable candidate's note to the record.
-  left claude -; left codex 90
-  r=$(fixture_repo bun-vitest); RUN="$TMP/run-cg-unread"
-  out=$(kit "$r" REVIEWER_BY_CREDITS=on EXECUTOR_KIND=cursor "$KIT/bootstrap.sh" "$RUN" "Unreadable" main "$KIT/example-tasks.tsv")
-  assert_nomatch "bootstrap: its forecast probes nothing, so notes no unreadable candidate" "$out" 'unreadable'
-  reset_stub; out=$(kit "$r" "$KIT/add-reviewer.sh" "$RUN" R1 cursor "Lane review A" "$RUN/findings/a.json" A)
-  assert_match "add-reviewer: an unreadable candidate's note is in the record" "$(notes "$RUN")" '^reviewer: claude credits unreadable, counted as enough$'
-  assert_match "add-reviewer: ... and printed" "$out" '^reviewer: claude credits unreadable, counted as enough$'
-  assert_match "add-reviewer: ... and claude reviews" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-r1-1 --kind claude '
-  rm -f "$HERDR_STUB_STATES_DIR"/bun-vitest-r1-*
-  unset CODEX_STUB_RATE_LIMITS
+    # add-reviewer: the skip notes go to the record, for a lane review and a
+    # preflight slot alike; the run's switches come from the pane map.
+    kit() { local d=$1; shift; (cd "$d" && env CREDITS_FAKES="$CG/bin" HOME="$TMP/cg-home" XDG_CONFIG_HOME="$TMP/cg-none" EXIT_WAIT_SECONDS=3 "$@" 2>&1); }
+    left codex 12; left claude 90
+    r=$(fixture_repo bun-vitest); RUN="$TMP/run-cg"; : > "$CG/probes.log"; reset_stub
+    out=$(kit "$r" REVIEWER_BY_CREDITS=on "$KIT/bootstrap.sh" "$RUN" "Credits" main "$KIT/example-tasks.tsv")
+    map=$(cat "$RUN/panes.txt")
+    assert_match "bootstrap: its reviewer line is a forecast, probing nothing" "$map" '^reviewer: +kind codex, model gpt-6-astra \(credit guard on: each review skips a kind below 20% credits left\)$'
+    assert_eq "bootstrap: ... no probe ran" "$(cat "$CG/probes.log"; grep '^codex app-server' "$HERDR_STUB_LOG")" ""
+    reset_stub; out=$(kit "$r" "$KIT/add-reviewer.sh" "$RUN" R1 claude "Lane review A" "$RUN/findings/a.json" A)
+    assert_match "add-reviewer: a claude lane with codex at 12% gets claude" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-r1-1 --kind claude '
+    assert_match "add-reviewer: the record gets the skip note" "$(notes "$RUN")" '^reviewer: skipped codex, 12% credits left$'
+    assert_eq "add-reviewer: ... and prints it once" "$(printf '%s\n' "$out" | grep -c '^reviewer: skipped codex, 12% credits left$')" 1
+    assert_match "add-reviewer: ... and the fallback" "$out" '^reviewer: fallback: codex is low on credits, so claude reviews claude$'
+    left codex 50
+    reset_stub; out=$(kit "$r" "$KIT/add-reviewer.sh" "$RUN" R2 claude "Preflight: security" "$RUN/findings/security.json")
+    assert_match "preflight slot: the same guard, codex at 50% reviews" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-r2-1 --kind codex '
+    # A cursor lane with both candidates low: each skip in the record, the fallback printed.
+    rc=$(fixture_repo bun-vitest); RUNC="$TMP/run-cg-cursor"; left claude 5; left codex 9
+    out=$(kit "$rc" REVIEWER_BY_CREDITS=on EXECUTOR_KIND=cursor "$KIT/bootstrap.sh" "$RUNC" "Credits" main "$KIT/example-tasks.tsv")
+    out=$(kit "$rc" "$KIT/add-reviewer.sh" "$RUNC" R1 cursor "Lane review A" "$RUNC/findings/a.json" A)
+    assert_eq "add-reviewer: two skips, two notes in the record" "$(notes "$RUNC" | grep '^reviewer: skipped' | tr '\n' '|')" \
+      "reviewer: skipped claude, 5% credits left|reviewer: skipped codex, 9% credits left|"
+    assert_match "add-reviewer: ... and the fallback printed" "$out" '^reviewer: fallback: claude and codex are low on credits, so a fresh cursor agent reviews cursor$'
+    left codex 3; echo gone > "$HERDR_STUB_STATES_DIR/bun-vitest-r1-1"   # R1's first Reviewer has exited
+    reset_stub; out=$(kit "$r" "$KIT/add-reviewer.sh" "$RUN" R1 claude "Preflight: tests" "$RUN/findings/tests.json")
+    assert_match "preflight slot: codex at 3% is skipped" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-r1-2 --kind claude '
+    assert_match "preflight slot: ... noted in the record" "$(notes "$RUN")" '^reviewer: skipped codex, 3% credits left$'
+    rm -f "$HERDR_STUB_STATES_DIR"/bun-vitest-r1-* "$HERDR_STUB_STATES_DIR"/bun-vitest-r2-*
+    # The user's path: a user contract turns the guard on at 60%, bootstrap
+    # records both, and add-reviewer skips a candidate at 50%, which the
+    # default 20% would keep.
+    UCG="$CG/uc-guard"; mkdir -p "$UCG/tower"; printf '%s\n' REVIEWER_BY_CREDITS=on REVIEWER_CREDITS_MIN=60 > "$UCG/tower/orchestrate"
+    left claude 50; left codex 90
+    r=$(fixture_repo bun-vitest); RUN="$TMP/run-cg-user"
+    out=$(kit "$r" XDG_CONFIG_HOME="$UCG" EXECUTOR_KIND=cursor "$KIT/bootstrap.sh" "$RUN" "User guard" main "$KIT/example-tasks.tsv")
+    assert_match "user contract guard: bootstrap records it" "$(cat "$RUN/panes.txt")" '^switches: .* REVIEWER_BY_CREDITS=on REVIEWER_CREDITS_MIN=60 '
+    # add-reviewer without the user contract: only the pane map carries on/60.
+    reset_stub; out=$(kit "$r" "$KIT/add-reviewer.sh" "$RUN" R1 cursor "Lane review A" "$RUN/findings/a.json" A)
+    assert_match "user contract guard: claude at 50% is skipped" "$(notes "$RUN")" '^reviewer: skipped claude, 50% credits left$'
+    assert_match "user contract guard: ... and codex, the next candidate, reviews" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-r1-1 --kind codex '
+    # The user contract changed mid-run to 40%: the pane map's 60% still holds.
+    printf '%s\n' REVIEWER_BY_CREDITS=on REVIEWER_CREDITS_MIN=40 > "$UCG/tower/orchestrate"
+    reset_stub; out=$(kit "$r" XDG_CONFIG_HOME="$UCG" "$KIT/add-reviewer.sh" "$RUN" R2 cursor "Preflight: security" "$RUN/findings/security.json")
+    assert_eq "user contract guard: a mid-run change to it does not reach a review" "$(notes "$RUN" | grep -c '^reviewer: skipped claude, 50% credits left$')" 2
+    assert_match "user contract guard: ... codex still reviews" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-r2-1 --kind codex '
+    r=$(fixture_repo bun-vitest); RUN="$TMP/run-cg-default"
+    out=$(kit "$r" REVIEWER_BY_CREDITS=on EXECUTOR_KIND=cursor "$KIT/bootstrap.sh" "$RUN" "Default guard" main "$KIT/example-tasks.tsv")
+    assert_match "without the user contract: the guard is on, at the default 20%" "$(cat "$RUN/panes.txt")" '^switches: .* REVIEWER_BY_CREDITS=on REVIEWER_CREDITS_MIN=20 '
+    reset_stub; out=$(kit "$r" "$KIT/add-reviewer.sh" "$RUN" R1 cursor "Lane review A" "$RUN/findings/a.json" A)
+    assert_match "without the user contract: claude at 50% reviews (the default 20%)" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-r1-1 --kind claude '
+    assert_nomatch "without the user contract: ... with no skip note" "$(notes "$RUN")" '^reviewer: skipped'
+    rm -f "$HERDR_STUB_STATES_DIR"/bun-vitest-r1-* "$HERDR_STUB_STATES_DIR"/bun-vitest-r2-*
+    # add-reviewer writes an unreadable candidate's note to the record.
+    left claude -; left codex 90
+    r=$(fixture_repo bun-vitest); RUN="$TMP/run-cg-unread"
+    out=$(kit "$r" REVIEWER_BY_CREDITS=on EXECUTOR_KIND=cursor "$KIT/bootstrap.sh" "$RUN" "Unreadable" main "$KIT/example-tasks.tsv")
+    assert_nomatch "bootstrap: its forecast probes nothing, so notes no unreadable candidate" "$out" 'unreadable'
+    reset_stub; out=$(kit "$r" "$KIT/add-reviewer.sh" "$RUN" R1 cursor "Lane review A" "$RUN/findings/a.json" A)
+    assert_match "add-reviewer: an unreadable candidate's note is in the record" "$(notes "$RUN")" '^reviewer: claude credits unreadable, counted as enough$'
+    assert_match "add-reviewer: ... and printed" "$out" '^reviewer: claude credits unreadable, counted as enough$'
+    assert_match "add-reviewer: ... and claude reviews" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-r1-1 --kind claude '
+    rm -f "$HERDR_STUB_STATES_DIR"/bun-vitest-r1-*
+    unset CODEX_STUB_RATE_LIMITS
   fi
 fi
 

@@ -43,7 +43,8 @@
 # with a fresh context. The slot's previous Reviewer is refused while it is
 # still working, sent /exit and Enter when idle (Enter again about every 3
 # seconds while it is still there), and waited for (EXIT_WAIT_SECONDS, default 15)
-# until herdr answers agent_not_found for it. herdr failing otherwise is not an
+# until herdr answers agent_not_found for it (in Orca its terminal is closed
+# after the /exit, and the next Reviewer gets a tab of its own). herdr failing otherwise is not an
 # exit: before the /exit it refuses the call, after it the wait goes on
 # (common.sh state_of, unreadable). herdr's own unknown status is an agent it
 # cannot classify, and is sent /exit like an idle one.
@@ -284,7 +285,7 @@ if [ -n "$PREV" ]; then
       runner_send_text "$PANE" "/exit"
       [ "${DRY_RUN:-0}" = 1 ] || sleep 1
       runner_send_keys "$PANE" Enter
-      runner_end_agent "$PANE"
+      runner_end_agent "$PANE" 2>/dev/null || true   # best effort; the gone check decides
       waited=0
       until state=$(state_of "$PREV" "$PANE"); [ "$state" = gone ]; do
         if [ "$waited" -ge "${EXIT_WAIT_SECONDS:-15}" ]; then
