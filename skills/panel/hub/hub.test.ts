@@ -3,6 +3,7 @@
  * for GitHub. Each repo's open issues are a fixture file the stub reads and
  * edits.
  */
+import { Database } from "bun:sqlite";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, setDefaultTimeout, test } from "bun:test";
@@ -925,4 +926,60 @@ test("a run whose PR merged without closing its issue puts it in review", async 
   await polls(2);
   expect((await jobsNow()).find((j) => j.id === run.id)!.state).toBe("done");
   expect(labelsOf(12)).toEqual(["in-review"]);
+});
+
+test("a repo listed again in other letter case is listed once", async () => {
+  await start();
+  const res = await post("/api/repos", { repo: "Acme/Widgets" });
+  expect(await res.json()).toEqual(["acme/widgets"]);
+});
+
+test("an advice part for a repo no longer listed is refused", async () => {
+  setIssues("acme/widgets", [issue(1), issue(2)]);
+  setHead("acme/widgets", "aaa");
+  await start();
+  setHead("acme/widgets", "bbb");
+  await polls(2);
+  const job = await held("advice");
+  await post(`/api/jobs/${job.id}/events`, {
+    station: job.station,
+    ts: new Date().toISOString(),
+    kind: "proposal",
+    data: {
+      order: [{ repo: "acme/widgets", issue: 2, after: [1], reason: "r" }],
+      bundles: [],
+    },
+  });
+  await fetch(`${hubUrl()}/api/repos/acme/widgets`, { method: "DELETE" });
+  const res = await post(`/api/advice/${job.id}/accept`, {
+    order: [0],
+    bundles: [],
+  });
+  expect(res.status).toBe(400);
+  expect(ghLog().some((l) => l.includes("-X POST"))).toBe(false);
+});
+
+test("a hub on an IPv6 loopback names its URL with brackets", async () => {
+  const hub = await startHub({
+    dbPath: join(dir(), "v6.db"),
+    host: "::1",
+    port: 0,
+    pollMs: 60_000,
+    readUsage: async () => null,
+  });
+  try {
+    expect(hub.url).toMatch(/^http:\/\/\[::1\]:\d+$/);
+  } finally {
+    await hub.stop();
+  }
+});
+
+test("a hub database from an earlier development build is refused, saying to delete it", async () => {
+  const path = join(dir(), "old.db");
+  const db = new Database(path, { create: true });
+  db.exec("CREATE TABLE jobs (id TEXT PRIMARY KEY, kind TEXT NOT NULL)");
+  db.close();
+  expect(
+    startHub({ dbPath: path, host: "127.0.0.1", port: 0, pollMs: 20 }),
+  ).rejects.toThrow("delete it");
 });

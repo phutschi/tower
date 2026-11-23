@@ -430,6 +430,54 @@ test("an event sent again with its id is stored, and its tokens counted, once", 
   expect(stored.tokens).toEqual({ input: 100, output: 10 });
 });
 
+test("a result that comes in after the user stopped the job leaves it stopped, and its checkpoints are refused", async () => {
+  await setup();
+  await grills(1);
+  const [job] = await jobs();
+  await post("/api/jobs/claim", { station: "server", kinds: ["grill"] });
+  await post("/api/issues/acme/widgets/1/stage", { stage: "needs-triage" });
+  const spec = await post(`/api/jobs/${job!.id}/events`, {
+    station: "server",
+    ts: new Date().toISOString(),
+    kind: "spec",
+    data: { spec: "late" },
+  });
+  expect(spec.status).toBe(409);
+  await post(`/api/jobs/${job!.id}/result`, {
+    station: "server",
+    outcome: "done",
+    durationMs: 5,
+    sessionId: "",
+    tokens: { input: 1, output: 1 },
+  });
+  expect((await jobs())[0]).toMatchObject({
+    state: "stopped",
+    reason: "moved back to needs-triage",
+    tokens: { input: 1, output: 1 },
+  });
+});
+
+test("an empty session id in a result keeps the session the job reported", async () => {
+  await setup();
+  await grills(1);
+  const [job] = await jobs();
+  await post("/api/jobs/claim", { station: "server", kinds: ["grill"] });
+  await post(`/api/jobs/${job!.id}/events`, {
+    station: "server",
+    ts: new Date().toISOString(),
+    kind: "session",
+    data: { sessionId: "s-1" },
+  });
+  await post(`/api/jobs/${job!.id}/result`, {
+    station: "server",
+    outcome: "failed",
+    reason: "boom",
+    durationMs: 5,
+    sessionId: "",
+  });
+  expect((await jobs())[0]!.sessionId).toBe("s-1");
+});
+
 test("the Panel lists stations with switch, limit and current jobs, and each job's events", async () => {
   await setup();
   await put("/api/stations/laptop", { limit: 3 });
