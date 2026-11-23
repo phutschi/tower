@@ -339,6 +339,62 @@ A theme renames; it never re-models. `airport` is the only one that ships;
 `plain` is the literal rendering.
 _Avoid_: skin, mode, style, language
 
+### The Panel
+
+**Panel**:
+The screen of every tracked issue across the listed repos, before, during and
+after its runs, where the user moves issues between stages. Not the board,
+which lists one run's tasks.
+_Avoid_: board, backlog, dashboard, kanban
+
+**Stage**:
+Where an issue stands on the ladder needs-triage → shaping → ready-for-agent →
+in-progress → in-review → closed. Moving an issue into shaping starts a grill;
+into ready-for-agent, a run.
+_Avoid_: status, phase, column, state
+
+**Issue area**:
+The part of a repo an issue touches, one per context the repo's context map
+names. Not a task's area on the board, and not a review area.
+_Avoid_: area alone, component, module
+
+**Bundle**:
+Issues the user accepted, from the order advice, to be built together in one
+run and one PR. A single issue that is not in a bundle is its own run.
+_Avoid_: group, batch, epic, stack
+
+**Grill**:
+An interview with the user, in the Inbox, that turns an issue in shaping into
+a spec in that issue and moves it to ready-for-agent.
+_Avoid_: interview, shaping session, triage
+
+**Order advice**:
+The proposal of which issues to build in what order and which to bundle,
+made after every merge to main. It changes nothing until the user accepts it.
+_Avoid_: plan, roadmap, schedule, priority
+
+**Dispatcher**:
+The script in tower's plugin that sees an issue's stage label change, wherever
+it changed, and queues the job that stage asks for. No model runs in it; the
+jobs it starts do the thinking.
+_Avoid_: orchestrator, scheduler, runner, daemon
+
+**Hub**:
+The always-on server Mac's part: it serves the Panel, holds the job queue and
+keeps every job's events.
+_Avoid_: server, controller, master
+
+**Station**:
+The process on each connected Mac, the server included, that claims jobs from
+the hub, works them on that Mac and reports back. A Mac other than the server
+takes jobs only while the user switches it on.
+_Avoid_: agent, worker, runner, node, host
+
+**Job**:
+One piece of work the hub hands to a station: a grill, a run, an order advice
+or labelling a new issue with its issue area. A run is one kind of job.
+_Avoid_: task (a plan's task), ticket, work item
+
 ### The orchestrate layout
 
 **Layout**:

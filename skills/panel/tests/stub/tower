@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Stand-in for tower in the Panel's tests. Logs argv and the directory it ran
+# in to TOWER_STUB_LOG. `state --json` prints the file TOWER_STUB_STATE, or
+# fails as tower does with no run when that file is missing.
+printf 'tower %s (in %s)\n' "$*" "$PWD" >> "${TOWER_STUB_LOG:-/dev/null}"
+[ "$*" = "state --json" ] || { echo "tower: unknown command $* (stub)" >&2; exit 2; }
+[ -f "${TOWER_STUB_STATE:-}" ] || { echo "tower: no run here (stub)" >&2; exit 1; }
+cat "$TOWER_STUB_STATE"

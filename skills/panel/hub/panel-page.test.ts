@@ -1,0 +1,110 @@
+import { expect, test } from "bun:test";
+import type { PanelIssue } from "../types.ts";
+import { localTime, renderPanel, type PanelData } from "./panel-page.ts";
+
+const issue = (n: number, more: Partial<PanelIssue> = {}): PanelIssue => ({
+  repo: "acme/widgets",
+  number: n,
+  title: `Issue ${n}`,
+  stage: "needs-triage",
+  issueArea: null,
+  bundleId: null,
+  blockedBy: [],
+  stuck: false,
+  jobId: null,
+  ...more,
+});
+
+const data = (more: Partial<PanelData> = {}): PanelData => ({
+  issues: [],
+  stuckReasons: {},
+  repos: ["acme/widgets"],
+  stations: [],
+  jobs: [],
+  advice: null,
+  usage: { rows: [], source: "usage-report", pausedUntil: null },
+  bundles: [],
+  group: "stage",
+  ...more,
+});
+
+test("the Panel is dark by default and loads nothing from outside the page", () => {
+  const html = renderPanel(data());
+  expect(html).toContain("color-scheme: dark");
+  expect(html).toContain('<meta name="color-scheme" content="dark">');
+  expect(html).toMatch(/:root\s*\{[^}]*--bg:/);
+  expect(html).not.toMatch(/<link[^>]*rel=["']?stylesheet/i);
+  expect(html).not.toMatch(/<script[^>]*\ssrc=/i);
+  expect(html).not.toContain("@import");
+  expect(html).not.toMatch(/url\(\s*["']?(https?:)?\/\//i);
+});
+
+test("each limit carries a bar as full as its percent, kept between 0 and 100", () => {
+  const html = renderPanel(
+    data({
+      usage: {
+        rows: [
+          { kind: "session", percent: 42.4, resetsAt: "15:00" },
+          { kind: "weekly_all", percent: 130, resetsAt: "Mon" },
+        ],
+        source: "usage-report",
+        pausedUntil: null,
+      },
+    }),
+  );
+  expect(html).toContain("5-hour window: 42%");
+  expect(html).toContain('style="--p:42%"');
+  expect(html).toContain('style="--p:100%"');
+});
+
+test("a stuck issue and one that waits on another are marked on their card", () => {
+  const html = renderPanel(
+    data({
+      issues: [
+        issue(1, { stage: "in-progress", stuck: true, jobId: "j1" }),
+        issue(2, { stage: "ready-for-agent", blockedBy: ["#1"] }),
+      ],
+      stuckReasons: { j1: "no progress" },
+    }),
+  );
+  expect(html).toMatch(/<li class="card is-stuck">.*?stuck: no progress/s);
+  expect(html).toMatch(/<li class="card is-waiting">.*?waits on #1/s);
+  expect(html).toContain("1 stuck");
+});
+
+test("the group the page shows is its nav's current page", () => {
+  const html = renderPanel(data({ group: "area" }));
+  expect(html).toContain(
+    '<a href="/?group=area" aria-current="page">issue area</a>',
+  );
+  expect(html.match(/aria-current="page"/g)).toHaveLength(1);
+  expect(renderPanel(data())).toContain(
+    '<a href="/" aria-current="page">stage</a>',
+  );
+});
+
+test("a time for people is 24-hour local time, summer time included", () => {
+  expect(localTime("2026-11-03T04:05:00.000Z", "Europe/Berlin")).toBe(
+    "3 Nov 2026, 05:05",
+  );
+  expect(localTime("2026-07-03T14:00:00.000Z", "Europe/Berlin")).toBe(
+    "3 Jul 2026, 16:00",
+  );
+  expect(localTime("Mon")).toBe("Mon");
+});
+
+test("the pause and each limit's reset show local time, not the ISO string", () => {
+  const iso = "2026-11-03T14:00:00.000Z";
+  const html = renderPanel(
+    data({
+      usage: {
+        rows: [{ kind: "session", percent: 42, resetsAt: iso }],
+        source: "usage-report",
+        pausedUntil: iso,
+      },
+    }),
+  );
+  expect(html).not.toContain(iso);
+  expect(html).toContain(`resets ${localTime(iso)}`);
+  expect(html).toContain(`no new job starts until ${localTime(iso)}.`);
+});

@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Stand-in for tailscale in the Panel's tests: `ip -4` answers
+# TAILSCALE_STUB_IP (100.64.0.7 unset); TAILSCALE_STUB_IP=none fails as a Mac
+# off the tailnet does.
+[ "$*" = "ip -4" ] || { echo "tailscale: unknown command $* (stub)" >&2; exit 2; }
+[ "${TAILSCALE_STUB_IP:-}" = none ] && { echo "tailscale: not logged in (stub)" >&2; exit 1; }
+echo "${TAILSCALE_STUB_IP:-100.64.0.7}"

@@ -1,4 +1,4 @@
-# Sourced by bootstrap.sh, add-lane.sh and add-reviewer.sh after common.sh:
+# Sourced by bootstrap.sh, add-lane.sh, add-reviewer.sh and start-run.sh after common.sh:
 # session roles (CONTEXT.md Session role). A Claude launcher may start every
 # claude session with a role (its models, MCP servers and permissions) and a
 # topic it names the session after:  claude --role <role> --topic <topic> .
@@ -23,9 +23,16 @@
 # one line per task that names one) and the pane map's  roles:  line (on, or
 # off and why), which add-lane.sh and add-reviewer.sh read for the whole run.
 #
-# Provides roles_gate, plan_roles PLAN, lane_role SPEC ROLES_TEXT, roles_on MAP,
+# Provides claude_launcher, roles_gate, plan_roles PLAN, lane_role SPEC ROLES_TEXT, roles_on MAP,
 # topic_slug TITLE, lane_topic LANE TITLE, lane_first_title LANE and
 # tasks_first_title IDS.
+
+# 0 when a Claude launcher is there (CLAUDE_ROUTER_ROLE is set, or claude
+# lists --role in its --help).
+claude_launcher() {
+  [ -n "${CLAUDE_ROUTER_ROLE:-}" ] \
+    || claude --help </dev/null 2>/dev/null | grep -qE -- '(^|[^a-z-])--role([^a-z-]|$)'
+}
 
 # ROLES=on|off and ROLES_WHY for the off case; dies, saying how to start an
 # orchestrator session, when the launcher is there and this session is not one.
@@ -35,7 +42,7 @@ roles_gate() {
     [ "$CLAUDE_ROUTER_ROLE" = orchestrator ] \
       || die "orchestrate runs only in an orchestrator session, and this one is $CLAUDE_ROUTER_ROLE (CLAUDE_ROUTER_ROLE): $how"
     ROLES=on; ROLES_WHY=""
-  elif claude --help </dev/null 2>/dev/null | grep -qE -- '(^|[^a-z-])--role([^a-z-]|$)'; then
+  elif claude_launcher; then
     die "orchestrate runs only in an orchestrator session: claude takes --role, but CLAUDE_ROUTER_ROLE is not set here; $how"
   else
     ROLES=off; ROLES_WHY="no Claude launcher: CLAUDE_ROUTER_ROLE is not set and claude takes no --role"

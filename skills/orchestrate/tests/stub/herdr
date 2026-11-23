@@ -38,6 +38,9 @@
 # after it moves the pane, as a disk that fills up just then.
 # HERDR_STUB_WORKTREE_FAIL=1: every `worktree create` fails; =garbled: it
 # succeeds with an answer that has no pane in it.
+# `workspace create` answers a new workspace ws-<n> whose first pane is
+# pane-<n>; HERDR_STUB_WORKSPACE_FAIL=1 makes it and `workspace close` fail,
+# =close only the close, =nopane answers a create without its root_pane.
 # Errors are JSON on stderr with exit 1, as herdr answers them.
 # HERDR_STUB=absent refuses to run, so herdr counts as not installed; it logs
 # each refused call as "herdr-absent <argv>".
@@ -55,6 +58,14 @@ case "${1:-} ${2:-}" in
     [ "${HERDR_STUB_WORKTREE_FAIL:-}" != garbled ] || { echo '{"result":{}}'; exit 0; }
     [ "${HERDR_STUB_WORKTREE_FAIL:-}" != 1 ] || { echo '{"error":{"code":"server_unavailable","message":"herdr server is not answering"}}' >&2; exit 1; }
     echo "{\"result\":{\"root_pane\":{\"pane_id\":\"$(next_id)\"}}}" ;;
+  "workspace create")
+    [ "${HERDR_STUB_WORKSPACE_FAIL:-}" != 1 ] || { echo '{"error":{"code":"server_unavailable","message":"herdr server is not answering"}}' >&2; exit 1; }
+    p=$(next_id)
+    [ "${HERDR_STUB_WORKSPACE_FAIL:-}" != nopane ] || { echo "{\"result\":{\"workspace\":{\"workspace_id\":\"ws-${p#pane-}\"}}}"; exit 0; }
+    echo "{\"result\":{\"type\":\"workspace_created\",\"workspace\":{\"workspace_id\":\"ws-${p#pane-}\"},\"tab\":{\"tab_id\":\"tab-${p#pane-}\"},\"root_pane\":{\"pane_id\":\"$p\"}}}" ;;
+  "workspace close")
+    case "${HERDR_STUB_WORKSPACE_FAIL:-}" in 1|close) false ;; *) true ;; esac || { echo '{"error":{"code":"server_unavailable","message":"herdr server is not answering"}}' >&2; exit 1; }
+    echo '{"result":{}}' ;;
   "tab create")      p=$(next_id); echo "{\"result\":{\"tab\":{\"tab_id\":\"tab-${p#pane-}\"},\"root_pane\":{\"pane_id\":\"$p\"}}}" ;;
   "pane move")
     [ "${HERDR_STUB_MOVE_FAIL:-}" != garbled ] || { echo '{"result":{}}'; exit 0; }
