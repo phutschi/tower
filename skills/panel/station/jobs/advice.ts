@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 
 import { keepOpen, parseProposal } from "../../hub/advice.ts";
+import { GitHub, sameRepo } from "../../hub/github.ts";
 import type { JobEvent, PanelIssue } from "../../types.ts";
 import { jsonIn, reportLimits, runHeadless } from "../claude.ts";
 import { sendInboxNote } from "../inbox.ts";
@@ -17,6 +18,7 @@ import { registerJobRunner } from "../station.ts";
 
 const run = promisify(execFile);
 const PROMPT = join(import.meta.dir, "../../prompts/advice.md");
+const github = new GitHub();
 
 /** What the Inbox note counts of a proposal. */
 type Parts = { order: unknown[]; bundles: unknown[] };
@@ -90,16 +92,31 @@ registerJobRunner(
 
     const res = await fetch(`${hubUrl}/api/issues`);
     if (!res.ok) throw new Error(`the hub refused its issues: ${res.status}`);
-    const open = ((await res.json()) as PanelIssue[])
-      .filter((i) => i.stage !== "closed")
-      .map(({ repo, number, title, stage, issueArea, blockedBy }) => ({
+    const open: Pick<
+      PanelIssue,
+      "repo" | "number" | "title" | "stage" | "issueArea" | "blockedBy"
+    >[] = [];
+    // Each issue's open blockers, read here: the hub checks only waiting runs'.
+    for (const { repo, number, title, stage, issueArea } of (
+      (await res.json()) as PanelIssue[]
+    ).filter((i) => i.stage !== "closed")) {
+      const blockers = await retry(
+        () => github.openBlockers(repo, number),
+        signal,
+        { tries: 3, maxWaitMs: 1000 },
+      );
+      open.push({
         repo,
         number,
         title,
         stage,
         issueArea,
-        blockedBy,
-      }));
+        // As refs: #5 in the same repo, acme/other#5 in another.
+        blockedBy: blockers.map((b) =>
+          sameRepo(b.repo, repo) ? `#${b.number}` : `${b.repo}#${b.number}`,
+        ),
+      });
+    }
     // The latest commits on main of every listed repo, newest first.
     const listed = await fetch(`${hubUrl}/api/repos`);
     if (!listed.ok)

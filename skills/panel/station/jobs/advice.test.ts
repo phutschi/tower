@@ -9,6 +9,7 @@ import { expect, setDefaultTimeout, test } from "bun:test";
 import type { AdviceProposal, Job, UsageView } from "../../types.ts";
 import {
   api,
+  blocks,
   dir,
   hubUrl,
   issue,
@@ -224,6 +225,19 @@ test("an advice job stopped as its session ends keeps the session's tokens", asy
     tokens: { input: 1500, output: 80 },
   });
   expect(read("plannotator.log")).toBe("");
+});
+
+test("an advice job reads each open issue's open blockers from GitHub, in any repo", async () => {
+  setIssues("acme/gadgets", [issue(4)]);
+  // #2 waits on #1 and acme/gadgets#4, both open, and on #9, closed.
+  blocks("acme/widgets", 2, 1);
+  blocks("acme/widgets", 2, 4, "acme/gadgets");
+  blocks("acme/widgets", 2, 9);
+  await advise(answers(JSON.stringify(PROPOSAL)));
+  const prompt = read("claude.log.prompts");
+  expect(prompt).toContain(
+    '"number":2,"title":"Issue 2","stage":"needs-triage","issueArea":null,"blockedBy":["#1","acme/gadgets#4"]',
+  );
 });
 
 test("a station that takes over an advice job whose proposal is on the hub only sends its note", async () => {
