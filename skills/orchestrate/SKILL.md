@@ -103,7 +103,9 @@ and do it in a lane anyway or suggest doing it without the kit.
 5. **Brief.** Per lane: `tower brief <X> > <run-dir>/brief-<X>.md`, then add
    the judgement from `brief-template.md` above it (method, other lanes,
    merge points, the boundary sentence, the review tail for the lane's kind).
-   Send with `herdr agent prompt <agent> "$(cat <run-dir>/brief-<X>.md)"`.
+   Send it with the pane map's `message a pane:` line, the brief's text as
+   `<text>` (`"$(cat <run-dir>/brief-<X>.md)"`); bootstrap.sh and
+   add-lane.sh print it filled in for the lane.
    In every brief and prompt, describe the final report's marker in words,
    its round tag included, as the template does: `watch-lanes.sh` reads the
    marker itself as the report, so a prompt that spells it makes an idle lane
@@ -119,9 +121,10 @@ and do it in a lane anyway or suggest doing it without the kit.
    in a loop.
 7. **Act on attention.** `blocked` → decide, then re-brief with what the lane
    asked for (a discovered task: you add it, then tell the lane). `stale` or
-   `idle-unexplained` → read the pane tail, then re-brief or wait. `unreadable`
-   → herdr did not answer for that agent on `UNREADABLE_POLLS` polls in a
-   row: check herdr, and never start a second agent beside it. A re-brief
+   `idle-unexplained` → read the pane's tail with the pane map's `read a pane:`
+   line, then re-brief or wait. `unreadable`
+   → the runner did not answer for that agent on `UNREADABLE_POLLS` polls in
+   a row: check the runner, and never start a second agent beside it. A re-brief
    asks for no new end line, so it keeps the lane's report round: watch it
    as before. tower
    wait's `complete` → keep `watch-lanes.sh` running: a lane's check gate
@@ -424,7 +427,7 @@ is still working. The next `FINDINGS WRITTEN` frees a slot.
 
 | Mistake                                                          | Instead                                                                                                   |
 | ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| Hand-rolling `herdr pane split` and `herdr agent start`          | Run `bootstrap.sh`; the layout and pane map are its job                                                   |
+| Opening panes or starting agents with the runner's own commands  | Run `bootstrap.sh`; the layout and pane map are its job                                                   |
 | Briefing before the task list exists                             | Load or derive it first; the board is the plan                                                            |
 | Drip-feeding one task per prompt                                 | One brief per lane with all its tasks; "do not stop between tasks" is in the template                     |
 | Briefing with the plan alone                                     | Brief = template judgement + derived part; method, other lanes, merge points, reporting                   |

@@ -7,11 +7,9 @@ plan's conventions section, the model roles, and the two standing rules
 
     tower brief A > <run-dir>/brief-A.md
 
-Then add, above it, only what tower cannot know, and send the whole file:
-
-    herdr agent prompt <agent> "$(cat <run-dir>/brief-A.md)"
-
-The agent names and pane ids are in `<run-dir>/panes.txt`.
+Then add, above it, only what tower cannot know, and send the whole file
+with the pane map's `message a pane:` line, `"$(cat <run-dir>/brief-A.md)"`
+as its `<text>`. The agent names and pane ids are in `<run-dir>/panes.txt`.
 
 ## The boundary (ADR 0008)
 
@@ -96,7 +94,7 @@ OTHER LANES: {{e.g. "Lane B (agent <name>, branch <branch>) owns tasks 5, 7-9; s
 
 MERGE POINTS: {{lane A: "Before task N run  git merge <lane-b-branch> ; if lane B has not finished task M (tower state --json), do your other tasks that do not need it first; when only task N is left,  tower note --lane A 'waiting for task M'  and stop: the orchestrator prompts you once M is done. Never poll. Resolve conflicts keeping both sides, run the check gate, commit the merge, continue."  lane B: "Task M needs X from lane A's task K: before task M run  git merge <integration-branch>  and confirm <file> exists; if not, do your other tasks first, then  tower note --lane B 'waiting for task K'  and stop: the orchestrator prompts you once K is done. Never poll, and never write a local copy."}}
 
-{{only when the run has a dev pane: "PANES you may read (herdr pane read <id> --source recent-unwrapped --lines 60): dev {{id}} — it runs in lane A's checkout on the integration branch, so what it shows is the merged state, not necessarily yours."}}
+{{only when the run has a dev pane: "PANES you may read ({{the pane map's read a pane: line}}): dev {{id}} — it runs in lane A's checkout on the integration branch, so what it shows is the merged state, not necessarily yours."}}
 
 Do not stop between tasks to ask whether to continue. If you cannot proceed: tower block <id> "<exactly what you need>", then stop and wait.
 
@@ -109,7 +107,7 @@ Begin now with task {{FIRST_ID}}.
 ## Fix prompts
 
 A lane review's fix tasks, and preflight's, go to the lane that wrote the
-code in one fix prompt, sent with `herdr agent prompt <agent> "<the fix prompt>"`.
+code in one fix prompt, sent with the pane map's `message a pane:` line.
 `{{REPORT_ROUND}}` is the report round `<n>` it starts (SKILL.md steps 8
 and 12). Moved tasks go out in a more-work prompt the same way (SKILL.md
 step 9).
@@ -126,9 +124,10 @@ Stay in this session: more may follow.
 
 ## Reviewer briefs
 
-A Reviewer gets its own brief, not a lane's: one message, sent with
-`herdr agent prompt <reviewer-agent> "$(cat <run-dir>/brief-<task-id>.md)"`
-(add-reviewer.sh prints the agent, the task id and the findings file). No
+A Reviewer gets its own brief, not a lane's: one message, sent with the pane
+map's `message a pane:` line, `"$(cat <run-dir>/brief-<task-id>.md)"` as its
+`<text>` (add-reviewer.sh prints the command, the task id and the findings
+file). No
 `tower brief` part. Every kind uses the same text. In the empty opening
 there is no plan: name the tasks' titles from the board.
 `{{ROUND}}` is the preflight round `<n>` (SKILL.md step 11): the directory

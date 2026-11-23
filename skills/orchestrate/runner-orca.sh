@@ -62,3 +62,45 @@ runner_send_keys() {
     esac
   done
 }
+
+# --- the layout (CONTEXT.md Layout, Orca) -----------------------------------
+# A failing call returns non-zero with Orca's error on stderr.
+
+# orca_new ARGS...: a call that makes a terminal or a split; prints the
+# answer's handle, then its tab, on one line.
+orca_new() {
+  local out
+  out=$(orca "$@" --json) || { echo "$out" >&2; return 1; }
+  echo "$out" | jsonq '(lambda t: "%s %s" % (t["handle"], t["tabId"]))(d["result"].get("terminal") or d["result"]["split"])'
+}
+# The orchestrator's workspace, a chat or a terminal alike: the caller's.
+runner_self() {
+  local out
+  out=$(orca worktree current --json) || { echo "$out" >&2; return 1; }
+  echo "$out" | jsonq 'd["result"]["worktree"]["id"]'
+}
+runner_workspace() { [ -n "$1" ] && echo "$1"; }
+# In workspace WS: a tower tab, the console (CONSOLE_CMD) over an empty
+# shell; the dev server, when given, in a tab of its own, running DEV_CMD in
+# REPO/DEV_DIR. Prints "<console> <shell> [<dev>]", then the tabs' pane map
+# lines.
+runner_open_run_panes() {
+  local ws="$1" repo="$2" console tab shell dev="" devtab=""
+  read -r console tab <<< "$(orca_new terminal create --worktree "id:$ws" --title tower --command "$3")" && [ -n "$console" ] || return 1
+  read -r shell _ <<< "$(orca_new terminal split --terminal "$console" --direction horizontal)" && [ -n "$shell" ] || return 1
+  if [ $# -ge 5 ]; then
+    read -r dev devtab <<< "$(orca_new terminal create --worktree "id:$ws" --title dev --command "cd $(printf %q "$repo/$4") && $5")" && [ -n "$dev" ] || return 1
+  fi
+  echo "$console $shell${dev:+ $dev}"
+  printf '%-16s%s   (console over shell)\n' "tower tab:" "$tab"
+  [ -z "$dev" ] || printf '%-16s%s\n' "dev tab:" "$devtab"
+}
+# Lane A's terminal in workspace WS (the user's checkout), a tab of its own.
+# Prints "<pane> <tab>".
+runner_open_lane_a() {
+  local pane tab
+  read -r pane tab <<< "$(orca_new terminal create --worktree "id:$1" --title lane-a)" && [ -n "$pane" ] || return 1
+  echo "$pane $tab"
+}
+runner_read_cmd()    { echo "orca terminal read --terminal <id> --json"; }
+runner_message_cmd() { echo "orca terminal send --terminal ${2:-<id>} --text \"${3:-<text>}\" --enter --json"; }

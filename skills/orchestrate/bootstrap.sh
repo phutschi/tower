@@ -213,16 +213,18 @@ tower note "roles: $ROLES_LINE"
 LANE_A_SESSION=""; [ -z "$SESSION_ROLE" ] || LANE_A_SESSION="role $SESSION_ROLE, topic $SESSION_TOPIC, "
 
 # --- the layout --------------------------------------------------------------
-WS=$(runner_workspace "$(runner_self)") \
-  || die "bootstrap: no workspace for the orchestrator pane $(runner_self) (herdr pane get)"
+SELF=$(runner_self) || die "bootstrap: $(runner_name) cannot say where the orchestrator runs"
+WS=$(runner_workspace "$SELF") \
+  || die "bootstrap: no workspace for the orchestrator pane $SELF ($(runner_name) cannot say)"
 # The console, the shell, and dev when declared (runner_open_run_panes).
 DEV_I=$(pane_index dev); DEV_PANE=""
 if [ -n "$DEV_I" ]; then
-  out=$(runner_open_run_panes "$REPO" "tower --stale $STALE" "${PANE_DIRS[$DEV_I]}" "${PANE_CMDS[$DEV_I]}")
+  out=$(runner_open_run_panes "$WS" "$REPO" "tower --stale $STALE" "${PANE_DIRS[$DEV_I]}" "${PANE_CMDS[$DEV_I]}")
 else
-  out=$(runner_open_run_panes "$REPO" "tower --stale $STALE")
+  out=$(runner_open_run_panes "$WS" "$REPO" "tower --stale $STALE")
 fi
-read -r CONSOLE_PANE SHELL_PANE DEV_PANE <<< "$out"
+read -r CONSOLE_PANE SHELL_PANE DEV_PANE <<< "${out%%$'\n'*}"
+RUN_PANES_LINES=$(sed 1d <<< "$out")
 # Lane A's tab, lane A its root: the lanes tab, with the Reviewer column when
 # anything reviews; with roles, the research tab for a lane A of a role other
 # than code or review (layout.sh lane_tab), and the lanes tab waits for its
@@ -234,12 +236,13 @@ read -r LANE_A_PANE TAB_REST <<< "$out"
 # --- the pane map, before the agent start so add-lane and the brief have it even if that fails
 {
   echo "run dir:        $RUN_DIR"
-  echo "orchestrator:   $(runner_self)"
+  echo "orchestrator:   $SELF"
   printf '%-16s%s\n' "$LANE_A_TAB tab:" "$TAB_REST"
   echo "lane A:         $LANE_A_PANE   (agent \"$LANE_A\", kind $EXECUTOR_KIND, ${LANE_A_SESSION}branch $BRANCH, checkout $REPO, model $EXECUTOR_MODEL, tab $LANE_A_TAB)"
   [ -z "$DEV_PANE" ] || echo "dev:            $DEV_PANE   (${PANE_CMDS[$DEV_I]} in ${PANE_DIRS[$DEV_I]})"
   echo "shell:          $SHELL_PANE   (a shell in $REPO, for the human)"
   echo "console:        $CONSOLE_PANE   (tower; the record — stays open, the human quits it with q)"
+  [ -z "$RUN_PANES_LINES" ] || echo "$RUN_PANES_LINES"
   echo "check gate:     $CHECK_CMD"
   echo "contract:       $PIN"
   echo "switches:       $(switches_line)"
@@ -270,6 +273,6 @@ else
   echo "       tower add \"<title>\" --area <area> --lane A   per task (lanes B-D: add-lane.sh, then --lane B …)"
   echo "       brief lane A (brief-template.md), then"
 fi
-echo "       herdr agent prompt $LANE_A \"\$(cat $RUN_DIR/brief-A.md)\""
+echo "       $(runner_message_cmd "$LANE_A" "$LANE_A_PANE" "\$(cat $RUN_DIR/brief-A.md)")"
 echo "more lanes:  $KIT/add-lane.sh $RUN_DIR B <branch> $BRANCH <ids>"
 echo "watch:       tower wait --stale $STALE   and   $KIT/watch-lanes.sh $RUN_DIR $LANE_A   (both in the background)"

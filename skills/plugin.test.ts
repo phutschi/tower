@@ -159,6 +159,19 @@ test("orchestrate checks for herdr or Orca first, and points to /tower:run", () 
   expect(first).toContain("/tower:run");
 });
 
+test("orchestrate reads and messages panes through the pane map's lines", () => {
+  for (const file of [
+    "skills/orchestrate/SKILL.md",
+    "skills/orchestrate/brief-template.md",
+  ]) {
+    const text = read(file);
+    expect(text).not.toMatch(/herdr (agent|pane|tab|worktree) [a-z-]+ /);
+    expect(text).not.toMatch(/orca (agent|terminal|worktree) [a-z-]+ /);
+    expect(text).toContain("message a pane:");
+  }
+  expect(read("skills/orchestrate/SKILL.md")).toContain("read a pane:");
+});
+
 test("orchestrate describes no run without tower", () => {
   for (const file of [
     "skills/orchestrate/SKILL.md",

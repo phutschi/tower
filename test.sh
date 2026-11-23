@@ -19,7 +19,7 @@
 set -u
 ROOT="$(cd "$(dirname "$0")" && pwd)"; KIT="$ROOT/skills/orchestrate"; PREFLIGHT_DIR="$ROOT/skills/preflight"; export KIT
 SLOW="look run"   # preflight's look.sh and one whole run: ~12 of ~35 seconds
-PER_RUNNER="dryrun executor watch"   # the sections run once per runner: herdr, and <section>:orca
+PER_RUNNER="dryrun executor watch bootstrap watchline"   # the sections run once per runner: herdr, and <section>:orca
 ONLY=""; LIST=0; FAST=0; MATCHED=0
 for _a in "$@"; do
   case "$_a" in
@@ -485,239 +485,273 @@ if section bootstrap; then
   printf '%s\n' 'lane A:         pane-2   (agent "acme-lane-a", kind claude, branch main, checkout /x, model m)' > "$M"
   assert_eq "layout: a lane line with no tab (an older pane map) is in the lanes tab" "$(grid_anchor "$M" lanes)" "pane-2 right"
 
-  boot() { (cd "$1" && shift && "$KIT/bootstrap.sh" "$@" 2>&1); }
-  r=$(fixture_repo bun-vitest); RUN="$TMP/run-empty"; reset_stub
-  out=$(boot "$r" "$RUN" "Empty run" main)
-  log=$(cat "$HERDR_STUB_LOG")
-  assert_eq "empty: the run is on the board, titled"    "$(board "$RUN" 'd["run"]["plan"]')" "Empty run"
-  assert_eq "empty: no tasks yet"                       "$(board "$RUN" 'len(d["tasks"])')" 0
-  assert_eq "empty: the roles' models are recorded"     "$(board "$RUN" '" ".join(k+"="+v for k,v in sorted(d["run"]["models"].items()))')" "implementer=claude-opus-5-5[1m] quality-reviewer=opus spec-reviewer=sonnet"
-  assert_eq "empty: no lane assignment"                 "$(board "$RUN" 'len(d["lanes"])')" 0
-  assert_match "layout: console right of the orchestrator, half the tab" "$log" '^herdr pane split --current --direction right --ratio 0.5 '
-  assert_match "layout: the shell under the console, in the checkout" "$log" "^herdr pane split --pane pane-1 --direction down --ratio 0.6 --cwd $r --no-focus$"
-  assert_nomatch "layout: the shell runs nothing"       "$log" '^herdr pane run pane-2 '
-  assert_match "layout: console runs tower"             "$log" '^herdr pane run pane-1 tower --stale 30$'
-  assert_match "lanes tab: opened in the orchestrator's workspace, unfocused" "$log" "^herdr tab create --workspace ws-0 --cwd $r --label lanes --no-focus$"
-  assert_match "lanes tab: Reviewer column right of lane A, lanes keep two thirds" "$log" '^herdr pane split --pane pane-3 --direction right --ratio 0.67 '
-  assert_match "lanes tab: R2 under R1"                 "$log" '^herdr pane split --pane pane-4 --direction down --ratio 0.5 '
-  assert_eq "layout: no checks pane, so four splits"    "$(grep -c '^herdr pane split ' <<< "$log")" 4
-  assert_match "lane A: agent named and started in the lanes tab's root" "$log" '^herdr agent start bun-vitest-lane-a --kind claude --pane pane-3 -- --model claude-opus-5-5\[1m\]$'
-  map=$(cat "$RUN/panes.txt")
-  assert_match "pane map: lanes tab line, with the Reviewer column" "$map" '^lanes tab: +tab-3 +\(R1 pane-4, R2 pane-5\)$'
-  assert_match "pane map: lane A line, in tab lanes"    "$map" '^lane A: +pane-3 +\(agent "bun-vitest-lane-a", kind claude, branch main, checkout '"$r"', model [^,]+, tab lanes\)$'
-  assert_nomatch "pane map: no checks line"             "$map" '^checks:'
-  assert_match "pane map: shell line"                   "$map" "^shell: +pane-2 +\\(a shell in $r, for the human\\)$"
-  assert_match "pane map: console line"                 "$map" '^console: +pane-1 '
-  assert_match "pane map: check gate"                   "$map" '^check gate: +bun run typecheck && bun run test$'
-  assert_match "pane map: read a pane, with herdr"      "$map" '^read a pane: +herdr pane read <id> --source recent-unwrapped --lines 60$'
-  assert_match "pane map: message a pane, with herdr"   "$map" '^message a pane: herdr agent prompt <agent> "<text>"$'
-  assert_nomatch "pane map: no dev line by default"     "$map" '^dev:'
-  assert_nomatch "pane map: no research tab line"       "$map" '^research tab:'
-  assert_nomatch "layout: no research tab opened"       "$log" '(--label|--tab-label) research( |$)'
-  assert_match "output: the pane map is printed"        "$out" '^lane A: '
-  assert_match "output: next step for the empty opening" "$out" 'tower add'
-  assert_nomatch "output: no info line without a pane checks line" "$out" '^info:'
-  for outside in HERDR_ENV=0 HERDR_STUB=absent; do
-    RUN="$TMP/run-outside-${outside%%=*}"; reset_stub
-    out=$(env "$outside" bash -c 'cd "$1" && shift && "$KIT/bootstrap.sh" "$@" 2>&1' _ "$r" "$RUN" "Outside" main; echo "exit=$?")
-    assert_match "outside herdr ($outside): bootstrap refuses, pointing to /tower:run" "$out" "needs herdr.*/tower:run"
-    assert_match "outside herdr ($outside): ... and fails"          "$out" 'exit=1$'
-    assert_eq "outside herdr ($outside): no run dir is created"     "$([ -e "$RUN" ] && echo made || echo none)" none
-    assert_nomatch "outside herdr ($outside): no pane is opened"    "$(cat "$HERDR_STUB_LOG")" '^herdr(-absent)? (pane|agent|tab|worktree) '
-    assert_nomatch "outside herdr ($outside): no run in the repo"   "$(cd "$r" && "$KIT/tests/stub/tower" state --json 2>&1)" "run-outside"
-  done
-  out=$(boot "$(fixture_repo pnpm-notest)" "$TMP/run-norunner" "No runner" main)
-  assert_nomatch "output: no test runner detected, no note" "$out" 'no test runner detected'
-  assert_match "switches: pane map has every switch"    "$map" '^switches: +TASK_REVIEW=on LANE_REVIEW=off PREFLIGHT=on STATIC_BASELINE=on PR=draft METHOD=tdd REVIEWER_KIND=other REVIEWER_MODEL= REVIEWER_BY_CREDITS=off REVIEWER_CREDITS_MIN=20 REVIEW_AREAS= SUITE_SKIP= PR_TEMPLATE= TRIAGE=ask GUIDED_REVIEW=off NOTIFY=$'
-  assert_match "switches: the record gets a tower note" "$(notes "$TMP/run-empty")" '^switches: TASK_REVIEW=on LANE_REVIEW=off .* PR_TEMPLATE= TRIAGE=ask GUIDED_REVIEW=off NOTIFY=$'
-  assert_match "switches: printed with the pane map"    "$out" '^switches: +TASK_REVIEW=on '
-  assert_match "reviewer: pane map has kind and model"  "$map" '^reviewer: +kind codex, model gpt-6-astra$'
-  assert_match "reviewer: the record gets a tower note" "$(notes "$TMP/run-empty")" '^reviewer: kind codex, model gpt-6-astra$'
-
-  # An agent's shell may have a pipe on stdin: the empty opening reads none of it.
-  RUN="$TMP/run-stdin"
-  out=$(printf '9\tStray\tcore\n' | boot "$(fixture_repo bun-vitest)" "$RUN" "Stdin" main)
-  assert_eq "empty: a task list on stdin is not read" "$(board "$RUN" 'len(d["tasks"])')" 0
-  r=$(fixture_repo bun-vitest); RUN="$TMP/run-planned"; reset_stub
-  out=$(boot "$r" "$RUN" "Planned" main "$KIT/example-tasks.tsv")
-  assert_eq "planned: the task file's tasks are on the board" "$(board "$RUN" 'len(d["tasks"])')" "$(grep -c '^[0-9]' "$KIT/example-tasks.tsv")"
-  assert_eq "planned: every task to lane A"             "$(board "$RUN" '",".join(t["lane"] for t in d["tasks"] if t["lane"] != "A") or "all A"')" "all A"
-  # A markdown plan: its tasks and titles reach the board, and LANES splits them.
-  r=$(fixture_repo bun-vitest); RUN="$TMP/run-plan-md"; reset_stub
-  out=$(LANES="A=1,2 B=3" boot "$r" "$RUN" "Plan" main "$KIT/tests/example-plan.md")
-  assert_eq "plan.md: its tasks, with their titles, are on the board" \
-    "$(board "$RUN" '"|".join(t["id"]+":"+t["title"] for t in d["tasks"])')" \
-    "1:The widget model|2:The widget list shows every widget|3:A widget can be renamed"
-  assert_eq "plan.md: LANES assigns each lane" \
-    "$(board "$RUN" '" ".join(k+"="+",".join(v) for k,v in sorted(d["lanes"].items()))')" "A=1,2 B=3"
-  assert_eq "plan.md: the run's title is bootstrap's, repo and branch the plan's" \
-    "$(board "$RUN" '"|".join([d["run"]["plan"], d["run"]["repo"], d["run"]["branch"]])')" "Plan|acme|feature/widgets"
-  # <lane>=all: every task on the board, as spec-to-plan writes a serial plan.
-  r=$(fixture_repo bun-vitest); RUN="$TMP/run-all"; reset_stub
-  out=$(LANES="A=all" boot "$r" "$RUN" "All" main "$KIT/tests/example-plan.md"; echo "exit=$?")
-  assert_match "LANES A=all: bootstrap finishes"        "$out" 'exit=0$'
-  assert_eq "LANES A=all: every task is lane A's"       "$(board "$RUN" '" ".join(k+"="+",".join(v) for k,v in sorted(d["lanes"].items()))')" "A=1,2,3"
-  # all means every task, so it is the whole of LANES; a bad spec, lane or id
-  # is refused before the run exists (tower init checks the ids).
-  r=$(fixture_repo bun-vitest); : > "$r/A=zzz"
-  for bad in "A=all B=2" "A=1 B=all" "A" "A=1 =2" "A==1" "A=" " " "E=1" "A=1 A=2" "A=*" "A=9"; do
-    RUN="$TMP/run-badlanes"; rm -rf "$RUN"
-    out=$(LANES="$bad" boot "$r" "$RUN" "Bad" main "$KIT/tests/example-plan.md"; echo "exit=$?")
-    assert_match "LANES '$bad': refused"                "$out" 'exit=1$'
-    assert_match "LANES '$bad': ... saying why"         "$out" '^(LANES[ :]|tower: )'
-    assert_eq "LANES '$bad': ... before the run exists" "$([ -e "$RUN" ] && echo made || echo none)" none
-  done
-  RUN="$TMP/run-lanes-init"; out=$(LANES="A=1,2 B=3" boot "$r" "$RUN" "Split" main "$KIT/tests/example-plan.md")
-  assert_eq "LANES: the lanes come with the run"      "$(board "$RUN" '" ".join(k+"="+",".join(v) for k,v in sorted(d["lanes"].items()))')" "A=1,2 B=3"
-  r=$(fixture_repo bun-vitest); RUN="$TMP/run-lanes"; reset_stub
-  out=$(LANES="A=1 B=2,3" boot "$r" "$RUN" "Lanes" main "$KIT/example-tasks.tsv")
-  assert_eq "planned: LANES assigns each lane"          "$(board "$RUN" '" ".join(k+"="+",".join(v) for k,v in sorted(d["lanes"].items()))')" "A=1 B=2,3"
-  out=$(LANES="A=1" boot "$r" "$TMP/run-x" "X" main)
-  assert_match "empty: LANES without a source is refused" "$out" 'LANES needs a plan or task file'
-  out=$(boot "$r" "$TMP/run-y" "Y" main /nonexistent.md)
-  assert_match "a missing source is refused"            "$out" 'no such plan or task file'
-
-  r=$(fixture_repo bun-vitest); RUN="$TMP/run-notower"; reset_stub
-  out=$(TOWER_STUB=absent boot "$r" "$RUN" "Refused" main; echo "exit=$?")
-  assert_match "tower not runnable: bootstrap refuses"            "$out" 'exit=1$'
-  assert_match "tower not runnable: ... saying tower is required"  "$out" 'needs tower'
-  assert_match "tower not runnable: ... with the install pointer" "$out" 'github\.com/phutschi/tower'
-  assert_eq "tower not runnable: no run dir is created"           "$([ -e "$RUN" ] && echo made || echo none)" none
-  assert_nomatch "tower not runnable: no pane is opened"          "$(cat "$HERDR_STUB_LOG")" '^herdr (pane|agent|tab|worktree) '
-  assert_match "tower not runnable: no run in the repo"          "$(cd "$r" && "$KIT/tests/stub/tower" state --json 2>&1)" 'no run'
-  # Two runs from the same fixture: each in its own repo, each its own board.
-  r1=$(fixture_repo bun-vitest); r2=$(fixture_repo bun-vitest)
-  boot "$r1" "$TMP/run-iso-1" "Iso one" main >/dev/null; boot "$r2" "$TMP/run-iso-2" "Iso two" main >/dev/null
-  assert_eq "two tests never see each other's run" \
-    "$(cd "$r1" && "$KIT/tests/stub/tower" state --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["run"]["plan"])')|$(cd "$r2" && "$KIT/tests/stub/tower" state --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["run"]["plan"])')" "Iso one|Iso two"
-  RUN="$TMP/run-only-panes"; reset_stub
-  out=$(boot "$r" "$RUN" "Only panes" main "$KIT/example-tasks.tsv")
-  assert_nomatch "run dir: no second record beside tower" "$(ls -A "$RUN")" '^(tasks\.tsv|lanes\.txt|run\.txt|plan\.md)$'
-  RUN="$TMP/run-switches"; reset_stub
-  out=$(PR=off boot "$(fixture_repo contract-switches)" "$RUN" "Switches" main)
-  assert_match "switches: the file and the environment reach the pane map" "$(cat "$RUN/panes.txt")" '^switches: +TASK_REVIEW=off .* PR=off METHOD=plain .* SUITE_SKIP=build '
-  out=$(boot "$(fixture_repo contract-switches-bad)" "$TMP/run-bad" "Bad" main)
-  assert_match "switches: bootstrap refuses a bad value" "$out" "PR must be draft, ready or off"
-  [ -e "$TMP/run-bad/panes.txt" ] && bad "switches: a refused run writes no pane map" || ok "switches: a refused run writes no pane map"
-  RUN="$TMP/run-lines"; reset_stub
-  out=$(boot "$(fixture_repo contract-lines)" "$RUN" "Lines only" main; echo "exit=$?")
-  assert_match "a contract with only pane and suite lines: bootstrap finishes" "$out" 'exit=0$'
-  assert_match "a contract with only pane and suite lines: pane map written" "$(cat "$RUN/panes.txt" 2>&1)" '^shell: +pane-[0-9]+ '
-  assert_eq "pane checks: bootstrap says once that the line is ignored" "$(grep -c '^info: \.orchestrate: pane checks is ignored: the checks pane is gone' <<< "$out")" 1
-  assert_nomatch "pane checks: ... and opens no checks pane" "$(cat "$RUN/panes.txt" "$HERDR_STUB_LOG")" '^checks:|make watch'
-  assert_nomatch "pane checks: the info line is on stderr" "$(cd "$(fixture_repo contract-lines)" && "$KIT/bootstrap.sh" "$TMP/run-lines2" "Lines" main 2>/dev/null)" '^info:'
-  r=$(fixture_repo bun-vitest); RUN="$TMP/run-fallback"; reset_stub
-  out=$(CODEX_STUB=absent boot "$r" "$RUN" "Fallback" main)
-  assert_match "reviewer: a fallback is in the pane map" "$(cat "$RUN/panes.txt")" '^reviewer: +kind claude, model claude-fable-5-1 \(fallback: codex is not installed'
-  assert_match "reviewer: a fallback is printed"         "$out" '^reviewer: +kind claude, model claude-fable-5-1 \(fallback: '
-  assert_match "reviewer: a fallback goes to the record" "$(notes "$RUN")" '^reviewer: kind claude, model claude-fable-5-1 \(fallback: '
-  r=$(fixture_repo bun-vitest)
-  out=$(CODEX_STUB=absent REVIEWER_KIND=codex boot "$r" "$TMP/run-forced" "Forced" main)
-  assert_match "reviewer: bootstrap refuses a forced kind that is not installed" "$out" 'REVIEWER_KIND=codex, but codex is not installed'
-  [ -e "$TMP/run-forced" ] && bad "reviewer: a refused run creates no run dir" || ok "reviewer: a refused run creates no run dir"
-  r=$(fixture_repo bun-vitest); RUN="$TMP/run-noreview"; reset_stub
-  out=$(LANE_REVIEW=off PREFLIGHT=off CODEX_STUB=absent REVIEWER_KIND=codex boot "$r" "$RUN" "No review" main)
-  assert_match "reviewer: none when lane review and preflight are off" "$(cat "$RUN/panes.txt")" '^reviewer: +none \(LANE_REVIEW=off, PREFLIGHT=off\)$'
-  assert_match "lanes tab: no Reviewer column when reviews are off" "$(cat "$RUN/panes.txt")" '^lanes tab: +tab-3 +\(no Reviewer column\)$'
-  assert_nomatch "lanes tab: ... so lane A is not split" "$(cat "$HERDR_STUB_LOG")" '^herdr pane split --pane pane-3 '
-  r=$(fixture_repo bun-vitest); RUN="$TMP/run-lanereview"; reset_stub
-  out=$(LANE_REVIEW=on PREFLIGHT=off boot "$r" "$RUN" "Lane review" main)
-  assert_match "lanes tab: a Reviewer column with lane review alone" "$(cat "$RUN/panes.txt")" '^lanes tab: +tab-3 +\(R1 pane-4, R2 pane-5\)$'
-
-  r=$(fixture_repo contract); RUN="$TMP/run-dev"; reset_stub
-  out=$(boot "$r" "$RUN" "Dev" main)
-  log=$(cat "$HERDR_STUB_LOG")
-  assert_match "dev: under the console"                 "$log" '^herdr pane split --pane pane-1 --direction down --ratio 0.6 '
-  assert_match "dev: the shell right of dev"            "$log" '^herdr pane split --pane pane-2 --direction right --ratio 0.5 '
-  assert_match "dev: dev pane runs in its dir"          "$log" "^herdr pane run pane-2 cd $r/web && make dev$"
-  assert_nomatch "dev: the shell runs nothing"          "$log" '^herdr pane run pane-3 '
-  assert_match "dev: pane map has dev"                  "$(cat "$RUN/panes.txt")" '^dev: +pane-2 '
-  assert_match "dev: console is pane-1"                 "$(cat "$RUN/panes.txt")" '^console: +pane-1 '
-  assert_match "dev: shell is pane-3"                   "$(cat "$RUN/panes.txt")" '^shell: +pane-3 '
-  assert_match "dev: console runs tower"                "$log" '^herdr pane run pane-1 tower --stale 45$'
-  assert_match "dev: lane A in the lanes tab"           "$(cat "$RUN/panes.txt")" '^lane A: +pane-4 '
-
-  # Lane A runs where bootstrap is run from, which is often a herdr worktree
-  # of the checkout, not the main checkout repo_root() resolves to.
-  r=$(fixture_repo bun-vitest); wt="$TMP/repos/bun-vitest-wt"
-  git -C "$r" worktree add -q "$wt" -b wt-branch
-  RUN="$TMP/run-worktree"; reset_stub
-  boot "$wt" "$RUN" "Worktree" wt-branch >/dev/null
-  assert_match "worktree: lane A checkout is where bootstrap ran, not repo_root" "$(cat "$RUN/panes.txt")" '^lane A: +pane-3 +\(agent "[^"]+", kind claude, branch wt-branch, checkout '"$wt"', model '
-  assert_match "worktree: the shell opens in the worktree" "$(cat "$RUN/panes.txt")" "^shell: +pane-2 +\\(a shell in $wt, "
-
-  # The pane commands are shell code built around the checkout's path: a path
-  # with an apostrophe (or one crafted to run code) must stay one directory.
-  # Each pane's logged command is run as its shell would (bash, and zsh where
-  # it is installed), with the runner replaced by one that prints where it ran.
-  mkdir -p "$TMP/fakebin"; printf '#!/bin/sh\npwd -P\n' > "$TMP/fakebin/bunx"; printf '#!/bin/sh\npwd -P\n' > "$TMP/fakebin/make"
-  chmod +x "$TMP/fakebin/bunx" "$TMP/fakebin/make"
-  pane_cwd() { PATH="$TMP/fakebin:$PATH" "$1" -c "$(sed -n "s/^herdr pane run $2 //p" "$HERDR_STUB_LOG")" 2>&1; }
-  shells=bash; command -v zsh >/dev/null && shells="bash zsh"
-  for name in "rex's repo" "x'; touch pwned; '"; do
-    src=$(fixture_repo contract); r="$TMP/repos/quoted/$name"; mkdir -p "$TMP/repos/quoted"; mv "$src" "$r"; mkdir -p "$r/web"
-    RUN="$TMP/run-quoted"; rm -rf "$RUN"; reset_stub
-    out=$(boot "$r" "$RUN" "Quoted" main; echo "exit=$?")
-    assert_match "quoted path ($name): bootstrap finishes"    "$out" 'exit=0$'
-    for sh in $shells; do
-      assert_eq "quoted path ($name, $sh): dev pane runs in its dir"         "$(cd "$TMP/repos/quoted" && pane_cwd "$sh" pane-2)" "$r/web"
-      assert_eq "quoted path ($name, $sh): no code in the path runs" "$([ -e "$TMP/repos/quoted/pwned" ] && echo ran || echo none)" none
+  if [ "${RUNNER:-herdr}" = orca ]; then
+  # Orca, from an orchestrator that is a chat (no terminal handle of its own):
+  # the orchestrator's workspace is the caller's (the fake's repo-0::<cwd>).
+  boot() { (cd "$1" && shift && env -u ORCA_TERMINAL_HANDLE "$KIT/bootstrap.sh" "$@" 2>&1); }
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-orca"; reset_stub
+  out=$(boot "$r" "$RUN" "Orca run" main; echo "exit=$?")
+  log=$(cat "$ORCA_STUB_LOG"); map=$(cat "$RUN/panes.txt" 2>/dev/null)
+  WS="repo-0::$r"
+  assert_match "orca: bootstrap finishes" "$out" 'exit=0$'
+  assert_nomatch "orca: no herdr call" "$log" '^herdr '
+  assert_match "orca: a tower tab in the orchestrator's workspace, the console running tower" "$log" "^orca terminal create --worktree id:$WS --title tower --command tower --stale 30 --json$"
+  assert_match "orca: ... the shell below the console, running nothing" "$log" '^orca terminal split --terminal term-1 --direction horizontal --json$'
+  assert_nomatch "orca: no dev tab by default" "$log" '--title dev '
+  assert_match "orca: lane A in a terminal of the orchestrator's workspace" "$log" "^orca terminal create --worktree id:$WS --title lane-a --json$"
+  assert_match "orca: ... its agent started there" "$log" '^orca terminal send --terminal term-3 --text claude --model claude-opus-5-5\\\[1m\\\] --enter --json$'
+  assert_match "pane map (orca): the orchestrator's workspace" "$map" "^orchestrator: +$WS$"
+  assert_match "pane map (orca): the console's terminal" "$map" '^console: +term-1 '
+  assert_match "pane map (orca): the shell's terminal, in the checkout" "$map" "^shell: +term-2 +\\(a shell in $r, for the human\\)$"
+  assert_match "pane map (orca): the tower tab" "$map" '^tower tab: +tab-1 +\(console over shell\)$'
+  assert_match "pane map (orca): lane A's terminal and checkout, in tab lanes" "$map" '^lane A: +term-3 +\(agent "bun-vitest-lane-a", kind claude, branch main, checkout '"$r"', model [^,]+, tab lanes\)$'
+  assert_match "pane map (orca): lane A's tab" "$map" '^lanes tab: +tab-3$'
+  assert_match "pane map (orca): the same switches line" "$map" '^switches: +TASK_REVIEW=on '
+  assert_match "pane map (orca): read a pane, with orca" "$map" '^read a pane: +orca terminal read --terminal <id> --json$'
+  assert_match "pane map (orca): message a pane, with orca" "$map" '^message a pane: orca terminal send --terminal <id> --text "<text>" --enter --json$'
+  assert_match "orca: the next step sends the brief with the message line" "$out" 'message a pane'
+  r=$(fixture_repo contract); RUN="$TMP/run-orca-dev"; reset_stub
+  out=$(boot "$r" "$RUN" "Orca dev" main; echo "exit=$?")
+  log=$(cat "$ORCA_STUB_LOG"); map=$(cat "$RUN/panes.txt" 2>/dev/null)
+  assert_match "orca dev: bootstrap finishes" "$out" 'exit=0$'
+  assert_match "orca dev: its own tab, in lane A's checkout, running the dev server in its dir" "$log" "^orca terminal create --worktree id:repo-0::$r --title dev --command cd $r/web && make dev --json$"
+  assert_match "pane map (orca dev): the dev line" "$map" '^dev: +term-3 +\(make dev in web\)$'
+  assert_match "pane map (orca dev): the dev tab" "$map" '^dev tab: +tab-3$'
+  else
+    boot() { (cd "$1" && shift && "$KIT/bootstrap.sh" "$@" 2>&1); }
+    r=$(fixture_repo bun-vitest); RUN="$TMP/run-empty"; reset_stub
+    out=$(boot "$r" "$RUN" "Empty run" main)
+    log=$(cat "$HERDR_STUB_LOG")
+    assert_eq "empty: the run is on the board, titled"    "$(board "$RUN" 'd["run"]["plan"]')" "Empty run"
+    assert_eq "empty: no tasks yet"                       "$(board "$RUN" 'len(d["tasks"])')" 0
+    assert_eq "empty: the roles' models are recorded"     "$(board "$RUN" '" ".join(k+"="+v for k,v in sorted(d["run"]["models"].items()))')" "implementer=claude-opus-5-5[1m] quality-reviewer=opus spec-reviewer=sonnet"
+    assert_eq "empty: no lane assignment"                 "$(board "$RUN" 'len(d["lanes"])')" 0
+    assert_match "layout: console right of the orchestrator, half the tab" "$log" '^herdr pane split --current --direction right --ratio 0.5 '
+    assert_match "layout: the shell under the console, in the checkout" "$log" "^herdr pane split --pane pane-1 --direction down --ratio 0.6 --cwd $r --no-focus$"
+    assert_nomatch "layout: the shell runs nothing"       "$log" '^herdr pane run pane-2 '
+    assert_match "layout: console runs tower"             "$log" '^herdr pane run pane-1 tower --stale 30$'
+    assert_match "lanes tab: opened in the orchestrator's workspace, unfocused" "$log" "^herdr tab create --workspace ws-0 --cwd $r --label lanes --no-focus$"
+    assert_match "lanes tab: Reviewer column right of lane A, lanes keep two thirds" "$log" '^herdr pane split --pane pane-3 --direction right --ratio 0.67 '
+    assert_match "lanes tab: R2 under R1"                 "$log" '^herdr pane split --pane pane-4 --direction down --ratio 0.5 '
+    assert_eq "layout: no checks pane, so four splits"    "$(grep -c '^herdr pane split ' <<< "$log")" 4
+    assert_match "lane A: agent named and started in the lanes tab's root" "$log" '^herdr agent start bun-vitest-lane-a --kind claude --pane pane-3 -- --model claude-opus-5-5\[1m\]$'
+    map=$(cat "$RUN/panes.txt")
+    assert_match "pane map: lanes tab line, with the Reviewer column" "$map" '^lanes tab: +tab-3 +\(R1 pane-4, R2 pane-5\)$'
+    assert_match "pane map: lane A line, in tab lanes"    "$map" '^lane A: +pane-3 +\(agent "bun-vitest-lane-a", kind claude, branch main, checkout '"$r"', model [^,]+, tab lanes\)$'
+    assert_nomatch "pane map: no checks line"             "$map" '^checks:'
+    assert_match "pane map: shell line"                   "$map" "^shell: +pane-2 +\\(a shell in $r, for the human\\)$"
+    assert_match "pane map: console line"                 "$map" '^console: +pane-1 '
+    assert_match "pane map: check gate"                   "$map" '^check gate: +bun run typecheck && bun run test$'
+    assert_match "pane map: read a pane, with herdr"      "$map" '^read a pane: +herdr pane read <id> --source recent-unwrapped --lines 60$'
+    assert_match "pane map: message a pane, with herdr"   "$map" '^message a pane: herdr agent prompt <agent> "<text>"$'
+    assert_nomatch "pane map: no dev line by default"     "$map" '^dev:'
+    assert_nomatch "pane map: no research tab line"       "$map" '^research tab:'
+    assert_nomatch "layout: no research tab opened"       "$log" '(--label|--tab-label) research( |$)'
+    assert_match "output: the pane map is printed"        "$out" '^lane A: '
+    assert_match "output: next step for the empty opening" "$out" 'tower add'
+    assert_nomatch "output: no info line without a pane checks line" "$out" '^info:'
+    for outside in HERDR_ENV=0 HERDR_STUB=absent; do
+      RUN="$TMP/run-outside-${outside%%=*}"; reset_stub
+      out=$(env "$outside" bash -c 'cd "$1" && shift && "$KIT/bootstrap.sh" "$@" 2>&1' _ "$r" "$RUN" "Outside" main; echo "exit=$?")
+      assert_match "outside herdr ($outside): bootstrap refuses, pointing to /tower:run" "$out" "needs herdr.*/tower:run"
+      assert_match "outside herdr ($outside): ... and fails"          "$out" 'exit=1$'
+      assert_eq "outside herdr ($outside): no run dir is created"     "$([ -e "$RUN" ] && echo made || echo none)" none
+      assert_nomatch "outside herdr ($outside): no pane is opened"    "$(cat "$HERDR_STUB_LOG")" '^herdr(-absent)? (pane|agent|tab|worktree) '
+      assert_nomatch "outside herdr ($outside): no run in the repo"   "$(cd "$r" && "$KIT/tests/stub/tower" state --json 2>&1)" "run-outside"
     done
-    rm -rf "$TMP/repos/quoted"
-  done
+    out=$(boot "$(fixture_repo pnpm-notest)" "$TMP/run-norunner" "No runner" main)
+    assert_nomatch "output: no test runner detected, no note" "$out" 'no test runner detected'
+    assert_match "switches: pane map has every switch"    "$map" '^switches: +TASK_REVIEW=on LANE_REVIEW=off PREFLIGHT=on STATIC_BASELINE=on PR=draft METHOD=tdd REVIEWER_KIND=other REVIEWER_MODEL= REVIEWER_BY_CREDITS=off REVIEWER_CREDITS_MIN=20 REVIEW_AREAS= SUITE_SKIP= PR_TEMPLATE= TRIAGE=ask GUIDED_REVIEW=off NOTIFY=$'
+    assert_match "switches: the record gets a tower note" "$(notes "$TMP/run-empty")" '^switches: TASK_REVIEW=on LANE_REVIEW=off .* PR_TEMPLATE= TRIAGE=ask GUIDED_REVIEW=off NOTIFY=$'
+    assert_match "switches: printed with the pane map"    "$out" '^switches: +TASK_REVIEW=on '
+    assert_match "reviewer: pane map has kind and model"  "$map" '^reviewer: +kind codex, model gpt-6-astra$'
+    assert_match "reviewer: the record gets a tower note" "$(notes "$TMP/run-empty")" '^reviewer: kind codex, model gpt-6-astra$'
 
-  # A new pane's shell may not be ready when the agent starts: herdr answers
-  # agent_pane_busy, and the start is tried again.
-  r=$(fixture_repo bun-vitest); RUN="$TMP/run-busy"; reset_stub
-  out=$(HERDR_STUB_BUSY_STARTS=1 boot "$r" "$RUN" "Busy" main; echo "exit=$?")
-  assert_match "busy pane: bootstrap finishes"          "$out" 'exit=0$'
-  assert_nomatch "busy pane: a start that recovers shows no busy error" "$out" 'agent_pane_busy'
-  assert_eq "busy pane: lane A's start is tried again"  "$(grep -c '^herdr agent start bun-vitest-lane-a ' "$HERDR_STUB_LOG")" 2
-  r=$(fixture_repo bun-vitest); RUN="$TMP/run-busy-long"; reset_stub
-  out=$(HERDR_STUB_BUSY_STARTS=99 START_TRIES=3 boot "$r" "$RUN" "Busy long" main; echo "exit=$?")
-  assert_eq "busy pane: START_TRIES starts, then it gives up" "$(grep -c '^herdr agent start bun-vitest-lane-a ' "$HERDR_STUB_LOG")" 3
-  assert_match "busy pane: giving up shows herdr's answer" "$out" 'agent_pane_busy'
-  assert_match "busy pane: giving up says what to do"   "$out" 'pane pane-3 is still not a ready shell after 3 tries; check it, or raise START_TRIES'
-  assert_match "busy pane: giving up fails bootstrap"    "$out" 'exit=1$'
+    # An agent's shell may have a pipe on stdin: the empty opening reads none of it.
+    RUN="$TMP/run-stdin"
+    out=$(printf '9\tStray\tcore\n' | boot "$(fixture_repo bun-vitest)" "$RUN" "Stdin" main)
+    assert_eq "empty: a task list on stdin is not read" "$(board "$RUN" 'len(d["tasks"])')" 0
+    r=$(fixture_repo bun-vitest); RUN="$TMP/run-planned"; reset_stub
+    out=$(boot "$r" "$RUN" "Planned" main "$KIT/example-tasks.tsv")
+    assert_eq "planned: the task file's tasks are on the board" "$(board "$RUN" 'len(d["tasks"])')" "$(grep -c '^[0-9]' "$KIT/example-tasks.tsv")"
+    assert_eq "planned: every task to lane A"             "$(board "$RUN" '",".join(t["lane"] for t in d["tasks"] if t["lane"] != "A") or "all A"')" "all A"
+    # A markdown plan: its tasks and titles reach the board, and LANES splits them.
+    r=$(fixture_repo bun-vitest); RUN="$TMP/run-plan-md"; reset_stub
+    out=$(LANES="A=1,2 B=3" boot "$r" "$RUN" "Plan" main "$KIT/tests/example-plan.md")
+    assert_eq "plan.md: its tasks, with their titles, are on the board" \
+      "$(board "$RUN" '"|".join(t["id"]+":"+t["title"] for t in d["tasks"])')" \
+      "1:The widget model|2:The widget list shows every widget|3:A widget can be renamed"
+    assert_eq "plan.md: LANES assigns each lane" \
+      "$(board "$RUN" '" ".join(k+"="+",".join(v) for k,v in sorted(d["lanes"].items()))')" "A=1,2 B=3"
+    assert_eq "plan.md: the run's title is bootstrap's, repo and branch the plan's" \
+      "$(board "$RUN" '"|".join([d["run"]["plan"], d["run"]["repo"], d["run"]["branch"]])')" "Plan|acme|feature/widgets"
+    # <lane>=all: every task on the board, as spec-to-plan writes a serial plan.
+    r=$(fixture_repo bun-vitest); RUN="$TMP/run-all"; reset_stub
+    out=$(LANES="A=all" boot "$r" "$RUN" "All" main "$KIT/tests/example-plan.md"; echo "exit=$?")
+    assert_match "LANES A=all: bootstrap finishes"        "$out" 'exit=0$'
+    assert_eq "LANES A=all: every task is lane A's"       "$(board "$RUN" '" ".join(k+"="+",".join(v) for k,v in sorted(d["lanes"].items()))')" "A=1,2,3"
+    # all means every task, so it is the whole of LANES; a bad spec, lane or id
+    # is refused before the run exists (tower init checks the ids).
+    r=$(fixture_repo bun-vitest); : > "$r/A=zzz"
+    for bad in "A=all B=2" "A=1 B=all" "A" "A=1 =2" "A==1" "A=" " " "E=1" "A=1 A=2" "A=*" "A=9"; do
+      RUN="$TMP/run-badlanes"; rm -rf "$RUN"
+      out=$(LANES="$bad" boot "$r" "$RUN" "Bad" main "$KIT/tests/example-plan.md"; echo "exit=$?")
+      assert_match "LANES '$bad': refused"                "$out" 'exit=1$'
+      assert_match "LANES '$bad': ... saying why"         "$out" '^(LANES[ :]|tower: )'
+      assert_eq "LANES '$bad': ... before the run exists" "$([ -e "$RUN" ] && echo made || echo none)" none
+    done
+    RUN="$TMP/run-lanes-init"; out=$(LANES="A=1,2 B=3" boot "$r" "$RUN" "Split" main "$KIT/tests/example-plan.md")
+    assert_eq "LANES: the lanes come with the run"      "$(board "$RUN" '" ".join(k+"="+",".join(v) for k,v in sorted(d["lanes"].items()))')" "A=1,2 B=3"
+    r=$(fixture_repo bun-vitest); RUN="$TMP/run-lanes"; reset_stub
+    out=$(LANES="A=1 B=2,3" boot "$r" "$RUN" "Lanes" main "$KIT/example-tasks.tsv")
+    assert_eq "planned: LANES assigns each lane"          "$(board "$RUN" '" ".join(k+"="+",".join(v) for k,v in sorted(d["lanes"].items()))')" "A=1 B=2,3"
+    out=$(LANES="A=1" boot "$r" "$TMP/run-x" "X" main)
+    assert_match "empty: LANES without a source is refused" "$out" 'LANES needs a plan or task file'
+    out=$(boot "$r" "$TMP/run-y" "Y" main /nonexistent.md)
+    assert_match "a missing source is refused"            "$out" 'no such plan or task file'
 
-  # A fresh checkout's trust prompt blocks the start: it is answered, and the
-  # agent is started again only when herdr says it is not there.
-  S="$HERDR_STUB_STATES_DIR"
-  for case in "gone:2:0" "working:1:0" "idle:1:0" "unreachable:1:1" "blocked:1:1" "unknown:1:1"; do
-    IFS=: read -r state starts code <<< "$case"
-    r=$(fixture_repo bun-vitest); RUN="$TMP/run-trust-$state"; reset_stub; echo "$state" > "$S/bun-vitest-lane-a"
-    out=$(HERDR_STUB_TRUST_STARTS=1 boot "$r" "$RUN" "Trust" main; echo "exit=$?")
-    assert_match "trust prompt: answered"                "$(cat "$HERDR_STUB_LOG")" '^herdr pane send-keys pane-3 Down Enter$'
-    assert_eq "trust prompt, agent $state: starts"       "$(grep -c '^herdr agent start bun-vitest-lane-a ' "$HERDR_STUB_LOG")" "$starts"
-    assert_match "trust prompt, agent $state: exit $code" "$out" "exit=$code\$"
-    case $state in
-      unreachable) assert_match "trust prompt, herdr failing: says so" "$out" 'herdr cannot say whether bun-vitest-lane-a started' ;;
-      unknown)     assert_match "trust prompt, agent unknown: says so" "$out" 'bun-vitest-lane-a is still unknown in pane pane-3 after its trust prompt was answered' ;;
-    esac
-  done
-  r=$(fixture_repo bun-vitest); RUN="$TMP/run-trust-keys"; reset_stub
-  out=$(HERDR_STUB_TRUST_STARTS=1 HERDR_STUB_SEND_KEYS_FAIL=1 boot "$r" "$RUN" "Trust" main; echo "exit=$?")
-  assert_match "trust prompt, send-keys failing: bootstrap fails, saying so" "$out" "could not answer bun-vitest-lane-a's trust prompt in pane pane-3"
-  assert_match "trust prompt, send-keys failing: exit 1" "$out" 'exit=1$'
-  # Lane A's agent exits twice: nothing to brief, and bootstrap says so.
-  r=$(fixture_repo bun-vitest); RUN="$TMP/run-gone-a"; reset_stub
-  printf 'gone\ngone\n' > "$S/bun-vitest-lane-a.started"
-  out=$(boot "$r" "$RUN" "Gone" main; echo "exit=$?")
-  rm -f "$S"/bun-vitest-lane-a*
-  assert_match "lane A gone twice: bootstrap fails" "$out" 'exit=1$'
-  assert_match "lane A gone twice: says there is no agent to brief" "$out" "lane A's agent bun-vitest-lane-a is not running in pane-3: .*rerun bootstrap\.sh with a new run dir"
-  assert_nomatch "lane A gone twice: not told to brief it" "$out" 'brief it once it accepts input'
-  rm -f "$S/bun-vitest-lane-a"
-  # herdr stops answering once lane A started: bootstrap cannot say whether it
-  # runs, and says so instead of telling to brief it.
-  r=$(fixture_repo bun-vitest); RUN="$TMP/run-unread-a"; reset_stub
-  echo unreachable > "$S/bun-vitest-lane-a.started"
-  out=$(READY_WAIT_SECONDS=2 boot "$r" "$RUN" "Unread" main; echo "exit=$?")
-  rm -f "$S"/bun-vitest-lane-a*
-  assert_match "lane A unreadable: bootstrap fails" "$out" 'exit=1$'
-  assert_match "lane A unreadable: says herdr cannot answer" "$out" "bootstrap: herdr cannot say whether lane A's agent bun-vitest-lane-a runs in pane-3; .*check that pane, and with the agent there brief it once  herdr agent get bun-vitest-lane-a  shows interactive_ready true; with none, rerun bootstrap\.sh with a new run dir"
-  assert_nomatch "lane A unreadable: not told to brief it once it accepts input" "$out" 'brief it once it accepts input'
-  assert_nomatch "lane A unreadable: not told to rerun once herdr answers" "$out" 'rerun once herdr answers'
+    r=$(fixture_repo bun-vitest); RUN="$TMP/run-notower"; reset_stub
+    out=$(TOWER_STUB=absent boot "$r" "$RUN" "Refused" main; echo "exit=$?")
+    assert_match "tower not runnable: bootstrap refuses"            "$out" 'exit=1$'
+    assert_match "tower not runnable: ... saying tower is required"  "$out" 'needs tower'
+    assert_match "tower not runnable: ... with the install pointer" "$out" 'github\.com/phutschi/tower'
+    assert_eq "tower not runnable: no run dir is created"           "$([ -e "$RUN" ] && echo made || echo none)" none
+    assert_nomatch "tower not runnable: no pane is opened"          "$(cat "$HERDR_STUB_LOG")" '^herdr (pane|agent|tab|worktree) '
+    assert_match "tower not runnable: no run in the repo"          "$(cd "$r" && "$KIT/tests/stub/tower" state --json 2>&1)" 'no run'
+    # Two runs from the same fixture: each in its own repo, each its own board.
+    r1=$(fixture_repo bun-vitest); r2=$(fixture_repo bun-vitest)
+    boot "$r1" "$TMP/run-iso-1" "Iso one" main >/dev/null; boot "$r2" "$TMP/run-iso-2" "Iso two" main >/dev/null
+    assert_eq "two tests never see each other's run" \
+      "$(cd "$r1" && "$KIT/tests/stub/tower" state --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["run"]["plan"])')|$(cd "$r2" && "$KIT/tests/stub/tower" state --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["run"]["plan"])')" "Iso one|Iso two"
+    RUN="$TMP/run-only-panes"; reset_stub
+    out=$(boot "$r" "$RUN" "Only panes" main "$KIT/example-tasks.tsv")
+    assert_nomatch "run dir: no second record beside tower" "$(ls -A "$RUN")" '^(tasks\.tsv|lanes\.txt|run\.txt|plan\.md)$'
+    RUN="$TMP/run-switches"; reset_stub
+    out=$(PR=off boot "$(fixture_repo contract-switches)" "$RUN" "Switches" main)
+    assert_match "switches: the file and the environment reach the pane map" "$(cat "$RUN/panes.txt")" '^switches: +TASK_REVIEW=off .* PR=off METHOD=plain .* SUITE_SKIP=build '
+    out=$(boot "$(fixture_repo contract-switches-bad)" "$TMP/run-bad" "Bad" main)
+    assert_match "switches: bootstrap refuses a bad value" "$out" "PR must be draft, ready or off"
+    [ -e "$TMP/run-bad/panes.txt" ] && bad "switches: a refused run writes no pane map" || ok "switches: a refused run writes no pane map"
+    RUN="$TMP/run-lines"; reset_stub
+    out=$(boot "$(fixture_repo contract-lines)" "$RUN" "Lines only" main; echo "exit=$?")
+    assert_match "a contract with only pane and suite lines: bootstrap finishes" "$out" 'exit=0$'
+    assert_match "a contract with only pane and suite lines: pane map written" "$(cat "$RUN/panes.txt" 2>&1)" '^shell: +pane-[0-9]+ '
+    assert_eq "pane checks: bootstrap says once that the line is ignored" "$(grep -c '^info: \.orchestrate: pane checks is ignored: the checks pane is gone' <<< "$out")" 1
+    assert_nomatch "pane checks: ... and opens no checks pane" "$(cat "$RUN/panes.txt" "$HERDR_STUB_LOG")" '^checks:|make watch'
+    assert_nomatch "pane checks: the info line is on stderr" "$(cd "$(fixture_repo contract-lines)" && "$KIT/bootstrap.sh" "$TMP/run-lines2" "Lines" main 2>/dev/null)" '^info:'
+    r=$(fixture_repo bun-vitest); RUN="$TMP/run-fallback"; reset_stub
+    out=$(CODEX_STUB=absent boot "$r" "$RUN" "Fallback" main)
+    assert_match "reviewer: a fallback is in the pane map" "$(cat "$RUN/panes.txt")" '^reviewer: +kind claude, model claude-fable-5-1 \(fallback: codex is not installed'
+    assert_match "reviewer: a fallback is printed"         "$out" '^reviewer: +kind claude, model claude-fable-5-1 \(fallback: '
+    assert_match "reviewer: a fallback goes to the record" "$(notes "$RUN")" '^reviewer: kind claude, model claude-fable-5-1 \(fallback: '
+    r=$(fixture_repo bun-vitest)
+    out=$(CODEX_STUB=absent REVIEWER_KIND=codex boot "$r" "$TMP/run-forced" "Forced" main)
+    assert_match "reviewer: bootstrap refuses a forced kind that is not installed" "$out" 'REVIEWER_KIND=codex, but codex is not installed'
+    [ -e "$TMP/run-forced" ] && bad "reviewer: a refused run creates no run dir" || ok "reviewer: a refused run creates no run dir"
+    r=$(fixture_repo bun-vitest); RUN="$TMP/run-noreview"; reset_stub
+    out=$(LANE_REVIEW=off PREFLIGHT=off CODEX_STUB=absent REVIEWER_KIND=codex boot "$r" "$RUN" "No review" main)
+    assert_match "reviewer: none when lane review and preflight are off" "$(cat "$RUN/panes.txt")" '^reviewer: +none \(LANE_REVIEW=off, PREFLIGHT=off\)$'
+    assert_match "lanes tab: no Reviewer column when reviews are off" "$(cat "$RUN/panes.txt")" '^lanes tab: +tab-3 +\(no Reviewer column\)$'
+    assert_nomatch "lanes tab: ... so lane A is not split" "$(cat "$HERDR_STUB_LOG")" '^herdr pane split --pane pane-3 '
+    r=$(fixture_repo bun-vitest); RUN="$TMP/run-lanereview"; reset_stub
+    out=$(LANE_REVIEW=on PREFLIGHT=off boot "$r" "$RUN" "Lane review" main)
+    assert_match "lanes tab: a Reviewer column with lane review alone" "$(cat "$RUN/panes.txt")" '^lanes tab: +tab-3 +\(R1 pane-4, R2 pane-5\)$'
+
+    r=$(fixture_repo contract); RUN="$TMP/run-dev"; reset_stub
+    out=$(boot "$r" "$RUN" "Dev" main)
+    log=$(cat "$HERDR_STUB_LOG")
+    assert_match "dev: under the console"                 "$log" '^herdr pane split --pane pane-1 --direction down --ratio 0.6 '
+    assert_match "dev: the shell right of dev"            "$log" '^herdr pane split --pane pane-2 --direction right --ratio 0.5 '
+    assert_match "dev: dev pane runs in its dir"          "$log" "^herdr pane run pane-2 cd $r/web && make dev$"
+    assert_nomatch "dev: the shell runs nothing"          "$log" '^herdr pane run pane-3 '
+    assert_match "dev: pane map has dev"                  "$(cat "$RUN/panes.txt")" '^dev: +pane-2 '
+    assert_match "dev: console is pane-1"                 "$(cat "$RUN/panes.txt")" '^console: +pane-1 '
+    assert_match "dev: shell is pane-3"                   "$(cat "$RUN/panes.txt")" '^shell: +pane-3 '
+    assert_match "dev: console runs tower"                "$log" '^herdr pane run pane-1 tower --stale 45$'
+    assert_match "dev: lane A in the lanes tab"           "$(cat "$RUN/panes.txt")" '^lane A: +pane-4 '
+
+    # Lane A runs where bootstrap is run from, which is often a herdr worktree
+    # of the checkout, not the main checkout repo_root() resolves to.
+    r=$(fixture_repo bun-vitest); wt="$TMP/repos/bun-vitest-wt"
+    git -C "$r" worktree add -q "$wt" -b wt-branch
+    RUN="$TMP/run-worktree"; reset_stub
+    boot "$wt" "$RUN" "Worktree" wt-branch >/dev/null
+    assert_match "worktree: lane A checkout is where bootstrap ran, not repo_root" "$(cat "$RUN/panes.txt")" '^lane A: +pane-3 +\(agent "[^"]+", kind claude, branch wt-branch, checkout '"$wt"', model '
+    assert_match "worktree: the shell opens in the worktree" "$(cat "$RUN/panes.txt")" "^shell: +pane-2 +\\(a shell in $wt, "
+
+    # The pane commands are shell code built around the checkout's path: a path
+    # with an apostrophe (or one crafted to run code) must stay one directory.
+    # Each pane's logged command is run as its shell would (bash, and zsh where
+    # it is installed), with the runner replaced by one that prints where it ran.
+    mkdir -p "$TMP/fakebin"; printf '#!/bin/sh\npwd -P\n' > "$TMP/fakebin/bunx"; printf '#!/bin/sh\npwd -P\n' > "$TMP/fakebin/make"
+    chmod +x "$TMP/fakebin/bunx" "$TMP/fakebin/make"
+    pane_cwd() { PATH="$TMP/fakebin:$PATH" "$1" -c "$(sed -n "s/^herdr pane run $2 //p" "$HERDR_STUB_LOG")" 2>&1; }
+    shells=bash; command -v zsh >/dev/null && shells="bash zsh"
+    for name in "rex's repo" "x'; touch pwned; '"; do
+      src=$(fixture_repo contract); r="$TMP/repos/quoted/$name"; mkdir -p "$TMP/repos/quoted"; mv "$src" "$r"; mkdir -p "$r/web"
+      RUN="$TMP/run-quoted"; rm -rf "$RUN"; reset_stub
+      out=$(boot "$r" "$RUN" "Quoted" main; echo "exit=$?")
+      assert_match "quoted path ($name): bootstrap finishes"    "$out" 'exit=0$'
+      for sh in $shells; do
+        assert_eq "quoted path ($name, $sh): dev pane runs in its dir"         "$(cd "$TMP/repos/quoted" && pane_cwd "$sh" pane-2)" "$r/web"
+        assert_eq "quoted path ($name, $sh): no code in the path runs" "$([ -e "$TMP/repos/quoted/pwned" ] && echo ran || echo none)" none
+      done
+      rm -rf "$TMP/repos/quoted"
+    done
+
+    # A new pane's shell may not be ready when the agent starts: herdr answers
+    # agent_pane_busy, and the start is tried again.
+    r=$(fixture_repo bun-vitest); RUN="$TMP/run-busy"; reset_stub
+    out=$(HERDR_STUB_BUSY_STARTS=1 boot "$r" "$RUN" "Busy" main; echo "exit=$?")
+    assert_match "busy pane: bootstrap finishes"          "$out" 'exit=0$'
+    assert_nomatch "busy pane: a start that recovers shows no busy error" "$out" 'agent_pane_busy'
+    assert_eq "busy pane: lane A's start is tried again"  "$(grep -c '^herdr agent start bun-vitest-lane-a ' "$HERDR_STUB_LOG")" 2
+    r=$(fixture_repo bun-vitest); RUN="$TMP/run-busy-long"; reset_stub
+    out=$(HERDR_STUB_BUSY_STARTS=99 START_TRIES=3 boot "$r" "$RUN" "Busy long" main; echo "exit=$?")
+    assert_eq "busy pane: START_TRIES starts, then it gives up" "$(grep -c '^herdr agent start bun-vitest-lane-a ' "$HERDR_STUB_LOG")" 3
+    assert_match "busy pane: giving up shows herdr's answer" "$out" 'agent_pane_busy'
+    assert_match "busy pane: giving up says what to do"   "$out" 'pane pane-3 is still not a ready shell after 3 tries; check it, or raise START_TRIES'
+    assert_match "busy pane: giving up fails bootstrap"    "$out" 'exit=1$'
+
+    # A fresh checkout's trust prompt blocks the start: it is answered, and the
+    # agent is started again only when herdr says it is not there.
+    S="$HERDR_STUB_STATES_DIR"
+    for case in "gone:2:0" "working:1:0" "idle:1:0" "unreachable:1:1" "blocked:1:1" "unknown:1:1"; do
+      IFS=: read -r state starts code <<< "$case"
+      r=$(fixture_repo bun-vitest); RUN="$TMP/run-trust-$state"; reset_stub; echo "$state" > "$S/bun-vitest-lane-a"
+      out=$(HERDR_STUB_TRUST_STARTS=1 boot "$r" "$RUN" "Trust" main; echo "exit=$?")
+      assert_match "trust prompt: answered"                "$(cat "$HERDR_STUB_LOG")" '^herdr pane send-keys pane-3 Down Enter$'
+      assert_eq "trust prompt, agent $state: starts"       "$(grep -c '^herdr agent start bun-vitest-lane-a ' "$HERDR_STUB_LOG")" "$starts"
+      assert_match "trust prompt, agent $state: exit $code" "$out" "exit=$code\$"
+      case $state in
+        unreachable) assert_match "trust prompt, herdr failing: says so" "$out" 'herdr cannot say whether bun-vitest-lane-a started' ;;
+        unknown)     assert_match "trust prompt, agent unknown: says so" "$out" 'bun-vitest-lane-a is still unknown in pane pane-3 after its trust prompt was answered' ;;
+      esac
+    done
+    r=$(fixture_repo bun-vitest); RUN="$TMP/run-trust-keys"; reset_stub
+    out=$(HERDR_STUB_TRUST_STARTS=1 HERDR_STUB_SEND_KEYS_FAIL=1 boot "$r" "$RUN" "Trust" main; echo "exit=$?")
+    assert_match "trust prompt, send-keys failing: bootstrap fails, saying so" "$out" "could not answer bun-vitest-lane-a's trust prompt in pane pane-3"
+    assert_match "trust prompt, send-keys failing: exit 1" "$out" 'exit=1$'
+    # Lane A's agent exits twice: nothing to brief, and bootstrap says so.
+    r=$(fixture_repo bun-vitest); RUN="$TMP/run-gone-a"; reset_stub
+    printf 'gone\ngone\n' > "$S/bun-vitest-lane-a.started"
+    out=$(boot "$r" "$RUN" "Gone" main; echo "exit=$?")
+    rm -f "$S"/bun-vitest-lane-a*
+    assert_match "lane A gone twice: bootstrap fails" "$out" 'exit=1$'
+    assert_match "lane A gone twice: says there is no agent to brief" "$out" "lane A's agent bun-vitest-lane-a is not running in pane-3: .*rerun bootstrap\.sh with a new run dir"
+    assert_nomatch "lane A gone twice: not told to brief it" "$out" 'brief it once it accepts input'
+    rm -f "$S/bun-vitest-lane-a"
+    # herdr stops answering once lane A started: bootstrap cannot say whether it
+    # runs, and says so instead of telling to brief it.
+    r=$(fixture_repo bun-vitest); RUN="$TMP/run-unread-a"; reset_stub
+    echo unreachable > "$S/bun-vitest-lane-a.started"
+    out=$(READY_WAIT_SECONDS=2 boot "$r" "$RUN" "Unread" main; echo "exit=$?")
+    rm -f "$S"/bun-vitest-lane-a*
+    assert_match "lane A unreadable: bootstrap fails" "$out" 'exit=1$'
+    assert_match "lane A unreadable: says herdr cannot answer" "$out" "bootstrap: herdr cannot say whether lane A's agent bun-vitest-lane-a runs in pane-3; .*check that pane, and with the agent there brief it once  herdr agent get bun-vitest-lane-a  shows interactive_ready true; with none, rerun bootstrap\.sh with a new run dir"
+    assert_nomatch "lane A unreadable: not told to brief it once it accepts input" "$out" 'brief it once it accepts input'
+    assert_nomatch "lane A unreadable: not told to rerun once herdr answers" "$out" 'rerun once herdr answers'
+  fi
 fi
 
 # --- add-lane ----------------------------------------------------------------

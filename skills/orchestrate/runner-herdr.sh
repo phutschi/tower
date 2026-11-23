@@ -39,8 +39,10 @@ runner_self() { echo "$HERDR_PANE_ID"; }
 runner_workspace() { herdr pane get "$1" | jsonq 'd["result"]["pane"]["workspace_id"]'; }
 # The orchestrator's tab: the console right of the orchestrator, half the tab
 # (its 60 columns); under it the shell, and dev left of the shell when given,
-# running DEV_CMD in REPO/DEV_DIR. Prints "<console> <shell> [<dev>]".
+# running DEV_CMD in REPO/DEV_DIR. Prints "<console> <shell> [<dev>]", and
+# no pane map lines of its own.
 runner_open_run_panes() {
+  shift   # the workspace: --current is the orchestrator's
   local repo="$1" console_cmd="$2" console shell dev=""
   console=$(herdr_split "$repo" --current --direction right --ratio 0.5) || return 1
   shell=$(herdr_split "$repo" --pane "$console" --direction down --ratio 0.6) || return 1
@@ -117,7 +119,8 @@ runner_pane_exists() {
   esac
 }
 runner_read_cmd()    { echo "herdr pane read <id> --source recent-unwrapped --lines 60"; }
-runner_message_cmd() { echo "herdr agent prompt <agent> \"<text>\""; }
+# The command that types TEXT into agent AGENT (in PANE); placeholders without them.
+runner_message_cmd() { echo "herdr agent prompt ${1:-<agent>} \"${3:-<text>}\""; }
 
 # When anything reviews (LANE_REVIEW or PREFLIGHT on), a full-height column
 # right of PANE, a third of its width, R1 over R2, opened in CWD; prints

@@ -37,12 +37,14 @@ need_runner() {
 # and the layout (CONTEXT.md Layout):
 #   runner_self                    the orchestrator's pane or workspace, for the pane map
 #   runner_workspace PANE          the workspace the run's tabs open in
-#   runner_open_run_panes REPO CONSOLE_CMD [DEV_DIR DEV_CMD]   "<console> <shell> [<dev>]"
+#   runner_open_run_panes WS REPO CONSOLE_CMD [DEV_DIR DEV_CMD]
+#                                  "<console> <shell> [<dev>]", then the pane map lines it adds
 #   runner_open_lane_a WS REPO LABEL                          "<pane> <tab line after the label>"
 #   runner_open_lane REPO BRANCH BASE WT LABEL                the lane's pane; makes the worktree
 #   runner_place_lane MAP LABEL PANE                          the pane's id once placed
 #   runner_open_reviewer_slots WS REPO LABEL                  "<tab> <r1> <r2>"
 #   runner_pane_exists PANE        0 open, 1 gone, 2 the runner cannot say
-#   runner_read_cmd, runner_message_cmd   the pane map's read a pane and message a pane lines
+#   runner_read_cmd, runner_message_cmd [AGENT PANE TEXT]   the pane map's read a pane and
+#                                  message a pane lines; with arguments, the command for them
 # shellcheck source=/dev/null  # runner-herdr.sh or runner-orca.sh
 . "$KIT/runner-${RUNNER:-herdr}.sh"

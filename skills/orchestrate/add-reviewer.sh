@@ -377,4 +377,4 @@ if [ -n "$R_NOTE" ]; then
   done <<< "${R_NOTE//; /$'\n'}"
   unset _n
 fi
-echo "reviewer $SLOT ready (task $ID): agent $NAME ($R_KIND, $R_MODEL) in $PANE — next: write $RUN_DIR/brief-$ID.md from brief-template.md (a Reviewer brief; findings to $FINDINGS), then  herdr agent prompt $NAME \"\$(cat $RUN_DIR/brief-$ID.md)\"  and add $NAME to watch-lanes.sh"
+echo "reviewer $SLOT ready (task $ID): agent $NAME ($R_KIND, $R_MODEL) in $PANE — next: write $RUN_DIR/brief-$ID.md from brief-template.md (a Reviewer brief; findings to $FINDINGS), then  $(runner_message_cmd "$NAME" "$PANE" "\$(cat $RUN_DIR/brief-$ID.md)")  and add $NAME to watch-lanes.sh"

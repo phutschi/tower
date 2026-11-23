@@ -217,7 +217,7 @@ if [ -n "$PANE" ]; then
   fi
   set_lane_line "$(lane_line "$PANE")"
   [ -f "$WT/.env" ] || cp "$REPO_ROOT/.env" "$WT/.env" 2>/dev/null || true
-  echo "lane $LANE ready: agent $NAME in $PANE ($STARTED_AGAIN) — next:  tower brief $LANE > $RUN_DIR/brief-$LANE.md, add the judgement (brief-template.md, with merge points in both briefs), then  herdr agent prompt $NAME \"\$(cat $RUN_DIR/brief-$LANE.md)\""
+  echo "lane $LANE ready: agent $NAME in $PANE ($STARTED_AGAIN) — next:  tower brief $LANE > $RUN_DIR/brief-$LANE.md, add the judgement (brief-template.md, with merge points in both briefs), then  $(runner_message_cmd "$NAME" "$PANE" "\$(cat $RUN_DIR/brief-$LANE.md)")"
   exit 0
 fi
 
@@ -269,4 +269,4 @@ set_lane_line "$(lane_line "$PANE")"
 # eats whatever is typed next. The brief arrives later, so the lane has it in time.
 [ -f "$WT/.env" ] || cp "$REPO_ROOT/.env" "$WT/.env" 2>/dev/null || true
 
-echo "lane $LANE ready: agent $NAME in $PANE — next:  tower brief $LANE > $RUN_DIR/brief-$LANE.md, add the judgement (brief-template.md, with merge points in both briefs), then  herdr agent prompt $NAME \"\$(cat $RUN_DIR/brief-$LANE.md)\""
+echo "lane $LANE ready: agent $NAME in $PANE — next:  tower brief $LANE > $RUN_DIR/brief-$LANE.md, add the judgement (brief-template.md, with merge points in both briefs), then  $(runner_message_cmd "$NAME" "$PANE" "\$(cat $RUN_DIR/brief-$LANE.md)")"
