@@ -3854,6 +3854,15 @@ if section fake-orca; then
   reset_stub
   assert_match "fake orca: ... per test (reset_stub)" "$(o terminal create --json)" '"handle": *"term-1"'
   assert_match "fake orca: ok on success" "$(o terminal create --json)" '"ok": *true'
+  # Without ORCA_STUB_COUNTER its state is in a directory of its own, never
+  # a shared name in TMPDIR; a DRY_RUN script gives its calls one such dir.
+  mkdir -p "$TMP/stub-tmp"
+  out=$(env -u ORCA_STUB_COUNTER TMPDIR="$TMP/stub-tmp" "$KIT/tests/stub/orca" terminal create --json)
+  assert_match "fake orca, no counter: still answers" "$out" '"handle": *"term-1"'
+  assert_eq "fake orca, no counter: leaves nothing in TMPDIR" "$(ls -A "$TMP/stub-tmp")" ""
+  c=$(env -u ORCA_STUB_COUNTER TMPDIR="$TMP/stub-tmp" bash -c '. "$KIT/common.sh"; echo "$ORCA_STUB_COUNTER"')
+  assert_match "DRY_RUN, no counter: the fake's state in a new dir of its own" "$c" '/tmp\.[^/]+/orca-counter$'
+  assert_eq "DRY_RUN, no counter: ... only its owner can enter" "$(stat -f %Lp "$(dirname "$c")" 2>/dev/null || stat -c %a "$(dirname "$c")")" 700
   # Workspaces: the caller's, and child worktrees that record their parent.
   assert_match "fake orca: worktree current names the caller's workspace" "$(o worktree current --json)" "\"id\": *\"repo-0::$(pwd -P)\""
   reset_stub
