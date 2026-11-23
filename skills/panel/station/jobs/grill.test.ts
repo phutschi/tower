@@ -298,3 +298,27 @@ test("a GitHub write that never works fails the grill and keeps its session id a
     tokens: { input: 300, output: 30 },
   });
 });
+
+test("a grill stopped while it retries its GitHub write writes nothing more", async () => {
+  // A slow poll makes the retry's wait long enough to stop the grill in.
+  replies("c1", "Only rex.");
+  await grill({
+    PANEL_GRILL_POLL_MS: "2500",
+    CLAUDE_STUB_OUT: session("q.out", "sess-1", QUESTIONS),
+    CLAUDE_STUB_RESUME_OUT: session("spec.out", "sess-1", SPEC),
+  });
+  await until(async () =>
+    lines("plannotator.log").some((l) => l.includes("send_message")),
+  );
+  writeFileSync(join(dir(), "fail"), "edit");
+  const specWrites = () =>
+    ghLog().filter((l) => l.includes("--body-file")).length;
+  await until(async () => specWrites() > 0, 10_000);
+  // The hub's own label write for the move needs gh to work again.
+  rmSync(join(dir(), "fail"));
+  await post("/api/issues/acme/widgets/5/stage", { stage: "needs-triage" });
+  await until(async () => (await job()).state === "stopped", 10_000);
+  await Bun.sleep(300);
+  expect(specWrites()).toBe(1);
+  expect(existsSync(join(dir(), "acme_widgets_5.body"))).toBe(false);
+});

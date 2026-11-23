@@ -66,6 +66,8 @@ async function gh(args: string[], stdin = ""): Promise<string> {
 /** `fn` until it works, for about an hour: a passing outage must not end a grill of days. */
 async function retry<T>(fn: () => Promise<T>, signal: AbortSignal) {
   for (let n = 1; ; n++) {
+    // A stopped grill writes nothing more, even mid-retry.
+    signal.throwIfAborted();
     try {
       return await fn();
     } catch (err) {
