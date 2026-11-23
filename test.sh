@@ -279,9 +279,9 @@ if section executor; then
   echo unlisted-waitfail > "$S/term-1"
   out=$(ostart claude READY_WAIT_SECONDS=2)
   assert_match "orca: not listed, its wait failing: Orca cannot say" "$out" 'Orca cannot say whether acme-lane-a runs in term-1 after 2 checks'
-  for st in unlisted:unknown unlisted-waitfail:unreadable; do
-    rm -f "$S"/term-*; reset_stub; echo "${st%:*}" > "$S/term-1"
-    assert_eq "orca: one reading for an unlisted agent (${st%:*})" "$(bash -c 'set -o pipefail; . "$KIT/common.sh"; need_runner; orca terminal create --json >/dev/null; runner_agent_state acme-lane-a term-1' 2>&1)" "${st#*:}$([ "${st#*:}" = unknown ] && echo ' False')"
+  for st in 'unlisted:unknown False' 'unlisted-waittimeout:unknown False' 'unlisted-waitfail:unreadable'; do
+    rm -f "$S"/term-*; reset_stub; echo "${st%%:*}" > "$S/term-1"
+    assert_eq "orca: one reading for an unlisted agent (${st%%:*})" "$(bash -c 'set -o pipefail; . "$KIT/common.sh"; need_runner; orca terminal create --json >/dev/null; runner_agent_state acme-lane-a term-1' 2>&1)" "${st#*:}"
   done
   # Not listed yet (a terminal agent reports on its first turn), but its TUI
   # is idle: it accepts input.

@@ -15,7 +15,7 @@
 # closed: terminal_handle_stale, and the agent is not listed), "unlisted"
 # (the terminal is open but its agent has not reported to Orca yet, so it is
 # not listed; its TUI is busy), "unlisted-idle" (the same, its TUI idle),
-# "unlisted-waitfail" (the same, its wait failing),
+# "unlisted-waitfail" and "unlisted-waittimeout" (the same, its wait failing),
 # "unreadable" (Orca does not answer: runtime_unavailable) or "trust" (a trust
 # menu: the agent shows blocked, a text-plus-Enter send is refused with
 # agent_prompt_blocked, and an Enter sent alone answers the menu, dropping
@@ -26,8 +26,8 @@
 # blocked is any other prompt).
 # `terminal wait --for tui-idle` is satisfied by waiting, done or
 # unlisted-idle, fails for "unlisted-waitfail" (an unlisted agent whose wait
-# Orca cannot answer: runtime_unavailable), and otherwise answers
-# satisfied false, as Orca does. `terminal close` makes the terminal gone.
+# Orca cannot answer: runtime_unavailable) and "unlisted-waittimeout" (Orca's
+# timeout code), and otherwise answers satisfied false, as Orca does. `terminal close` makes the terminal gone.
 # ORCA_STUB_WORKTREE_FAIL=1: every `worktree create` fails
 # (runtime_unavailable); =garbled: it succeeds with an answer that has no
 # worktree in it.
@@ -117,6 +117,7 @@ case "${1:-} ${2:-}" in
     case "$(reported "$(take "$h")")" in
       waiting|done|unlisted-idle) ok "{\"wait\":{\"handle\":\"$h\",\"condition\":\"$(flag for)\",\"satisfied\":true}}" ;;
       unlisted-waitfail) err runtime_unavailable ;;
+      unlisted-waittimeout) err timeout ;;
       *) ok "{\"wait\":{\"handle\":\"$h\",\"condition\":\"$(flag for)\",\"satisfied\":false}}" ;;
     esac ;;
   "terminal close")
