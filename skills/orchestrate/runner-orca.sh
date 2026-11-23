@@ -154,8 +154,12 @@ runner_open_lane() {
   id=$(echo "$out" | jsonq 'd["result"]["worktree"]["id"]' 2>/dev/null) && path=$(echo "$out" | jsonq 'd["result"]["worktree"]["path"]' 2>/dev/null) || path=""
   [ -n "$path" ] || die "add-lane: Orca made lane $LANE's worktree but its answer names none ($out): remove it (orca worktree list --json) and branch $branch, then rerun  $RERUN"
   # The branch may have been taken since the check: Orca then suffixes it.
-  got=$(orca worktree show --worktree "id:$id" --json 2>/dev/null | jsonq '(d["result"]["worktree"].get("branch") or "").replace("refs/heads/", "", 1)' 2>/dev/null) || got=""
-  [ "$got" = "$branch" ] || die "add-lane: Orca made lane $LANE's worktree on branch ${got:-(none it names)}, not $branch: remove it (orca worktree rm --worktree id:$id --force) and branch ${got:-$branch}, then rerun  $RERUN"
+  # git says which branch the checkout is on; Orca, when it is not on this disk.
+  if [ -d "$path" ]; then got=$(git -C "$path" symbolic-ref --short HEAD 2>/dev/null) || got=""
+  else got=$(orca worktree show --worktree "id:$id" --json 2>/dev/null | jsonq '(d["result"]["worktree"].get("branch") or "").replace("refs/heads/", "", 1)' 2>/dev/null) || got=""
+  fi
+  [ -n "$got" ] || die "add-lane: Orca made lane $LANE's worktree $path, but its branch cannot be read: remove it (orca worktree rm --worktree id:$id --force) and branch $branch, then rerun  $RERUN"
+  [ "$got" = "$branch" ] || die "add-lane: Orca made lane $LANE's worktree on branch $got, not $branch: remove it (orca worktree rm --worktree id:$id --force) and branch $got, then rerun  $RERUN"
   read -r pane _ <<< "$(orca_new terminal create --worktree "id:$id" --title "$label" --command "cd $(printf %q "$path")")"
   [ -n "$pane" ] || die "add-lane: Orca created lane $LANE's worktree $path but no terminal in it: remove it (orca worktree rm --worktree id:$id --force) and branch $branch, then rerun  $RERUN"
   echo "$pane $path"
