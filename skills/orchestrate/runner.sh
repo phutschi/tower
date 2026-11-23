@@ -4,13 +4,14 @@
 # runner_detect prints herdr or orca, or fails with the refusal on stderr:
 # herdr when the session runs in a herdr pane and herdr answers (even inside
 # an Orca terminal), orca when ORCA_CLI_COMMAND is set and `orca status`
-# says its runtime is reachable. need_runner exports RUNNER from it and loads that runner's
-# functions, or stops the script.
+# says its runtime is reachable. need_runner exports RUNNER from it and loads
+# that runner's functions, or stops the script.
 runner_detect() {
   if [ "${HERDR_ENV:-}" = 1 ] && herdr --version >/dev/null 2>&1; then echo herdr; return 0; fi
   if [ -n "${ORCA_CLI_COMMAND:-}" ]; then
     # Its JSON answer can succeed with the runtime down: reachable must be true.
-    [ "$(orca status --json 2>/dev/null | jsonq 'd["result"]["runtime"]["reachable"] is True' 2>/dev/null)" != True ] || { echo orca; return 0; }
+    command -v python3 >/dev/null || { echo "missing dependency: python3" >&2; return 1; }
+    if [ "$(orca status --json 2>/dev/null | jsonq 'd["result"]["runtime"]["reachable"] is True' 2>/dev/null)" = True ]; then echo orca; return 0; fi
     echo "Orca is not reachable: this session runs in Orca (ORCA_CLI_COMMAND is set), but \`orca status\` does not say its runtime is reachable. Start Orca, or check that its runtime answers, then run the skill again." >&2
     return 1
   fi

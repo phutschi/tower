@@ -32,8 +32,9 @@
 # (runtime_unavailable); =garbled: it succeeds with an answer that has no
 # worktree in it.
 # ORCA_STUB_STATUS=fail: `status` answers runtime_unavailable; =offline: it
-# succeeds, saying the runtime is not reachable (both: Orca not reachable). ORCA_STUB=absent refuses to run, so orca counts as not
-# installed; it logs each refused call as "orca-absent <argv>".
+# succeeds, saying the runtime is not reachable (both: Orca not reachable).
+# ORCA_STUB=absent refuses to run, so orca counts as not installed; it logs
+# each refused call as "orca-absent <argv>".
 [ "${ORCA_STUB:-}" = absent ] && { printf 'orca-absent %s\n' "$*" >> "${ORCA_STUB_LOG:-/dev/null}"; echo "orca: not installed (stub)" >&2; exit 127; }
 ok()  { printf '{"id":"stub","ok":true,"result":%s}\n' "$1"; exit 0; }
 err() { printf '{"id":"stub","ok":false,"error":{"code":"%s","message":"%s"}}\n' "$1" "$1"; exit 1; }
