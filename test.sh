@@ -185,6 +185,11 @@ if section common; then
   out=$(in_orca HERDR_ENV=0 ORCA_STUB_STATUS=fail; echo "exit=$?")
   assert_match "runner_detect: Orca set but orca status fails, it says Orca is not reachable" "$out" "Orca is not reachable"
   assert_match "runner_detect: ... and fails" "$out" 'exit=1$'
+  # The runner's functions load in need_runner alone: a RUNNER the caller's
+  # shell exported decides nothing.
+  assert_eq "common.sh: an inherited RUNNER is not loaded" "$(RUNNER=bogus in_kit 'echo loaded')" loaded
+  assert_eq "common.sh: ... and no runner functions before need_runner" "$(in_kit 'type runner_name >/dev/null 2>&1 && echo some || echo none')" none
+  assert_eq "need_runner: detection decides, whatever RUNNER said" "$(RUNNER=bogus in_kit 'need_runner; runner_name')" herdr
   # Orca's JSON answer can succeed while its runtime is down: reachable false.
   out=$(in_orca HERDR_ENV=0 ORCA_STUB_STATUS=offline; echo "exit=$?")
   assert_match "runner_detect: orca status answers reachable false: Orca is not reachable" "$out" "Orca is not reachable"
@@ -254,7 +259,7 @@ if section executor; then
   # runs start_agent_with_trust_retry acme-lane-a in it, in repo $r. The
   # terminal's agent states are ORCA_STUB_STATES_DIR/term-1.
   S="$ORCA_STUB_STATES_DIR"
-  ostart() { local k=$1; shift; reset_stub; (cd "$r" && env HOME="$TMP/rev-home" EXECUTOR_KIND="$k" "$@" bash -c ". \"\$KIT/common.sh\"; orca terminal create --json >/dev/null; . \"\$KIT/executor.sh\"; start_agent_with_trust_retry acme-lane-a term-1; echo \"exit=\$?\"" 2>&1); }
+  ostart() { local k=$1; shift; reset_stub; (cd "$r" && env HOME="$TMP/rev-home" EXECUTOR_KIND="$k" "$@" bash -c ". \"\$KIT/common.sh\"; need_runner; orca terminal create --json >/dev/null; . \"\$KIT/executor.sh\"; start_agent_with_trust_retry acme-lane-a term-1; echo \"exit=\$?\"" 2>&1); }
   rm -f "$S"/term-*
   out=$(ostart claude EXECUTOR_MODEL=opus SESSION_ROLE=code SESSION_TOPIC=a-first)
   assert_match "orca claude start: exit 0" "$out" 'exit=0$'
@@ -330,7 +335,7 @@ if section executor; then
   else
     # An agent start: `start NAME [ENV...]` runs start_agent_with_trust_retry
     # for NAME in pane-9 of a codex executor, in repo $r.
-    start() { local n=$1; shift; reset_stub; (cd "$r" && env HOME="$TMP/rev-home" EXECUTOR_KIND=codex "$@" bash -c ". \"\$KIT/common.sh\"; . \"\$KIT/executor.sh\"; start_agent_with_trust_retry $n pane-9; echo \"exit=\$?\"" 2>&1); }
+    start() { local n=$1; shift; reset_stub; (cd "$r" && env HOME="$TMP/rev-home" EXECUTOR_KIND=codex "$@" bash -c ". \"\$KIT/common.sh\"; need_runner; . \"\$KIT/executor.sh\"; start_agent_with_trust_retry $n pane-9; echo \"exit=\$?\"" 2>&1); }
     out=$(start acme-lane-a)
     assert_match "codex start: its startup update check is off" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start acme-lane-a --kind codex --pane pane-9 -- .* -c check_for_update_on_startup=false( |$)'
     out=$(start acme-lane-a 'AGENT_TMP=/run/it"s \tmp')
@@ -339,7 +344,7 @@ if section executor; then
     # common git dir, never its hooks or config (#10); lane A in the main
     # checkout keeps the whole common dir, as its index and HEAD live there.
     C=$(git -C "$r" rev-parse --path-format=absolute --git-common-dir)
-    start_in() { local d=$1; shift; reset_stub; (cd "$d" && env HOME="$TMP/rev-home" EXECUTOR_KIND=codex RUN_DIR=/run/x "$@" bash -c ". \"\$KIT/common.sh\"; . \"\$KIT/executor.sh\"; start_agent_with_trust_retry acme-lane-b pane-9" >/dev/null 2>&1); cat "$HERDR_STUB_LOG"; }
+    start_in() { local d=$1; shift; reset_stub; (cd "$d" && env HOME="$TMP/rev-home" EXECUTOR_KIND=codex RUN_DIR=/run/x "$@" bash -c ". \"\$KIT/common.sh\"; need_runner; . \"\$KIT/executor.sh\"; start_agent_with_trust_retry acme-lane-b pane-9" >/dev/null 2>&1); cat "$HERDR_STUB_LOG"; }
     log=$(start_in "$wt")
     assert_match "codex worktree lane: writes only objects, refs, logs, packed-refs and its own git dir" "$log" \
       "^herdr agent start acme-lane-b .* -c sandbox_workspace_write\\.writable_roots=\\[\"/run/x\",\"$C/objects\",\"$C/refs\",\"$C/logs\",\"$C/packed-refs\",\"$C/packed-refs\\.lock\",\"$C/packed-refs\\.new\",\"$C/worktrees/some-branch\"\\]( |\$)"
@@ -1949,7 +1954,7 @@ if section cursor-lane; then
     "implementer=grok-4.7-high-fast quality-reviewer=grok-4.7-high-fast spec-reviewer=grok-4.7-high-fast"
   assert_match "cursor run: its Reviewer has a model" "$(cat "$RUN/panes.txt")" '^reviewer: +kind claude, model claude-opus-5-5$'
   # start NAME [ENV...]: start_agent_with_trust_retry for a cursor NAME in pane-9.
-  start() { local n=$1; shift; reset_stub; (cd "$r" && env HOME="$TMP/cl-home" EXECUTOR_KIND=cursor "$@" bash -c ". \"\$KIT/common.sh\"; . \"\$KIT/executor.sh\"; start_agent_with_trust_retry $n pane-9; echo \"exit=\$?\"" 2>&1); }
+  start() { local n=$1; shift; reset_stub; (cd "$r" && env HOME="$TMP/cl-home" EXECUTOR_KIND=cursor "$@" bash -c ". \"\$KIT/common.sh\"; need_runner; . \"\$KIT/executor.sh\"; start_agent_with_trust_retry $n pane-9; echo \"exit=\$?\"" 2>&1); }
   out=$(start acme-lane-a HERDR_STUB_TRUST_STARTS=1)
   assert_match "cursor trust box: the start fails" "$out" 'exit=1$'
   assert_match "cursor trust box: ... saying to check the pane" "$out" 'acme-lane-a is blocked during startup in pane pane-9.*check the pane'

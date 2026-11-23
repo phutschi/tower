@@ -26,8 +26,8 @@ need_runner() {
   . "$KIT/runner-$RUNNER.sh"
 }
 
-# The runner functions, herdr's until need_runner says otherwise (each
-# runner-<runner>.sh documents them):
+# The runner functions, loaded by need_runner alone (each runner-<runner>.sh
+# documents them):
 #   runner_agent_start NAME KIND PANE -- HARNESS_ARGS...
 #   runner_agent_state NAME PANE   "<status> <ready>", gone or unreadable;
 #                                  gone: herdr, the agent is not found; Orca, its terminal is closed
@@ -52,5 +52,3 @@ need_runner() {
 #   runner_pane_exists PANE        0 open, 1 gone, 2 the runner cannot say
 #   runner_pane_check              what runner_pane_exists asks, for a message
 #   runner_read_cmd                the pane map's read a pane line
-# shellcheck source=/dev/null  # runner-herdr.sh or runner-orca.sh
-. "$KIT/runner-${RUNNER:-herdr}.sh"
