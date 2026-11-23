@@ -25,6 +25,28 @@ without herdr loses nothing. We keep it in the same plugin so there is one
 install and one name, and we keep the exception in one skill so the rest
 cannot drift toward herdr.
 
+## Amended: orchestrate drives herdr or Orca
+
+`/tower:orchestrate` is no longer herdr-only. It drives Orca the same way it
+drives herdr: it starts each agent CLI in a terminal it opens, types the brief
+in, reads the terminal back and watches the agent's status. It uses whichever
+runner it was started in, and herdr wins when it runs inside an Orca terminal.
+tower's board stays the only record of a run (ADR 0011).
+
+We considered rebuilding orchestrate on Orca's own orchestration (its runs,
+tasks, workers and mailbox). We rejected it: it is a rewrite, and the run
+would get a second record beside tower's. We kept herdr because tower is
+public and orchestrate runs there today; the kit tests a fake Orca next to the
+fake herdr.
+
+A whole run lives on one machine: the orchestrator, its lanes and the record.
+Remote means a paired Orca server, where the human starts the run. A run
+spread over several machines would need tower's record to travel over the
+network, which is a separate design.
+
+The exception still lives in one skill. The CLI and `/tower:run` still name
+no runner.
+
 ## Amended: `wait` needs no timeout
 
 `--timeout` is now optional. Without it, `wait` blocks until something needs

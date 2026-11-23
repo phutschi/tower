@@ -108,8 +108,8 @@ _Avoid_: review lane, reviewer pane
 
 **Runner**:
 Whatever starts and hosts executor sessions — panes, worktrees, processes.
-herdr is one, and `/tower:orchestrate` drives it. The CLI and `/tower:run`
-know nothing about any runner (ADR 0005).
+herdr and Orca are runners; `/tower:orchestrate` drives whichever one it was
+started in. The CLI and `/tower:run` know nothing about any runner (ADR 0005).
 _Avoid_: harness, launcher, orchestrator
 
 **Harness**:
@@ -342,20 +342,25 @@ _Avoid_: skin, mode, style, language
 ### The orchestrate layout
 
 **Layout**:
-The fixed pane arrangement of an orchestrate run on herdr tabs of the
-orchestrator's workspace: the orchestrator's tab (orchestrator left; console,
-dev and shell right), the `lanes` tab (the lane grid left, the Reviewer slots
-right), and with session roles the `research` tab (a lane grid for lanes of
-any role but code or review). A tab opens with its first pane.
+The fixed pane arrangement of an orchestrate run. It differs by runner.
+On herdr, tabs of the orchestrator's workspace: the orchestrator's tab
+(orchestrator left; console, dev and shell right), the `lanes` tab (the lane
+grid left, the Reviewer slots right), and with session roles the `research`
+tab (a lane grid for lanes of any role but code or review). A tab opens with
+its first pane.
+On Orca, the orchestrator's workspace holds lane A, a `tower` tab (console on
+top, shell below), the dev pane in its own tab, and each Reviewer in a tab of
+its own; lanes B to D are child worktrees of that workspace.
 
 **Lane grid**:
-The 2x2 area for lane panes in the lanes tab. It grows in the order lanes are
-added: the second right of the first, the third under the first, the fourth
-under the second; capped at four.
+The 2x2 area for lane panes in the lanes tab, on herdr only. It grows in the
+order lanes are added: the second right of the first, the third under the
+first, the fourth under the second; capped at four.
 
 **Console pane**:
-The pane right of the orchestrator that runs the console. It stays open after the run until
-the human quits it.
+The pane that runs the console: right of the orchestrator on herdr, the top
+of the `tower` tab on Orca. It stays open after the run until the human quits
+it.
 _Avoid_: tower pane
 
 **Shell pane**:
@@ -364,8 +369,8 @@ nothing.
 _Avoid_: spare pane, terminal pane
 
 **Dev pane**:
-An optional pane under the console running the repo's development server in lane A's
-checkout. One per run, never per lane.
+An optional pane running the repo's development server in lane A's checkout:
+under the console on herdr, its own tab on Orca. One per run, never per lane.
 
 **Check gate**:
 The one-shot command a lane must pass before committing a task. Declared by
