@@ -2,7 +2,8 @@
 # Stand-in for Orca's CLI under DRY_RUN=1 and test.sh, as tests/stub/herdr is
 # for herdr. Logs argv to ORCA_STUB_LOG and answers with the JSON shapes of
 # `orca … --json`: {"ok":true,"result":…}, or {"ok":false,"error":{"code":…}}
-# on stdout with exit 1. Terminal handles (term-<n>, in tab-<n>, leaf-<n>) and
+# on stdout with exit 1 (an ok answer exits 1 where Orca's does: a refused
+# send, an unsatisfied wait). Terminal handles (term-<n>, in tab-<n>, leaf-<n>) and
 # worktree ids (repo-0::<root>/wt-<n>, root ORCA_STUB_WORKTREES, default
 # /orca-stub/worktrees) count up per process tree
 # through ORCA_STUB_COUNTER (common.sh gives a DRY_RUN script a private one);
