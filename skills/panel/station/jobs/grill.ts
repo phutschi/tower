@@ -142,13 +142,13 @@ registerJobRunner("grill", async ({ job, hubUrl, workspace, emit, signal }) => {
     let run: HeadlessRun | null = null;
     if (!last)
       run = await turn(`${readFileSync(PROMPT, "utf8")}
-  <issue ref="${ref}">
-  <title>${quote(issue.title)}</title>
-  <body>
-  ${quote(issue.body)}
-  </body>
-  </issue>
-  `);
+<issue ref="${ref}">
+<title>${quote(issue.title)}</title>
+<body>
+${quote(issue.body)}
+</body>
+</issue>
+`);
     else if (last.kind === "replied")
       run = await turn(answered(last.data.replies as Reply[]));
     let nudged = false;
