@@ -511,13 +511,15 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
           )
             return bad("an event has ts, kind and data");
           // Only from the station working the job: one that lost it says nothing.
-          if (
-            kind === "session" &&
-            typeof data.sessionId === "string" &&
-            job.state === "claimed" &&
-            job.station === station
-          )
+          if (typeof station !== "string" || !store.holds(job.id, station))
+            return bad("the station holds this job no more", 409);
+          if (kind === "session" && typeof data.sessionId === "string")
             store.setSession(job.id, data.sessionId);
+          if (kind === "tokens") {
+            if (!isCount(data.input) || !isCount(data.output))
+              return bad("a tokens event has input and output counts");
+            store.addTokens(job.id, { input: data.input, output: data.output });
+          }
           if (kind === "rate-limit") {
             const info = parseRateLimit(data);
             if (!info)

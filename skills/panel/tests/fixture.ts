@@ -60,10 +60,9 @@ export const blocks = (repo: string, issue: number, blocker: number) =>
 export async function acceptBundle(...issues: number[]): Promise<string> {
   setHead("acme/widgets", `merge-${issues.join("-")}`);
   await polls(2);
-  const job = (await api<Job[]>("/api/jobs"))
-    .filter((j) => j.kind === "advice")
-    .at(-1)!;
+  const job = await held("advice");
   await post(`/api/jobs/${job.id}/events`, {
+    station: job.station,
     ts: "2026-11-21T10:00:00.000Z",
     kind: "proposal",
     data: {
@@ -75,6 +74,16 @@ export async function acceptBundle(...issues: number[]): Promise<string> {
   const id = advice.bundles[0]!.id;
   await post(`/api/advice/${advice.id}/accept`, { order: [], bundles: [id] });
   return id;
+}
+
+/**
+ * The newest job of `kind`, claimed by the station "fixture" unless a station
+ * holds it already: only its holder may report on it.
+ */
+export async function held(kind: Job["kind"]): Promise<Job> {
+  await put("/api/stations/fixture", { enabled: true, limit: 100 });
+  await post("/api/jobs/claim", { station: "fixture", kinds: [kind] });
+  return (await api<Job[]>("/api/jobs")).filter((j) => j.kind === kind).at(-1)!;
 }
 
 export const setHead = (repo: string, sha: string) =>

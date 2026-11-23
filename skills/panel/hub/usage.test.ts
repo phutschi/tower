@@ -13,6 +13,7 @@ import {
   hubUrl,
   issue,
   post,
+  put,
   setIssues,
   start,
   until,
@@ -33,14 +34,20 @@ const REPORT: UsageRow[] = [
   },
 ];
 
-/** The hub with one grill queued, for #1 of acme/widgets. */
+/**
+ * The hub with two grills queued, for #1 and #2 of acme/widgets; the server's
+ * station holds the first, and may claim the second.
+ */
 async function hub(
   readUsage: () => Promise<UsageRow[] | null> = async () => null,
 ) {
-  setIssues("acme/widgets", [issue(1)]);
+  setIssues("acme/widgets", [issue(1), issue(2)]);
   await start(["acme/widgets"], { serverStation: "server", readUsage });
+  await put("/api/stations/server", { limit: 2 });
   await post("/api/issues/acme/widgets/1/stage", { stage: "shaping" });
-  return (await api<Job[]>("/api/jobs"))[0]!;
+  const job = (await claim())!;
+  await post("/api/issues/acme/widgets/2/stage", { stage: "shaping" });
+  return job;
 }
 const claim = async () =>
   (
@@ -62,8 +69,7 @@ const notes = () =>
 const page = async () => (await fetch(`${hubUrl()}/`)).text();
 
 test("a finished job shows its duration and tokens on the Panel", async () => {
-  await hub();
-  const job = (await claim())!;
+  const job = await hub();
   await post(`/api/jobs/${job.id}/result`, {
     station: "server",
     outcome: "done",

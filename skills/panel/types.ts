@@ -55,6 +55,7 @@ export interface JobResult {
   reason?: string;
   sessionId?: string;
   durationMs: number;
+  /** Added to what the job's `tokens` events reported. */
   tokens?: { input: number; output: number };
 }
 

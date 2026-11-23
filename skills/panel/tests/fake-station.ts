@@ -1,9 +1,11 @@
 /**
  * A station process for seam 2: the real runStation with fake runners for the
  * kinds in FAKE_KINDS. Each fake job emits its workspace and two steps, then
- * waits for WORKDIR/release-<job id>: empty to finish, "fail" to fail.
+ * waits for WORKDIR/release-<job id>: empty to finish, "fail" to fail. With
+ * FAKE_CHECKPOINT=1 it first waits for WORKDIR/checkpoint-<job id>, sends a
+ * "spec" checkpoint, and once the hub has it writes WORKDIR/acted-<job id>.
  */
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { registerJobRunner, runStation } from "../station/station.ts";
@@ -15,7 +17,7 @@ const workdir = env("WORKDIR");
 for (const kind of env("FAKE_KINDS").split(",").filter(Boolean))
   registerJobRunner(
     kind as JobKind,
-    async ({ job, workspace, emit, signal }) => {
+    async ({ job, workspace, emit, checkpoint, signal }) => {
       await emit("workspace", {
         path: workspace.path,
         branch: workspace.branch,
@@ -23,6 +25,12 @@ for (const kind of env("FAKE_KINDS").split(",").filter(Boolean))
       });
       await emit("step", { n: 1 });
       await emit("step", { n: 2 });
+      if (env("FAKE_CHECKPOINT") === "1") {
+        const at = join(workdir, `checkpoint-${job.id}`);
+        while (!existsSync(at) && !signal.aborted) await Bun.sleep(20);
+        await checkpoint("spec", { n: 3 });
+        writeFileSync(join(workdir, `acted-${job.id}`), "");
+      }
       const release = join(workdir, `release-${job.id}`);
       while (!existsSync(release) && !signal.aborted) await Bun.sleep(20);
       if (readFileSync(release, "utf8").trim() === "fail")

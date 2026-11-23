@@ -270,7 +270,7 @@ test("an answer that is not JSON gets one more turn asking for JSON only", async
   expect(lines("claude.log")[1]).toContain("--resume sess-1");
 });
 
-test("a session event from a station that does not hold the job is ignored", async () => {
+test("a session event from a station that does not hold the job is refused", async () => {
   await grill({ CLAUDE_STUB_OUT: session("q.out", "sess-1", QUESTIONS) });
   await until(async () => (await job()).sessionId === "sess-1");
   const res = await post(`/api/jobs/${(await job()).id}/events`, {
@@ -279,6 +279,6 @@ test("a session event from a station that does not hold the job is ignored", asy
     kind: "session",
     data: { sessionId: "sess-other" },
   });
-  expect(res.status).toBe(200);
+  expect(res.status).toBe(409);
   expect((await job()).sessionId).toBe("sess-1");
 });

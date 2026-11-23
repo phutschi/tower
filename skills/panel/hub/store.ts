@@ -432,27 +432,55 @@ export class Store {
   /**
    * Records a job's result from `station`. It counts while that station
    * holds the job, or once its lease ran out and nobody claimed it since: a
-   * finished job beats a second try. False when it does not count.
+   * finished job beats a second try. False when it does not count. Its
+   * tokens add to what tokens events reported; a result with no session
+   * keeps the one the job reported while it ran.
    */
   finish(station: string, r: JobResult): boolean {
+    const t = r.tokens;
     return (
       this.db.run(
-        `UPDATE jobs SET state = ?, reason = ?, session_id = ?, duration_ms = ?,
-           tokens_in = ?, tokens_out = ?, lease_until = NULL, station = ?, lost_by = NULL
+        `UPDATE jobs SET state = ?, reason = ?, session_id = COALESCE(?, session_id),
+           duration_ms = ?,
+           tokens_in = CASE WHEN ? THEN COALESCE(tokens_in, 0) + ? ELSE tokens_in END,
+           tokens_out = CASE WHEN ? THEN COALESCE(tokens_out, 0) + ? ELSE tokens_out END,
+           lease_until = NULL, station = ?, lost_by = NULL
          WHERE id = ? AND ${FINISHES}`,
         [
           OUTCOME[r.outcome],
           r.reason ?? null,
           r.sessionId ?? null,
           r.durationMs,
-          r.tokens?.input ?? null,
-          r.tokens?.output ?? null,
+          t ? 1 : 0,
+          t?.input ?? 0,
+          t ? 1 : 0,
+          t?.output ?? 0,
           station,
           r.jobId,
           station,
           station,
         ],
       ).changes === 1
+    );
+  }
+
+  /** Whether `station` may still report on a job: the same rule as for its result. */
+  holds(id: string, station: string): boolean {
+    return (
+      this.db
+        .query<{ n: number }, [string, string, string]>(
+          `SELECT count(*) AS n FROM jobs WHERE id = ? AND ${FINISHES}`,
+        )
+        .get(id, station, station)!.n === 1
+    );
+  }
+
+  /** Adds tokens a job used to its totals. */
+  addTokens(id: string, t: { input: number; output: number }) {
+    this.db.run(
+      `UPDATE jobs SET tokens_in = COALESCE(tokens_in, 0) + ?,
+         tokens_out = COALESCE(tokens_out, 0) + ? WHERE id = ?`,
+      [t.input, t.output, id],
     );
   }
 
