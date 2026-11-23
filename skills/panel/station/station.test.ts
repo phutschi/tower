@@ -410,6 +410,26 @@ test("a failed job the user stopped keeps its tokens", async () => {
   expect((await jobs())[0]!.tokens).toEqual({ input: 7, output: 3 });
 });
 
+test("an event sent again with its id is stored, and its tokens counted, once", async () => {
+  await setup();
+  await grills(1);
+  const [job] = await jobs();
+  await post("/api/jobs/claim", { station: "server", kinds: ["grill"] });
+  const send = () =>
+    post(`/api/jobs/${job!.id}/events`, {
+      station: "server",
+      id: "event-1",
+      ts: new Date().toISOString(),
+      kind: "tokens",
+      data: { input: 100, output: 10 },
+    });
+  expect((await send()).status).toBe(200);
+  expect((await send()).status).toBe(200);
+  const stored = await api<JobWithEvents>(`/api/jobs/${job!.id}`);
+  expect(stored.events.length).toBe(1);
+  expect(stored.tokens).toEqual({ input: 100, output: 10 });
+});
+
 test("the Panel lists stations with switch, limit and current jobs, and each job's events", async () => {
   await setup();
   await put("/api/stations/laptop", { limit: 3 });

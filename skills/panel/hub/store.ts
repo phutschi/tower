@@ -150,7 +150,8 @@ export class Store {
         job_id TEXT NOT NULL,
         ts TEXT NOT NULL,
         kind TEXT NOT NULL,
-        data TEXT NOT NULL
+        data TEXT NOT NULL,
+        event_id TEXT UNIQUE
       );
     `);
   }
@@ -460,10 +461,13 @@ export class Store {
     this.db.run("UPDATE jobs SET noted = 1 WHERE id = ?", [id]);
   }
 
-  addEvent(e: JobEvent) {
-    this.db.run(
-      "INSERT INTO job_events (job_id, ts, kind, data) VALUES (?, ?, ?, ?)",
-      [e.jobId, e.ts, e.kind, JSON.stringify(e.data)],
+  /** Stores an event; false when one with its id is stored already. */
+  addEvent(e: JobEvent, id?: string): boolean {
+    return (
+      this.db.run(
+        "INSERT OR IGNORE INTO job_events (job_id, ts, kind, data, event_id) VALUES (?, ?, ?, ?, ?)",
+        [e.jobId, e.ts, e.kind, JSON.stringify(e.data), id ?? null],
+      ).changes === 1
     );
   }
 

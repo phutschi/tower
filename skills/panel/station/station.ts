@@ -117,7 +117,13 @@ export async function runStation(
     const started = Date.now();
     const event = (kind: string, data: Record<string, unknown>) => ({
       path: `/api/jobs/${job.id}/events`,
-      body: { ts: new Date().toISOString(), kind, data },
+      // The hub keeps one event per id: a resend after a lost answer is no second.
+      body: {
+        id: crypto.randomUUID(),
+        ts: new Date().toISOString(),
+        kind,
+        data,
+      },
     });
     const emit = (kind: string, data: Record<string, unknown>) => {
       outbox.push(event(kind, data));

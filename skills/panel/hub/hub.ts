@@ -668,7 +668,7 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
       },
       "/api/jobs/:id/events": {
         POST: async (req) => {
-          const { station, ts, kind, data } = await body(req);
+          const { station, id, ts, kind, data } = await body(req);
           const job = store.job(req.params.id);
           if (!job) return bad("no such job", 404);
           if (
@@ -710,8 +710,11 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
             });
             advice.add(job.id, kept, now());
           }
-          // One write: an event sent again after a failure counts once.
+          // An event sent again with its id (its answer was lost) counts once.
           store.transaction(() => {
+            const eventId = typeof id === "string" ? id : undefined;
+            if (!store.addEvent({ jobId: job.id, ts, kind, data }, eventId))
+              return;
             if (kind === "session" && typeof data.sessionId === "string")
               store.setSession(job.id, data.sessionId);
             if (kind === "tokens")
@@ -719,7 +722,6 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
                 input: data.input as number,
                 output: data.output as number,
               });
-            store.addEvent({ jobId: job.id, ts, kind, data });
           });
           return Response.json({ ok: true });
         },
