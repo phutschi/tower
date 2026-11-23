@@ -140,3 +140,29 @@ runner_pane_exists() {
   esac
 }
 runner_pane_check() { echo Orca; }
+# The Reviewer slots R1 and R2: a terminal tab each in workspace WS, started
+# in REPO (LABEL is herdr's). Prints "<tab>,<tab> <r1> <r2>".
+runner_open_reviewer_slots() {
+  local r1 t1 r2 t2 cd
+  cd="cd $(printf %q "$2")"
+  read -r r1 t1 <<< "$(orca_new terminal create --worktree "id:$1" --title R1 --command "$cd")" && [ -n "$r1" ] || return 1
+  read -r r2 t2 <<< "$(orca_new terminal create --worktree "id:$1" --title R2 --command "$cd")" && [ -n "$r2" ] || return 1
+  echo "$t1,$t2 $r1 $r2"
+}
+# A Reviewer that exits leaves its terminal at a shell, which Orca still
+# lists as done: its terminal is closed, so it reads gone, and the next
+# Reviewer gets a tab of its own.
+runner_end_agent() { orca terminal close --terminal "$1" --json >/dev/null; }
+# PANE while it is open, else a new terminal tab SLOT in the orchestrator's
+# workspace ($MAP is add-reviewer's), started in REPO.
+runner_reviewer_pane() {
+  local rc=0 ws pane
+  runner_pane_exists "$2" 2>/dev/null || rc=$?
+  case $rc in
+    0) echo "$2"; return ;;
+    2) echo "Orca cannot say whether Reviewer slot $1's terminal $2 is open" >&2; return 1 ;;
+  esac
+  ws=$(sed -nE 's/^orchestrator: +([^ ]+).*/\1/p' "$MAP")
+  read -r pane _ <<< "$(orca_new terminal create --worktree "id:$ws" --title "$1" --command "cd $(printf %q "$3")")" && [ -n "$pane" ] || return 1
+  echo "$pane"
+}

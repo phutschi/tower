@@ -226,7 +226,9 @@ slot_pane() { echo "$TAB_LINE" | sed -nE "s/.*[(, ]$1 ([^,)]+).*/\\1/p"; }
 # /exit (its slash-command popup takes it, or it lands before the text): so a
 # second's pause before it, and Enter again about every 3 seconds while the
 # Reviewer is still there. An extra Enter at a shell prompt does nothing.
-# EXIT_WAIT_SECONDS counts checks about a second apart.
+# EXIT_WAIT_SECONDS counts checks about a second apart. In Orca the Reviewer's
+# terminal is closed after its /exit, and the next Reviewer gets a terminal
+# tab of its own (runner-orca.sh runner_end_agent, runner_reviewer_pane).
 # The reviewer line is written before its agent starts, ending in " starting"
 # until the agent accepts input. A line still ending so, whose task nobody has
 # worked on (pending on the board, or not there), is a start that failed: a
@@ -240,7 +242,10 @@ PREV_LINE=$(grep -E "^reviewer $SLOT: " "$MAP" || true)
 PREV=$(echo "$PREV_LINE" | sed -nE "s/^reviewer $SLOT: +[^ ]+ +\\(agent \"([^\"]+)\".*/\\1/p")
 N=1; RESUME=0; KEEP=0
 if [ -n "$PREV" ]; then
-  PANE=$(slot_pane "$SLOT")   # the slot the previous Reviewer is in
+  # The previous Reviewer's pane: its line's (a runner may give each Reviewer
+  # a pane of its own), else the slot's.
+  PANE=$(echo "$PREV_LINE" | sed -nE "s/^reviewer $SLOT: +([^ ]+) .*/\\1/p")
+  [ -n "$PANE" ] || PANE=$(slot_pane "$SLOT")
   N=$(( ${PREV##*-} + 1 ))
   case "$PREV_LINE" in
     *" starting")
@@ -274,15 +279,16 @@ if [ -n "$PREV" ]; then
   [ "$KEEP" = 1 ] || case "$(state_of "$PREV" "$PANE")" in
     gone) ;;
     working) die "Reviewer $PREV is still working in $SLOT: wait until the slot is free, or use the other slot" ;;
-    unreadable) die "herdr cannot say whether Reviewer $PREV is still there (herdr agent get $PREV fails); rerun once herdr answers" ;;
+    unreadable) die "$(runner_name) cannot say whether Reviewer $PREV is still there; rerun once $(runner_name) answers" ;;
     *)
       runner_send_text "$PANE" "/exit"
       [ "${DRY_RUN:-0}" = 1 ] || sleep 1
       runner_send_keys "$PANE" Enter
+      runner_end_agent "$PANE"
       waited=0
       until state=$(state_of "$PREV" "$PANE"); [ "$state" = gone ]; do
         if [ "$waited" -ge "${EXIT_WAIT_SECONDS:-15}" ]; then
-          [ "$state" != unreadable ] || die "herdr cannot say whether Reviewer $PREV exited; check $PANE, and rerun once herdr answers"
+          [ "$state" != unreadable ] || die "$(runner_name) cannot say whether Reviewer $PREV exited; check $PANE, and rerun once $(runner_name) answers"
           die "Reviewer $PREV did not exit; end it in $PANE and rerun"
         fi
         if [ "$waited" -gt 0 ] && [ $((waited % 3)) -eq 0 ]; then
@@ -339,7 +345,12 @@ if [ -z "$TAB_LINE" ]; then
   echo "$KEY $TAB_LINE" >> "$MAP"
   echo "$LABEL tab: $TAB — slots R1 $R1_PANE, R2 $R2_PANE"
 fi
-PANE=$(slot_pane "$SLOT")
+# The kept Reviewer's pane stays; a fresh one gets the slot's pane, or a new
+# one where the runner closed the last (runner_reviewer_pane).
+if [ "$KEEP" != 1 ]; then
+  PANE=$(slot_pane "$SLOT")
+  PANE=$(runner_reviewer_pane "$SLOT" "$PANE" "$REPO")
+fi
 
 # --- a fresh Reviewer in the slot ---------------------------------------------
 NAME="$(cd "$REPO" && agent_name "-$(echo "$SLOT" | tr 'A-Z' 'a-z')-$N")"

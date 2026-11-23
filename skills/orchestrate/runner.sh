@@ -43,7 +43,9 @@ need_runner() {
 #   runner_open_lane REPO BRANCH BASE WT LABEL                "<pane> [<checkout>]": makes the
 #                                  worktree, at WT unless the runner names another checkout
 #   runner_place_lane MAP LABEL PANE                          the pane's id once placed
-#   runner_open_reviewer_slots WS REPO LABEL                  "<tab> <r1> <r2>"
+#   runner_open_reviewer_slots WS REPO LABEL                  "<tab(s)> <r1> <r2>"
+#   runner_end_agent PANE          after /exit: whatever else ends the agent in PANE
+#   runner_reviewer_pane SLOT PANE REPO   the pane a fresh Reviewer in SLOT starts in
 #   runner_pane_exists PANE        0 open, 1 gone, 2 the runner cannot say
 #   runner_pane_check              what runner_pane_exists asks, for a message
 #   runner_read_cmd, runner_message_cmd [AGENT PANE TEXT]   the pane map's read a pane and

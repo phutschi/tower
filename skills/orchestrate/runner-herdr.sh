@@ -108,6 +108,9 @@ runner_open_reviewer_slots() {
   r2=$(herdr_split "$2" --pane "$r1" --direction "$split" --ratio 0.5) || return 1
   echo "$tab $r1 $r2"
 }
+# A Reviewer sent /exit leaves herdr's list by itself; its pane stays the slot's.
+runner_end_agent()     { :; }
+runner_reviewer_pane() { echo "$2"; }
 # 0: PANE is open; 1: herdr answers pane_not_found; 2: herdr cannot say, its
 # error on stderr.
 runner_pane_exists() {
