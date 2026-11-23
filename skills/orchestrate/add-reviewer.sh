@@ -363,16 +363,18 @@ if [ "$SLOTS_OPEN" = 0 ]; then
     || { [ -z "$LANES_LINE" ] && grep -qE '^lane A: .*, tab [a-z]+\)( starting| unsent)?$' "$MAP"; }; then
     LABEL=lanes; KEY="lanes tab:     "
   fi
-  while [ -z "$(slot_pane R2)" ]; do
+  for _pass in 1 2; do   # two calls at most: R1, then R2
+    [ -z "$(slot_pane R2)" ] || break
     R1_PANE=$(slot_pane R1); TAB=${TAB_LINE%% *}
     out=$(runner_open_reviewer_slots "$WS" "$REPO" "$LABEL" ${R1_PANE:+"$R1_PANE" "$TAB"}) || {
       [ -z "$R1_PANE" ] || die "add-reviewer: $(runner_name) opened R1's tab but not R2's: rerun  $KIT/add-reviewer.sh$RERUN_ARGS  to open it"
-      exit 1; }   # nothing opened; the runner said why
+      exit 1; }   # nothing to record; the runner said why
     read -r TAB R1_PANE R2_PANE <<< "$out"
     TAB_LINE="$TAB   (R1 $R1_PANE${R2_PANE:+, R2 $R2_PANE})"
     tmp=$(mktemp "$MAP.XXXXXX"); { grep -v "^${KEY%%:*}:" "$MAP" || [ $? -eq 1 ]; } > "$tmp"
     echo "$KEY $TAB_LINE" >> "$tmp"; mv "$tmp" "$MAP"
   done
+  [ -n "$(slot_pane R2)" ] || die "add-reviewer: $(runner_name) answered without R2's tab: check $MAP's tab line, then rerun  $KIT/add-reviewer.sh$RERUN_ARGS"
   echo "$LABEL tab: $TAB — slots R1 $R1_PANE, R2 $R2_PANE"
 fi
 # --- a fresh Reviewer in the slot ---------------------------------------------
