@@ -360,4 +360,43 @@ test("a station that takes over a grill whose spec is on the hub writes that spe
   await until(async () => (await job()).state === "done", 10_000);
   expect(read("acme_widgets_5.body")).toBe(SPEC.spec);
   expect(lines("claude.log")).toHaveLength(2);
+  expect((await job()).sessionId).toBe("sess-1");
+});
+
+test("a takeover of a grill whose first answer was the spec keeps the session id", async () => {
+  remote();
+  setIssues("acme/widgets", [issue(5, "needs-triage")]);
+  await start(["acme/widgets"], { serverStation: "server", leaseMs: 300 });
+  await post("/api/issues/acme/widgets/5/stage", { stage: "shaping" });
+  writeFileSync(join(dir(), "fail"), "edit");
+  const env = { CLAUDE_STUB_OUT: session("spec.out", "sess-1", SPEC) };
+  const first = station(env);
+  await until(async () => ghLog().some((l) => l.includes("--body-file")));
+  first.kill("SIGKILL");
+  await first.exited;
+  rmSync(join(dir(), "fail"));
+  station(env);
+  await until(async () => (await job()).state === "done", 10_000);
+  expect(lines("claude.log")).toHaveLength(1);
+  expect((await job()).sessionId).toBe("sess-1");
+});
+
+test("a grill stopped while its session thinks says why, and keeps the tokens of its turns so far", async () => {
+  const thinking = join(dir(), "thinking");
+  await grill({
+    CLAUDE_STUB_OUT: session("q.out", "sess-1", QUESTIONS, 100),
+    CLAUDE_STUB_RESUME_OUT: session("spec.out", "sess-1", SPEC, 200),
+    CLAUDE_STUB_RUN: `test -f '${thinking}' && exec sleep 3 >/dev/null 2>&1`,
+  });
+  await until(async () => reads() > 0);
+  writeFileSync(thinking, "");
+  reply("Only rex.");
+  await until(async () => lines("claude.log").length === 2);
+  await post("/api/issues/acme/widgets/5/stage", { stage: "needs-triage" });
+  await until(async () => (await job()).state === "stopped");
+  expect(await job()).toMatchObject({
+    reason: "moved back to needs-triage",
+    tokens: { input: 100, output: 10 },
+  });
+  expect(existsSync(join(dir(), "acme_widgets_5.body"))).toBe(false);
 });

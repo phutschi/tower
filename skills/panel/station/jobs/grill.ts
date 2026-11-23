@@ -155,7 +155,7 @@ registerJobRunner("grill", async ({ job, hubUrl, workspace, emit, signal }) => {
     // An earlier claim finished the spec: only its write to GitHub is left.
     if (typeof kept === "string") {
       await writeSpec(kept);
-      return { outcome: "done", sessionId, tokens };
+      return { outcome: "done", sessionId: job.sessionId ?? "", tokens };
     }
     let run: HeadlessRun | null = null;
     if (!last)
