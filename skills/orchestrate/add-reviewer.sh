@@ -239,6 +239,13 @@ slot_pane() { echo "$TAB_LINE" | sed -nE "s/.*[(, ]$1 ([^,)]+).*/\\1/p"; }
 # is ended as above, then started again. A starting line whose task was
 # worked on is a review that happened: the next one starts fresh.
 RERUN_ARGS=$(printf ' %q' "$RUN_DIR" "$SLOT" "$LANE_KIND" "$TITLE" "$FINDINGS" ${LANE:+"$LANE"})
+# The map is rewritten through a temp file of this call's own: the other
+# slot's add-reviewer may be rewriting it too.
+slot_line() {
+  local tmp; tmp=$(mktemp "$MAP.XXXXXX")
+  { grep -v "^reviewer $SLOT:" "$MAP" || [ $? -eq 1 ]; } > "$tmp"
+  echo "$1" >> "$tmp"; mv "$tmp" "$MAP"
+}
 PREV_LINE=$(grep -E "^reviewer $SLOT: " "$MAP" || true)
 PREV=$(echo "$PREV_LINE" | sed -nE "s/^reviewer $SLOT: +[^ ]+ +\\(agent \"([^\"]+)\".*/\\1/p")
 N=1; RESUME=0; KEEP=0; ENDED=0
@@ -248,8 +255,10 @@ if [ -n "$PREV" ]; then
   PANE=$(echo "$PREV_LINE" | sed -nE "s/^reviewer $SLOT: +([^ ]+) .*/\\1/p")
   [ -n "$PANE" ] || PANE=$(slot_pane "$SLOT")
   N=$(( ${PREV##*-} + 1 ))
+  # " ended": this script closed its terminal (runner_end_agent), then failed.
+  [[ "$PREV_LINE" != *" ended" ]] || ENDED=1
   case "$PREV_LINE" in
-    *" starting")
+    *" starting"|*" starting ended")
       prev_status=$(tower state --json | jsonq "next((t.get('status', '?') for t in d['tasks'] if t['id'] == '$SLOT-${PREV##*-}'), 'missing')") \
         || die "add-reviewer: tower state failed; rerun once tower answers"
       case "$prev_status" in
@@ -262,7 +271,7 @@ if [ -n "$PREV" ]; then
   # next step is for a fresh start, so not printed here). After a wait that
   # ran out, one more read decides: still starting fails, saying a rerun
   # resumes it; gone, unreadable or any other state goes on below.
-  if [ "$RESUME" = 1 ] && [[ "$PREV_LINE" == *", kind $R_KIND, model $R_MODEL, review "* ]]; then
+  if [ "$RESUME" = 1 ] && [ "$ENDED" = 0 ] && [[ "$PREV_LINE" == *", kind $R_KIND, model $R_MODEL, review "* ]]; then
     case "$(ready_of "$PREV" "$PANE")" in
       ready) KEEP=1 ;;
       *", not ready for input")
@@ -277,7 +286,7 @@ if [ -n "$PREV" ]; then
         fi ;;
     esac
   fi
-  [ "$KEEP" = 1 ] || case "$(state_of "$PREV" "$PANE")" in
+  [ "$KEEP" = 1 ] || [ "$ENDED" = 1 ] || case "$(state_of "$PREV" "$PANE")" in
     gone) ;;
     working) die "Reviewer $PREV is still working in $SLOT: wait until the slot is free, or use the other slot" ;;
     unreadable)
@@ -290,7 +299,9 @@ if [ -n "$PREV" ]; then
       runner_send_keys "$PANE" Enter
       # A runner that ends the agent for sure (Orca closes its terminal) leaves
       # no pane: the next Reviewer gets a new one (runner_reviewer_pane).
-      if runner_end_agent "$PANE" 2>/dev/null; then ENDED=1; fi
+      # Its line says so at once: a rerun after a later failure must not read
+      # the closed terminal's stale handle as one to rebind.
+      if runner_end_agent "$PANE" 2>/dev/null; then ENDED=1; slot_line "$PREV_LINE ended"; fi
       waited=0
       until [ "$ENDED" = 1 ] || { state=$(state_of "$PREV" "$PANE"); [ "$state" = gone ]; }; do
         if [ "$waited" -ge "${EXIT_WAIT_SECONDS:-15}" ]; then
@@ -366,13 +377,6 @@ mkdir -p "$(dirname "$FINDINGS")"
 if [ "$R_KIND" = codex ]; then AGENT_TMP="$RUN_DIR/tmp"; mkdir -p "$AGENT_TMP"; fi
 LINE=$(printf 'reviewer %s:    %s   (agent "%s", kind %s, model %s, review "%s", findings %s)' \
   "$SLOT" "$PANE" "$NAME" "$R_KIND" "$R_MODEL" "$TITLE" "$FINDINGS")
-# The map is rewritten through a temp file of this call's own: the other
-# slot's add-reviewer may be rewriting it too.
-slot_line() {
-  local tmp; tmp=$(mktemp "$MAP.XXXXXX")
-  { grep -v "^reviewer $SLOT:" "$MAP" || [ $? -eq 1 ]; } > "$tmp"
-  echo "$1" >> "$tmp"; mv "$tmp" "$MAP"
-}
 slot_line "$LINE starting"
 if [ "$KEEP" = 1 ]; then echo "resuming $NAME in $PANE: its start failed earlier, and it now accepts input"
 else

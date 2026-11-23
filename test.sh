@@ -1325,6 +1325,18 @@ if section add-reviewer; then
   assert_match "orca R1, a stale handle: refused" "$out" 'exit=1$'
   assert_match "orca R1, a stale handle: asks to rebind it" "$out" "Orca says Reviewer bun-vitest-r1-2's terminal handle $r1 is stale: .* put its handle on reviewer R1's line in $RUNS/panes\\.txt, then rerun"
   assert_nomatch "orca R1, a stale handle: nothing sent, closed or opened" "$(cat "$ORCA_STUB_LOG")" '^orca terminal (send|close|create) '
+  # A slot's own terminal gone stale before its first Reviewer: rebound too.
+  r2=$(sed -nE 's/^review tab: .*R2 ([^,)]+).*/\1/p' "$RUNS/panes.txt"); echo gone > "$S/$r2"
+  : > "$ORCA_STUB_LOG"; out=$(cd "$rs" && EXIT_WAIT_SECONDS=3 "$KIT/add-reviewer.sh" "$RUNS" R2 claude "Preflight" "$RUNS/findings/p.json" 2>&1; echo "exit=$?")
+  assert_match "orca R2, its slot's handle stale: asks to rebind it" "$out" "Orca says Reviewer slot R2's terminal handle $r2 is stale"
+  assert_nomatch "orca R2, its slot's handle stale: nothing sent or opened" "$(cat "$ORCA_STUB_LOG")" '^orca terminal (send|create) '
+  # A Reviewer this script ended, then a failure: the rerun goes on, its
+  # terminal closed, not stale.
+  rm -f "$S/$r1" "$S/$r2"; r1=$(sed -nE 's/^reviewer R1: +([^ ]+).*/\1/p' "$RUNS/panes.txt")
+  sed -i.bak "/^reviewer R1:/s/\$/ ended/" "$RUNS/panes.txt"; rm -f "$RUNS/panes.txt.bak"; echo gone > "$S/$r1"
+  : > "$ORCA_STUB_LOG"; out=$(cd "$rs" && EXIT_WAIT_SECONDS=3 "$KIT/add-reviewer.sh" "$RUNS" R1 claude "Lane review A fourth" "$RUNS/findings/a-4.json" 2>&1; echo "exit=$?")
+  assert_match "orca R1, its last Reviewer ended by this script: goes on" "$out" 'exit=0$'
+  assert_match "orca R1, ... in a new tab" "$(cat "$ORCA_STUB_LOG")" "^orca terminal create --worktree id:repo-0::$rs --title R1 "
   rm -f "$S"/*
   else
     S="$HERDR_STUB_STATES_DIR"

@@ -76,7 +76,7 @@ state_of() { local a; a=$(agent_of "$1" "${2:-}"); echo "${a%% *}"; }
 # The message for a stale handle (runner_pane_exists 3) on stderr: WHO's
 # terminal may still be open, so it is rebound by hand, never removed.
 stale_handle() {  # WHO PANE LINE
-  echo "$(runner_name) says $1's terminal handle $2 is stale: it may still be open under a new handle. Find $1's terminal in $(runner_name), put its handle on $3 in ${MAP:-the pane map}, then rerun" >&2
+  echo "$(runner_name) says $1's terminal handle $2 is stale: it may still be open under a new handle. Find $1's terminal in $(runner_name), put its handle on $3 in ${MAP:-the pane map}, then rerun; if $(runner_name) has no such terminal, it was closed: open one where it worked and put that handle there" >&2
 }
 # The orchestrator's pane or workspace in pane map MAP: its whole line after
 # the label (an Orca workspace id holds its checkout's path, spaces and all).
