@@ -114,7 +114,8 @@ function panelIssue(i: SnapshotIssue, mine: Job[]): PanelIssue {
 /** A Tailscale address (100.64.0.0/10, fd7a:115c:a1e0::/48) or a loopback one. */
 function tailnetOrLoopback(host: string): boolean {
   const h = host.toLowerCase();
-  if (h === "localhost" || h === "::1" || /^127\./.test(h)) return true;
+  if (h === "localhost" || h === "::1" || /^127(\.\d{1,3}){3}$/.test(h))
+    return true;
   if (h.startsWith("fd7a:115c:a1e0:")) return true;
   const v4 = /^100\.(\d+)\.\d+\.\d+$/.exec(h);
   return !!v4 && Number(v4[1]) >= 64 && Number(v4[1]) <= 127;

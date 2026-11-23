@@ -157,6 +157,7 @@ export async function runStation(
         outcome: "stopped",
         reason: stop,
         ...(result.sessionId ? { sessionId: result.sessionId } : {}),
+        ...(result.tokens ? { tokens: result.tokens } : {}),
       };
     // A stopped or failed job's checkout stays a day for a look at what it
     // did; so does a run's, whose orchestrator lives on in its own workspace
@@ -196,16 +197,21 @@ export async function runStation(
     await flush();
     for (const [id, job] of running) {
       const res = await call(`/api/jobs/${id}/heartbeat`, {}).catch(() => null);
-      // 409: the job is no longer this station's (the hub ended it): let go.
-      if (res?.status === 409 && !job.ended) {
-        job.ended = true;
-        job.abort.abort();
-        continue;
-      }
+      if (job.ended) continue;
       // The user stopped it: moved its issue back, or closed it.
       const control = await fetch(`${opts.hubUrl}/api/jobs/${id}/control`)
         .then((r) => (r.ok ? (r.json() as Promise<Control>) : null))
         .catch(() => null);
+      // 409: the job is no longer this station's: let go. If the user
+      // stopped it meanwhile (its lease ran out while the station was cut
+      // off), it is stopped as they asked: a run's workspace closes.
+      if (res?.status === 409) {
+        job.ended = true;
+        job.abort.abort(
+          control?.stop ? { stop: control.reason ?? "stopped" } : undefined,
+        );
+        continue;
+      }
       if (control?.stop && !job.stopped) {
         job.stopped = true;
         job.abort.abort({ stop: control.reason ?? "stopped" });

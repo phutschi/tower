@@ -240,8 +240,11 @@ document.querySelectorAll("[data-decide]").forEach((b) => b.addEventListener("cl
 // A job's events load when it is opened: a phone gets no event it did not ask for.
 document.querySelectorAll("[data-events]").forEach((d) => d.addEventListener("toggle", async () => {
   if (!d.open || d.dataset.loaded) return;
+  const res = await fetch(d.dataset.events).catch(() => null);
+  if (!res?.ok) return; // closed and opened again, it tries again
+  const { events } = await res.json();
+  if (d.dataset.loaded) return;
   d.dataset.loaded = "1";
-  const { events } = await (await fetch(d.dataset.events)).json();
   const list = d.querySelector("ul");
   for (const e of events) {
     const li = document.createElement("li");

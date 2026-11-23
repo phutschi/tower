@@ -533,6 +533,8 @@ test("a request naming a host the Panel does not answer to is refused", async ()
     fetch(`${hubUrl()}/api/issues`, { headers: { host } });
   expect((await as("evil.example:80")).status).toBe(403);
   expect((await as("panel.evil.example")).status).toBe(403);
+  expect((await as("127.evil.example")).status).toBe(403);
+  expect((await as("100.64.evil.example")).status).toBe(403);
   for (const host of [
     new URL(hubUrl()).host,
     "localhost",

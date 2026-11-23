@@ -124,6 +124,7 @@ export class Store {
         tokens_out INTEGER,
         lost_by TEXT,
         claimed_at TEXT,
+        lost_ms INTEGER,
         stop_reason TEXT,
         noted INTEGER NOT NULL DEFAULT 0
       );
@@ -300,7 +301,11 @@ export class Store {
         .get(...kinds)?.id;
       if (id)
         this.db.run(
-          "UPDATE jobs SET state = 'claimed', station = ?, lease_until = ?, lost_by = NULL, claimed_at = ? WHERE id = ?",
+          // A claim lost to an expired lease counts in the job's duration.
+          `UPDATE jobs SET state = 'claimed', station = ?, lease_until = ?, lost_by = NULL, claimed_at = ?,
+             duration_ms = CASE WHEN lost_ms IS NULL THEN duration_ms ELSE COALESCE(duration_ms, 0) + lost_ms END,
+             lost_ms = NULL
+           WHERE id = ?`,
           [station.name, leaseUntil.toISOString(), now.toISOString(), id],
         );
     });
@@ -315,7 +320,8 @@ export class Store {
   heartbeat(id: string, station: string, leaseUntil: Date): boolean {
     return (
       this.db.run(
-        `UPDATE jobs SET state = 'claimed', station = ?, lease_until = ?, lost_by = NULL
+        `UPDATE jobs SET state = 'claimed', station = ?, lease_until = ?, lost_by = NULL,
+           lost_ms = NULL
          WHERE id = ? AND ${HOLDS}`,
         [station, leaseUntil.toISOString(), id, station, station],
       ).changes === 1
@@ -347,9 +353,10 @@ export class Store {
                       WHEN kind = 'run' THEN 'stuck' ELSE 'queued' END,
          reason = CASE WHEN stop_reason IS NOT NULL THEN stop_reason
                        WHEN kind = 'run' THEN 'its station stopped reporting' ELSE reason END,
-         lost_by = station, station = NULL, lease_until = NULL
+         lost_by = station, station = NULL, lease_until = NULL,
+         lost_ms = CAST((julianday(?) - julianday(claimed_at)) * 86400000 AS INTEGER)
        WHERE state = 'claimed' AND lease_until < ?`,
-      [now.toISOString()],
+      [now.toISOString(), now.toISOString()],
     );
   }
 
@@ -502,7 +509,8 @@ export class Store {
    * holds the job, or once its lease ran out and nobody claimed it since: a
    * finished job beats a second try. False when it does not count. Its
    * tokens add to what tokens events reported; a result with no session
-   * keeps the one the job reported while it ran.
+   * keeps the one the job reported while it ran. Its duration adds to the
+   * claims other stations lost; the station's own lost claim is in its own.
    */
   finish(station: string, r: JobResult): boolean {
     const t = r.tokens;
@@ -510,7 +518,7 @@ export class Store {
     return (
       this.db.run(
         `UPDATE jobs SET state = ?, reason = ?, session_id = COALESCE(?, session_id),
-           duration_ms = ?,
+           duration_ms = COALESCE(duration_ms, 0) + ?, lost_ms = NULL,
            tokens_in = COALESCE(COALESCE(tokens_in, 0) + ?, tokens_in),
            tokens_out = COALESCE(COALESCE(tokens_out, 0) + ?, tokens_out),
            lease_until = NULL, station = ?, lost_by = NULL

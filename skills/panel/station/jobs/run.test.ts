@@ -349,7 +349,10 @@ test("a stopped run whose workspace does not close says so in its reason", async
 
 test("a bundle's run opens one workspace named after the bundle, with one brief naming every issue and one PR", async () => {
   await setup();
+  // The station would take the advice job the bundle comes from.
+  await put("/api/stations/server", { enabled: false });
   await acceptBundle(12, 13);
+  await put("/api/stations/server", { enabled: true });
   await ready(12, 13);
   await until(async () =>
     (await jobs()).some((j) => j.kind === "run" && j.state === "claimed"),

@@ -360,6 +360,53 @@ test("a checkpoint for a job the station holds no more is refused, and its actio
   expect(events.map((e) => e.kind)).not.toContain("spec");
 });
 
+test("a job stopped while its station was cut off is stopped with its reason when the station is back", async () => {
+  await setup({ leaseMs: 300 });
+  await grills(1);
+  const { proc } = station();
+  await until(async () => (await jobs())[0]?.state === "claimed");
+  const id = (await jobs())[0]!.id;
+  proc.kill("SIGSTOP");
+  await post("/api/issues/acme/widgets/1/stage", { stage: "needs-triage" });
+  await until(async () => (await jobs())[0]?.state === "stopped");
+  proc.kill("SIGCONT");
+  // The fake runner records how it was stopped: with the user's reason.
+  await until(async () =>
+    existsSync(join(dir(), "station-server", `stopped-${id}`)),
+  );
+  expect(
+    readFileSync(join(dir(), "station-server", `stopped-${id}`), "utf8"),
+  ).toBe("moved back to needs-triage");
+});
+
+test("a job's duration adds up over the claims of the stations that worked it", async () => {
+  await setup({ leaseMs: 300 });
+  await put("/api/stations/laptop", { enabled: true });
+  await grills(1);
+  const claim = (station: string) =>
+    post("/api/jobs/claim", { station, kinds: ["grill"] });
+  const [job] = await jobs();
+  await claim("laptop");
+  await until(async () => (await jobs())[0]?.state === "queued");
+  await claim("server");
+  await post(`/api/jobs/${job!.id}/result`, {
+    station: "server",
+    outcome: "done",
+    durationMs: 1000,
+  });
+  expect((await jobs())[0]!.durationMs).toBeGreaterThanOrEqual(1300);
+});
+
+test("a failed job the user stopped keeps its tokens", async () => {
+  await setup();
+  await grills(1);
+  station("server", "grill", { FAKE_FAIL_ON_STOP: "1" });
+  await until(async () => (await jobs())[0]?.state === "claimed");
+  await post("/api/issues/acme/widgets/1/stage", { stage: "needs-triage" });
+  await until(async () => (await jobs())[0]?.state === "stopped");
+  expect((await jobs())[0]!.tokens).toEqual({ input: 7, output: 3 });
+});
+
 test("the Panel lists stations with switch, limit and current jobs, and each job's events", async () => {
   await setup();
   await put("/api/stations/laptop", { limit: 3 });
