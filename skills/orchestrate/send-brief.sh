@@ -14,11 +14,11 @@
 set -euo pipefail
 KIT="$(cd "$(dirname "$0")" && pwd)"
 . "$KIT/common.sh"
-need_runner; need python3
+need_runner
 [ $# -eq 3 ] || die 'usage: send-brief.sh <run-dir> <agent> <brief-file>'
 RUN_DIR="$1"; NAME="$2"; BRIEF="$3"; MAP="$RUN_DIR/panes.txt"
 [ -f "$MAP" ] || die "send-brief: no pane map at $MAP"
-[ -f "$BRIEF" ] || die "send-brief: no brief at $BRIEF"
+[ -s "$BRIEF" ] || die "send-brief: no brief, or an empty one, at $BRIEF"
 PANE=$(agent_pane "$MAP" "$NAME" 2>&1) || die "send-brief: $PANE"
 rc=0; err=$(runner_pane_exists "$PANE" 2>&1) || rc=$?
 case $rc in

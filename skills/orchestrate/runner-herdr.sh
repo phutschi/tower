@@ -124,7 +124,6 @@ runner_pane_exists() {
 }
 runner_pane_check()  { echo "herdr pane get"; }   # what runner_pane_exists asks, for a message
 runner_read_cmd()    { echo "herdr pane read <id> --source recent-unwrapped --lines 60"; }
-# The command that types TEXT into agent AGENT (in PANE); placeholders without them.
 
 # When anything reviews (LANE_REVIEW or PREFLIGHT on), a full-height column
 # right of PANE, a third of its width, R1 over R2, opened in CWD; prints

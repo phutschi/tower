@@ -3969,9 +3969,9 @@ if section send-brief; then
   if [ "${RUNNER:-herdr}" = orca ]; then
     assert_match "send-brief (orca): typed into lane A's terminal" "$(sent)" "^orca terminal send --terminal $apane --text Do task 1\\.\$"
     assert_match "send-brief (orca): ... all of it, then Enter" "$(cat "$L")" '^Then report\. --enter --json$'
-
   else
     assert_match "send-brief (herdr): prompted to the agent by name" "$(sent)" '^herdr agent prompt bun-vitest-lane-a Do task 1\.$'
+    assert_match "send-brief (herdr): ... all of it" "$(cat "$L")" '^Then report\.$'
   fi
   assert_match "send-brief: says where it went" "$out" "brief $RUN/brief-A.md sent to bun-vitest-lane-a in $apane"
   # No command in the map is run: a lane may write one there (an older map
@@ -3987,8 +3987,17 @@ if section send-brief; then
   out=$(send "$RUN" 'bun-vitest-lane-.' "$RUN/brief-A.md")
   assert_match "send-brief, a name read literally: no pattern matches" "$out" 'names agent bun-vitest-lane-\.'
   out=$(send "$RUN" bun-vitest-lane-a "$RUN/brief-none.md")
-  assert_match "send-brief, no brief file: refused" "$out" "send-brief: no brief at $RUN/brief-none.md"
+  assert_match "send-brief, no brief file: refused" "$out" "send-brief: no brief, or an empty one, at $RUN/brief-none.md"
   assert_eq "send-brief, no brief file: nothing sent" "$(sent)" ""
+  : > "$RUN/brief-empty.md"
+  out=$(send "$RUN" bun-vitest-lane-a "$RUN/brief-empty.md")
+  assert_match "send-brief, an empty brief: refused" "$out" "send-brief: no brief, or an empty one, at $RUN/brief-empty.md"
+  assert_eq "send-brief, an empty brief: nothing sent" "$(sent)" ""
+  # A Reviewer's line names its agent the same way.
+  spane=$(sed -nE 's/^shell: +([^ ]+).*/\1/p' "$RUN/panes.txt")
+  printf 'reviewer R1:    %s   (agent "bun-vitest-r1-1", kind codex, model gpt-6-astra, review "Lane review A", findings %s)\n' "$spane" "$RUN/findings/lane-a.json" >> "$RUN/panes.txt"
+  out=$(send "$RUN" bun-vitest-r1-1 "$RUN/brief-A.md")
+  assert_match "send-brief, a Reviewer: sent to its pane" "$out" "sent to bun-vitest-r1-1 in $spane\$"
   echo gone > "$S/$apane"
   out=$(send "$RUN" bun-vitest-lane-a "$RUN/brief-A.md")
   rm -f "$S/$apane"
