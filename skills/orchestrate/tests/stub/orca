@@ -25,8 +25,8 @@
 # the line). With no file, the agent is working. With several lines, each call
 # that reports the state answers the first and drops it; the last one stays.
 # `terminal read` answers ORCA_STUB_STATES_DIR/<handle>.tail as its tail;
-# without one, a trust menu's tail shows the workspace trust prompt, Claude's
-# or ORCA_STUB_TRUST_TAIL (a plain blocked is any other prompt).
+# without one, a trust menu's tail shows Claude's workspace trust prompt (a
+# plain blocked is any other prompt).
 # `terminal wait --for tui-idle` is satisfied by waiting, done or
 # unlisted-idle, fails for "unlisted-waitfail" (an unlisted agent whose wait
 # Orca cannot answer: runtime_unavailable) and "unlisted-waittimeout" (Orca's
@@ -108,7 +108,7 @@ case "${1:-} ${2:-}" in
     h=$(flag terminal); live "$h"
     if trusty "$h"; then
       if [ "$(peek "$h")" = trust ] && has text && has enter; then err agent_prompt_blocked; fi
-      if has enter; then
+      if has enter && ! has text; then
         if [ "$(wc -l < "$states/$h")" -gt 1 ]; then tail -n +2 "$states/$h" > "$states/$h.next"; mv "$states/$h.next" "$states/$h"; else rm -f "$states/$h"; fi
       fi
     fi
@@ -116,7 +116,7 @@ case "${1:-} ${2:-}" in
   "terminal read")
     h=$(flag terminal); live "$h"
     tail=$([ -n "$states" ] && [ -f "$states/$h.tail" ] && python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().splitlines()))' < "$states/$h.tail") || tail='[]'
-    ! trusty "$h" || [ "$tail" != '[]' ] || tail="[$(js "${ORCA_STUB_TRUST_TAIL:-Do you trust the files in this folder?}"), \" 1. Yes, continue\", \" 2. No, exit\"]"
+    ! trusty "$h" || [ "$tail" != '[]' ] || tail='["Do you trust the files in this folder?", " 1. No, exit", " 2. Yes, I trust this folder"]'
     ok "{\"terminal\":{\"handle\":\"$h\",\"status\":\"running\",\"tail\":$tail}}" ;;
   "terminal wait")
     h=$(flag terminal); live "$h"

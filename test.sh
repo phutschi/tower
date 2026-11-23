@@ -304,7 +304,8 @@ if section executor; then
   assert_match "orca trust: ... then Enter alone" "$log" '^orca terminal send --terminal term-1 --enter --json$'
   assert_eq "orca trust: the agent is not started twice" "$(grep -c '^orca terminal send --terminal term-1 --text claude' "$ORCA_STUB_LOG")" 1
   printf 'unlisted\nunlisted\ntrust\ntrust\nwaiting\n' > "$S/term-1"
-  out=$(ostart codex ORCA_STUB_TRUST_TAIL='Do you trust the contents of this directory?')
+  printf 'Do you trust the contents of this directory?\n> 1. Yes, continue\n  2. No, quit\n' > "$S/term-1.tail"
+  out=$(ostart codex)
   assert_match "orca trust, codex: its own wording is the trust menu" "$out" 'exit=0$'
   assert_nomatch "orca trust, codex: no Down" "$(cat "$ORCA_STUB_LOG")" 'B --json$'
   assert_match "orca trust, codex: Enter alone" "$(cat "$ORCA_STUB_LOG")" '^orca terminal send --terminal term-1 --enter --json$'
@@ -315,6 +316,13 @@ if section executor; then
   out=$(ostart codex)
   assert_match "orca trust, not listed yet: the start goes on" "$out" 'exit=0$'
   assert_match "orca trust, not listed yet: answered with Enter alone" "$(cat "$ORCA_STUB_LOG")" '^orca terminal send --terminal term-1 --enter --json$'
+  # A prompt answered long ago, still in the tail above the agent's screen,
+  # is no menu: only the bottom lines count.
+  rm -f "$S"/term-*; echo unlisted-idle > "$S/term-1"
+  { printf 'Do you trust the files in this folder?\n 2. Yes, I trust this folder\n'; for i in 1 2 3 4 5 6 7 8 9; do echo "welcome line $i"; done; } > "$S/term-1.tail"
+  out=$(ostart claude)
+  assert_match "orca: an answered trust prompt high in the tail: ready" "$out" 'exit=0$'
+  assert_nomatch "orca: ... and no keys sent" "$(cat "$ORCA_STUB_LOG")" '^orca terminal send --terminal term-1 (--enter|--text .\[B)'
   # Blocked on any other prompt (a hooks review, an update): no keys, the
   # start fails, and the prompt stays for the operator.
   rm -f "$S"/term-*
