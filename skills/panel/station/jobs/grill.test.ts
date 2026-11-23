@@ -15,12 +15,13 @@ import {
   ghLog,
   issue,
   post,
+  remote,
   setIssues,
   start,
   until,
   useFixture,
 } from "../../tests/fixture.ts";
-import { remote, station, useStations } from "../../tests/station-process.ts";
+import { station, useStations } from "../../tests/station-process.ts";
 
 // Stations die before the fixture stops the hub: hooks run in this order.
 useStations();
