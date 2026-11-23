@@ -93,32 +93,37 @@ ${data({ title: issue.title, body: issue.body ?? "" })}
       ...ran,
     };
 
-  const label = areaLabel(context);
-  // Made if the repo lacks it. One that exists, or that another job of
-  // this station made a moment ago, is set as it is.
-  await gh(
-    "label",
-    "create",
-    label,
-    "--repo",
-    job.repo,
-    "--description",
-    `Issue area: ${context}`,
-  ).catch((err: unknown) => {
-    if (!/already exists/.test(String(err))) throw err;
-  });
-  // A person may have set an issue area while the session ran: theirs stands.
-  if (hasArea(await view()))
-    return { outcome: "done", reason: HAS_AREA, ...ran };
-  await gh(
-    "issue",
-    "edit",
-    String(number),
-    "--repo",
-    job.repo,
-    "--add-label",
-    label,
-  );
-  await emit("issue-area", { label });
+  // A GitHub write that fails keeps what the session cost.
+  try {
+    const label = areaLabel(context);
+    // Made if the repo lacks it. One that exists, or that another job of
+    // this station made a moment ago, is set as it is.
+    await gh(
+      "label",
+      "create",
+      label,
+      "--repo",
+      job.repo,
+      "--description",
+      `Issue area: ${context}`,
+    ).catch((err: unknown) => {
+      if (!/already exists/.test(String(err))) throw err;
+    });
+    // A person may have set an issue area while the session ran: theirs stands.
+    if (hasArea(await view()))
+      return { outcome: "done", reason: HAS_AREA, ...ran };
+    await gh(
+      "issue",
+      "edit",
+      String(number),
+      "--repo",
+      job.repo,
+      "--add-label",
+      label,
+    );
+    await emit("issue-area", { label });
+  } catch (err) {
+    return { outcome: "failed", reason: String(err), ...ran };
+  }
   return { outcome: "done", ...ran };
 });

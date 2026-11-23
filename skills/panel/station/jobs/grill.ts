@@ -135,110 +135,118 @@ registerJobRunner("grill", async ({ job, hubUrl, workspace, emit, signal }) => {
     return run;
   };
 
-  let run: HeadlessRun | null = null;
-  if (!last)
-    run = await turn(`${readFileSync(PROMPT, "utf8")}
-<issue ref="${ref}">
-<title>${quote(issue.title)}</title>
-<body>
-${quote(issue.body)}
-</body>
-</issue>
-`);
-  else if (last.kind === "replied")
-    run = await turn(answered(last.data.replies as Reply[]));
-  let nudged = false;
+  // A failure after a session ran keeps what the grill cost.
+  try {
+    let run: HeadlessRun | null = null;
+    if (!last)
+      run = await turn(`${readFileSync(PROMPT, "utf8")}
+  <issue ref="${ref}">
+  <title>${quote(issue.title)}</title>
+  <body>
+  ${quote(issue.body)}
+  </body>
+  </issue>
+  `);
+    else if (last.kind === "replied")
+      run = await turn(answered(last.data.replies as Reply[]));
+    let nudged = false;
 
-  while (!signal.aborted) {
-    if (run) {
-      const ran = { sessionId, tokens };
-      if (run.error)
-        return {
-          outcome: "failed",
-          reason: `${run.error.category}: ${run.error.message}`,
-          ...ran,
-        };
-      const answer = jsonIn(run.finalText) as {
-        questions?: unknown;
-        spec?: unknown;
-      } | null;
-      if (typeof answer?.spec === "string" && answer.spec.trim()) {
-        const spec = answer.spec;
-        // Kept on the hub first, so a GitHub that stays down loses no spec.
-        await emit("spec", { spec });
-        await retry(
-          () =>
-            gh(
-              [
-                "issue",
-                "edit",
-                String(number),
-                "--repo",
-                job.repo,
-                "--body-file",
-                "-",
-                "--add-label",
-                "ready-for-agent",
-                "--remove-label",
-                "shaping",
-              ],
-              spec,
-            ),
-          signal,
-        );
-        return { outcome: "done", ...ran };
+    while (!signal.aborted) {
+      if (run) {
+        const ran = { sessionId, tokens };
+        if (run.error)
+          return {
+            outcome: "failed",
+            reason: `${run.error.category}: ${run.error.message}`,
+            ...ran,
+          };
+        const answer = jsonIn(run.finalText) as {
+          questions?: unknown;
+          spec?: unknown;
+        } | null;
+        if (typeof answer?.spec === "string" && answer.spec.trim()) {
+          const spec = answer.spec;
+          // Kept on the hub first, so a GitHub that stays down loses no spec.
+          await emit("spec", { spec });
+          await retry(
+            () =>
+              gh(
+                [
+                  "issue",
+                  "edit",
+                  String(number),
+                  "--repo",
+                  job.repo,
+                  "--body-file",
+                  "-",
+                  "--add-label",
+                  "ready-for-agent",
+                  "--remove-label",
+                  "shaping",
+                ],
+                spec,
+              ),
+            signal,
+          );
+          return { outcome: "done", ...ran };
+        }
+        if (typeof answer?.questions === "string" && answer.questions.trim()) {
+          const questions = answer.questions;
+          const sent = await retry(
+            () =>
+              sendMessage({
+                thread: `Grill ${ref}`,
+                subject: `Grill: ${issue.title}`,
+                body: questions,
+                idempotencyKey: `panel-grill-${job.id}-${round}`,
+              }),
+            signal,
+          );
+          thread = sent.threadId;
+          // Read on from where the last read stopped: a reply sent while the
+          // session thought sits before this question.
+          cursor ??= sent.cursor;
+          await emit("asked", { thread, round, cursor });
+          round++;
+          nudged = false;
+        } else if (!nudged) {
+          nudged = true;
+          run = await turn(NUDGE);
+          continue;
+        } else
+          return {
+            outcome: "failed",
+            reason: "the grill answered neither questions nor a spec",
+            ...ran,
+          };
       }
-      if (typeof answer?.questions === "string" && answer.questions.trim()) {
-        const questions = answer.questions;
-        const sent = await retry(
-          () =>
-            sendMessage({
-              thread: `Grill ${ref}`,
-              subject: `Grill: ${issue.title}`,
-              body: questions,
-              idempotencyKey: `panel-grill-${job.id}-${round}`,
-            }),
-          signal,
-        );
-        thread = sent.threadId;
-        // Read on from where the last read stopped: a reply sent while the
-        // session thought sits before this question.
-        cursor ??= sent.cursor;
-        await emit("asked", { thread, round, cursor });
-        round++;
-        nudged = false;
-      } else if (!nudged) {
-        nudged = true;
-        run = await turn(NUDGE);
-        continue;
-      } else
-        return {
-          outcome: "failed",
-          reason: "the grill answered neither questions nor a spec",
-          ...ran,
-        };
-    }
 
-    let fresh: Reply[] = [];
-    while (!fresh.length && !signal.aborted) {
-      await wait(POLL_MS, signal);
-      try {
-        const read = await readThread(thread!, cursor ? { after: cursor } : {});
-        cursor = read.cursor || cursor;
-        fresh = read.personReplies.filter((r) => !handled.has(r.id));
-      } catch (err) {
-        console.error(`grill: reading ${thread}: ${String(err)}`);
+      let fresh: Reply[] = [];
+      while (!fresh.length && !signal.aborted) {
+        await wait(POLL_MS, signal);
+        try {
+          const read = await readThread(
+            thread!,
+            cursor ? { after: cursor } : {},
+          );
+          cursor = read.cursor || cursor;
+          fresh = read.personReplies.filter((r) => !handled.has(r.id));
+        } catch (err) {
+          console.error(`grill: reading ${thread}: ${String(err)}`);
+        }
       }
+      if (signal.aborted) break;
+      for (const r of fresh) handled.add(r.id);
+      await emit("replied", { cursor, replies: fresh });
+      run = await turn(answered(fresh));
     }
-    if (signal.aborted) break;
-    for (const r of fresh) handled.add(r.id);
-    await emit("replied", { cursor, replies: fresh });
-    run = await turn(answered(fresh));
+    return {
+      outcome: "stopped",
+      reason: "the station stopped",
+      sessionId,
+      tokens,
+    };
+  } catch (err) {
+    return { outcome: "failed", reason: String(err), sessionId, tokens };
   }
-  return {
-    outcome: "stopped",
-    reason: "the station stopped",
-    sessionId,
-    tokens,
-  };
 });

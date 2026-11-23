@@ -185,3 +185,15 @@ test("a labelling session refused at a usage limit pauses dispatch until its res
     new Date(resetsAt * 1000).toISOString(),
   );
 });
+
+test("a GitHub write that fails after the session keeps the session's id and tokens", async () => {
+  await newIssue();
+  writeFileSync(join(dir(), "fail"), "edit");
+  station(answers("Billing"));
+  await until(async () => (await labelJob())?.state === "stuck");
+  expect(await labelJob()).toMatchObject({
+    reason: expect.stringContaining("edit failed"),
+    sessionId: "sess-7",
+    tokens: { input: 400, output: 3 },
+  });
+});

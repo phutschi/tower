@@ -282,3 +282,19 @@ test("a session event from a station that does not hold the job is ignored", asy
   expect(res.status).toBe(200);
   expect((await job()).sessionId).toBe("sess-1");
 });
+
+test("a GitHub write that never works fails the grill and keeps its session id and tokens", async () => {
+  await grill({
+    CLAUDE_STUB_OUT: session("q.out", "sess-1", QUESTIONS, 100),
+    CLAUDE_STUB_RESUME_OUT: session("spec.out", "sess-1", SPEC, 200),
+  });
+  await until(async () => reads() > 0);
+  writeFileSync(join(dir(), "fail"), "edit");
+  reply("Only rex.");
+  await until(async () => (await job()).state === "stuck", 15_000);
+  expect(await job()).toMatchObject({
+    reason: expect.stringContaining("edit failed"),
+    sessionId: "sess-1",
+    tokens: { input: 300, output: 30 },
+  });
+});
