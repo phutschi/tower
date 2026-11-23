@@ -8,7 +8,8 @@
 # /tower:orchestrate. The orchestrator's model is EXECUTOR_MODEL
 # (model-defaults, or the call's environment).
 #
-# Prints {"workspace":"<id>","pane":"<id>"} once the orchestrator has its
+# Prints {"workspace":"<id>","pane":"<id>","agent":"<name>"} once the
+# orchestrator has its
 # brief, and exits 0; exits non-zero, saying why, otherwise, closing the
 # workspace if it opened one (the checkout stays, for a look). Run outside
 # herdr (the station is a launchd service): it needs herdr runnable, not a pane.
@@ -49,4 +50,4 @@ start_agent_with_trust_retry "$AGENT" "$PANE" \
   || die "start-run: the orchestrator did not start in workspace $NAME (pane $PANE); the workspace is closed"
 herdr agent prompt "$AGENT" "$(cat "$BRIEF")" >/dev/null \
   || die "start-run: could not give the orchestrator its brief (herdr agent prompt $AGENT)"
-printf '{"workspace":"%s","pane":"%s"}\n' "$WS" "$PANE"
+printf '{"workspace":"%s","pane":"%s","agent":"%s"}\n' "$WS" "$PANE" "$AGENT"

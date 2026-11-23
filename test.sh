@@ -3516,7 +3516,7 @@ if section start-run; then
   assert_match "start-run: a workspace named after the issue, in the checkout" "$log" "^herdr workspace create --cwd $r --label acme-widgets-12 --no-focus\$"
   assert_match "start-run: the orchestrator is claude, in the workspace's first pane" "$log" '^herdr agent start acme-widgets-12 --kind claude --pane pane-1 '
   assert_match "start-run: the brief is its first prompt"     "$log" '^herdr agent prompt acme-widgets-12 Run /tower:spec-to-plan on acme/widgets#12\.$'
-  assert_match "start-run: prints the workspace and the pane" "$out" '^\{"workspace":"ws-1","pane":"pane-1"\}$'
+  assert_match "start-run: prints the workspace, the pane and the agent" "$out" '^\{"workspace":"ws-1","pane":"pane-1","agent":"acme-widgets-12"\}$'
   assert_nomatch "start-run: a started run keeps its workspace" "$log" 'workspace close'
   reset_stub
   "$KIT/start-run.sh" acme-widgets-platform-infrastructure-12 "$r" "$brief" >/dev/null 2>&1
@@ -3547,6 +3547,25 @@ if section start-run; then
   assert_match "start-run: and closes the workspace it opened" "$(cat "$HERDR_STUB_LOG")" '^herdr workspace close ws-1$'
   assert_eq    "start-run: the checkout stays for a look"     "$([ -d "$r" ] && echo kept)" kept
   rm -f "$HERDR_STUB_STATES_DIR/acme-widgets-12.started"
+fi
+
+# --- run-state ---------------------------------------------------------------
+# The Panel's station reads a run's orchestrator and stale threshold.
+if section run-state; then
+  r=$(fixture_repo run-state); reset_stub
+  out=$(cd "$r" && XDG_CONFIG_HOME="$TMP/no-config" "$KIT/run-state.sh" acme-widgets-12 2>&1); code=$?
+  assert_eq    "run-state: succeeds"                          "$code" 0
+  assert_eq    "run-state: a live agent, the default 30 min"  "$out" '{"agent":"working","stale":30}'
+  printf 'STALE=45 # minutes\n' > "$r/.orchestrate"
+  echo gone > "$HERDR_STUB_STATES_DIR/acme-widgets-12"
+  out=$(cd "$r" && XDG_CONFIG_HOME="$TMP/no-config" "$KIT/run-state.sh" acme-widgets-12 2>&1)
+  assert_eq    "run-state: an exited agent, the repo's STALE" "$out" '{"agent":"gone","stale":45}'
+  out=$(cd "$r" && STALE=5 "$KIT/run-state.sh" acme-widgets-12 2>&1)
+  assert_eq    "run-state: STALE from the environment first"  "$out" '{"agent":"gone","stale":5}'
+  rm -f "$HERDR_STUB_STATES_DIR/acme-widgets-12" "$r/.orchestrate"
+  out=$("$KIT/run-state.sh" 2>&1; echo "exit=$?")
+  assert_match "run-state: a missing argument is refused"     "$out" 'usage: run-state.sh <agent>'
+  assert_match "run-state: and fails"                         "$out" 'exit=2$'
 fi
 
 # --- stop-run ----------------------------------------------------------------

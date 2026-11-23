@@ -1,7 +1,7 @@
 /**
  * Seam 2 for runs: the real station (`cli.ts station`, which loads the run
  * runner) against a real hub. start-run.sh runs under DRY_RUN=1, so it drives
- * the kit's stub herdr; tower is the Panel's stub, answering a run's state
+ * the kit's stubs (kit-stubs.ts); tower is the Panel's stub, answering a run's state
  * from a file.
  */
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -9,6 +9,11 @@ import { join } from "node:path";
 import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
 import type { Subprocess } from "bun";
 
+import {
+  agentExits,
+  kitLog,
+  kitStubEnv,
+} from "../../../orchestrate/tests/kit-stubs.ts";
 import type { Job, JobEvent, PanelIssue } from "../../types.ts";
 import {
   api,
@@ -47,10 +52,7 @@ afterEach(async () => {
 type JobWithEvents = Job & { events: JobEvent[] };
 const jobs = () => api<Job[]>("/api/jobs");
 const job = (id: string) => api<JobWithEvents>(`/api/jobs/${id}`);
-const herdrLog = () =>
-  existsSync(join(dir(), "herdr.log"))
-    ? readFileSync(join(dir(), "herdr.log"), "utf8")
-    : "";
+const log = () => kitLog(dir());
 const towerLog = () =>
   existsSync(join(dir(), "tower.log"))
     ? readFileSync(join(dir(), "tower.log"), "utf8")
@@ -62,8 +64,13 @@ const labels = (n: number) =>
 const started = async (id: string) =>
   (await job(id)).events.find((e) => e.kind === "run-started")?.data;
 
-async function setup(env: Record<string, string> = {}, leaseMs?: number) {
-  remote();
+async function setup(
+  env: Record<string, string> = {},
+  leaseMs?: number,
+  fail?: "workspace" | "close",
+  files: Record<string, string> = {},
+) {
+  remote(files);
   setIssues("acme/widgets", [issue(12, "shaping"), issue(13, "shaping")]);
   setHead("acme/widgets", "aaa");
   await start(["acme/widgets"], {
@@ -89,9 +96,7 @@ async function setup(env: Record<string, string> = {}, leaseMs?: number) {
         ...process.env,
         ...gitRemotes(),
         PATH: `${STUBS}:${process.env.PATH}`,
-        DRY_RUN: "1",
-        HERDR_STUB_LOG: join(dir(), "herdr.log"),
-        HERDR_STUB_COUNTER: join(dir(), "herdr.counter"),
+        ...kitStubEnv(dir(), fail),
         TOWER_STUB_STATE: join(dir(), "tower-state.json"),
         TOWER_STUB_LOG: join(dir(), "tower.log"),
         PANEL_RUN_POLL_MS: "50",
@@ -120,12 +125,12 @@ test("a claimed run sets in-progress and opens a workspace named after the issue
   await until(async () => (await started(id)) !== undefined);
   const ws = (await started(id))!;
   expect(ws).toMatchObject({ workspace: "acme-widgets-12", pane: "pane-1" });
-  const log = herdrLog();
-  expect(log).toContain(
-    `herdr workspace create --cwd ${String(ws.path)} --label acme-widgets-12 --no-focus`,
+  const calls = log();
+  expect(calls).toContain(
+    `workspace create --cwd ${String(ws.path)} --label acme-widgets-12 --no-focus`,
   );
-  expect(log).toMatch(/^herdr agent start acme-widgets-12 --kind claude/m);
-  const brief = log.split("herdr agent prompt acme-widgets-12 ")[1] ?? "";
+  expect(calls).toMatch(/^agent start acme-widgets-12 --kind claude/m);
+  const brief = calls.split("agent prompt acme-widgets-12 ")[1] ?? "";
   const at = (s: string) => brief.indexOf(s);
   expect(at("/tower:spec-to-plan")).toBeGreaterThan(-1);
   expect(at("/tower:orchestrate")).toBeGreaterThan(at("/tower:spec-to-plan"));
@@ -270,7 +275,7 @@ test("the Panel shows the run's Mac and workspace name", async () => {
 });
 
 test("a run whose workspace does not open is stuck in in-progress with its reason, one Inbox message, and no retry", async () => {
-  await setup({ HERDR_STUB_WORKSPACE_FAIL: "1" });
+  await setup({}, undefined, "workspace");
   await ready(12);
   await until(async () => (await jobs())[0]?.state === "stuck");
   const [run] = await jobs();
@@ -328,12 +333,12 @@ test("moving a run's issue back closes its workspace and keeps its checkout", as
   await post("/api/issues/acme/widgets/12/stage", { stage: "shaping" });
   await until(async () => (await jobs())[0]?.state === "stopped");
   expect((await jobs())[0]!.reason).toBe("moved back to shaping");
-  expect(herdrLog()).toMatch(/^herdr workspace close ws-1$/m);
+  expect(log()).toMatch(/^workspace close ws-1$/m);
   expect(existsSync(path)).toBe(true);
 });
 
 test("a stopped run whose workspace does not close says so in its reason", async () => {
-  await setup({ HERDR_STUB_WORKSPACE_FAIL: "close" });
+  await setup({}, undefined, "close");
   await ready(12);
   await until(async () => (await jobs())[0]?.state === "claimed");
   const id = (await jobs())[0]!.id;
@@ -361,12 +366,67 @@ test("a bundle's run opens one workspace named after the bundle, with one brief 
   expect(run.issues).toEqual([12, 13]);
   await until(async () => (await started(run.id)) !== undefined);
   expect((await started(run.id))!.workspace).toBe("acme-widgets-12-13");
-  const brief =
-    herdrLog().split("herdr agent prompt acme-widgets-12-13 ")[1] ?? "";
+  const brief = log().split("agent prompt acme-widgets-12-13 ")[1] ?? "";
   expect(brief).toContain("acme/widgets#12, acme/widgets#13");
   expect(brief).toContain("one plan and one PR");
   // GitHub links each issue only with its own keyword.
   expect(brief).toContain("Closes #12, Closes #13");
   expect(brief).toContain("thread named `acme/widgets#12 + acme/widgets#13`");
-  expect(herdrLog().match(/^herdr workspace create /gm)?.length).toBe(1);
+  expect(log().match(/^workspace create /gm)?.length).toBe(1);
+});
+
+test("each tower-state event carries only the transcript entries new since the last", async () => {
+  await setup();
+  await ready(12);
+  await until(async () => (await jobs())[0]?.state === "claimed");
+  const id = (await jobs())[0]!.id;
+  const state = (transcript: string[]) =>
+    writeFileSync(
+      join(dir(), "tower-state.json"),
+      JSON.stringify({ v: 1, tasks: [], transcript }),
+    );
+  state(["a"]);
+  await until(async () =>
+    (await job(id)).events.some((e) => e.kind === "tower-state"),
+  );
+  state(["a", "b"]);
+  const states = async () =>
+    (await job(id)).events.filter((e) => e.kind === "tower-state");
+  await until(async () => (await states()).length === 2);
+  expect((await states()).map((e) => e.data.transcript)).toEqual([
+    ["a"],
+    ["b"],
+  ]);
+});
+
+test("a run whose orchestrator exited is stuck, and frees its station", async () => {
+  await setup();
+  await ready(12);
+  await until(async () => (await jobs())[0]?.state === "claimed");
+  const id = (await jobs())[0]!.id;
+  await until(async () => (await started(id)) !== undefined);
+  agentExits(dir(), "acme-widgets-12");
+  await until(async () => (await jobs())[0]?.state === "stuck");
+  expect((await jobs())[0]!.reason).toBe("its orchestrator exited");
+});
+
+test("a run with no progress for the repo's stale threshold is stuck, unless it waits on an answer", async () => {
+  // A blocked task: the run waits on an Inbox answer, which is no stall.
+  writeFileSync(
+    join(dir(), "tower-state.json"),
+    JSON.stringify({ v: 1, tasks: [{ id: "1", status: "blocked" }] }),
+  );
+  await setup({}, undefined, undefined, { ".orchestrate": "STALE=0\n" });
+  await ready(12);
+  await until(async () => (await jobs())[0]?.state === "claimed");
+  await Bun.sleep(500);
+  expect((await jobs())[0]!.state).toBe("claimed");
+  writeFileSync(
+    join(dir(), "tower-state.json"),
+    JSON.stringify({ v: 1, tasks: [{ id: "1", status: "in_progress" }] }),
+  );
+  await until(async () => (await jobs())[0]?.state === "stuck");
+  expect((await jobs())[0]!.reason).toBe("no progress for 0 min");
+  // The orchestrator may still be at work: its workspace stays for a look.
+  expect(log()).not.toMatch(/^workspace close/m);
 });

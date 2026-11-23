@@ -3,7 +3,9 @@
  * start-run.sh, which starts an orchestrator there with the brief, then
  * forwards the run's tower record as job events until the hub ends the job
  * (its PR is ready). A run the user stops has its workspace closed through
- * the kit's stop-run.sh.
+ * the kit's stop-run.sh. A run whose orchestrator exited, or that made no
+ * progress for the repo's stale threshold while waiting on no answer, is
+ * stuck: the job fails and frees the station.
  */
 import { execFile } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -19,6 +21,7 @@ const run = promisify(execFile);
 const KIT = join(import.meta.dir, "../../../orchestrate");
 const START_RUN = join(KIT, "start-run.sh");
 const STOP_RUN = join(KIT, "stop-run.sh");
+const RUN_STATE = join(KIT, "run-state.sh");
 const TEMPLATE = join(import.meta.dir, "../../prompts/run-brief.md");
 // How often the run's tower state is read; tests set it short.
 const POLL_MS = Number(process.env.PANEL_RUN_POLL_MS) || 30_000;
@@ -71,7 +74,11 @@ registerJobRunner("run", async ({ job, workspace, emit, signal }) => {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
-  const opened = JSON.parse(out) as { workspace: string; pane: string };
+  const opened = JSON.parse(out) as {
+    workspace: string;
+    pane: string;
+    agent: string;
+  };
   await emit("run-started", {
     workspace: name,
     pane: opened.pane,
@@ -80,7 +87,17 @@ registerJobRunner("run", async ({ job, workspace, emit, signal }) => {
     databaseName: workspace.databaseName,
     ports: workspace.ports,
   });
+  // The orchestrator and the repo's stale threshold; null when the kit
+  // cannot say, which counts as alive.
+  const health = () =>
+    run(RUN_STATE, [opened.agent], { cwd: workspace.path }).then(
+      (r) => JSON.parse(r.stdout) as { agent: string; stale: number },
+      () => null,
+    );
   let last = "";
+  let tasks: { status?: string }[] = [];
+  let sent = 0; // transcript entries sent so far
+  let progress = Date.now();
   while (!signal.aborted) {
     const state = await run("tower", ["state", "--json"], {
       cwd: workspace.path,
@@ -90,8 +107,25 @@ registerJobRunner("run", async ({ job, workspace, emit, signal }) => {
     );
     if (state && state !== last) {
       last = state;
-      await emit("tower-state", JSON.parse(state) as Record<string, unknown>);
+      progress = Date.now();
+      const read = JSON.parse(state) as Record<string, unknown>;
+      tasks = Array.isArray(read.tasks) ? (read.tasks as typeof tasks) : [];
+      const transcript = Array.isArray(read.transcript) ? read.transcript : [];
+      if (transcript.length < sent) sent = 0; // another run's record
+      // The board as it is now, and only the transcript entries not sent yet.
+      await emit("tower-state", {
+        ...read,
+        transcript: transcript.slice(sent),
+      });
+      sent = transcript.length;
     }
+    const now = await health();
+    if (now?.agent === "gone")
+      return { outcome: "failed", reason: "its orchestrator exited" };
+    // A blocked task waits on an answer: the clock stops meanwhile.
+    if (tasks.some((t) => t.status === "blocked")) progress = Date.now();
+    else if (now && Date.now() - progress > now.stale * 60_000)
+      return { outcome: "failed", reason: `no progress for ${now.stale} min` };
     await sleep(POLL_MS, signal);
   }
   const stop = stopReason(signal);
