@@ -21,6 +21,7 @@ import {
   git,
   hubUrl,
   issue,
+  polls,
   post,
   put,
   gitRemotes,
@@ -387,7 +388,26 @@ test("the Panel lists stations with switch, limit and current jobs, and each job
   const job =
     html.split(`<li data-job="${id}">`)[1]?.split("</details>")[0] ?? "";
   expect(job).toContain("claimed by server");
-  expect(job).toMatch(/workspace.*step.*step/s);
+  // The page counts a job's events; opening them loads them from the API.
+  expect(job).toContain(`data-events="/api/jobs/${id}"`);
+  expect(job).toContain("3 events");
+  expect(html).not.toContain('{"n":1}');
+});
+
+test("a station shows the job it holds even when 30 newer jobs came after it", async () => {
+  await setup();
+  setIssues(
+    "acme/widgets",
+    Array.from({ length: 32 }, (_, n) => issue(n + 1)),
+  );
+  await polls(2);
+  await grills(1);
+  await post("/api/jobs/claim", { station: "server", kinds: ["grill"] });
+  for (let n = 2; n <= 32; n++) await grills(n);
+  const html = await (await fetch(`${hubUrl()}/`)).text();
+  const server =
+    html.split('<li data-station="server">')[1]?.split("</li>")[0] ?? "";
+  expect(server).toContain("grill acme/widgets#1");
 });
 
 test("a hub down for longer than the lease gets the job back from the station that still runs it", async () => {

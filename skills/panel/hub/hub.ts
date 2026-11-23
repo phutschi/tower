@@ -87,15 +87,13 @@ const WORKS_IN: Partial<Record<Job["kind"], Stage>> = {
 };
 
 /**
- * An issue as the Panel shows it. Its job is the one not over yet, or a
+ * An issue as the Panel shows it, from its jobs (`mine`, oldest first). Its
+ * job is the one not over yet, or a
  * stuck one: the issue's last job, stuck in the stage it worked in, until a
  * move starts another.
  */
-function panelIssue(i: SnapshotIssue, jobs: Job[]): PanelIssue {
+function panelIssue(i: SnapshotIssue, mine: Job[]): PanelIssue {
   const area = i.labels.find((l) => l.startsWith("area:"));
-  const mine = jobs.filter(
-    (j) => j.repo === i.repo && j.issues.includes(i.number),
-  );
   const last = mine.at(-1);
   const stuck =
     last?.state === "stuck" && WORKS_IN[last.kind] === i.stage ? last : null;
@@ -113,17 +111,43 @@ function panelIssue(i: SnapshotIssue, jobs: Job[]): PanelIssue {
   };
 }
 
+/** A Tailscale address (100.64.0.0/10, fd7a:115c:a1e0::/48) or a loopback one. */
+function tailnetOrLoopback(host: string): boolean {
+  const h = host.toLowerCase();
+  if (h === "localhost" || h === "::1" || /^127\./.test(h)) return true;
+  if (h.startsWith("fd7a:115c:a1e0:")) return true;
+  const v4 = /^100\.(\d+)\.\d+\.\d+$/.exec(h);
+  return !!v4 && Number(v4[1]) >= 64 && Number(v4[1]) <= 127;
+}
+
+/**
+ * Whether a request names a host the Panel answers to: its own address, a
+ * loopback name, or a tailnet name (MagicDNS: dotless, or under .ts.net). A
+ * page on another site that rebinds its own name to the hub names that site.
+ */
+function trustedHost(req: Request, own: string): boolean {
+  const header = req.headers.get("host");
+  if (!header) return false;
+  let name: string;
+  try {
+    name = new URL(`http://${header}`).hostname.toLowerCase();
+  } catch {
+    return false;
+  }
+  name = name.replace(/^\[|\]$/g, "");
+  return (
+    name === own.toLowerCase() ||
+    tailnetOrLoopback(name) ||
+    name.endsWith(".ts.net") ||
+    !name.includes(".")
+  );
+}
+
 export async function startHub(opts: HubOptions): Promise<Hub> {
-  // No login guards the Panel: only the tailnet does (ADR 0017). Every
-  // all-zero address (or none) is every address.
-  const everywhere =
-    opts.host === "" ||
-    opts.host === "0.0.0.0" ||
-    (opts.host.includes(":") &&
-      opts.host.split(":").every((g) => /^0*$/.test(g)));
-  if (everywhere)
+  // No login guards the Panel: only the tailnet does (ADR 0017).
+  if (!tailnetOrLoopback(opts.host))
     throw new Error(
-      `the hub listens on one address, never on every address (${opts.host}): give it the Mac's Tailscale address`,
+      `the hub listens on the Mac's Tailscale address (or loopback), never on another or every address (${opts.host || "none given"})`,
     );
   const now = opts.now ?? (() => new Date());
   const store = new Store(opts.dbPath);
@@ -139,27 +163,39 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
   const github = new GitHub(opts.ghBin);
   const leaseMs = opts.leaseMs ?? 90_000;
   const leaseUntil = () => new Date(now().getTime() + leaseMs);
-  // A stuck run gets one Inbox note; one that fails to send is tried again
-  // on the next sweep.
+  // A stuck run gets one Inbox note, and so does each kept note (a pause);
+  // one that fails to send is tried again on the next sweep.
+  // A call while notes are sending makes that send look again when done.
   let noting = false;
-  const noteStuck = async () => {
-    if (noting) return;
+  let again = false;
+  const sendNotes = async () => {
+    if (noting) {
+      again = true;
+      return;
+    }
     noting = true;
     try {
-      for (const run of store.unnotedStuckRuns()) {
-        const refs = run.issues.map((n) => `${run.repo}#${n}`);
-        await sendInboxNote({
-          thread: refs.join(" + "),
-          subject: `Stuck: ${refs.join(", ")}`,
-          body: [
-            `The run for ${refs.join(", ")} is stuck: ${run.reason ?? "no reason given"}.`,
-            "It is not tried again. Move its issues back to ready-for-agent to start a new run.",
-            ...(run.sessionId ? [`Its session: ${run.sessionId}`] : []),
-          ].join("\n\n"),
-          idempotencyKey: `stuck-${run.id}`,
-        });
-        store.markNoted(run.id);
-      }
+      do {
+        again = false;
+        for (const run of store.unnotedStuckRuns()) {
+          const refs = run.issues.map((n) => `${run.repo}#${n}`);
+          await sendInboxNote({
+            thread: refs.join(" + "),
+            subject: `Stuck: ${refs.join(", ")}`,
+            body: [
+              `The run for ${refs.join(", ")} is stuck: ${run.reason ?? "no reason given"}.`,
+              "It is not tried again. Move its issues back to ready-for-agent to start a new run.",
+              ...(run.sessionId ? [`Its session: ${run.sessionId}`] : []),
+            ].join("\n\n"),
+            idempotencyKey: `stuck-${run.id}`,
+          });
+          store.markNoted(run.id);
+        }
+        for (const n of store.unsentNotes()) {
+          await sendInboxNote({ ...n, idempotencyKey: n.key });
+          store.markSent(n.key);
+        }
+      } while (again);
     } catch (err) {
       console.error(`hub: an Inbox note failed: ${String(err)}`);
     } finally {
@@ -168,7 +204,7 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
   };
   const sweep = () => {
     store.expireLeases(now());
-    void noteStuck();
+    void sendNotes();
   };
   // The hub was down, not its stations: they get a lease's time to report.
   store.renewLeases(leaseUntil());
@@ -357,13 +393,26 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
     if (!stopped) timer = setTimeout(loop, opts.pollMs);
   };
 
+  /** Every issue as the Panel shows it, from one read of the jobs and bundles. */
   const issues = () => {
-    const jobs = store.jobs();
-    return store.issues().map((i) => ({
-      ...panelIssue(i, jobs),
-      blockedBy: blockers.get(`${i.repo}#${i.number}`) ?? [],
-      bundleId: bundleOf(i.repo, i.number)?.id ?? null,
-    }));
+    const byIssue = new Map<string, Job[]>();
+    for (const j of store.jobs())
+      for (const n of j.issues) {
+        const key = `${j.repo}#${n}`;
+        byIssue.set(key, [...(byIssue.get(key) ?? []), j]);
+      }
+    const inBundle = new Map<string, string>();
+    for (const b of advice.bundles())
+      // oldest first: the newest wins
+      for (const n of b.issues) inBundle.set(`${b.repo}#${n}`, b.id);
+    return store.issues().map((i) => {
+      const key = `${i.repo}#${i.number}`;
+      return {
+        ...panelIssue(i, byIssue.get(key) ?? []),
+        blockedBy: blockers.get(key) ?? [],
+        bundleId: inBundle.get(key) ?? null,
+      };
+    });
   };
 
   /** The user's accept or reject of parts of an order advice. */
@@ -457,10 +506,31 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
       );
     });
 
+  // Every route answers only requests that name a host the Panel trusts.
+  const guard = <R extends string>(
+    routes: Bun.Serve.Routes<undefined, R>,
+  ): Bun.Serve.Routes<undefined, R> =>
+    Object.fromEntries(
+      Object.entries(routes).map(([path, methods]) => [
+        path,
+        Object.fromEntries(
+          Object.entries(
+            methods as Record<string, (req: Request, s: unknown) => unknown>,
+          ).map(([method, handle]) => [
+            method,
+            (req: Request, s: unknown) =>
+              trustedHost(req, opts.host)
+                ? handle(req, s)
+                : bad("the Panel does not answer to that host", 403),
+          ]),
+        ),
+      ]),
+    ) as unknown as Bun.Serve.Routes<undefined, R>;
+
   const server = Bun.serve({
     hostname: opts.host,
     port: opts.port,
-    routes: {
+    routes: guard({
       "/": {
         GET: (req) => {
           const panelIssues = issues();
@@ -478,11 +548,22 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
               ),
               repos: store.repos().map((r) => r.name),
               stations: store.stations(),
-              jobs: store
-                .jobs()
-                .slice(-30)
-                .reverse()
-                .map((j) => ({ ...j, events: store.events(j.id) })),
+              jobs: (() => {
+                // The 30 newest, and every claimed one: a station shows
+                // what it holds.
+                const all = store.jobs();
+                const shown = all
+                  .filter(
+                    (j, n) => n >= all.length - 30 || j.state === "claimed",
+                  )
+                  .reverse();
+                const summary = store.summaries(shown.map((j) => j.id));
+                return shown.map((j) => ({
+                  ...j,
+                  events: summary.get(j.id)?.events ?? 0,
+                  workspace: summary.get(j.id)?.workspace ?? null,
+                }));
+              })(),
             }),
             { headers: { "content-type": "text/html; charset=utf-8" } },
           );
@@ -581,17 +662,15 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
             if (!info)
               return bad("a rate-limit event has a status and an ISO resetsAt");
             const paused = usage.record(info, now());
-            if (paused)
-              void sendInboxNote({
+            if (paused) {
+              store.addNote({
+                key: `panel-pause-${paused}`,
                 thread: "Panel usage",
                 subject: "Dispatch paused at a usage limit",
                 body: `Claude refused a job at a usage limit${info.rateLimitType ? ` (${info.rateLimitType})` : ""}. No new job starts until ${paused}.`,
-                idempotencyKey: `panel-pause-${paused}`,
-              }).catch((err: unknown) =>
-                console.error(
-                  `hub: the Inbox refused the pause note: ${String(err)}`,
-                ),
-              );
+              });
+              void sendNotes();
+            }
           }
           if (job.kind === "advice" && kind === "proposal") {
             const proposal = parseProposal(data);
@@ -625,7 +704,7 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
             return bad("a result has station, outcome and durationMs");
           if (!store.finish(b.station, result))
             return bad("the station holds this job no more", 409);
-          void noteStuck();
+          void sendNotes();
           return Response.json({ ok: true });
         },
       },
@@ -669,7 +748,7 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
             return Response.json(store.repos().map((r) => r.name));
           }),
       },
-    },
+    }),
     fetch: () => new Response("not found", { status: 404 }),
   });
 

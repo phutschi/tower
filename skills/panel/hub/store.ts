@@ -22,6 +22,14 @@ export interface SnapshotIssue {
   labels: string[];
 }
 
+/** An Inbox note the hub sends, tried again until it goes through. */
+export interface Note {
+  key: string;
+  thread: string;
+  subject: string;
+  body: string;
+}
+
 type IssueRow = Omit<SnapshotIssue, "labels"> & { labels: string };
 const toIssue = (r: IssueRow): SnapshotIssue => ({
   ...r,
@@ -123,6 +131,13 @@ export class Store {
         name TEXT PRIMARY KEY,
         enabled INTEGER NOT NULL,
         job_limit INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS notes (
+        key TEXT PRIMARY KEY,
+        thread TEXT NOT NULL,
+        subject TEXT NOT NULL,
+        body TEXT NOT NULL,
+        sent INTEGER NOT NULL DEFAULT 0
       );
       CREATE TABLE IF NOT EXISTS job_events (
         seq INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -408,6 +423,27 @@ export class Store {
       .map(toJob);
   }
 
+  /** Keeps an Inbox note to send; one with the same key is kept once. */
+  addNote(n: Note) {
+    this.db.run(
+      "INSERT OR IGNORE INTO notes (key, thread, subject, body) VALUES (?, ?, ?, ?)",
+      [n.key, n.thread, n.subject, n.body],
+    );
+  }
+
+  /** The notes not sent yet, oldest first. */
+  unsentNotes(): Note[] {
+    return this.db
+      .query<Note, []>(
+        "SELECT key, thread, subject, body FROM notes WHERE sent = 0 ORDER BY rowid",
+      )
+      .all();
+  }
+
+  markSent(key: string) {
+    this.db.run("UPDATE notes SET sent = 1 WHERE key = ?", [key]);
+  }
+
   markNoted(id: string) {
     this.db.run("UPDATE jobs SET noted = 1 WHERE id = ?", [id]);
   }
@@ -417,6 +453,33 @@ export class Store {
       "INSERT INTO job_events (job_id, ts, kind, data) VALUES (?, ?, ?, ?)",
       [e.jobId, e.ts, e.kind, JSON.stringify(e.data)],
     );
+  }
+
+  /**
+   * How many events each of `ids` has, and the workspace its run opened (its
+   * last run-started event): what the Panel shows of a job before it is opened.
+   */
+  summaries(
+    ids: string[],
+  ): Map<string, { events: number; workspace: string | null }> {
+    const out = new Map<string, { events: number; workspace: string | null }>();
+    if (!ids.length) return out;
+    const marks = ids.map(() => "?").join(",");
+    for (const r of this.db
+      .query<{ job_id: string; n: number }, string[]>(
+        `SELECT job_id, count(*) AS n FROM job_events WHERE job_id IN (${marks}) GROUP BY job_id`,
+      )
+      .all(...ids))
+      out.set(r.job_id, { events: r.n, workspace: null });
+    for (const r of this.db
+      .query<{ job_id: string; data: string }, string[]>(
+        `SELECT job_id, data FROM job_events WHERE kind = 'run-started' AND job_id IN (${marks}) ORDER BY seq`,
+      )
+      .all(...ids)) {
+      const ws = (JSON.parse(r.data) as { workspace?: unknown }).workspace;
+      if (typeof ws === "string") out.get(r.job_id)!.workspace = ws;
+    }
+    return out;
   }
 
   /** A job's events, in the order they arrived. */

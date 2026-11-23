@@ -4,7 +4,6 @@ import {
   type AdviceProposal,
   type Bundle,
   type Job,
-  type JobEvent,
   type PanelIssue,
   type Station,
   type UsageRow,
@@ -17,8 +16,11 @@ export interface PanelData {
   stuckReasons: Record<string, string>;
   repos: string[];
   stations: Station[];
-  /** The latest jobs, newest first, each with its events. */
-  jobs: (Job & { events: JobEvent[] })[];
+  /**
+   * The latest jobs, newest first, with how many events each has and the
+   * workspace its run opened; a job's events load when it is opened.
+   */
+  jobs: (Job & { events: number; workspace: string | null })[];
   advice: AdviceProposal | null;
   usage: UsageView;
   bundles: Bundle[];
@@ -54,7 +56,10 @@ function card(i: PanelIssue, reasons: PanelData["stuckReasons"]): string {
     i.stuck && i.jobId
       ? ` <span class="stuck">stuck: ${esc(reasons[i.jobId] ?? "")}</span>`
       : "";
-  return `<li><span class="ref">${esc(i.repo)}#${i.number}</span>${area} ${esc(i.title)}${stuck} ${move}</li>`;
+  const waits = i.blockedBy.length
+    ? ` <span class="waits">waits on ${esc(i.blockedBy.join(", "))}</span>`
+    : "";
+  return `<li><span class="ref">${esc(i.repo)}#${i.number}</span>${area} ${esc(i.title)}${waits}${stuck} ${move}</li>`;
 }
 
 function stageSection(
@@ -203,23 +208,11 @@ function jobState(j: Job): string {
 
 function jobList(jobs: PanelData["jobs"]): string {
   const items = jobs.map((j) => {
-    const events = j.events
-      .map(
-        (e) =>
-          `<li>${esc(e.ts)} ${esc(e.kind)} ${esc(JSON.stringify(e.data))}</li>`,
-      )
-      .join("");
     const session = j.sessionId ? ` · session ${esc(j.sessionId)}` : "";
     // Where to attach to a run: the workspace its station opened.
-    const opened = j.events
-      .filter((e) => e.kind === "run-started")
-      .at(-1)?.data;
-    const ws =
-      typeof opened?.workspace === "string"
-        ? ` · workspace ${esc(opened.workspace)}`
-        : "";
+    const ws = j.workspace ? ` · workspace ${esc(j.workspace)}` : "";
     return `<li data-job="${esc(j.id)}">${esc(jobName(j))} · ${jobState(j)}${ws}${session}
-<details><summary>${j.events.length} events</summary><ul>${events}</ul></details></li>`;
+<details data-events="/api/jobs/${esc(j.id)}"><summary>${j.events} events</summary><ul></ul></details></li>`;
   });
   return `<section data-jobs><h2>Jobs</h2><ul>${items.join("")}</ul></section>`;
 }
@@ -230,6 +223,7 @@ ul { list-style: none; padding: 0; }
 li { padding: .5rem 0; border-bottom: 1px solid #8884; overflow-wrap: anywhere; }
 .ref { font-family: ui-monospace, monospace; }
 .stuck { color: #c33; font-weight: 600; }
+.waits { color: #a60; }
 .tag { font-size: .8em; padding: 0 .4em; border: 1px solid #8888; border-radius: .4em; }
 select, button, input { font: inherit; max-width: 100%; }
 `;
@@ -243,6 +237,18 @@ document.querySelectorAll("[data-unlist]").forEach((b) => b.addEventListener("cl
 document.querySelectorAll("[data-switch]").forEach((c) => c.addEventListener("change", () => call(c.dataset.switch, "PUT", { enabled: c.checked })));
 document.querySelectorAll("[data-limit]").forEach((i) => i.addEventListener("change", () => call(i.dataset.limit, "PUT", { limit: Number(i.value) })));
 document.querySelectorAll("[data-decide]").forEach((b) => b.addEventListener("click", () => call(b.dataset.decide, "POST", JSON.parse(b.dataset.parts))));
+// A job's events load when it is opened: a phone gets no event it did not ask for.
+document.querySelectorAll("[data-events]").forEach((d) => d.addEventListener("toggle", async () => {
+  if (!d.open || d.dataset.loaded) return;
+  d.dataset.loaded = "1";
+  const { events } = await (await fetch(d.dataset.events)).json();
+  const list = d.querySelector("ul");
+  for (const e of events) {
+    const li = document.createElement("li");
+    li.textContent = e.ts + " " + e.kind + " " + JSON.stringify(e.data);
+    list.append(li);
+  }
+}));
 document.querySelector("[data-list]")?.addEventListener("submit", (e) => { e.preventDefault(); call("/api/repos", "POST", { repo: e.target.repo.value }); });
 `;
 

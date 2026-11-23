@@ -2,7 +2,7 @@
  * Seam 1 for usage: the hub, driven through its HTTP API, with a fake usage
  * report and the stub plannotator first on PATH for its Inbox messages.
  */
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
 
@@ -40,9 +40,14 @@ const REPORT: UsageRow[] = [
  */
 async function hub(
   readUsage: () => Promise<UsageRow[] | null> = async () => null,
+  leaseMs?: number,
 ) {
   setIssues("acme/widgets", [issue(1), issue(2)]);
-  await start(["acme/widgets"], { serverStation: "server", readUsage });
+  await start(["acme/widgets"], {
+    serverStation: "server",
+    readUsage,
+    ...(leaseMs ? { leaseMs } : {}),
+  });
   await put("/api/stations/server", { limit: 2 });
   await post("/api/issues/acme/widgets/1/stage", { stage: "shaping" });
   const job = (await claim())!;
@@ -262,4 +267,20 @@ test("a report without per-model rows still names Opus and Sonnet from their wee
     },
   ]);
   expect(usageRows({ five_hour: null })).toBeNull();
+});
+
+test("a pause note the Inbox refused is sent again until it goes through", async () => {
+  // A short lease: the hub's sweep, which retries notes, runs often.
+  const job = await hub(async () => null, 400);
+  const fail = join(dir(), "plannotator.log.fail");
+  writeFileSync(fail, "");
+  const resetsAt = new Date(Date.now() + 60 * 60_000).toISOString();
+  await limit(job, { status: "rejected", resetsAt });
+  const sends = () => notes().filter((l) => l.includes("send_message"));
+  await until(async () => sends().length > 0);
+  rmSync(fail);
+  await until(async () => sends().length > 1);
+  expect(sends().at(-1)).toContain(`panel-pause-${resetsAt}`);
+  await Bun.sleep(300);
+  expect(sends().length).toBe(2);
 });

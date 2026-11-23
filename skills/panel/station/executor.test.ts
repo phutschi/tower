@@ -8,7 +8,7 @@ import { afterEach, expect, test } from "bun:test";
 
 import type { Job } from "../types.ts";
 import { dir, git, gitRemotes, remote, useFixture } from "../tests/fixture.ts";
-import { CheckoutExecutor } from "./executor.ts";
+import { CheckoutExecutor, databaseName } from "./executor.ts";
 
 useFixture();
 afterEach(() => {
@@ -75,4 +75,16 @@ test("a keep marker that cannot be read counts as expired and stops no other pru
   await new CheckoutExecutor(workdir).prune();
   expect(existsSync(join(workdir, "jobs/dddddddd-4"))).toBe(false);
   expect(existsSync(join(workdir, "keep/dddddddd-4.json"))).toBe(false);
+});
+
+test("a long repo name keeps the job's id in the database name, within PostgreSQL's 63 bytes", () => {
+  const long = { ...job("abcdef12-0000"), repo: `acme/${"w".repeat(80)}` };
+  const a = databaseName(long);
+  const b = databaseName({ ...long, id: "12345678-0000" });
+  expect(a.length).toBeLessThanOrEqual(63);
+  expect(a).toEndWith("_abcdef12");
+  expect(a).not.toBe(b);
+  expect(databaseName(job("abcdef12-0000"))).toBe(
+    "panel_acme_widgets_abcdef12",
+  );
 });

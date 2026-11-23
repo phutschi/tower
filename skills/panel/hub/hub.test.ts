@@ -509,11 +509,47 @@ test("the Panel groups issues by issue area, with ungrouped issues in their own 
   expect(html).toContain('<a href="/?group=area">issue area</a>');
 });
 
-test("the hub refuses to listen on every address: it is reached on the tailnet only", async () => {
-  for (const host of ["0.0.0.0", "::", "::0", "0:0:0:0:0:0:0:0", ""])
+test("the hub listens on a Tailscale or loopback address only: it is reached on the tailnet", async () => {
+  for (const host of [
+    "0.0.0.0",
+    "::",
+    "::0",
+    "0:0:0:0:0:0:0:0",
+    "",
+    "192.168.1.20",
+    "10.0.0.5",
+    "100.128.0.1",
+    "fe80::1",
+  ])
     expect(
       startHub({ dbPath: join(dir(), "hub.db"), host, port: 0, pollMs: 20 }),
-    ).rejects.toThrow("never on every address");
+    ).rejects.toThrow("Tailscale address");
+});
+
+test("a request naming a host the Panel does not answer to is refused", async () => {
+  setIssues("acme/widgets", [issue(1)]);
+  await start();
+  const as = (host: string) =>
+    fetch(`${hubUrl()}/api/issues`, { headers: { host } });
+  expect((await as("evil.example:80")).status).toBe(403);
+  expect((await as("panel.evil.example")).status).toBe(403);
+  for (const host of [
+    new URL(hubUrl()).host,
+    "localhost",
+    "server-mac:7420",
+    "server-mac.tail1234.ts.net",
+  ])
+    expect((await as(host)).status).toBe(200);
+});
+
+test("an issue card says what the issue waits on", async () => {
+  setIssues("acme/widgets", [issue(5), issue(12, "shaping")]);
+  blocks("acme/widgets", 12, 5);
+  await start();
+  await post("/api/issues/acme/widgets/12/stage", { stage: "ready-for-agent" });
+  const html = await (await fetch(`${hubUrl()}/`)).text();
+  const card = html.split("acme/widgets#12</span>")[1]?.split("</li>")[0] ?? "";
+  expect(card).toContain("waits on #5");
 });
 
 test("an open issue with a label named closed is not closed", async () => {

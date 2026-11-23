@@ -58,6 +58,16 @@ function freePort(): Promise<number> {
   });
 }
 
+/**
+ * A job's test database: panel_, its repo, then its id's first 8 characters.
+ * The repo part is cut so the id survives PostgreSQL's 63-byte names.
+ */
+export function databaseName(job: Job): string {
+  const slug = (t: string) => t.toLowerCase().replace(/[^a-z0-9]+/g, "_");
+  const id = slug(job.id.slice(0, 8));
+  return `panel_${slug(job.repo).slice(0, 63 - "panel_".length - 1 - id.length)}_${id}`;
+}
+
 export class CheckoutExecutor implements Executor {
   // Jobs of one repo share its base clone: one fetch at a time.
   private readonly locks = new Map<string, Promise<unknown>>();
@@ -109,12 +119,11 @@ export class CheckoutExecutor implements Executor {
     await git(this.workdir, "clone", "--quiet", "--reference", base, url, path);
     const branch = `panel/${job.kind}-${job.issues.join("-")}-${job.id.slice(0, 8)}`;
     await git(path, "switch", "--quiet", "-c", branch);
-    const name = `${job.repo}_${job.id.slice(0, 8)}`;
     return {
       path,
       branch,
       ports: await this.ports(),
-      databaseName: `panel_${name.toLowerCase().replace(/[^a-z0-9]+/g, "_")}`,
+      databaseName: databaseName(job),
     };
   }
 
