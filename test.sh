@@ -4233,6 +4233,16 @@ if section send-brief; then
     assert_match "send-brief (herdr), the prompt refused: says so, with herdr's error" "$out" "send-brief: herdr did not take the brief for bun-vitest-lane-a in $apane; nothing was sent, send again \\(.*agent_not_found"
     assert_match "send-brief (herdr), the prompt refused: fails" "$out" 'exit=1$'
   fi
+  # The brief is read once, from a regular file: a link (it could point
+  # outside the run dir) or a directory is refused, with nothing sent.
+  echo secret > "$TMP/outside.txt"; ln -sf "$TMP/outside.txt" "$RUN/brief-link.md"
+  out=$(send "$RUN" bun-vitest-lane-a "$RUN/brief-link.md")
+  assert_match "send-brief, a brief that is a link: refused" "$out" "send-brief: $RUN/brief-link.md is not a regular file"
+  assert_eq "send-brief, a brief that is a link: nothing sent" "$(sent)" ""
+  mkdir -p "$RUN/brief-dir.md"
+  out=$(send "$RUN" bun-vitest-lane-a "$RUN/brief-dir.md")
+  assert_match "send-brief, a brief that is a directory: refused" "$out" "send-brief: $RUN/brief-dir.md is not a regular file"
+  assert_eq "send-brief, a brief that is a directory: nothing sent" "$(sent)" ""
   # A Reviewer's line names its agent the same way.
   spane=$(sed -nE 's/^shell: +([^ ]+).*/\1/p' "$RUN/panes.txt")
   printf 'reviewer R1:    %s   (agent "bun-vitest-r1-1", kind codex, model gpt-6-astra, review "Lane review A", findings %s)\n' "$spane" "$RUN/findings/lane-a.json" >> "$RUN/panes.txt"
