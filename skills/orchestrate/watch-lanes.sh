@@ -85,7 +85,10 @@ ROUND=${ROUND_SECONDS:-}; GRACE=${GRACE_SECONDS:-45}; POLL=${POLL_SECONDS:-15}
 UNREADABLE_MAX=${UNREADABLE_POLLS:-12}
 [[ "$UNREADABLE_MAX" =~ ^[1-9][0-9]*$ ]] || die "UNREADABLE_POLLS: a whole number of polls >= 1; got '$UNREADABLE_MAX'"
 
-tail_of()  { runner_agent_tail "$1" "" 40 2>/dev/null | grep -v '^[[:space:]]*$' | tail -12; }
+# The agent's pane: its pane map line (a lane's or a Reviewer's); none when
+# the run dir has no map.
+pane_of()  { sed -nE "s/^[^:]+: +([^ ]+) +\(agent \"$1\".*/\1/p" "$RUN_DIR/panes.txt" 2>/dev/null | head -1; }
+tail_of()  { runner_agent_tail "$1" "$(pane_of "$1")" 40 2>/dev/null | grep -v '^[[:space:]]*$' | tail -12; }
 # The end line of round $1: round 1 is the brief's report, a later round a fix
 # prompt's, with the round tag r<n> inside the brackets.
 end_line() {
@@ -123,7 +126,7 @@ poll() {
   while [ -z "$ROUND" ] || [ $(( $(date +%s) - started )) -lt "$ROUND" ]; do
     settled=0; working=0; i=0
     for name in "${NAMES[@]}"; do
-      state=$(state_of "$name")
+      state=$(state_of "$name" "$(pane_of "$name")")
       [ "$state" = unreadable ] || UNREADABLE[$i]=0
       case "$state" in
         working|unknown) IDLE_SEEN[$i]=0; working=1 ;;
@@ -152,7 +155,7 @@ resample() {
   local i=0 name
   STATES=()
   for name in "${NAMES[@]}"; do
-    STATES[$i]=$(state_of "$name")
+    STATES[$i]=$(state_of "$name" "$(pane_of "$name")")
     if [ "${STATES[$i]}" = unreadable ]; then UNREADABLE[$i]=$(( ${UNREADABLE[$i]:-0} + 1 )); else UNREADABLE[$i]=0; fi
     i=$((i+1))
   done

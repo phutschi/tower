@@ -234,9 +234,9 @@ until_ready() {
     [ "${DRY_RUN:-0}" = 1 ] || sleep 1
   done
   if [ "$state" = unreadable ]; then
-    echo "agent start: herdr cannot say whether $name runs in $pane after $checks checks" >&2
+    echo "agent start: $(runner_name) cannot say whether $name runs in $pane after $checks checks" >&2
   else
-    echo "agent start: $name does not accept input in pane $pane after $checks checks ($state); it is left running in $pane: brief it once  herdr agent get $name  shows interactive_ready true, or end it and start it again" >&2
+    echo "agent start: $name does not accept input in pane $pane after $checks checks ($state); it is left running in $pane: brief it once  $(runner_ready_hint "$name"), or end it and start it again" >&2
   fi
   return 2
 }
@@ -270,7 +270,7 @@ start_answering_trust() {
       # errexit is off.
       local keys=(Enter); [ "$EXECUTOR_KIND" = codex ] || keys=(Down Enter)
       runner_send_keys "$pane" "${keys[@]}" || {
-        echo "agent start: could not answer $name's trust prompt in pane $pane (herdr pane send-keys failed); answer it there, and the agent runs" >&2; return 1; }
+        echo "agent start: could not answer $name's trust prompt in pane $pane ($(runner_name) could not send the keys); answer it there, and the agent runs" >&2; return 1; }
       [ "${DRY_RUN:-0}" = 1 ] || sleep 3
       # Started again only when herdr says the agent is not there (common.sh
       # state_of): a failing herdr call must not put a second agent beside it.
@@ -280,7 +280,7 @@ start_answering_trust() {
         working|idle) return 0 ;;
         gone) start_agent "$name" "$pane" >/dev/null || {
           echo "agent start: $name did not start again in pane $pane after its trust prompt; check it there" >&2; return 1; } ;;
-        unreadable) echo "agent start: herdr cannot say whether $name started after its trust prompt; check pane $pane" >&2; return 1 ;;
+        unreadable) echo "agent start: $(runner_name) cannot say whether $name started after its trust prompt; check pane $pane" >&2; return 1 ;;
         *) echo "agent start: $name is still $state in pane $pane after its trust prompt was answered; answer it there, and the agent runs" >&2; return 1 ;;
       esac
       return 0

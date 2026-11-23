@@ -23,6 +23,9 @@ runner_agent_state() {
   fi
   rm -f "$err"; echo "$r"
 }
+runner_name() { echo herdr; }
+# How a human sees that NAME accepts input, for a message.
+runner_ready_hint() { echo "herdr agent get $1  shows interactive_ready true"; }
 runner_agent_tail() { herdr agent read "$1" --source recent-unwrapped --lines "$3"; }
 runner_send_text()  { herdr pane send-text "$1" "$2" >/dev/null; }
 runner_send_keys()  { local pane="$1"; shift; herdr pane send-keys "$pane" "$@" >/dev/null; }

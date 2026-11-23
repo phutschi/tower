@@ -19,7 +19,7 @@
 set -u
 ROOT="$(cd "$(dirname "$0")" && pwd)"; KIT="$ROOT/skills/orchestrate"; PREFLIGHT_DIR="$ROOT/skills/preflight"; export KIT
 SLOW="look run"   # preflight's look.sh and one whole run: ~12 of ~35 seconds
-PER_RUNNER="dryrun"   # the sections run once per runner: herdr, and <section>:orca
+PER_RUNNER="dryrun executor watch"   # the sections run once per runner: herdr, and <section>:orca
 ONLY=""; LIST=0; FAST=0; MATCHED=0
 for _a in "$@"; do
   case "$_a" in
@@ -237,87 +237,135 @@ if section executor; then
   assert_match "reviewer: the refusal exits non-zero" "$(CODEX_STUB=absent REVIEWER_KIND=codex rev claude; echo "exit=$?")" "exit=1$"
   assert_match "reviewer: an unknown REVIEWER_KIND is refused" "$(REVIEWER_KIND=Claude rev claude)" "REVIEWER_KIND must be other, claude, codex or cursor \(got 'Claude'\)"
   assert_match "reviewer: no candidate and the lane's own kind absent: refused" "$(CODEX_STUB=absent CLAUDE_STUB=absent rev claude)" "no Reviewer for a claude lane: codex and claude are not installed \\(cursor reviews a claude lane only with REVIEWER_KIND=cursor\\)"
-  # An agent start: `start NAME [ENV...]` runs start_agent_with_trust_retry
-  # for NAME in pane-9 of a codex executor, in repo $r.
-  start() { local n=$1; shift; reset_stub; (cd "$r" && env HOME="$TMP/rev-home" EXECUTOR_KIND=codex "$@" bash -c ". \"\$KIT/common.sh\"; . \"\$KIT/executor.sh\"; start_agent_with_trust_retry $n pane-9; echo \"exit=\$?\"" 2>&1); }
-  out=$(start acme-lane-a)
-  assert_match "codex start: its startup update check is off" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start acme-lane-a --kind codex --pane pane-9 -- .* -c check_for_update_on_startup=false( |$)'
-  out=$(start acme-lane-a 'AGENT_TMP=/run/it"s \tmp')
-  assert_match "AGENT_TMP: a TOML string, quote and backslash escaped" "$(cat "$HERDR_STUB_LOG")" '-c shell_environment_policy\.set\.TMPDIR="/run/it\\"s \\\\tmp"'
-  # A codex lane in a worktree may write only what its commits need in the
-  # common git dir, never its hooks or config (#10); lane A in the main
-  # checkout keeps the whole common dir, as its index and HEAD live there.
-  C=$(git -C "$r" rev-parse --path-format=absolute --git-common-dir)
-  start_in() { local d=$1; shift; reset_stub; (cd "$d" && env HOME="$TMP/rev-home" EXECUTOR_KIND=codex RUN_DIR=/run/x "$@" bash -c ". \"\$KIT/common.sh\"; . \"\$KIT/executor.sh\"; start_agent_with_trust_retry acme-lane-b pane-9" >/dev/null 2>&1); cat "$HERDR_STUB_LOG"; }
-  log=$(start_in "$wt")
-  assert_match "codex worktree lane: writes only objects, refs, logs, packed-refs and its own git dir" "$log" \
-    "^herdr agent start acme-lane-b .* -c sandbox_workspace_write\\.writable_roots=\\[\"/run/x\",\"$C/objects\",\"$C/refs\",\"$C/logs\",\"$C/packed-refs\",\"$C/packed-refs\\.lock\",\"$C/packed-refs\\.new\",\"$C/worktrees/some-branch\"\\]( |\$)"
-  assert_nomatch "codex worktree lane: not the whole common git dir" "$log" "--add-dir $C( |\$)"
-  assert_match "codex worktree lane: the run dir still added" "$log" "--add-dir /run/x( |\$)"
-  log=$(start_in "$r")
-  assert_match "codex lane in the main checkout: the whole common git dir" "$log" "--add-dir $C( |\$)"
-  assert_nomatch "codex lane in the main checkout: no narrowed roots" "$log" 'writable_roots'
-  # AGENT_LOOK (add-reviewer.sh sets it for a codex Reviewer, and only then)
-  # is one more writable dir, beside the grants above.
-  log=$(start_in "$r" AGENT_LOOK=/state/look)
-  assert_match "AGENT_LOOK in the main checkout: added as a dir" "$log" "--add-dir /state/look( |\$)"
-  log=$(start_in "$wt" AGENT_LOOK=/state/look)
-  assert_match "AGENT_LOOK in a worktree: one of the writable roots" "$log" 'writable_roots=\[.*"/state/look".*\]'
-  log=$(start_in "$r" AGENT_LOOK=/state/look)
-  assert_match "AGENT_LOOK: the run dir reaches look as TOWER_RUN" "$log" '-c shell_environment_policy\.set\.TOWER_RUN="/run/x"( |$)'
-  log=$(start_in "$r")
-  assert_nomatch "no AGENT_LOOK: no look dir" "$log" 'state/look'
-  assert_nomatch "no AGENT_LOOK: no TOWER_RUN" "$log" 'TOWER_RUN'
-  # An agent that exits right after its start (codex updating itself, say)
-  # is started once more; gone again, the start fails, saying so.
-  printf 'gone\nidle\n' > "$HERDR_STUB_STATES_DIR/acme-lane-a.started"
-  out=$(start acme-lane-a)
-  assert_eq "gone after its start: started once more" "$(grep -c '^herdr agent start acme-lane-a ' "$HERDR_STUB_LOG")" 2
-  assert_match "gone after its start: ... then it runs" "$out" 'exit=0$'
-  assert_match "gone after its start: ... saying so" "$out" 'acme-lane-a exited right after its start in pane pane-9; starting it once more'
-  echo gone > "$HERDR_STUB_STATES_DIR/acme-lane-a.started"
-  out=$(start acme-lane-a)
-  assert_eq "gone twice: no third start" "$(grep -c '^herdr agent start acme-lane-a ' "$HERDR_STUB_LOG")" 2
-  assert_match "gone twice: the start fails" "$out" 'exit=1$'
-  assert_match "gone twice: ... saying so" "$out" 'acme-lane-a exited again after it was started once more in pane pane-9'
-  # The trust prompt answered, the agent reads working, then it exits: it is
-  # started once more.
-  rm -f "$HERDR_STUB_STATES_DIR/acme-lane-a.started"; printf 'working\ngone\n' > "$HERDR_STUB_STATES_DIR/acme-lane-a"
-  out=$(start acme-lane-a HERDR_STUB_TRUST_STARTS=1)
-  assert_eq "trust answered, then gone: started once more" "$(grep -c '^herdr agent start acme-lane-a ' "$HERDR_STUB_LOG")" 2
-  assert_match "trust answered, then gone: ... then it runs" "$out" 'exit=0$'
-  # Ready means accepting input: herdr's interactive_ready. Until then the
-  # start waits (READY_WAIT_SECONDS checks), and fails when it never comes.
-  rm -f "$HERDR_STUB_STATES_DIR"/acme-lane-a*; echo "unready unready idle" > "$HERDR_STUB_STATES_DIR/acme-lane-a.started"
-  out=$(start acme-lane-a)
-  assert_match "not yet accepting input: waited for" "$out" 'exit=0$'
-  assert_eq "not yet accepting input: read until it does" "$(grep -c '^herdr agent get acme-lane-a$' "$HERDR_STUB_LOG")" 3
-  assert_eq "not yet accepting input: not started again" "$(grep -c '^herdr agent start acme-lane-a ' "$HERDR_STUB_LOG")" 1
-  echo unready > "$HERDR_STUB_STATES_DIR/acme-lane-a.started"
-  out=$(start acme-lane-a READY_WAIT_SECONDS=3)
-  assert_match "never accepting input: the start fails" "$out" 'exit=1$'
-  assert_match "never accepting input: ... saying so" "$out" 'acme-lane-a does not accept input in pane pane-9 after 3 checks \(idle, not ready for input\)'
-  assert_eq "never accepting input: READY_WAIT_SECONDS checks" "$(grep -c '^herdr agent get acme-lane-a$' "$HERDR_STUB_LOG")" 3
-  echo blocked > "$HERDR_STUB_STATES_DIR/acme-lane-a.started"
-  out=$(start acme-lane-a READY_WAIT_SECONDS=2)
-  assert_match "blocked after its start: fails, naming the state" "$out" 'acme-lane-a does not accept input in pane pane-9 after 2 checks \(blocked\)'
-  echo unreachable > "$HERDR_STUB_STATES_DIR/acme-lane-a.started"
-  out=$(start acme-lane-a READY_WAIT_SECONDS=2)
-  assert_match "herdr failing after the start: fails, saying herdr cannot tell" "$out" 'herdr cannot say whether acme-lane-a runs in pane-9 after 2 checks$'
-  assert_nomatch "herdr failing after the start: not said to be running" "$out" 'left running'
-  # An older herdr answers without interactive_ready: idle is then ready.
-  echo legacy > "$HERDR_STUB_STATES_DIR/acme-lane-a.started"
-  out=$(start acme-lane-a READY_WAIT_SECONDS=2)
-  assert_match "no interactive_ready (an older herdr): idle is ready" "$out" 'exit=0$'
-  assert_eq "no interactive_ready: one read" "$(grep -c '^herdr agent get acme-lane-a$' "$HERDR_STUB_LOG")" 1
-  # Started once more after an exit, and then never accepting input: that fails.
-  printf 'gone\nunready\n' > "$HERDR_STUB_STATES_DIR/acme-lane-a.started"
-  out=$(start acme-lane-a READY_WAIT_SECONDS=2)
-  assert_eq "gone, then never ready: two starts" "$(grep -c '^herdr agent start acme-lane-a ' "$HERDR_STUB_LOG")" 2
-  assert_match "gone, then never ready: fails" "$out" 'exit=1$'
-  assert_match "gone, then never ready: says it does not accept input" "$out" 'acme-lane-a does not accept input in pane pane-9 after 2 checks'
-  assert_match "never ready: says the agent is left running" "$out" 'left running in pane-9: brief it once  herdr agent get acme-lane-a  shows interactive_ready true, or end it'
-  rm -f "$HERDR_STUB_STATES_DIR"/acme-lane-a*
+  if [ "${RUNNER:-herdr}" = orca ]; then
+  # An agent start in Orca: `ostart KIND [ENV...]` opens terminal term-1 and
+  # runs start_agent_with_trust_retry acme-lane-a in it, in repo $r. The
+  # terminal's agent states are ORCA_STUB_STATES_DIR/term-1.
+  S="$ORCA_STUB_STATES_DIR"
+  ostart() { local k=$1; shift; reset_stub; (cd "$r" && env HOME="$TMP/rev-home" EXECUTOR_KIND="$k" "$@" bash -c ". \"\$KIT/common.sh\"; orca terminal create --json >/dev/null; . \"\$KIT/executor.sh\"; start_agent_with_trust_retry acme-lane-a term-1; echo \"exit=\$?\"" 2>&1); }
+  rm -f "$S"/term-*
+  out=$(ostart claude EXECUTOR_MODEL=opus SESSION_ROLE=code SESSION_TOPIC=a-first)
+  assert_match "orca claude start: exit 0" "$out" 'exit=0$'
+  assert_match "orca claude start: typed into its terminal, with its model and session role" "$(cat "$ORCA_STUB_LOG")" '^orca terminal send --terminal term-1 --text claude --model opus --role code --topic a-first --enter --json$'
+  out=$(ostart codex EXECUTOR_MODEL=gpt-6-astra)
+  assert_match "orca codex start: as codex, with -m and its sandbox flags as in herdr" "$(cat "$ORCA_STUB_LOG")" '^orca terminal send --terminal term-1 --text codex -m gpt-6-astra -a never -s workspace-write .* -c check_for_update_on_startup=false( .*)? --enter --json$'
+  out=$(ostart cursor EXECUTOR_MODEL=composer-2)
+  assert_match "orca cursor start: as cursor-agent, with --model and --trust as in herdr" "$(cat "$ORCA_STUB_LOG")" '^orca terminal send --terminal term-1 --text cursor-agent --model composer-2 --trust --force --disable-auto-update .*--enter --json$'
+  # Ready means Orca lists the agent as waiting or working: until then (an
+  # agent that has not reported to Orca yet) the start waits.
+  printf 'unlisted\nunlisted\nwaiting\n' > "$S/term-1"
+  out=$(ostart claude)
+  assert_match "orca: not yet listed: waited for" "$out" 'exit=0$'
+  assert_eq "orca: not yet listed: read until it is" "$([ "$(grep -c '^orca agent list --json$' "$ORCA_STUB_LOG")" -ge 3 ] && echo yes)" yes
+  echo unlisted > "$S/term-1"
+  out=$(ostart claude READY_WAIT_SECONDS=2)
+  assert_match "orca: never ready: the start fails, saying so" "$out" 'acme-lane-a does not accept input in pane term-1 after 2 checks'
+  assert_match "orca: ... and how to see when it does, with orca" "$out" 'brief it once  orca agent list --json  shows it waiting'
+  assert_nomatch "orca: ... naming no herdr command" "$out" 'herdr'
+  rm -f "$S"/term-*
+  # A trust menu at start (the agent blocked, text-plus-Enter refused):
+  # answered with separate sends, Down then Enter for claude, Enter for codex.
+  printf 'unlisted\ntrust\ntrust\nwaiting\n' > "$S/term-1"
+  out=$(ostart claude)
+  log=$(cat "$ORCA_STUB_LOG")
+  assert_match "orca trust: the start goes on" "$out" 'exit=0$'
+  assert_match "orca trust: Down sent alone" "$log" $'^orca terminal send --terminal term-1 --text \e\\[B --json$'
+  assert_match "orca trust: ... then Enter alone" "$log" '^orca terminal send --terminal term-1 --enter --json$'
+  assert_eq "orca trust: the agent is not started twice" "$(grep -c '^orca terminal send --terminal term-1 --text claude' "$ORCA_STUB_LOG")" 1
+  printf 'unlisted\ntrust\ntrust\nwaiting\n' > "$S/term-1"
+  out=$(ostart codex)
+  assert_nomatch "orca trust, codex: no Down" "$(cat "$ORCA_STUB_LOG")" 'B --json$'
+  assert_match "orca trust, codex: Enter alone" "$(cat "$ORCA_STUB_LOG")" '^orca terminal send --terminal term-1 --enter --json$'
+  rm -f "$S"/term-*
+  out=$(ostart claude CLAUDE_STUB=absent)
+  assert_match "orca: claude not installed: the start fails" "$out" 'exit=1$'
+  assert_match "orca: ... naming the missing CLI" "$out" 'claude is not installed'
+  assert_nomatch "orca: ... and typing nothing" "$(cat "$ORCA_STUB_LOG")" '^orca terminal send '
+  out=$(ostart cursor CURSOR_STUB=absent)
+  assert_match "orca: cursor-agent not installed: named" "$out" 'cursor-agent is not installed'
+  else
+    # An agent start: `start NAME [ENV...]` runs start_agent_with_trust_retry
+    # for NAME in pane-9 of a codex executor, in repo $r.
+    start() { local n=$1; shift; reset_stub; (cd "$r" && env HOME="$TMP/rev-home" EXECUTOR_KIND=codex "$@" bash -c ". \"\$KIT/common.sh\"; . \"\$KIT/executor.sh\"; start_agent_with_trust_retry $n pane-9; echo \"exit=\$?\"" 2>&1); }
+    out=$(start acme-lane-a)
+    assert_match "codex start: its startup update check is off" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start acme-lane-a --kind codex --pane pane-9 -- .* -c check_for_update_on_startup=false( |$)'
+    out=$(start acme-lane-a 'AGENT_TMP=/run/it"s \tmp')
+    assert_match "AGENT_TMP: a TOML string, quote and backslash escaped" "$(cat "$HERDR_STUB_LOG")" '-c shell_environment_policy\.set\.TMPDIR="/run/it\\"s \\\\tmp"'
+    # A codex lane in a worktree may write only what its commits need in the
+    # common git dir, never its hooks or config (#10); lane A in the main
+    # checkout keeps the whole common dir, as its index and HEAD live there.
+    C=$(git -C "$r" rev-parse --path-format=absolute --git-common-dir)
+    start_in() { local d=$1; shift; reset_stub; (cd "$d" && env HOME="$TMP/rev-home" EXECUTOR_KIND=codex RUN_DIR=/run/x "$@" bash -c ". \"\$KIT/common.sh\"; . \"\$KIT/executor.sh\"; start_agent_with_trust_retry acme-lane-b pane-9" >/dev/null 2>&1); cat "$HERDR_STUB_LOG"; }
+    log=$(start_in "$wt")
+    assert_match "codex worktree lane: writes only objects, refs, logs, packed-refs and its own git dir" "$log" \
+      "^herdr agent start acme-lane-b .* -c sandbox_workspace_write\\.writable_roots=\\[\"/run/x\",\"$C/objects\",\"$C/refs\",\"$C/logs\",\"$C/packed-refs\",\"$C/packed-refs\\.lock\",\"$C/packed-refs\\.new\",\"$C/worktrees/some-branch\"\\]( |\$)"
+    assert_nomatch "codex worktree lane: not the whole common git dir" "$log" "--add-dir $C( |\$)"
+    assert_match "codex worktree lane: the run dir still added" "$log" "--add-dir /run/x( |\$)"
+    log=$(start_in "$r")
+    assert_match "codex lane in the main checkout: the whole common git dir" "$log" "--add-dir $C( |\$)"
+    assert_nomatch "codex lane in the main checkout: no narrowed roots" "$log" 'writable_roots'
+    # AGENT_LOOK (add-reviewer.sh sets it for a codex Reviewer, and only then)
+    # is one more writable dir, beside the grants above.
+    log=$(start_in "$r" AGENT_LOOK=/state/look)
+    assert_match "AGENT_LOOK in the main checkout: added as a dir" "$log" "--add-dir /state/look( |\$)"
+    log=$(start_in "$wt" AGENT_LOOK=/state/look)
+    assert_match "AGENT_LOOK in a worktree: one of the writable roots" "$log" 'writable_roots=\[.*"/state/look".*\]'
+    log=$(start_in "$r" AGENT_LOOK=/state/look)
+    assert_match "AGENT_LOOK: the run dir reaches look as TOWER_RUN" "$log" '-c shell_environment_policy\.set\.TOWER_RUN="/run/x"( |$)'
+    log=$(start_in "$r")
+    assert_nomatch "no AGENT_LOOK: no look dir" "$log" 'state/look'
+    assert_nomatch "no AGENT_LOOK: no TOWER_RUN" "$log" 'TOWER_RUN'
+    # An agent that exits right after its start (codex updating itself, say)
+    # is started once more; gone again, the start fails, saying so.
+    printf 'gone\nidle\n' > "$HERDR_STUB_STATES_DIR/acme-lane-a.started"
+    out=$(start acme-lane-a)
+    assert_eq "gone after its start: started once more" "$(grep -c '^herdr agent start acme-lane-a ' "$HERDR_STUB_LOG")" 2
+    assert_match "gone after its start: ... then it runs" "$out" 'exit=0$'
+    assert_match "gone after its start: ... saying so" "$out" 'acme-lane-a exited right after its start in pane pane-9; starting it once more'
+    echo gone > "$HERDR_STUB_STATES_DIR/acme-lane-a.started"
+    out=$(start acme-lane-a)
+    assert_eq "gone twice: no third start" "$(grep -c '^herdr agent start acme-lane-a ' "$HERDR_STUB_LOG")" 2
+    assert_match "gone twice: the start fails" "$out" 'exit=1$'
+    assert_match "gone twice: ... saying so" "$out" 'acme-lane-a exited again after it was started once more in pane pane-9'
+    # The trust prompt answered, the agent reads working, then it exits: it is
+    # started once more.
+    rm -f "$HERDR_STUB_STATES_DIR/acme-lane-a.started"; printf 'working\ngone\n' > "$HERDR_STUB_STATES_DIR/acme-lane-a"
+    out=$(start acme-lane-a HERDR_STUB_TRUST_STARTS=1)
+    assert_eq "trust answered, then gone: started once more" "$(grep -c '^herdr agent start acme-lane-a ' "$HERDR_STUB_LOG")" 2
+    assert_match "trust answered, then gone: ... then it runs" "$out" 'exit=0$'
+    # Ready means accepting input: herdr's interactive_ready. Until then the
+    # start waits (READY_WAIT_SECONDS checks), and fails when it never comes.
+    rm -f "$HERDR_STUB_STATES_DIR"/acme-lane-a*; echo "unready unready idle" > "$HERDR_STUB_STATES_DIR/acme-lane-a.started"
+    out=$(start acme-lane-a)
+    assert_match "not yet accepting input: waited for" "$out" 'exit=0$'
+    assert_eq "not yet accepting input: read until it does" "$(grep -c '^herdr agent get acme-lane-a$' "$HERDR_STUB_LOG")" 3
+    assert_eq "not yet accepting input: not started again" "$(grep -c '^herdr agent start acme-lane-a ' "$HERDR_STUB_LOG")" 1
+    echo unready > "$HERDR_STUB_STATES_DIR/acme-lane-a.started"
+    out=$(start acme-lane-a READY_WAIT_SECONDS=3)
+    assert_match "never accepting input: the start fails" "$out" 'exit=1$'
+    assert_match "never accepting input: ... saying so" "$out" 'acme-lane-a does not accept input in pane pane-9 after 3 checks \(idle, not ready for input\)'
+    assert_eq "never accepting input: READY_WAIT_SECONDS checks" "$(grep -c '^herdr agent get acme-lane-a$' "$HERDR_STUB_LOG")" 3
+    echo blocked > "$HERDR_STUB_STATES_DIR/acme-lane-a.started"
+    out=$(start acme-lane-a READY_WAIT_SECONDS=2)
+    assert_match "blocked after its start: fails, naming the state" "$out" 'acme-lane-a does not accept input in pane pane-9 after 2 checks \(blocked\)'
+    echo unreachable > "$HERDR_STUB_STATES_DIR/acme-lane-a.started"
+    out=$(start acme-lane-a READY_WAIT_SECONDS=2)
+    assert_match "herdr failing after the start: fails, saying herdr cannot tell" "$out" 'herdr cannot say whether acme-lane-a runs in pane-9 after 2 checks$'
+    assert_nomatch "herdr failing after the start: not said to be running" "$out" 'left running'
+    # An older herdr answers without interactive_ready: idle is then ready.
+    echo legacy > "$HERDR_STUB_STATES_DIR/acme-lane-a.started"
+    out=$(start acme-lane-a READY_WAIT_SECONDS=2)
+    assert_match "no interactive_ready (an older herdr): idle is ready" "$out" 'exit=0$'
+    assert_eq "no interactive_ready: one read" "$(grep -c '^herdr agent get acme-lane-a$' "$HERDR_STUB_LOG")" 1
+    # Started once more after an exit, and then never accepting input: that fails.
+    printf 'gone\nunready\n' > "$HERDR_STUB_STATES_DIR/acme-lane-a.started"
+    out=$(start acme-lane-a READY_WAIT_SECONDS=2)
+    assert_eq "gone, then never ready: two starts" "$(grep -c '^herdr agent start acme-lane-a ' "$HERDR_STUB_LOG")" 2
+    assert_match "gone, then never ready: fails" "$out" 'exit=1$'
+    assert_match "gone, then never ready: says it does not accept input" "$out" 'acme-lane-a does not accept input in pane pane-9 after 2 checks'
+    assert_match "never ready: says the agent is left running" "$out" 'left running in pane-9: brief it once  herdr agent get acme-lane-a  shows interactive_ready true, or end it'
+    rm -f "$HERDR_STUB_STATES_DIR"/acme-lane-a*
+  fi
 fi
 
 # --- detect ------------------------------------------------------------------
@@ -2029,230 +2077,255 @@ if section watch; then
   }
   RUN=$(watch_run open); RUN_COMPLETE=$(watch_run complete); RUN_CLOSED=$(watch_run closed)
   watch() { (cd "$TMP" && ROUND_SECONDS="${ROUND:-3}" GRACE_SECONDS=0 POLL_SECONDS=0 "$KIT/watch-lanes.sh" "${ON:-$RUN}" "$@" 2>&1; echo "exit=$?"); }
-  rm -f "$S"/*
-  echo working > "$S/a"; out=$(ROUND=1 watch a)
-  assert_match "quiet: exit 3"                        "$out" 'exit=3$'
-  assert_nomatch "quiet: no attention line"           "$out" '^attention:'
-  echo blocked > "$S/a"; printf 'need the API key\n' > "$S/a.tail"; out=$(watch a)
-  assert_match "blocked: attention line first"        "$out" '^attention: a blocked'
-  assert_match "blocked: tail printed"                "$out" 'need the API key'
-  assert_match "blocked: exit 0"                      "$out" 'exit=0$'
-  echo idle > "$S/a"; printf "tower note --lane A 'ALL DONE - check green'\nSummary: tasks 1-4 done.\n[[ALL DONE]]\n" > "$S/a.tail"; out=$(watch a)
-  assert_match "idle after the final report"          "$out" '^attention: a idle-after-final-report'
-  echo idle > "$S/b"; printf "tower note --lane B 'lane B complete - ready to merge'\n[[READY TO MERGE]]\n" > "$S/b.tail"; out=$(watch b)
-  assert_match "lane B idle after its final report"   "$out" '^attention: b idle-after-final-report'
-  echo idle > "$S/r"; printf '[[FINDINGS WRITTEN]] /run/findings/lane-a.json\n' > "$S/r.tail"; out=$(watch r)
-  assert_match "a Reviewer idle after writing its findings" "$out" '^attention: r idle-after-final-report'
-  echo idle > "$S/a"; printf '⏺ [[ALL DONE]]\n' > "$S/a.tail"; out=$(watch a)
-  assert_match "the marker after a TUI bullet reads as the report" "$out" '^attention: a idle-after-final-report'
-  # The marker quoted inside other text (a diff, a comment, a sentence) is not
-  # a report: an agent reading the kit's own sources shows these.
-  echo idle > "$S/a"; printf '+# [[READY TO MERGE]] (lanes B-D)\nreport phrase in double square brackets, [[ALL DONE]] (lane A),\n' > "$S/a.tail"; out=$(watch a)
-  assert_match "a quoted marker is not the report"      "$out" '^attention: a idle-unexplained'
-  echo idle > "$S/b"; printf '[[ Ready to merge ]]\n' > "$S/b.tail"; out=$(watch b)
-  assert_match "the marker in another case or with spaces still reads as the report" "$out" '^attention: b idle-after-final-report'
-  # A pane that still shows only its brief has not reported: the briefs name
-  # the report phrases (ALL DONE, ready to merge, FINDINGS WRITTEN) but never
-  # the marker itself.
-  # The tail must still name a report phrase, or the case below tests nothing.
-  names_report() { assert_match "$1: the tail names a report phrase" "$(grep -v '^[[:space:]]*$' "$2" | tail -12)" 'ALL DONE|ready to merge|FINDINGS WRITTEN'; }
-  echo idle > "$S/a"; sed -n '/^You are lane/,/^Begin now/p' "$KIT/brief-template.md" > "$S/a.tail"; names_report "lane brief" "$S/a.tail"; out=$(watch a)
-  assert_match "idle with only the lane brief in the tail is unexplained" "$out" '^attention: a idle-unexplained'
-  for brief in 'Lane review' 'Preflight slot'; do
-    echo idle > "$S/r"; sed -n "/^### $brief/,/^End with/p" "$KIT/brief-template.md" > "$S/r.tail"; names_report "$brief brief" "$S/r.tail"; out=$(watch r)
-    assert_match "idle with only the Reviewer brief ($brief) in the tail is unexplained" "$out" '^attention: r idle-unexplained'
-  done
-  # The fix prompt rendered for round 2, for lane A and for lane B.
-  fix_prompt() { sed -n '/^### Fix prompt/,/^Stay in this session/p' "$KIT/brief-template.md" \
-    | sed -E -e 's/\{\{REPORT_ROUND\}\}/2/g' -e "s/\{\{LANE\}\}/$1/g" -e "$2"; }
-  echo idle > "$S/a"; fix_prompt A 's/\{\{lane A: "([^"]*)" \| other lanes: "[^"]*"\}\}/\1/g' > "$S/a.tail"; names_report "lane A fix prompt" "$S/a.tail"; out=$(watch a:2)
-  assert_match "idle with only lane A's fix prompt in the tail, watched as round 2, is unexplained" "$out" '^attention: a idle-unexplained'
-  echo idle > "$S/b"; fix_prompt B 's/\{\{lane A: "[^"]*" \| other lanes: "([^"]*)"\}\}/\1/g' > "$S/b.tail"; names_report "lane B fix prompt" "$S/b.tail"; out=$(watch b:2)
-  assert_match "idle with only lane B's fix prompt in the tail, watched as round 2, is unexplained" "$out" '^attention: b idle-unexplained'
-  more_prompt() { sed -n '/^### More-work prompt/,/^Stay in this session/p' "$KIT/brief-template.md" \
-    | sed -E -e 's/\{\{REPORT_ROUND\}\}/2/g' -e "s/\{\{LANE\}\}/$1/g" -e "$2"; }
-  echo idle > "$S/b"; more_prompt B 's/\{\{lane A: "[^"]*" \| other lanes: "([^"]*)"\}\}/\1/g' > "$S/b.tail"; names_report "lane B more-work prompt" "$S/b.tail"; out=$(watch b:2)
-  assert_match "idle with only lane B's more-work prompt in the tail, watched as round 2, is unexplained" "$out" '^attention: b idle-unexplained'
-  echo idle > "$S/r"; sed -n '/^## Who does what/,/^Look only/p' "$PREFLIGHT_DIR/SKILL.md" > "$S/r.tail"; names_report "preflight skill" "$S/r.tail"; out=$(watch r)
-  assert_match "idle with only the preflight skill's Reviewer lines in the tail is unexplained" "$out" '^attention: r idle-unexplained'
-  # Report rounds: after a fix prompt the orchestrator watches <agent>:<n>, and
-  # only round n's end line counts; an earlier report's line is still in the tail.
-  echo idle > "$S/b"; printf "[[READY TO MERGE]]\nFix finding R-1 in watch-lanes.sh, then report again.\n" > "$S/b.tail"; out=$(watch b:2)
-  assert_match "round 2: an old round-1 end line after a fix prompt is unexplained" "$out" '^attention: b idle-unexplained'
-  echo idle > "$S/b"; printf "[[READY TO MERGE]]\nFix finding R-1 in watch-lanes.sh, then report again.\n[[READY TO MERGE r2]]\n" > "$S/b.tail"; out=$(watch b:2)
-  assert_match "round 2: round 2's end line reads as the report" "$out" '^attention: b idle-after-final-report'
-  echo idle > "$S/a"; printf '[[ALL DONE r2]]\n' > "$S/a.tail"; out=$(watch a:3)
-  assert_match "round 3: round 2's end line is unexplained" "$out" '^attention: a idle-unexplained'
-  echo idle > "$S/a"; printf '[[ALL DONE r30]]\n' > "$S/a.tail"; out=$(watch a:3)
-  assert_match "round 3: round 30's end line is unexplained" "$out" '^attention: a idle-unexplained'
-  echo idle > "$S/b"; printf '⏺ [[ Ready to merge R2 ]]\n' > "$S/b.tail"; out=$(watch b:2)
-  assert_match "round 2: the round tag in another case or with spaces still reads as the report" "$out" '^attention: b idle-after-final-report'
-  echo idle > "$S/b"; printf 'end the round with [[READY TO MERGE r2]] once green\n' > "$S/b.tail"; out=$(watch b:2)
-  assert_match "round 2: a quoted round-2 end line is not the report" "$out" '^attention: b idle-unexplained'
-  echo idle > "$S/b"; printf '[[READY TO MERGE r2]]\n' > "$S/b.tail"; out=$(watch b)
-  assert_match "a bare name: an end line with a round tag is unexplained" "$out" '^attention: b idle-unexplained'
-  echo idle > "$S/b"; printf '[[READY TO MERGE]]\n' > "$S/b.tail"; out=$(watch b:1)
-  assert_match "round 1 named explicitly reads like a bare name" "$out" '^attention: b idle-after-final-report'
-  echo idle > "$S/r"; printf '[[FINDINGS WRITTEN r2]] /run/findings/lane-a-2.json\n' > "$S/r.tail"; out=$(watch r:2)
-  assert_match "round 2: a Reviewer's findings line is no round-2 end line" "$out" '^attention: r idle-unexplained'
-  # Each agent is held to its own round.
-  echo idle > "$S/a"; printf '[[ALL DONE r2]]\n' > "$S/a.tail"; echo idle > "$S/b"; printf '[[READY TO MERGE]]\n' > "$S/b.tail"
-  out=$(watch a:2 b)
-  assert_match "a:2 b: a reads its round-2 end line"  "$out" '^attention: a idle-after-final-report'
-  assert_match "a:2 b: b reads its round-1 end line"  "$out" '^attention: b idle-after-final-report'
-  out=$(watch a b:2)
-  assert_match "a b:2: a's round-2 line is no round-1 end line" "$out" '^attention: a idle-unexplained'
-  assert_match "a b:2: b's round-1 line is no round-2 end line" "$out" '^attention: b idle-unexplained'
-  reset_stub; echo idle > "$S/b"; printf '[[READY TO MERGE r2]]\n' > "$S/b.tail"; out=$(watch b:2)
-  assert_match "round 2: the state table names the bare agent" "$out" '^b +idle$'
-  assert_nomatch "round 2: no output names the round suffix" "$out" 'b:2'
-  assert_nomatch "round 2: herdr gets the bare name" "$(cat "$HERDR_STUB_LOG")" 'b:2'
-  assert_match "round 2: herdr reads the agent by its bare name" "$(cat "$HERDR_STUB_LOG")" '^herdr agent read b '
-  for arg in 'a:' 'a:x' 'a:0' 'a:-1' 'a:2:3' ':2'; do
-    reset_stub; out=$(watch "$arg")
-    assert_match "malformed agent argument $arg: the usage line" "$out" '^usage: watch-lanes\.sh '
-    assert_match "malformed agent argument $arg: exit 1" "$out" 'exit=1$'
-    assert_nomatch "malformed agent argument $arg: no herdr call" "$(cat "$HERDR_STUB_LOG")" '^herdr '
-  done
-  echo idle > "$S/a"; printf 'Running tests...\n' > "$S/a.tail"; out=$(watch a)
-  assert_match "idle without a report is unexplained" "$out" '^attention: a idle-unexplained'
-  echo gone > "$S/a"; out=$(watch a)
-  assert_match "gone"                                 "$out" '^attention: a gone'
-  # herdr failing for another reason than agent_not_found says nothing about
-  # the agent: it reads unreadable, like working, and never settles as gone.
-  printf 'unreachable\nworking\n' > "$S/a"; out=$(ROUND=1 watch a)
-  assert_nomatch "herdr failing once: no attention"   "$out" '^attention: a '
-  assert_match "herdr failing once: quiet"            "$out" 'exit=3$'
-  # Only UNREADABLE_POLLS consecutive unreadable polls are attention, never
-  # gone; a readable answer in between starts the count again.
-  printf 'unreachable\nunreachable\nworking\nunreachable\nunreachable\nblocked\n' > "$S/a"
-  out=$(UNREADABLE_POLLS=3 watch a)
-  assert_match "herdr failing twice, answering, twice again: the lane's own attention" "$out" '^attention: a blocked$'
-  assert_nomatch "herdr failing twice, answering, twice again: not unreadable" "$out" '^attention: a unreadable'
-  echo unreachable > "$S/a"; : > "$HERDR_STUB_LOG"; out=$(UNREADABLE_POLLS=3 watch a)
-  assert_match "herdr failing UNREADABLE_POLLS times: attention, unreadable" "$out" '^attention: a unreadable$'
-  assert_nomatch "herdr failing UNREADABLE_POLLS times: not gone" "$out" '^attention: a gone'
-  assert_match "herdr failing UNREADABLE_POLLS times: unreadable in the state table" "$out" '^a +unreadable$'
-  assert_match "herdr failing UNREADABLE_POLLS times: exit 0" "$out" 'exit=0$'
-  assert_match "herdr failing UNREADABLE_POLLS times: three polls and the resample" "$(grep -c '^herdr agent get a' "$HERDR_STUB_LOG")" '^4$'
-  echo unreachable > "$S/a"; out=$(UNREADABLE_POLLS=3 ON=$RUN_COMPLETE watch a)
-  assert_match "complete board, herdr failing: attention, unreadable" "$out" '^attention: a unreadable$'
-  assert_nomatch "complete board, herdr failing: the run is not complete for it" "$out" '^tower: run'
-  echo shapeless > "$S/a"; out=$(UNREADABLE_POLLS=3 watch a)
-  assert_match "an answer without a status: unreadable, not settled early" "$out" '^attention: a unreadable$'
-  for bad in abc 0 -5 1.5; do
-    out=$(UNREADABLE_POLLS=$bad watch a)
-    assert_match "UNREADABLE_POLLS=$bad: refused"    "$out" 'UNREADABLE_POLLS'
-    assert_match "UNREADABLE_POLLS=$bad: exit 1"     "$out" 'exit=1$'
-  done
-  echo unreachable > "$S/a"; echo done > "$S/b"; out=$(watch a b)
-  assert_match "herdr failing for one lane: the settled one" "$out" '^attention: b done'
-  assert_nomatch "herdr failing for one lane: that lane is not gone" "$out" '^attention: a '
-  echo working > "$S/a"; echo done > "$S/b"; out=$(watch a b)
-  assert_match "two lanes: only the settled one"      "$out" '^attention: b done'
-  assert_nomatch "two lanes: the working one is quiet" "$out" '^attention: a '
-  assert_match "tower summary when tower is present"  "$out" '^--- tower'
-  assert_match "the summary is the run's board"       "$out" "'total': 1, 'pending': 1"
-  out=$(TOWER_STUB=absent watch b)
-  assert_match "tower not runnable: watch-lanes refuses with the pointer" "$out" 'needs tower.*github\.com/phutschi/tower'
-  assert_match "tower not runnable: watch-lanes fails (neither attention nor quiet)" "$out" 'exit=1$'
-  # A complete board is not attention while a watched agent still works (the
-  # lane's check gate and report come after its last task); a closed run always is.
-  echo working > "$S/a"; out=$(ROUND=1 ON=$RUN_COMPLETE watch a)
-  assert_match "complete board, lane working: exit 3"  "$out" 'exit=3$'
-  assert_nomatch "complete board, lane working: no tower attention" "$out" '^tower: run'
-  echo working > "$S/a"; out=$(ROUND=1 ON=$RUN_CLOSED watch a)
-  assert_match "closed run, lane working: attention"   "$out" '^tower: run closed'
-  assert_match "closed run, lane working: exit 0"      "$out" 'exit=0$'
-  printf 'idle\nidle\nworking\n' > "$S/a"; out=$(ROUND=1 ON=$RUN_COMPLETE watch a)
-  assert_nomatch "complete board, lane idle for one poll only: no tower attention" "$out" '^tower: run'
-  printf 'working\nidle\n' > "$S/a"; printf 'idle\nidle\n' > "$S/b"; out=$(ON=$RUN_COMPLETE watch a b)
-  assert_nomatch "complete board, one agent settled, the other idle only once: no tower attention" "$out" '^tower: run'
-  echo working > "$S/a"; echo done > "$S/b"; out=$(ROUND=1 ON=$RUN_COMPLETE watch a b)
-  assert_nomatch "complete board, one of two lanes working: no tower attention" "$out" '^tower: run'
-  printf 'idle\nidle\n' > "$S/a"; out=$(ON=$RUN_COMPLETE watch a)
-  assert_match "complete board, every agent settled: attention" "$out" '^tower: run complete'
-  # No round limit unless ROUND_SECONDS asks for one: under a clock that jumps
-  # 1000 s on every read, the watch still polls until the lane needs attention.
-  clock="$TMP/clock"; mkdir -p "$clock"
-  cat > "$clock/date" <<'CLOCK'
+  if [ "${RUNNER:-herdr}" = orca ]; then
+  # Orca: each agent is found by its terminal, the pane map's lane line; its
+  # states and tail are the terminal's (ORCA_STUB_STATES_DIR/term-1).
+  S="$ORCA_STUB_STATES_DIR"; rm -f "$S"/*
+  reset_stub; in_kit 'orca terminal create --json' >/dev/null
+  echo 'lane A:         term-1   (agent "a", kind claude, branch main, checkout /work/acme, model opus, tab lanes)' > "$RUN/panes.txt"
+  echo working > "$S/term-1"; out=$(ROUND=1 watch a)
+  assert_match "orca: working is quiet, exit 3"        "$out" 'exit=3$'
+  assert_match "orca: ... read by its terminal"        "$(cat "$ORCA_STUB_LOG")" '^orca terminal show --terminal term-1 --json$'
+  echo blocked > "$S/term-1"; printf 'need the API key\n' > "$S/term-1.tail"; out=$(watch a)
+  assert_match "orca: blocked: attention"             "$out" '^attention: a blocked'
+  assert_match "orca: blocked: the terminal's tail printed" "$out" 'need the API key'
+  echo waiting > "$S/term-1"; printf '[[ALL DONE]]\n' > "$S/term-1.tail"; out=$(watch a)
+  assert_match "orca: waiting reads as idle, after the final report" "$out" '^attention: a idle-after-final-report'
+  echo waiting > "$S/term-1"; printf 'thinking about it\n' > "$S/term-1.tail"; out=$(watch a)
+  assert_match "orca: waiting without the end line: idle-unexplained" "$out" '^attention: a idle-unexplained'
+  echo done > "$S/term-1"; out=$(watch a)
+  assert_match "orca: done: attention"                "$out" '^attention: a done'
+  echo gone > "$S/term-1"; out=$(watch a)
+  assert_match "orca: a closed terminal: gone"        "$out" '^attention: a gone'
+  echo unreadable > "$S/term-1"; out=$(UNREADABLE_POLLS=2 watch a)
+  assert_match "orca: Orca not answering: unreadable" "$out" '^attention: a unreadable'
+  rm -f "$S"/* "$RUN/panes.txt"
+  else
+    rm -f "$S"/*
+    echo working > "$S/a"; out=$(ROUND=1 watch a)
+    assert_match "quiet: exit 3"                        "$out" 'exit=3$'
+    assert_nomatch "quiet: no attention line"           "$out" '^attention:'
+    echo blocked > "$S/a"; printf 'need the API key\n' > "$S/a.tail"; out=$(watch a)
+    assert_match "blocked: attention line first"        "$out" '^attention: a blocked'
+    assert_match "blocked: tail printed"                "$out" 'need the API key'
+    assert_match "blocked: exit 0"                      "$out" 'exit=0$'
+    echo idle > "$S/a"; printf "tower note --lane A 'ALL DONE - check green'\nSummary: tasks 1-4 done.\n[[ALL DONE]]\n" > "$S/a.tail"; out=$(watch a)
+    assert_match "idle after the final report"          "$out" '^attention: a idle-after-final-report'
+    echo idle > "$S/b"; printf "tower note --lane B 'lane B complete - ready to merge'\n[[READY TO MERGE]]\n" > "$S/b.tail"; out=$(watch b)
+    assert_match "lane B idle after its final report"   "$out" '^attention: b idle-after-final-report'
+    echo idle > "$S/r"; printf '[[FINDINGS WRITTEN]] /run/findings/lane-a.json\n' > "$S/r.tail"; out=$(watch r)
+    assert_match "a Reviewer idle after writing its findings" "$out" '^attention: r idle-after-final-report'
+    echo idle > "$S/a"; printf '⏺ [[ALL DONE]]\n' > "$S/a.tail"; out=$(watch a)
+    assert_match "the marker after a TUI bullet reads as the report" "$out" '^attention: a idle-after-final-report'
+    # The marker quoted inside other text (a diff, a comment, a sentence) is not
+    # a report: an agent reading the kit's own sources shows these.
+    echo idle > "$S/a"; printf '+# [[READY TO MERGE]] (lanes B-D)\nreport phrase in double square brackets, [[ALL DONE]] (lane A),\n' > "$S/a.tail"; out=$(watch a)
+    assert_match "a quoted marker is not the report"      "$out" '^attention: a idle-unexplained'
+    echo idle > "$S/b"; printf '[[ Ready to merge ]]\n' > "$S/b.tail"; out=$(watch b)
+    assert_match "the marker in another case or with spaces still reads as the report" "$out" '^attention: b idle-after-final-report'
+    # A pane that still shows only its brief has not reported: the briefs name
+    # the report phrases (ALL DONE, ready to merge, FINDINGS WRITTEN) but never
+    # the marker itself.
+    # The tail must still name a report phrase, or the case below tests nothing.
+    names_report() { assert_match "$1: the tail names a report phrase" "$(grep -v '^[[:space:]]*$' "$2" | tail -12)" 'ALL DONE|ready to merge|FINDINGS WRITTEN'; }
+    echo idle > "$S/a"; sed -n '/^You are lane/,/^Begin now/p' "$KIT/brief-template.md" > "$S/a.tail"; names_report "lane brief" "$S/a.tail"; out=$(watch a)
+    assert_match "idle with only the lane brief in the tail is unexplained" "$out" '^attention: a idle-unexplained'
+    for brief in 'Lane review' 'Preflight slot'; do
+      echo idle > "$S/r"; sed -n "/^### $brief/,/^End with/p" "$KIT/brief-template.md" > "$S/r.tail"; names_report "$brief brief" "$S/r.tail"; out=$(watch r)
+      assert_match "idle with only the Reviewer brief ($brief) in the tail is unexplained" "$out" '^attention: r idle-unexplained'
+    done
+    # The fix prompt rendered for round 2, for lane A and for lane B.
+    fix_prompt() { sed -n '/^### Fix prompt/,/^Stay in this session/p' "$KIT/brief-template.md" \
+      | sed -E -e 's/\{\{REPORT_ROUND\}\}/2/g' -e "s/\{\{LANE\}\}/$1/g" -e "$2"; }
+    echo idle > "$S/a"; fix_prompt A 's/\{\{lane A: "([^"]*)" \| other lanes: "[^"]*"\}\}/\1/g' > "$S/a.tail"; names_report "lane A fix prompt" "$S/a.tail"; out=$(watch a:2)
+    assert_match "idle with only lane A's fix prompt in the tail, watched as round 2, is unexplained" "$out" '^attention: a idle-unexplained'
+    echo idle > "$S/b"; fix_prompt B 's/\{\{lane A: "[^"]*" \| other lanes: "([^"]*)"\}\}/\1/g' > "$S/b.tail"; names_report "lane B fix prompt" "$S/b.tail"; out=$(watch b:2)
+    assert_match "idle with only lane B's fix prompt in the tail, watched as round 2, is unexplained" "$out" '^attention: b idle-unexplained'
+    more_prompt() { sed -n '/^### More-work prompt/,/^Stay in this session/p' "$KIT/brief-template.md" \
+      | sed -E -e 's/\{\{REPORT_ROUND\}\}/2/g' -e "s/\{\{LANE\}\}/$1/g" -e "$2"; }
+    echo idle > "$S/b"; more_prompt B 's/\{\{lane A: "[^"]*" \| other lanes: "([^"]*)"\}\}/\1/g' > "$S/b.tail"; names_report "lane B more-work prompt" "$S/b.tail"; out=$(watch b:2)
+    assert_match "idle with only lane B's more-work prompt in the tail, watched as round 2, is unexplained" "$out" '^attention: b idle-unexplained'
+    echo idle > "$S/r"; sed -n '/^## Who does what/,/^Look only/p' "$PREFLIGHT_DIR/SKILL.md" > "$S/r.tail"; names_report "preflight skill" "$S/r.tail"; out=$(watch r)
+    assert_match "idle with only the preflight skill's Reviewer lines in the tail is unexplained" "$out" '^attention: r idle-unexplained'
+    # Report rounds: after a fix prompt the orchestrator watches <agent>:<n>, and
+    # only round n's end line counts; an earlier report's line is still in the tail.
+    echo idle > "$S/b"; printf "[[READY TO MERGE]]\nFix finding R-1 in watch-lanes.sh, then report again.\n" > "$S/b.tail"; out=$(watch b:2)
+    assert_match "round 2: an old round-1 end line after a fix prompt is unexplained" "$out" '^attention: b idle-unexplained'
+    echo idle > "$S/b"; printf "[[READY TO MERGE]]\nFix finding R-1 in watch-lanes.sh, then report again.\n[[READY TO MERGE r2]]\n" > "$S/b.tail"; out=$(watch b:2)
+    assert_match "round 2: round 2's end line reads as the report" "$out" '^attention: b idle-after-final-report'
+    echo idle > "$S/a"; printf '[[ALL DONE r2]]\n' > "$S/a.tail"; out=$(watch a:3)
+    assert_match "round 3: round 2's end line is unexplained" "$out" '^attention: a idle-unexplained'
+    echo idle > "$S/a"; printf '[[ALL DONE r30]]\n' > "$S/a.tail"; out=$(watch a:3)
+    assert_match "round 3: round 30's end line is unexplained" "$out" '^attention: a idle-unexplained'
+    echo idle > "$S/b"; printf '⏺ [[ Ready to merge R2 ]]\n' > "$S/b.tail"; out=$(watch b:2)
+    assert_match "round 2: the round tag in another case or with spaces still reads as the report" "$out" '^attention: b idle-after-final-report'
+    echo idle > "$S/b"; printf 'end the round with [[READY TO MERGE r2]] once green\n' > "$S/b.tail"; out=$(watch b:2)
+    assert_match "round 2: a quoted round-2 end line is not the report" "$out" '^attention: b idle-unexplained'
+    echo idle > "$S/b"; printf '[[READY TO MERGE r2]]\n' > "$S/b.tail"; out=$(watch b)
+    assert_match "a bare name: an end line with a round tag is unexplained" "$out" '^attention: b idle-unexplained'
+    echo idle > "$S/b"; printf '[[READY TO MERGE]]\n' > "$S/b.tail"; out=$(watch b:1)
+    assert_match "round 1 named explicitly reads like a bare name" "$out" '^attention: b idle-after-final-report'
+    echo idle > "$S/r"; printf '[[FINDINGS WRITTEN r2]] /run/findings/lane-a-2.json\n' > "$S/r.tail"; out=$(watch r:2)
+    assert_match "round 2: a Reviewer's findings line is no round-2 end line" "$out" '^attention: r idle-unexplained'
+    # Each agent is held to its own round.
+    echo idle > "$S/a"; printf '[[ALL DONE r2]]\n' > "$S/a.tail"; echo idle > "$S/b"; printf '[[READY TO MERGE]]\n' > "$S/b.tail"
+    out=$(watch a:2 b)
+    assert_match "a:2 b: a reads its round-2 end line"  "$out" '^attention: a idle-after-final-report'
+    assert_match "a:2 b: b reads its round-1 end line"  "$out" '^attention: b idle-after-final-report'
+    out=$(watch a b:2)
+    assert_match "a b:2: a's round-2 line is no round-1 end line" "$out" '^attention: a idle-unexplained'
+    assert_match "a b:2: b's round-1 line is no round-2 end line" "$out" '^attention: b idle-unexplained'
+    reset_stub; echo idle > "$S/b"; printf '[[READY TO MERGE r2]]\n' > "$S/b.tail"; out=$(watch b:2)
+    assert_match "round 2: the state table names the bare agent" "$out" '^b +idle$'
+    assert_nomatch "round 2: no output names the round suffix" "$out" 'b:2'
+    assert_nomatch "round 2: herdr gets the bare name" "$(cat "$HERDR_STUB_LOG")" 'b:2'
+    assert_match "round 2: herdr reads the agent by its bare name" "$(cat "$HERDR_STUB_LOG")" '^herdr agent read b '
+    for arg in 'a:' 'a:x' 'a:0' 'a:-1' 'a:2:3' ':2'; do
+      reset_stub; out=$(watch "$arg")
+      assert_match "malformed agent argument $arg: the usage line" "$out" '^usage: watch-lanes\.sh '
+      assert_match "malformed agent argument $arg: exit 1" "$out" 'exit=1$'
+      assert_nomatch "malformed agent argument $arg: no herdr call" "$(cat "$HERDR_STUB_LOG")" '^herdr '
+    done
+    echo idle > "$S/a"; printf 'Running tests...\n' > "$S/a.tail"; out=$(watch a)
+    assert_match "idle without a report is unexplained" "$out" '^attention: a idle-unexplained'
+    echo gone > "$S/a"; out=$(watch a)
+    assert_match "gone"                                 "$out" '^attention: a gone'
+    # herdr failing for another reason than agent_not_found says nothing about
+    # the agent: it reads unreadable, like working, and never settles as gone.
+    printf 'unreachable\nworking\n' > "$S/a"; out=$(ROUND=1 watch a)
+    assert_nomatch "herdr failing once: no attention"   "$out" '^attention: a '
+    assert_match "herdr failing once: quiet"            "$out" 'exit=3$'
+    # Only UNREADABLE_POLLS consecutive unreadable polls are attention, never
+    # gone; a readable answer in between starts the count again.
+    printf 'unreachable\nunreachable\nworking\nunreachable\nunreachable\nblocked\n' > "$S/a"
+    out=$(UNREADABLE_POLLS=3 watch a)
+    assert_match "herdr failing twice, answering, twice again: the lane's own attention" "$out" '^attention: a blocked$'
+    assert_nomatch "herdr failing twice, answering, twice again: not unreadable" "$out" '^attention: a unreadable'
+    echo unreachable > "$S/a"; : > "$HERDR_STUB_LOG"; out=$(UNREADABLE_POLLS=3 watch a)
+    assert_match "herdr failing UNREADABLE_POLLS times: attention, unreadable" "$out" '^attention: a unreadable$'
+    assert_nomatch "herdr failing UNREADABLE_POLLS times: not gone" "$out" '^attention: a gone'
+    assert_match "herdr failing UNREADABLE_POLLS times: unreadable in the state table" "$out" '^a +unreadable$'
+    assert_match "herdr failing UNREADABLE_POLLS times: exit 0" "$out" 'exit=0$'
+    assert_match "herdr failing UNREADABLE_POLLS times: three polls and the resample" "$(grep -c '^herdr agent get a' "$HERDR_STUB_LOG")" '^4$'
+    echo unreachable > "$S/a"; out=$(UNREADABLE_POLLS=3 ON=$RUN_COMPLETE watch a)
+    assert_match "complete board, herdr failing: attention, unreadable" "$out" '^attention: a unreadable$'
+    assert_nomatch "complete board, herdr failing: the run is not complete for it" "$out" '^tower: run'
+    echo shapeless > "$S/a"; out=$(UNREADABLE_POLLS=3 watch a)
+    assert_match "an answer without a status: unreadable, not settled early" "$out" '^attention: a unreadable$'
+    for bad in abc 0 -5 1.5; do
+      out=$(UNREADABLE_POLLS=$bad watch a)
+      assert_match "UNREADABLE_POLLS=$bad: refused"    "$out" 'UNREADABLE_POLLS'
+      assert_match "UNREADABLE_POLLS=$bad: exit 1"     "$out" 'exit=1$'
+    done
+    echo unreachable > "$S/a"; echo done > "$S/b"; out=$(watch a b)
+    assert_match "herdr failing for one lane: the settled one" "$out" '^attention: b done'
+    assert_nomatch "herdr failing for one lane: that lane is not gone" "$out" '^attention: a '
+    echo working > "$S/a"; echo done > "$S/b"; out=$(watch a b)
+    assert_match "two lanes: only the settled one"      "$out" '^attention: b done'
+    assert_nomatch "two lanes: the working one is quiet" "$out" '^attention: a '
+    assert_match "tower summary when tower is present"  "$out" '^--- tower'
+    assert_match "the summary is the run's board"       "$out" "'total': 1, 'pending': 1"
+    out=$(TOWER_STUB=absent watch b)
+    assert_match "tower not runnable: watch-lanes refuses with the pointer" "$out" 'needs tower.*github\.com/phutschi/tower'
+    assert_match "tower not runnable: watch-lanes fails (neither attention nor quiet)" "$out" 'exit=1$'
+    # A complete board is not attention while a watched agent still works (the
+    # lane's check gate and report come after its last task); a closed run always is.
+    echo working > "$S/a"; out=$(ROUND=1 ON=$RUN_COMPLETE watch a)
+    assert_match "complete board, lane working: exit 3"  "$out" 'exit=3$'
+    assert_nomatch "complete board, lane working: no tower attention" "$out" '^tower: run'
+    echo working > "$S/a"; out=$(ROUND=1 ON=$RUN_CLOSED watch a)
+    assert_match "closed run, lane working: attention"   "$out" '^tower: run closed'
+    assert_match "closed run, lane working: exit 0"      "$out" 'exit=0$'
+    printf 'idle\nidle\nworking\n' > "$S/a"; out=$(ROUND=1 ON=$RUN_COMPLETE watch a)
+    assert_nomatch "complete board, lane idle for one poll only: no tower attention" "$out" '^tower: run'
+    printf 'working\nidle\n' > "$S/a"; printf 'idle\nidle\n' > "$S/b"; out=$(ON=$RUN_COMPLETE watch a b)
+    assert_nomatch "complete board, one agent settled, the other idle only once: no tower attention" "$out" '^tower: run'
+    echo working > "$S/a"; echo done > "$S/b"; out=$(ROUND=1 ON=$RUN_COMPLETE watch a b)
+    assert_nomatch "complete board, one of two lanes working: no tower attention" "$out" '^tower: run'
+    printf 'idle\nidle\n' > "$S/a"; out=$(ON=$RUN_COMPLETE watch a)
+    assert_match "complete board, every agent settled: attention" "$out" '^tower: run complete'
+    # No round limit unless ROUND_SECONDS asks for one: under a clock that jumps
+    # 1000 s on every read, the watch still polls until the lane needs attention.
+    clock="$TMP/clock"; mkdir -p "$clock"
+    cat > "$clock/date" <<'CLOCK'
 #!/usr/bin/env bash
 [ "$*" = +%s ] || exec /bin/date "$@"
 n=$(( $(cat "$0.now" 2>/dev/null || echo 0) + 1000 )); echo "$n" > "$0.now"; echo "$n"
 CLOCK
-  chmod +x "$clock/date"
-  # A background kill caps the run, so a regression fails instead of hanging.
-  # The script itself is the background job, so the kill reaches it.
-  clocked() { (cd "$TMP" || exit; PATH="$clock:$PATH" GRACE_SECONDS=0 POLL_SECONDS=0 "$KIT/watch-lanes.sh" "$RUN" "${@:-a}" 2>&1 & p=$!
-    (sleep 20; kill "$p" 2>/dev/null) >/dev/null 2>&1 & k=$!; wait "$p"; rc=$?; kill "$k" 2>/dev/null; echo "exit=$rc"); }
-  printf 'working\nworking\nworking\nblocked\n' > "$S/a"; printf 'need the API key\n' > "$S/a.tail"; rm -f "$clock/date.now"
-  out=$(clocked)
-  assert_match "no ROUND_SECONDS: polls past 540 s until attention" "$out" '^attention: a blocked'
-  assert_match "no ROUND_SECONDS: exit 0"             "$out" 'exit=0$'
-  # 1000 s a read: the round starts at 1000, and the first poll's reads land
-  # under 2500, the next ones past it.
-  echo working > "$S/a"; rm -f "$clock/date.now"; : > "$HERDR_STUB_LOG"
-  out=$(ROUND_SECONDS=2500 clocked)
-  assert_match "ROUND_SECONDS given: exit 3 once it passes" "$out" 'exit=3$'
-  assert_match "ROUND_SECONDS given: it polled before it passed" "$(grep -c '^herdr agent get a' "$HERDR_STUB_LOG")" '^[3-9]'
-  # Blocked on one sample and working again on the resample: no time limit
-  # means no quiet exit, so the watch polls on and reports once, when the lane
-  # is blocked again.
-  printf 'blocked\nworking\nworking\nblocked\n' > "$S/a"; rm -f "$clock/date.now"
-  out=$(clocked)
-  assert_match "blocked, then working on the resample: polls on until attention" "$out" '^attention: a blocked'
-  assert_match "blocked, then working on the resample: exit 0" "$out" 'exit=0$'
-  assert_match "blocked, then working on the resample: one report" "$(grep -c '^--- tower' <<<"$out")" '^1$'
-  # Settled idle, working on the resample: idle counts afresh, so it takes two
-  # more idle polls (and the resample) before the watch reports: 6 reads.
-  printf 'idle\nidle\nworking\nidle\nidle\n' > "$S/a"; printf 'Running tests...\n' > "$S/a.tail"; rm -f "$clock/date.now"; : > "$HERDR_STUB_LOG"
-  out=$(clocked)
-  assert_match "idle, then working on the resample: reports idle again" "$out" '^attention: a idle-unexplained'
-  assert_match "idle, then working on the resample: idle counts afresh" "$(grep -c '^herdr agent get a' "$HERDR_STUB_LOG")" '^6$'
-  # Another lane settling and working again on the resample does not start
-  # an unreadable agent's count again, and each resample's failure adds to
-  # it: a reaches 4 on its fourth read (two polls, two resamples).
-  echo unreachable > "$S/a"; printf 'blocked\nworking\nblocked\nworking\n' > "$S/b"; rm -f "$clock/date.now"; : > "$HERDR_STUB_LOG"
-  out=$(UNREADABLE_POLLS=4 clocked a b)
-  assert_match "a flapping lane beside a failing herdr: attention, unreadable" "$out" '^attention: a unreadable$'
-  assert_match "a flapping lane beside a failing herdr: the count held" "$(grep -c '^herdr agent get a' "$HERDR_STUB_LOG")" '^4$'
-  # A resample on which the agent answers is a readable answer too: it starts
-  # the count again. a fails on reads 1, 3, 5 and 6 only (never 4 in a row)
-  # while b settles and works again on every resample, then is done.
-  printf 'unreachable\nworking\nunreachable\nworking\nunreachable\nunreachable\nworking\n' > "$S/a"
-  printf 'blocked\nworking\nblocked\nworking\nblocked\nworking\ndone\n' > "$S/b"
-  rm -f "$clock/date.now"; : > "$HERDR_STUB_LOG"
-  out=$(UNREADABLE_POLLS=4 clocked a b)
-  assert_nomatch "a resample that answers starts the count again: no unreadable attention" "$out" '^attention: a unreadable'
-  assert_match "a resample that answers starts the count again: the lane that is done" "$out" '^attention: b done$'
-  # A status the watch does not know settles the poll; it is attention, never
-  # an endless quiet loop.
-  echo waiting > "$S/a"; printf 'Choose an option\n' > "$S/a.tail"; rm -f "$clock/date.now"
-  out=$(clocked)
-  assert_match "an unknown status: attention with the status" "$out" '^attention: a waiting$'
-  assert_match "an unknown status: the tail printed" "$out" 'Choose an option'
-  assert_match "an unknown status: exit 0" "$out" 'exit=0$'
-  # Without a round limit, a herdr that never answers still ends the watch,
-  # after the default count of unreadable polls.
-  echo unreachable > "$S/a"; rm -f "$clock/date.now"; : > "$HERDR_STUB_LOG"
-  out=$(clocked)
-  assert_match "no ROUND_SECONDS, herdr never answering: attention, unreadable" "$out" '^attention: a unreadable$'
-  assert_match "no ROUND_SECONDS, herdr never answering: exit 0" "$out" 'exit=0$'
-  assert_match "no ROUND_SECONDS, herdr never answering: 12 polls and the resample" "$(grep -c '^herdr agent get a' "$HERDR_STUB_LOG")" '^13$'
-  # Unreadable up to the limit, working on the resample: it counts afresh, so
-  # the next unreadable poll alone settles nothing: 6 reads, not 5.
-  printf 'unreachable\nunreachable\nworking\nunreachable\nblocked\n' > "$S/a"; rm -f "$clock/date.now"; : > "$HERDR_STUB_LOG"
-  out=$(UNREADABLE_POLLS=2 clocked)
-  assert_match "unreadable, then working on the resample: the lane's own attention" "$out" '^attention: a blocked$'
-  assert_match "unreadable, then working on the resample: counts afresh" "$(grep -c '^herdr agent get a' "$HERDR_STUB_LOG")" '^6$'
-  printf 'blocked\nworking\n' > "$S/a"; rm -f "$clock/date.now"
-  out=$(ROUND_SECONDS=2500 clocked)
-  assert_match "ROUND_SECONDS given, blocked then working: exit 3 as before" "$out" 'exit=3$'
-  for bad in abc 0 -5 1.5; do
-    out=$(ROUND_SECONDS=$bad clocked)
-    assert_match "ROUND_SECONDS=$bad: refused"       "$out" 'ROUND_SECONDS'
-    assert_match "ROUND_SECONDS=$bad: exit 1"        "$out" 'exit=1$'
-  done
+    chmod +x "$clock/date"
+    # A background kill caps the run, so a regression fails instead of hanging.
+    # The script itself is the background job, so the kill reaches it.
+    clocked() { (cd "$TMP" || exit; PATH="$clock:$PATH" GRACE_SECONDS=0 POLL_SECONDS=0 "$KIT/watch-lanes.sh" "$RUN" "${@:-a}" 2>&1 & p=$!
+      (sleep 20; kill "$p" 2>/dev/null) >/dev/null 2>&1 & k=$!; wait "$p"; rc=$?; kill "$k" 2>/dev/null; echo "exit=$rc"); }
+    printf 'working\nworking\nworking\nblocked\n' > "$S/a"; printf 'need the API key\n' > "$S/a.tail"; rm -f "$clock/date.now"
+    out=$(clocked)
+    assert_match "no ROUND_SECONDS: polls past 540 s until attention" "$out" '^attention: a blocked'
+    assert_match "no ROUND_SECONDS: exit 0"             "$out" 'exit=0$'
+    # 1000 s a read: the round starts at 1000, and the first poll's reads land
+    # under 2500, the next ones past it.
+    echo working > "$S/a"; rm -f "$clock/date.now"; : > "$HERDR_STUB_LOG"
+    out=$(ROUND_SECONDS=2500 clocked)
+    assert_match "ROUND_SECONDS given: exit 3 once it passes" "$out" 'exit=3$'
+    assert_match "ROUND_SECONDS given: it polled before it passed" "$(grep -c '^herdr agent get a' "$HERDR_STUB_LOG")" '^[3-9]'
+    # Blocked on one sample and working again on the resample: no time limit
+    # means no quiet exit, so the watch polls on and reports once, when the lane
+    # is blocked again.
+    printf 'blocked\nworking\nworking\nblocked\n' > "$S/a"; rm -f "$clock/date.now"
+    out=$(clocked)
+    assert_match "blocked, then working on the resample: polls on until attention" "$out" '^attention: a blocked'
+    assert_match "blocked, then working on the resample: exit 0" "$out" 'exit=0$'
+    assert_match "blocked, then working on the resample: one report" "$(grep -c '^--- tower' <<<"$out")" '^1$'
+    # Settled idle, working on the resample: idle counts afresh, so it takes two
+    # more idle polls (and the resample) before the watch reports: 6 reads.
+    printf 'idle\nidle\nworking\nidle\nidle\n' > "$S/a"; printf 'Running tests...\n' > "$S/a.tail"; rm -f "$clock/date.now"; : > "$HERDR_STUB_LOG"
+    out=$(clocked)
+    assert_match "idle, then working on the resample: reports idle again" "$out" '^attention: a idle-unexplained'
+    assert_match "idle, then working on the resample: idle counts afresh" "$(grep -c '^herdr agent get a' "$HERDR_STUB_LOG")" '^6$'
+    # Another lane settling and working again on the resample does not start
+    # an unreadable agent's count again, and each resample's failure adds to
+    # it: a reaches 4 on its fourth read (two polls, two resamples).
+    echo unreachable > "$S/a"; printf 'blocked\nworking\nblocked\nworking\n' > "$S/b"; rm -f "$clock/date.now"; : > "$HERDR_STUB_LOG"
+    out=$(UNREADABLE_POLLS=4 clocked a b)
+    assert_match "a flapping lane beside a failing herdr: attention, unreadable" "$out" '^attention: a unreadable$'
+    assert_match "a flapping lane beside a failing herdr: the count held" "$(grep -c '^herdr agent get a' "$HERDR_STUB_LOG")" '^4$'
+    # A resample on which the agent answers is a readable answer too: it starts
+    # the count again. a fails on reads 1, 3, 5 and 6 only (never 4 in a row)
+    # while b settles and works again on every resample, then is done.
+    printf 'unreachable\nworking\nunreachable\nworking\nunreachable\nunreachable\nworking\n' > "$S/a"
+    printf 'blocked\nworking\nblocked\nworking\nblocked\nworking\ndone\n' > "$S/b"
+    rm -f "$clock/date.now"; : > "$HERDR_STUB_LOG"
+    out=$(UNREADABLE_POLLS=4 clocked a b)
+    assert_nomatch "a resample that answers starts the count again: no unreadable attention" "$out" '^attention: a unreadable'
+    assert_match "a resample that answers starts the count again: the lane that is done" "$out" '^attention: b done$'
+    # A status the watch does not know settles the poll; it is attention, never
+    # an endless quiet loop.
+    echo waiting > "$S/a"; printf 'Choose an option\n' > "$S/a.tail"; rm -f "$clock/date.now"
+    out=$(clocked)
+    assert_match "an unknown status: attention with the status" "$out" '^attention: a waiting$'
+    assert_match "an unknown status: the tail printed" "$out" 'Choose an option'
+    assert_match "an unknown status: exit 0" "$out" 'exit=0$'
+    # Without a round limit, a herdr that never answers still ends the watch,
+    # after the default count of unreadable polls.
+    echo unreachable > "$S/a"; rm -f "$clock/date.now"; : > "$HERDR_STUB_LOG"
+    out=$(clocked)
+    assert_match "no ROUND_SECONDS, herdr never answering: attention, unreadable" "$out" '^attention: a unreadable$'
+    assert_match "no ROUND_SECONDS, herdr never answering: exit 0" "$out" 'exit=0$'
+    assert_match "no ROUND_SECONDS, herdr never answering: 12 polls and the resample" "$(grep -c '^herdr agent get a' "$HERDR_STUB_LOG")" '^13$'
+    # Unreadable up to the limit, working on the resample: it counts afresh, so
+    # the next unreadable poll alone settles nothing: 6 reads, not 5.
+    printf 'unreachable\nunreachable\nworking\nunreachable\nblocked\n' > "$S/a"; rm -f "$clock/date.now"; : > "$HERDR_STUB_LOG"
+    out=$(UNREADABLE_POLLS=2 clocked)
+    assert_match "unreadable, then working on the resample: the lane's own attention" "$out" '^attention: a blocked$'
+    assert_match "unreadable, then working on the resample: counts afresh" "$(grep -c '^herdr agent get a' "$HERDR_STUB_LOG")" '^6$'
+    printf 'blocked\nworking\n' > "$S/a"; rm -f "$clock/date.now"
+    out=$(ROUND_SECONDS=2500 clocked)
+    assert_match "ROUND_SECONDS given, blocked then working: exit 3 as before" "$out" 'exit=3$'
+    for bad in abc 0 -5 1.5; do
+      out=$(ROUND_SECONDS=$bad clocked)
+      assert_match "ROUND_SECONDS=$bad: refused"       "$out" 'ROUND_SECONDS'
+      assert_match "ROUND_SECONDS=$bad: exit 1"        "$out" 'exit=1$'
+    done
+  fi
 fi
 
 # --- watchline ---------------------------------------------------------------

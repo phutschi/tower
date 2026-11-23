@@ -20,9 +20,8 @@ runner_detect() {
 }
 need_runner() {
   RUNNER=$(runner_detect) || exit 1; export RUNNER
-  # shortcut: runner-orca.sh comes with Orca's executors (plan task 5), which drop this guard.
   # shellcheck source=/dev/null  # runner-herdr.sh or runner-orca.sh
-  [ ! -f "$KIT/runner-$RUNNER.sh" ] || . "$KIT/runner-$RUNNER.sh"
+  . "$KIT/runner-$RUNNER.sh"
 }
 
 # The runner functions, herdr's until need_runner says otherwise (each
@@ -30,6 +29,8 @@ need_runner() {
 #   runner_agent_start NAME KIND PANE -- HARNESS_ARGS...
 #   runner_agent_state NAME PANE   "<status> <ready>", gone or unreadable
 #   runner_agent_tail NAME PANE LINES
+#   runner_name                    the runner's name, for a message
+#   runner_ready_hint NAME         how a human sees NAME accept input
 #   runner_send_text PANE TEXT
 #   runner_send_keys PANE KEY...
 # and the layout (CONTEXT.md Layout):
@@ -43,4 +44,4 @@ need_runner() {
 #   runner_pane_exists PANE        0 open, 1 gone, 2 the runner cannot say
 #   runner_read_cmd, runner_message_cmd   the pane map's read a pane and message a pane lines
 # shellcheck source=/dev/null  # runner-herdr.sh or runner-orca.sh
-[ ! -f "$KIT/runner-${RUNNER:-herdr}.sh" ] || . "$KIT/runner-${RUNNER:-herdr}.sh"   # shortcut: as need_runner's
+. "$KIT/runner-${RUNNER:-herdr}.sh"
