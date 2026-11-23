@@ -18,6 +18,24 @@ import { registerJobRunner } from "../station.ts";
 const run = promisify(execFile);
 const PROMPT = join(import.meta.dir, "../../prompts/advice.md");
 
+/** `repo`'s latest 20 commits on main, one `sha date subject` line each. */
+async function latestCommits(repo: string): Promise<string[]> {
+  const { stdout } = await run(
+    "gh",
+    ["api", `repos/${repo}/commits?per_page=20`],
+    { timeout: 60_000 },
+  );
+  return (
+    JSON.parse(stdout) as {
+      sha: string;
+      commit: { message: string; committer: { date: string } };
+    }[]
+  ).map(
+    (c) =>
+      `${c.sha.slice(0, 7)} ${c.commit.committer.date.slice(0, 10)} ${c.commit.message.split("\n")[0]}`,
+  );
+}
+
 registerJobRunner(
   "advice",
   async ({ job, hubUrl, workspace, emit, signal }) => {
@@ -33,15 +51,14 @@ registerJobRunner(
         issueArea,
         blockedBy,
       }));
-    const merges = (
-      await run(
-        "git",
-        ["log", "--first-parent", "-n", "20", "--format=%h %cs %s"],
-        {
-          cwd: workspace.path,
-        },
-      )
-    ).stdout;
+    // The latest commits on main of every listed repo, newest first.
+    const listed = await fetch(`${hubUrl}/api/repos`);
+    if (!listed.ok)
+      throw new Error(`the hub refused its repos: ${listed.status}`);
+    const repos = (await listed.json()) as string[];
+    const merges = Object.fromEntries(
+      await Promise.all(repos.map(async (r) => [r, await latestCommits(r)])),
+    );
     // As JSON with < escaped, untrusted text cannot close the tag it sits in.
     const data = (v: unknown) => JSON.stringify(v).replaceAll("<", "\\u003c");
     const prompt = `${readFileSync(PROMPT, "utf8")}
@@ -49,8 +66,8 @@ registerJobRunner(
 ${data(open)}
 </open-issues>
 
-<recent-merges repo="${job.repo}">
-${data(merges.trim().split("\n"))}
+<recent-merges>
+${data(merges)}
 </recent-merges>
 `;
     const session = await runHeadless({
