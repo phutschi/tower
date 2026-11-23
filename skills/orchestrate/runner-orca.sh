@@ -208,7 +208,8 @@ runner_read_cmd()    { echo "\"\$ORCA_CLI_COMMAND\" terminal read --terminal <id
 # add-lane's), named LABEL, with a terminal of its own, started in it. Orca
 # picks its path (WT is unused), and skips the repo's setup hooks: add-lane
 # installs. A worktree Orca made on any branch but BRANCH is refused before
-# its terminal opens. Prints "<pane> <checkout>"; dies saying what to remove.
+# its terminal opens. Prints "<pane> <checkout>"; dies saying what to remove,
+# or what to look at first where the run may not own it.
 # shortcut: Orca's own first terminal in the worktree is left as an idle shell, reuse it once `worktree create --json` is known to name its handle.
 runner_open_lane() {
   local branch="$2" base="$3" label="$5" ws out id="" path="" got pane
@@ -217,9 +218,9 @@ runner_open_lane() {
     || die "add-lane: branch $branch exists, and Orca would make lane $LANE's worktree on another branch: remove it or pick another, then rerun  $RERUN"
   ws=$(orchestrator_of "$MAP")
   out=$(orca worktree create --name "$label" --branch "$branch" --base-branch "$base" --parent-worktree "id:$ws" --setup skip --json) \
-    || die "add-lane: Orca could not create lane $LANE's worktree ($out): remove branch $branch if it exists, then rerun  $RERUN"
+    || die "add-lane: Orca could not create lane $LANE's worktree ($out). If branch $branch exists now, look at it before you remove it (another process may have taken it); then rerun  $RERUN"
   id=$(echo "$out" | jsonq 'd["result"]["worktree"]["id"]' 2>/dev/null) && path=$(echo "$out" | jsonq 'd["result"]["worktree"]["path"]' 2>/dev/null) || path=""
-  [ -n "$path" ] || die "add-lane: Orca made lane $LANE's worktree but its answer names none ($out): remove it (\"\$ORCA_CLI_COMMAND\" worktree list --json) and branch $branch, then rerun  $RERUN"
+  [ -n "$path" ] || die "add-lane: Orca made lane $LANE's worktree but its answer names none ($out): find it (\"\$ORCA_CLI_COMMAND\" worktree list --json) and its branch, and remove only what is this lane's (another process may have taken branch $branch); then rerun  $RERUN"
   # The branch may have been taken since the check: Orca then suffixes it.
   # git says which branch the checkout is on; Orca, when it is not on this disk.
   if [ -d "$path" ]; then got=$(git -C "$path" symbolic-ref --short HEAD 2>/dev/null) || got=""

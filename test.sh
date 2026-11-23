@@ -885,17 +885,17 @@ if section add-lane; then
   # saying what to remove, with no terminal opened.
   : > "$ORCA_STUB_LOG"; out=$(ORCA_STUB_WORKTREE_FAIL=1 lane D feat/d main 5; echo "exit=$?")
   assert_match "orca D, worktree create fails: refused" "$out" 'exit=1$'
-  assert_match "orca D, worktree create fails: ... with Orca's error and the branch to remove" "$out" "Orca could not create lane D's worktree .*runtime_unavailable.*remove branch feat/d if it exists"
+  assert_match "orca D, worktree create fails: ... with Orca's error, and a look at the branch first" "$out" "Orca could not create lane D's worktree .*runtime_unavailable.*If branch feat/d exists now, look at it before you remove it"
   assert_nomatch "orca D, worktree create fails: no terminal" "$(cat "$ORCA_STUB_LOG")" '^orca terminal create '
   : > "$ORCA_STUB_LOG"; out=$(ORCA_STUB_WORKTREE_FAIL=garbled lane D feat/d main 5; echo "exit=$?")
   assert_match "orca D, a create answer with no worktree: refused" "$out" 'exit=1$'
-  assert_match "orca D, a create answer with no worktree: ... saying what to remove" "$out" "Orca made lane D's worktree but its answer names none .*remove it \\(\"\\\$ORCA_CLI_COMMAND\" worktree list --json\\) and branch feat/d"
+  assert_match "orca D, a create answer with no worktree: ... saying to find it, and remove only this lane's" "$out" "Orca made lane D's worktree but its answer names none .*find it \\(\"\\\$ORCA_CLI_COMMAND\" worktree list --json\\) and its branch, and remove only what is this lane's"
   assert_nomatch "orca D, a create answer with no worktree: no terminal" "$(cat "$ORCA_STUB_LOG")" '^orca terminal create '
   # A branch taken between the check and the create: Orca makes the worktree
   # on a suffixed branch, which is refused before a terminal opens.
-  : > "$ORCA_STUB_LOG"; out=$(ORCA_STUB_WORKTREE_FAIL=suffix lane D feat/d main 5; echo "exit=$?")
+  : > "$ORCA_STUB_LOG"; out=$(ORCA_STUB_WORKTREE_FAIL=suffix ORCA_STUB_WORKTREES="/orca-stub/team repo" lane D feat/d main 5; echo "exit=$?")
   assert_match "orca D, made on another branch: refused" "$out" 'exit=1$'
-  assert_match "orca D, made on another branch: ... saying which, and what to remove" "$out" "Orca made lane D's worktree on branch feat/d-2, not feat/d: remove it \\(\"\\\$ORCA_CLI_COMMAND\" worktree rm --worktree id:repo-0::/orca-stub/worktrees/wt-[0-9]+ --force\\) and branch feat/d-2"
+  assert_match "orca D, made on another branch: ... saying which, and what to remove, its selector one argument" "$out" "Orca made lane D's worktree on branch feat/d-2, not feat/d: remove it \\(\"\\\$ORCA_CLI_COMMAND\" worktree rm --worktree id:repo-0::/orca-stub/team\\\\ repo/wt-[0-9]+ --force\\) and branch feat/d-2"
   assert_nomatch "orca D, made on another branch: no terminal" "$(cat "$ORCA_STUB_LOG")" '^orca terminal create '
   assert_nomatch "orca D, made on another branch: no lane D line" "$(cat "$RUN/panes.txt")" 'lane D:'
   # A launch Orca never sent (its send refused) is recorded as unsent; the
