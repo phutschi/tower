@@ -156,11 +156,16 @@ export class Store {
     this.db.run("INSERT OR IGNORE INTO repos (name) VALUES (?)", [name]);
   }
 
-  /** Unlists a repo; its issues leave the snapshot, its jobs stay as history. */
+  /**
+   * Unlists a repo; its issues leave the snapshot, and its jobs not over yet
+   * are stopped, staying as history.
+   */
   removeRepo(name: string) {
     this.db.transaction(() => {
       this.db.run("DELETE FROM repos WHERE name = ?", [name]);
       this.db.run("DELETE FROM issues WHERE repo = ?", [name]);
+      for (const j of this.jobs())
+        if (j.repo === name) this.requestStop(j.id, "the repo was unlisted");
     })();
   }
 
@@ -432,27 +437,54 @@ export class Store {
   /**
    * Records a job's result from `station`. It counts while that station
    * holds the job, or once its lease ran out and nobody claimed it since: a
-   * finished job beats a second try. False when it does not count.
+   * finished job beats a second try. False when it does not count. Its
+   * tokens add to what tokens events reported; a result with no session
+   * keeps the one the job reported while it ran.
    */
   finish(station: string, r: JobResult): boolean {
+    const t = r.tokens;
+    // NULL + n is NULL: a result with no tokens keeps the totals.
     return (
       this.db.run(
-        `UPDATE jobs SET state = ?, reason = ?, session_id = ?, duration_ms = ?,
-           tokens_in = ?, tokens_out = ?, lease_until = NULL, station = ?, lost_by = NULL
+        `UPDATE jobs SET state = ?, reason = ?, session_id = COALESCE(?, session_id),
+           duration_ms = ?,
+           tokens_in = COALESCE(COALESCE(tokens_in, 0) + ?, tokens_in),
+           tokens_out = COALESCE(COALESCE(tokens_out, 0) + ?, tokens_out),
+           lease_until = NULL, station = ?, lost_by = NULL
          WHERE id = ? AND ${FINISHES}`,
         [
           OUTCOME[r.outcome],
           r.reason ?? null,
           r.sessionId ?? null,
           r.durationMs,
-          r.tokens?.input ?? null,
-          r.tokens?.output ?? null,
+          t?.input ?? null,
+          t?.output ?? null,
           station,
           r.jobId,
           station,
           station,
         ],
       ).changes === 1
+    );
+  }
+
+  /** Whether `station` may still report on a job: the same rule as for its result. */
+  holds(id: string, station: string): boolean {
+    return (
+      this.db
+        .query<{ n: number }, [string, string, string]>(
+          `SELECT count(*) AS n FROM jobs WHERE id = ? AND ${FINISHES}`,
+        )
+        .get(id, station, station)!.n === 1
+    );
+  }
+
+  /** Adds tokens a job used to its totals. */
+  addTokens(id: string, t: { input: number; output: number }) {
+    this.db.run(
+      `UPDATE jobs SET tokens_in = COALESCE(tokens_in, 0) + ?,
+         tokens_out = COALESCE(tokens_out, 0) + ? WHERE id = ?`,
+      [t.input, t.output, id],
     );
   }
 

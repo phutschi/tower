@@ -10,6 +10,7 @@ import { expect, test } from "bun:test";
 import type { AdviceProposal, Job, PanelIssue } from "../types.ts";
 import {
   api,
+  held,
   dir,
   ghLog,
   hubUrl,
@@ -65,7 +66,7 @@ async function adviceJob(): Promise<Job> {
   await start();
   setHead("acme/widgets", "bbb");
   await polls(2);
-  return (await jobs())[0]!;
+  return held("advice");
 }
 
 const PROPOSAL = {
@@ -80,6 +81,7 @@ const PROPOSAL = {
 
 const propose = (job: Job, data: unknown) =>
   post(`/api/jobs/${job.id}/events`, {
+    station: job.station,
     ts: "2026-11-21T10:00:00.000Z",
     kind: "proposal",
     data,

@@ -14,7 +14,14 @@ export interface JobContext {
   /** The hub this station reports to, for a job that reads the Panel. */
   hubUrl: string;
   workspace: Workspace;
+  /** Sends an event; the hub gets it in order, later if it is down now. */
   emit(kind: string, data: Record<string, unknown>): Promise<void>;
+  /**
+   * Sends an event an action depends on: resolves once the hub has stored it,
+   * waiting while the hub is down. Rejects when the hub refuses it (this
+   * station holds the job no more) or the job is aborted meanwhile.
+   */
+  checkpoint(kind: string, data: Record<string, unknown>): Promise<void>;
   signal: AbortSignal;
 }
 export type JobRunner = (
@@ -78,7 +85,12 @@ export async function runStation(
 
   // Events and results wait here, in order, until the hub takes them: a hub
   // that is down loses nothing a station sent.
-  const outbox: { path: string; body: unknown }[] = [];
+  // A checkpoint's entry is settled once the hub took or refused it.
+  const outbox: {
+    path: string;
+    body: unknown;
+    settle?: (refused?: Error) => void;
+  }[] = [];
   let flushing: Promise<void> | undefined;
   const flush = () =>
     (flushing ??= (async () => {
@@ -90,23 +102,39 @@ export async function runStation(
           break; // unreachable: try again on the next tick
         }
         if (res.status >= 500) break;
-        if (!res.ok)
-          console.error(
-            `station: the hub refused ${outbox[0].path}: ${await res.text()}`,
-          );
-        outbox.shift();
+        const sent = outbox.shift()!;
+        if (res.ok) sent.settle?.();
+        else {
+          const why = `the hub refused ${sent.path}: ${await res.text()}`;
+          // 409: the job is over or another station's; the heartbeat says so.
+          if (res.status !== 409) console.error(`station: ${why}`);
+          sent.settle?.(new Error(why));
+        }
       }
     })().finally(() => (flushing = undefined)));
 
   const work = async (job: Job, abort: AbortController) => {
     const started = Date.now();
+    const event = (kind: string, data: Record<string, unknown>) => ({
+      path: `/api/jobs/${job.id}/events`,
+      body: { ts: new Date().toISOString(), kind, data },
+    });
     const emit = (kind: string, data: Record<string, unknown>) => {
-      outbox.push({
-        path: `/api/jobs/${job.id}/events`,
-        body: { ts: new Date().toISOString(), kind, data },
-      });
+      outbox.push(event(kind, data));
       return flush();
     };
+    const checkpoint = (kind: string, data: Record<string, unknown>) =>
+      new Promise<void>((resolve, reject) => {
+        const aborted = () =>
+          reject(new Error(`aborted before the hub stored its ${kind}`));
+        if (abort.signal.aborted) return aborted();
+        abort.signal.addEventListener("abort", aborted, { once: true });
+        outbox.push({
+          ...event(kind, data),
+          settle: (refused) => (refused ? reject(refused) : resolve()),
+        });
+        void flush();
+      });
     let result: Omit<JobResult, "jobId" | "durationMs"> | undefined;
     let workspace: Workspace | undefined;
     try {
@@ -116,6 +144,7 @@ export async function runStation(
         hubUrl: opts.hubUrl,
         workspace,
         emit,
+        checkpoint,
         signal: abort.signal,
       });
     } catch (err) {

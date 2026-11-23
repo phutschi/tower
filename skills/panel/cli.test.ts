@@ -18,6 +18,9 @@ async function hub(dir: string): Promise<{ proc: Subprocess; url: string }> {
       "0",
       "--server-station",
       "server",
+      // The usage report would start a Claude session under the user's login.
+      "--usage-seconds",
+      "0",
     ],
     { stdout: "pipe", stderr: "inherit" },
   );
@@ -212,6 +215,30 @@ test("an install launchd refuses to load leaves no plist behind", async () => {
     expect(r.code).toBe(1);
     expect(r.err).toContain("launchctl could not load");
     expect(existsSync(join(dir, "dev.tower.panel.station.plist"))).toBe(false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("an agent launchd cannot unload stays installed, and uninstall says so", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "panel-cli-"));
+  const hub = ["--hub", "http://100.64.0.7:7420"];
+  const plist = join(dir, "dev.tower.panel.station.plist");
+  try {
+    await cli(["install", "station", "--dir", dir, ...hub, "--name", "laptop"]);
+    const env = { LAUNCHCTL_STUB_FAIL: "bootout" };
+    const again = await cli(
+      ["install", "station", "--dir", dir, ...hub, "--name", "desk"],
+      env,
+    );
+    expect(again.code).toBe(1);
+    expect(again.err).toContain("launchctl could not unload");
+    // The running agent's plist is left as it is.
+    expect(readFileSync(plist, "utf8")).toContain("<string>laptop</string>");
+    const r = await cli(["uninstall", "station", "--dir", dir], env);
+    expect(r.code).toBe(1);
+    expect(r.err).toContain("launchctl could not unload");
+    expect(existsSync(plist)).toBe(true);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

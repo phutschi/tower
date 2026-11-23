@@ -131,6 +131,12 @@ test("a claimed run sets in-progress and opens a workspace named after the issue
   expect(at("/tower:orchestrate")).toBeGreaterThan(at("/tower:spec-to-plan"));
   expect(brief).toContain("TRIAGE=auto");
   expect(brief).toContain("PR=ready");
+  // Nobody answers the planner's approval question: the move was the approval.
+  expect(brief).toContain(
+    "Moving acme/widgets#12 to ready-for-agent was the approval",
+  );
+  expect(brief).toContain("approve the task list and the lane split yourself");
+  expect(brief).toContain("Closes #12");
   expect(brief).toContain("acme/widgets#12");
   expect(brief).toContain("thread named `acme/widgets#12`");
   expect(brief).toContain(String(ws.databaseName));
@@ -353,7 +359,8 @@ test("a bundle's run opens one workspace named after the bundle, with one brief 
     herdrLog().split("herdr agent prompt acme-widgets-12-13 ")[1] ?? "";
   expect(brief).toContain("acme/widgets#12, acme/widgets#13");
   expect(brief).toContain("one plan and one PR");
-  expect(brief).toContain("Closes #12, #13");
+  // GitHub links each issue only with its own keyword.
+  expect(brief).toContain("Closes #12, Closes #13");
   expect(brief).toContain("thread named `acme/widgets#12 + acme/widgets#13`");
   expect(herdrLog().match(/^herdr workspace create /gm)?.length).toBe(1);
 });

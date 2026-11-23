@@ -40,7 +40,11 @@ setDefaultTimeout(20_000);
 const FAKE = join(import.meta.dir, "../tests/fake-station.ts");
 let stations: Subprocess[] = [];
 
-function station(name = "server", kinds = "grill") {
+function station(
+  name = "server",
+  kinds = "grill",
+  env: Record<string, string> = {},
+) {
   const workdir = join(dir(), `station-${name}`);
   mkdirSync(workdir, { recursive: true });
   const proc = Bun.spawn(["bun", FAKE], {
@@ -51,6 +55,7 @@ function station(name = "server", kinds = "grill") {
       WORKDIR: workdir,
       FAKE_KINDS: kinds,
       ...gitRemotes(),
+      ...env,
     },
     stderr: "inherit",
   });
@@ -266,6 +271,92 @@ test("a result from a station that holds the job no more is refused", async () =
   });
   expect(late.status).toBe(409);
   expect((await jobs())[0]!.state).toBe("claimed");
+});
+
+test("an event from a station that holds the job no more is refused and changes nothing", async () => {
+  await setup();
+  await grills(1);
+  const [job] = await jobs();
+  await post("/api/jobs/claim", { station: "server", kinds: ["grill"] });
+  const event = (station: string) =>
+    post(`/api/jobs/${job!.id}/events`, {
+      station,
+      ts: new Date().toISOString(),
+      kind: "session",
+      data: { sessionId: `session-of-${station}` },
+    });
+  expect((await event("laptop")).status).toBe(409);
+  expect((await event("server")).status).toBe(200);
+  const stored = await api<JobWithEvents>(`/api/jobs/${job!.id}`);
+  expect(stored.events.map((e) => e.data.sessionId)).toEqual([
+    "session-of-server",
+  ]);
+  expect(stored.sessionId).toBe("session-of-server");
+});
+
+test("a job's tokens add up over its tokens events and its result; a failed result keeps its session", async () => {
+  await setup();
+  await grills(1);
+  const [job] = await jobs();
+  await post("/api/jobs/claim", { station: "server", kinds: ["grill"] });
+  const event = (kind: string, data: Record<string, unknown>) =>
+    post(`/api/jobs/${job!.id}/events`, {
+      station: "server",
+      ts: new Date().toISOString(),
+      kind,
+      data,
+    });
+  await event("session", { sessionId: "s-1" });
+  await event("tokens", { input: 100, output: 10 });
+  await event("tokens", { input: 50, output: 5 });
+  expect((await event("tokens", { input: -1, output: 5 })).status).toBe(400);
+  await post(`/api/jobs/${job!.id}/result`, {
+    station: "server",
+    outcome: "failed",
+    reason: "boom",
+    durationMs: 5,
+    tokens: { input: 1, output: 2 },
+  });
+  expect(await api<Job>(`/api/jobs/${job!.id}`)).toMatchObject({
+    state: "stuck",
+    sessionId: "s-1",
+    tokens: { input: 151, output: 17 },
+  });
+});
+
+test("a checkpoint the hub has not stored holds the job's next step until the hub is back", async () => {
+  await setup();
+  await grills(1);
+  const { workdir } = station("server", "grill", { FAKE_CHECKPOINT: "1" });
+  await until(async () => (await jobs())[0]?.state === "claimed");
+  const id = (await jobs())[0]!.id;
+  await stopHub();
+  writeFileSync(join(workdir, `checkpoint-${id}`), "");
+  await Bun.sleep(300);
+  expect(existsSync(join(workdir, `acted-${id}`))).toBe(false);
+  await restart();
+  await until(async () => existsSync(join(workdir, `acted-${id}`)));
+  const { events } = await api<JobWithEvents>(`/api/jobs/${id}`);
+  expect(events.map((e) => e.kind)).toContain("spec");
+});
+
+test("a checkpoint for a job the station holds no more is refused, and its action never runs", async () => {
+  await setup();
+  await grills(1);
+  const { workdir } = station("server", "grill", { FAKE_CHECKPOINT: "1" });
+  await until(async () => (await jobs())[0]?.state === "claimed");
+  const id = (await jobs())[0]!.id;
+  // The hub ends the job: its result is in.
+  await post(`/api/jobs/${id}/result`, {
+    station: "server",
+    outcome: "done",
+    durationMs: 5,
+  });
+  writeFileSync(join(workdir, `checkpoint-${id}`), "");
+  await until(async () => existsSync(join(workdir, `refused-${id}`)));
+  expect(existsSync(join(workdir, `acted-${id}`))).toBe(false);
+  const { events } = await api<JobWithEvents>(`/api/jobs/${id}`);
+  expect(events.map((e) => e.kind)).not.toContain("spec");
 });
 
 test("the Panel lists stations with switch, limit and current jobs, and each job's events", async () => {
