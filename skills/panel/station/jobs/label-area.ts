@@ -10,7 +10,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
-import { runHeadless } from "../claude.ts";
+import { reportLimits, runHeadless } from "../claude.ts";
 import { registerJobRunner } from "../station.ts";
 
 const run = promisify(execFile);
@@ -76,6 +76,7 @@ ${data({ title: issue.title, body: issue.body ?? "" })}
     tools: [],
     signal,
   });
+  await reportLimits(session, emit);
   const ran = { sessionId: session.sessionId, tokens: session.tokens };
   if (session.error)
     return {
