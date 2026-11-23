@@ -241,7 +241,7 @@ slot_pane() { echo "$TAB_LINE" | sed -nE "s/.*[(, ]$1 ([^,)]+).*/\\1/p"; }
 RERUN_ARGS=$(printf ' %q' "$RUN_DIR" "$SLOT" "$LANE_KIND" "$TITLE" "$FINDINGS" ${LANE:+"$LANE"})
 PREV_LINE=$(grep -E "^reviewer $SLOT: " "$MAP" || true)
 PREV=$(echo "$PREV_LINE" | sed -nE "s/^reviewer $SLOT: +[^ ]+ +\\(agent \"([^\"]+)\".*/\\1/p")
-N=1; RESUME=0; KEEP=0
+N=1; RESUME=0; KEEP=0; ENDED=0
 if [ -n "$PREV" ]; then
   # The previous Reviewer's pane: its line's (a runner may give each Reviewer
   # a pane of its own), else the slot's.
@@ -280,14 +280,19 @@ if [ -n "$PREV" ]; then
   [ "$KEEP" = 1 ] || case "$(state_of "$PREV" "$PANE")" in
     gone) ;;
     working) die "Reviewer $PREV is still working in $SLOT: wait until the slot is free, or use the other slot" ;;
-    unreadable) die "$(runner_name) cannot say whether Reviewer $PREV is still there; rerun once $(runner_name) answers" ;;
+    unreadable)
+      rc=0; runner_pane_exists "$PANE" 2>/dev/null || rc=$?
+      [ "$rc" != 3 ] || { stale_handle "Reviewer $PREV" "$PANE" "reviewer $SLOT's line"; exit 1; }
+      die "$(runner_name) cannot say whether Reviewer $PREV is still there; rerun once $(runner_name) answers" ;;
     *)
       runner_send_text "$PANE" "/exit"
       [ "${DRY_RUN:-0}" = 1 ] || sleep 1
       runner_send_keys "$PANE" Enter
-      runner_end_agent "$PANE" 2>/dev/null || true   # best effort; the gone check decides
+      # A runner that ends the agent for sure (Orca closes its terminal) leaves
+      # no pane: the next Reviewer gets a new one (runner_reviewer_pane).
+      if runner_end_agent "$PANE" 2>/dev/null; then ENDED=1; fi
       waited=0
-      until state=$(state_of "$PREV" "$PANE"); [ "$state" = gone ]; do
+      until [ "$ENDED" = 1 ] || { state=$(state_of "$PREV" "$PANE"); [ "$state" = gone ]; }; do
         if [ "$waited" -ge "${EXIT_WAIT_SECONDS:-15}" ]; then
           [ "$state" != unreadable ] || die "$(runner_name) cannot say whether Reviewer $PREV exited; check $PANE, and rerun once $(runner_name) answers"
           die "Reviewer $PREV did not exit; end it in $PANE and rerun"
@@ -349,7 +354,7 @@ fi
 # The kept Reviewer's pane stays; a fresh one gets the slot's pane, or a new
 # one where the runner closed the last (runner_reviewer_pane).
 if [ "$KEEP" != 1 ]; then
-  PANE=$(slot_pane "$SLOT")
+  PANE=$(slot_pane "$SLOT"); [ "$ENDED" != 1 ] || PANE=""
   PANE=$(runner_reviewer_pane "$SLOT" "$PANE" "$REPO")
 fi
 

@@ -30,7 +30,8 @@ need_runner() {
 # documents them):
 #   runner_agent_start NAME KIND PANE -- HARNESS_ARGS...
 #   runner_agent_state NAME PANE   "<status> <ready>", gone or unreadable;
-#                                  gone: herdr, the agent is not found; Orca, its terminal is closed
+#                                  gone: herdr, the agent is not found (Orca never says it:
+#                                  a stale handle may name a terminal still open)
 #   runner_agent_tail NAME PANE LINES
 #   runner_name                    the runner's name, for a message
 #   runner_ready_hint NAME         how a human sees NAME accept input
@@ -47,8 +48,11 @@ need_runner() {
 #                                  worktree, at WT unless the runner names another checkout
 #   runner_place_lane MAP LABEL PANE                          the pane's id once placed
 #   runner_open_reviewer_slots WS REPO LABEL                  "<tab(s)> <r1> <r2>"
-#   runner_end_agent PANE          after /exit: whatever else ends the agent in PANE
-#   runner_reviewer_pane SLOT PANE REPO   the pane a fresh Reviewer in SLOT starts in
-#   runner_pane_exists PANE        0 open, 1 gone, 2 the runner cannot say
+#   runner_end_agent PANE          after /exit: whatever else ends the agent in PANE; 0 when
+#                                  that ended it for sure, 1 when the caller waits for gone
+#   runner_reviewer_pane SLOT PANE REPO   the pane a fresh Reviewer in SLOT starts in (PANE
+#                                  empty: the runner closed the last one)
+#   runner_pane_exists PANE        0 open, 1 gone, 2 the runner cannot say, 3 its handle is
+#                                  stale (Orca): it may be open under another
 #   runner_pane_check              what runner_pane_exists asks, for a message
 #   runner_read_cmd                the pane map's read a pane line

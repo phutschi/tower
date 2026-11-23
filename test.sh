@@ -860,9 +860,10 @@ if section add-lane; then
   assert_eq "orca B rerun, running: the pane map as it was" "$(cat "$RUN/panes.txt")" "$map"
   echo gone > "$ORCA_STUB_STATES_DIR/$bpane"
   : > "$ORCA_STUB_LOG"; out=$(lane B feat/b main 2,3; echo "exit=$?")
-  assert_match "orca B rerun, terminal gone: fails" "$out" 'exit=1$'
-  assert_match "orca B rerun, terminal gone: names the pane map line and the worktree to remove" "$out" "lane B's pane $bpane is gone \\(Orca\\): remove its line from $RUN/panes.txt and the worktree /orca-stub/worktrees/wt-4"
-  assert_nomatch "orca B rerun, terminal gone: nothing created" "$(cat "$ORCA_STUB_LOG")" '^orca (worktree create|terminal create) '
+  assert_match "orca B rerun, a stale handle: fails" "$out" 'exit=1$'
+  assert_match "orca B rerun, a stale handle: asks to rebind it" "$out" "Orca says lane B's terminal handle $bpane is stale: it may still be open under a new handle\\. Find lane B's terminal in Orca, put its handle on lane B's line in $RUN/panes.txt, then rerun"
+  assert_nomatch "orca B rerun, a stale handle: no removal advised" "$out" 'remove'
+  assert_nomatch "orca B rerun, a stale handle: nothing created or started" "$(cat "$ORCA_STUB_LOG")" '^orca (worktree create|terminal create|terminal send) '
   rm -f "$ORCA_STUB_STATES_DIR/$bpane"
   # A worktree create that fails, or answers with no worktree: refused,
   # saying what to remove, with no terminal opened.
@@ -1317,6 +1318,13 @@ if section add-reviewer; then
   r1=$(sed -nE 's/^reviewer R1: +([^ ]+).*/\1/p' "$RUNS/panes.txt"); echo waiting > "$S/$r1"
   : > "$ORCA_STUB_LOG"; (cd "$rs" && EXIT_WAIT_SECONDS=3 "$KIT/add-reviewer.sh" "$RUNS" R1 claude "Lane review A again" "$RUNS/findings/a-2.json" >/dev/null 2>&1)
   assert_match "orca, a space in the workspace: a new Reviewer's tab opens in it whole" "$(cat "$ORCA_STUB_LOG")" "^orca terminal create --worktree id:repo-0::$rs --title R1 "
+  # The Reviewer's handle gone stale (Orca restarted): it may still run, so
+  # nothing is ended, closed or opened; the operator rebinds the handle.
+  r1=$(sed -nE 's/^reviewer R1: +([^ ]+).*/\1/p' "$RUNS/panes.txt"); echo gone > "$S/$r1"
+  : > "$ORCA_STUB_LOG"; out=$(cd "$rs" && EXIT_WAIT_SECONDS=3 "$KIT/add-reviewer.sh" "$RUNS" R1 claude "Lane review A third" "$RUNS/findings/a-3.json" 2>&1; echo "exit=$?")
+  assert_match "orca R1, a stale handle: refused" "$out" 'exit=1$'
+  assert_match "orca R1, a stale handle: asks to rebind it" "$out" "Orca says Reviewer bun-vitest-r1-2's terminal handle $r1 is stale: .* put its handle on reviewer R1's line in $RUNS/panes\\.txt, then rerun"
+  assert_nomatch "orca R1, a stale handle: nothing sent, closed or opened" "$(cat "$ORCA_STUB_LOG")" '^orca terminal (send|close|create) '
   rm -f "$S"/*
   else
     S="$HERDR_STUB_STATES_DIR"
@@ -2380,8 +2388,10 @@ if section watch; then
   assert_match "orca: waiting without the end line: idle-unexplained" "$out" '^attention: a idle-unexplained'
   echo done > "$S/term-1"; printf '[[ALL DONE]]\n' > "$S/term-1.tail"; out=$(watch a)
   assert_match "orca: done (a finished turn, Orca's resting state) reads as idle" "$out" '^attention: a idle-after-final-report'
-  echo gone > "$S/term-1"; out=$(watch a)
-  assert_match "orca: a closed terminal: gone"        "$out" '^attention: a gone'
+  # A stale handle proves nothing (Orca's handles end with its runtime): it
+  # is unreadable, never gone.
+  echo gone > "$S/term-1"; out=$(UNREADABLE_POLLS=2 watch a)
+  assert_match "orca: a stale handle: unreadable, not gone" "$out" '^attention: a unreadable'
   echo unreadable > "$S/term-1"; out=$(UNREADABLE_POLLS=2 watch a)
   assert_match "orca: Orca not answering: unreadable" "$out" '^attention: a unreadable'
   rm -f "$S"/* "$RUN/panes.txt"
@@ -4119,7 +4129,11 @@ if section send-brief; then
   echo gone > "$S/$apane"
   out=$(send "$RUN" bun-vitest-lane-a "$RUN/brief-A.md")
   rm -f "$S/$apane"
-  assert_match "send-brief, its pane closed: refused" "$out" "send-brief: bun-vitest-lane-a's pane $apane is gone"
+  if [ "${RUNNER:-herdr}" = orca ]; then
+    assert_match "send-brief (orca), a stale handle: asks to rebind it" "$out" "Orca says bun-vitest-lane-a's terminal handle $apane is stale: .* put its handle on its line in $RUN/panes\\.txt"
+  else
+    assert_match "send-brief, its pane closed: refused" "$out" "send-brief: bun-vitest-lane-a's pane $apane is gone"
+  fi
   assert_eq "send-brief, its pane closed: nothing sent" "$(sent)" ""
   grep '^lane A:' "$RUN/panes.txt" | sed 's/^lane A:/lane B:/' >> "$RUN/panes.txt"
   out=$(send "$RUN" bun-vitest-lane-a "$RUN/brief-A.md")

@@ -230,8 +230,11 @@ lanes B to D: child worktrees of that workspace, each with its lane's terminal
   named for the slot.
 
 Watching reads Orca's agent status: working and blocked as on herdr; waiting
-and done read as idle. An Orca that does not answer reads as unreadable, and a
-closed terminal as gone, so a lane never settles on a missing answer.
+and done read as idle. An Orca that does not answer reads as unreadable, and
+so does a stale terminal handle: Orca's handles end with its runtime, so the
+terminal may still be open under a new one. A lane never settles on a missing
+answer, and add-lane, add-reviewer and send-brief ask you to put the
+terminal's new handle into the pane map rather than remove anything.
 
 ### The pane map
 

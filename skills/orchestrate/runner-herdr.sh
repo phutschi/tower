@@ -110,7 +110,7 @@ runner_open_reviewer_slots() {
   echo "$tab $r1 $r2"
 }
 # A Reviewer sent /exit leaves herdr's list by itself; its pane stays the slot's.
-runner_end_agent()     { :; }
+runner_end_agent()     { return 1; }   # /exit is all: the caller waits for herdr's gone
 runner_reviewer_pane() { echo "$2"; }
 # 0: PANE is open; 1: herdr answers pane_not_found; 2: herdr cannot say, its
 # error on stderr.

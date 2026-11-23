@@ -24,6 +24,7 @@ rc=0; err=$(runner_pane_exists "$PANE" 2>&1) || rc=$?
 case $rc in
   0) ;;
   1) die "send-brief: $NAME's pane $PANE is gone ($(runner_pane_check)): nothing sent" ;;
+  3) stale_handle "$NAME" "$PANE" "its line"; exit 1 ;;
   *) die "send-brief: $(runner_name) cannot say whether $NAME's pane $PANE is open; nothing sent, send again once it answers ($(runner_name): ${err:-no output})" ;;
 esac
 err=$(runner_send_message "$NAME" "$PANE" "$(cat "$BRIEF")" 2>&1) \

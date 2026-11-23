@@ -40,9 +40,9 @@ runner_agent_start() {
 # (Orca's waiting and done, a finished turn and its resting state, are idle);
 # an agent Orca does not list yet (a terminal agent reports on its first turn)
 # is idle once its terminal's TUI is, "blocked False" if the TUI then shows
-# the trust prompt, else "unknown False"; gone when the
-# terminal is closed (terminal_handle_stale), not when the agent exits; and
-# unreadable when Orca does not answer for any other reason, a wait included.
+# the trust prompt, else "unknown False"; never gone (not when the agent
+# exits, and a stale handle may name a terminal still open under another);
+# unreadable when Orca does not answer, a stale handle and a wait included.
 runner_agent_state() {
   local out
   out=$(orca_listed "$2")
@@ -62,13 +62,11 @@ orca_trust_menu() {
   runner_agent_tail "" "$1" 40 2>/dev/null | grep -v '^[[:space:]]*$' | tail -n 8 | grep -qiE 'trust[[:space:]]+(this|the[[:space:]]+files[[:space:]]+in[[:space:]]+this)[[:space:]]+folder|trust[[:space:]]+the[[:space:]]+contents[[:space:]]+of[[:space:]]+this[[:space:]]+directory'
 }
 # The agent in terminal PANE as Orca's agent list has it: "<status> <ready>",
-# unlisted, gone or unreadable (runner_agent_state, without the TUI's word).
+# unlisted or unreadable (runner_agent_state, without the TUI's word).
 orca_listed() {
   local out key
-  if ! out=$(orca terminal show --terminal "$1" --json 2>/dev/null); then
-    case "$out" in *'"terminal_handle_stale"'*) echo gone ;; *) echo unreadable ;; esac
-    return
-  fi
+  # A stale handle proves nothing: Orca's handles end with its runtime.
+  out=$(orca terminal show --terminal "$1" --json 2>/dev/null) || { echo unreadable; return; }
   key=$(echo "$out" | jsonq '"%s:%s" % (d["result"]["terminal"]["tabId"], d["result"]["terminal"]["leafId"])' 2>/dev/null) \
     && out=$(orca agent list --json 2>/dev/null) \
     && out=$(echo "$out" | KEY=$key jsonq '(lambda a: {"working": "working True", "waiting": "idle True", "done": "idle True"}.get(a["state"], "%s False" % a["state"]) if a else "unlisted")(next((a for a in d["result"]["agents"] if a.get("paneKey") == __import__("os").environ["KEY"]), None))' 2>/dev/null) \
@@ -176,13 +174,14 @@ runner_open_lane() {
 }
 # Each lane has its worktree; there is no grid to place it in.
 runner_place_lane() { echo "$3"; }
-# 0: terminal PANE is open; 1: Orca says its handle is stale; 2: Orca cannot
-# say, its error on stderr.
+# 0: terminal PANE is open; 3: Orca says its handle is stale, which a closed
+# terminal and a runtime restart alike give (the terminal may be open under a
+# new handle); 2: Orca cannot say, its error on stderr. Never 1.
 runner_pane_exists() {
   local out
   out=$(orca terminal show --terminal "$1" --json) && return 0
   case "$out" in
-    *'"terminal_handle_stale"'*) return 1 ;;
+    *'"terminal_handle_stale"'*) return 3 ;;
     *) echo "$out" >&2; return 2 ;;
   esac
 }
@@ -197,19 +196,23 @@ runner_open_reviewer_slots() {
   echo "$t1,$t2 $r1 $r2"
 }
 # A Reviewer that exits leaves its terminal at a shell, which Orca still
-# lists as done: its terminal is closed, so it reads gone, and the next
-# Reviewer gets a tab of its own.
+# lists as done: its terminal is closed, which ends it for sure (0), and the
+# next Reviewer gets a tab of its own.
 # shortcut: a fixed pause for /exit to finish, wait instead once Orca can tell that an agent left its terminal.
 runner_end_agent() { [ "${DRY_RUN:-0}" = 1 ] || sleep 2; orca terminal close --terminal "$1" --json >/dev/null; }
-# PANE while it is open, else a new terminal tab SLOT in the orchestrator's
-# workspace ($MAP is add-reviewer's), started in REPO.
+# PANE while it is open; with no PANE (runner_end_agent closed the last), a new
+# terminal tab SLOT in the orchestrator's workspace ($MAP is add-reviewer's),
+# started in REPO. A stale or unanswered PANE fails, saying so.
 runner_reviewer_pane() {
   local rc=0 ws pane
-  runner_pane_exists "$2" 2>/dev/null || rc=$?
-  case $rc in
-    0) echo "$2"; return ;;
-    2) echo "Orca cannot say whether Reviewer slot $1's terminal $2 is open" >&2; return 1 ;;
-  esac
+  if [ -n "$2" ]; then
+    runner_pane_exists "$2" 2>/dev/null || rc=$?
+    case $rc in
+      0) echo "$2"; return ;;
+      3) stale_handle "Reviewer slot $1" "$2" "the $1 entry of the review tab line"; return 1 ;;
+      *) echo "Orca cannot say whether Reviewer slot $1's terminal $2 is open" >&2; return 1 ;;
+    esac
+  fi
   ws=$(orchestrator_of "$MAP")
   read -r pane _ <<< "$(orca_new terminal create --worktree "id:$ws" --title "$1" --command "cd $(printf %q "$3")")" && [ -n "$pane" ] || return 1
   echo "$pane"
