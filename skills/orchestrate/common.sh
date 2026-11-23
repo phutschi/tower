@@ -53,10 +53,15 @@ if [ "${DRY_RUN:-0}" = 1 ]; then
   # sees the same terminals; any other script gets one of its own. Only a dry
   # run that can reach the fake (RUNNER=orca, or an Orca session) needs it.
   if [ -z "${ORCA_STUB_COUNTER:-}" ] && { [ "${RUNNER:-}" = orca ] || [ -n "${ORCA_CLI_COMMAND:-}" ]; }; then
-    case "$(basename "$0")" in
-      bootstrap.sh|add-lane.sh|add-reviewer.sh|send-brief.sh|read-pane.sh|watch-lanes.sh)
-        _own="$(cd "$(dirname "${1:-.}")" 2>/dev/null && pwd)/.$(basename "${1:-.}").orca-stub"
-        { [ -d "$_own" ] || mkdir -m 700 "$_own"; } 2>/dev/null && [ ! -L "$_own" ] && [ -O "$_own" ] \
+    # shortcut: the folder is left behind (a few bytes a dry run), remove it at close once dry runs loop.
+    case "$(basename "$0"):${1:+run}" in
+      bootstrap.sh:run|add-lane.sh:run|add-reviewer.sh:run|send-brief.sh:run|read-pane.sh:run|watch-lanes.sh:run)
+        # The run dir's real path, its parent made if need be: one folder per run.
+        _p=$(cd "$1" 2>/dev/null && pwd -P) \
+          || _p=$(mkdir -p "$(dirname "$1")" && cd "$(dirname "$1")" && echo "$(pwd -P)/$(basename "$1")") \
+          || die "DRY_RUN: cannot reach the run dir $1's parent"
+        _own="$(dirname "$_p")/.$(basename "$_p").orca-stub"; unset _p
+        { mkdir -m 700 "$_own" || [ -d "$_own" ]; } 2>/dev/null && [ ! -L "$_own" ] && [ -O "$_own" ] && chmod 700 "$_own" \
           || die "DRY_RUN: the fake orca's state folder $_own is not a private dir of yours" ;;
       *) _own=$(mktemp -d) || die "DRY_RUN: mktemp -d failed, so the fake orca has nowhere to keep its state" ;;
     esac

@@ -4127,8 +4127,16 @@ if section fake-orca; then
   echo "Do task 1." > "$DRUN/brief-A.md"
   out=$(cd "$dr" && env -u ORCA_STUB_COUNTER -u ORCA_STUB_STATES_DIR RUNNER=orca "$KIT/send-brief.sh" "$DRUN" bun-vitest-lane-a "$DRUN/brief-A.md" 2>&1; echo "exit=$?")
   assert_match "DRY_RUN, a run's scripts: send-brief finds bootstrap's terminal" "$out" 'sent to bun-vitest-lane-a in term-3'
-  sd="$(dirname "$DRUN")/.$(basename "$DRUN").orca-stub"
+  sd="$(cd "$(dirname "$DRUN")" && pwd -P)/.$(basename "$DRUN").orca-stub"
   assert_eq "DRY_RUN, a run's scripts: their state folder beside the run dir, private" "$(stat -c %a "$sd" 2>/dev/null || stat -f %Lp "$sd")" 700
+  # A run dir in a parent not made yet works; a state folder that is a link
+  # is refused.
+  dr2=$(fixture_repo bun-vitest)
+  out=$(cd "$dr2" && env -u ORCA_STUB_COUNTER -u ORCA_STUB_STATES_DIR RUNNER=orca "$KIT/bootstrap.sh" "$TMP/new-runs/r1" "Dry new" main "$KIT/example-tasks.tsv" 2>&1; echo "exit=$?")
+  assert_match "DRY_RUN, a run dir whose parent is new: bootstrap finishes" "$out" 'exit=0$'
+  mkdir -p "$TMP/elsewhere-state"; ln -s "$TMP/elsewhere-state" "$(cd "$TMP" && pwd -P)/.run-link.orca-stub"
+  out=$(cd "$dr" && env -u ORCA_STUB_COUNTER -u ORCA_STUB_STATES_DIR RUNNER=orca "$KIT/send-brief.sh" "$TMP/run-link" bun-vitest-lane-a "$DRUN/brief-A.md" 2>&1; echo "exit=$?")
+  assert_match "DRY_RUN, a state folder that is a link: refused" "$out" "is not a private dir of yours"
   # Workspaces: the caller's, and child worktrees that record their parent.
   assert_match "fake orca: worktree current names the caller's workspace" "$(o worktree current --json)" "\"id\": *\"repo-0::$(pwd -P)\""
   reset_stub
