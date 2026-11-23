@@ -4237,12 +4237,21 @@ if section send-brief; then
   # outside the run dir) or a directory is refused, with nothing sent.
   echo secret > "$TMP/outside.txt"; ln -sf "$TMP/outside.txt" "$RUN/brief-link.md"
   out=$(send "$RUN" bun-vitest-lane-a "$RUN/brief-link.md")
-  assert_match "send-brief, a brief that is a link: refused" "$out" "send-brief: $RUN/brief-link.md is not a regular file"
+  assert_match "send-brief, a brief that is a link: refused" "$out" "send-brief: $RUN/brief-link.md is not a regular"
   assert_eq "send-brief, a brief that is a link: nothing sent" "$(sent)" ""
   mkdir -p "$RUN/brief-dir.md"
   out=$(send "$RUN" bun-vitest-lane-a "$RUN/brief-dir.md")
-  assert_match "send-brief, a brief that is a directory: refused" "$out" "send-brief: $RUN/brief-dir.md is not a regular file"
+  assert_match "send-brief, a brief that is a directory: refused" "$out" "send-brief: $RUN/brief-dir.md is not a regular"
   assert_eq "send-brief, a brief that is a directory: nothing sent" "$(sent)" ""
+  mkfifo "$RUN/brief-fifo.md"
+  out=$(send "$RUN" bun-vitest-lane-a "$RUN/brief-fifo.md")
+  assert_match "send-brief, a brief that is a FIFO: refused, not waited on" "$out" "send-brief: $RUN/brief-fifo.md is not a regular"
+  printf 'Fix the caf\xe9\n' > "$RUN/brief-latin1.md"
+  out=$(send "$RUN" bun-vitest-lane-a "$RUN/brief-latin1.md")
+  assert_match "send-brief, a brief not in UTF-8: refused, saying so" "$out" "is not a regular UTF-8 text file"
+  printf 'Fix it \xe2\x9c\x93\n' > "$RUN/brief-utf8.md"
+  out=$(LC_ALL=C send "$RUN" bun-vitest-lane-a "$RUN/brief-utf8.md")
+  assert_match "send-brief, a UTF-8 brief under a C locale: sent" "$out" 'exit=0$'
   # A Reviewer's line names its agent the same way.
   spane=$(sed -nE 's/^shell: +([^ ]+).*/\1/p' "$RUN/panes.txt")
   printf 'reviewer R1:    %s   (agent "bun-vitest-r1-1", kind codex, model gpt-6-astra, review "Lane review A", findings %s)\n' "$spane" "$RUN/findings/lane-a.json" >> "$RUN/panes.txt"

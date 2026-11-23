@@ -22,11 +22,12 @@ RUN_DIR="$1"; NAME="$2"; BRIEF="$3"; MAP="$RUN_DIR/panes.txt"
 # a link (it could point anywhere) or anything but a regular file is refused,
 # and so is a failed or empty read.
 [ -e "$BRIEF" ] || [ -L "$BRIEF" ] || die "send-brief: no brief, or an empty one, at $BRIEF"
-TEXT=$(python3 -c 'import os, stat, sys
+TEXT=$(python3 -I -c 'import os, stat, sys
 fd = os.open(sys.argv[1], os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_NONBLOCK", 0))
 if not stat.S_ISREG(os.fstat(fd).st_mode): sys.exit(3)
-with os.fdopen(fd, "rb") as f: sys.stdout.write(f.read().decode())' "$BRIEF" 2>/dev/null) \
-  || die "send-brief: $BRIEF is not a regular file, or cannot be read: nothing sent"
+with os.fdopen(fd, "rb") as f: b = f.read()
+b.decode(); sys.stdout.buffer.write(b)' "$BRIEF" 2>/dev/null) \
+  || die "send-brief: $BRIEF is not a regular UTF-8 text file, or cannot be read: nothing sent"
 [ -n "$TEXT" ] || die "send-brief: no brief, or an empty one, at $BRIEF"
 PANE=$(agent_pane "$MAP" "$NAME" 2>&1) || die "send-brief: $PANE"
 # The kit's launch record binds the agent to its pane (common.sh launched): a
