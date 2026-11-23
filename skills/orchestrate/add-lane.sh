@@ -173,8 +173,9 @@ check_rerun() {
   [ -d "$WT" ] || die "lane $LANE's checkout $WT is gone: close its pane $2 and remove its $3 from $MAP, then add the lane again"
   # A lane can write the pane map (docs/orchestrate.md): its checkout is used
   # only when git names it as this repo's worktree on the lane's branch.
-  [ "$(branch_worktree)" = "$(cd "$WT" && pwd -P)" ] \
-    || die "lane $LANE's checkout $WT in $MAP is not this repo's worktree on branch $BRANCH (git worktree list): set its checkout to that worktree, then rerun  $RERUN"
+  local bw; bw=$(branch_worktree)
+  [ "$bw" = "$(cd "$WT" && pwd -P)" ] \
+    || die "lane $LANE's checkout $WT in $MAP is not this repo's worktree on branch $BRANCH: git has ${bw:-none} on it (git worktree list); set its checkout to that, then rerun  $RERUN"
 }
 # The checkout git has on $BRANCH among this repo's worktrees, its real path;
 # empty when there is none.

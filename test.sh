@@ -953,14 +953,13 @@ if section add-lane; then
     # repo's worktree on the lane's branch is refused before the install, the
     # .env copy or the start use it.
     echo gone > "$HERDR_STUB_STATES_DIR/bun-vitest-lane-b"
-    mkdir -p "$TMP/elsewhere"; before=$(cat "$RUNF/panes.txt")
-    sed -i.bak "s|checkout $r/.worktrees/feat/b,|checkout $TMP/elsewhere,|" "$RUNF/panes.txt"; rm -f "$RUNF/panes.txt.bak"
+    # The repo's own checkout is a worktree of it, on another branch.
+    before=$(cat "$RUNF/panes.txt")
+    sed -i.bak "s|checkout $r/.worktrees/feat/b,|checkout $r,|" "$RUNF/panes.txt"; rm -f "$RUNF/panes.txt.bak"
     reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNF" B feat/b main 2,3 2>&1; echo "exit=$?")
-    assert_match "rerun, a checkout git does not name: refused" "$out" 'exit=1$'
-    assert_match "rerun, a checkout git does not name: ... saying so" "$out" "lane B's checkout $TMP/elsewhere in $RUNF/panes.txt is not this repo's worktree on branch feat/b \\(git worktree list\\)"
-    assert_nomatch "rerun, a checkout git does not name: no install" "$out" 'dry-run.*install'
-    assert_nomatch "rerun, a checkout git does not name: no start" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start'
-    assert_eq "rerun, a checkout git does not name: no .env copied there" "$(ls -A "$TMP/elsewhere")" ""
+    assert_match "rerun, a worktree on another branch: refused" "$out" 'exit=1$'
+    assert_match "rerun, a worktree on another branch: ... naming the one git has" "$out" "lane B's checkout $r in $RUNF/panes.txt is not this repo's worktree on branch feat/b: git has $(cd "$r/.worktrees/feat/b" && pwd -P) on it"
+    assert_nomatch "rerun, a worktree on another branch: no start" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start'
     printf '%s\n' "$before" > "$RUNF/panes.txt"
     rm -rf "$r/.worktrees/feat/b"
     reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNF" B feat/b main 2,3 2>&1; echo "exit=$?")
@@ -1104,6 +1103,15 @@ if section add-lane; then
     assert_match "failed move: the worktree is installed before the move" "$out" '\[dry-run\] \(cd .*/.worktrees/feat/b && bun install\)'
     assert_nomatch "failed move: no placed lane B"       "$(cat "$RUNM/panes.txt")" '^lane B:'
     assert_match "failed move: the lane is recorded as unplaced" "$(cat "$RUNM/panes.txt")" "^unplaced lane B: +$wtpane +\(agent \"bun-vitest-lane-b\", kind claude, branch feat/b, checkout $r/\.worktrees/feat/b, model "
+    # An unplaced rerun installs: a checkout git does not name is refused first.
+    mkdir -p "$TMP/elsewhere"; before=$(cat "$RUNM/panes.txt")
+    sed -i.bak "s|checkout $r/.worktrees/feat/b,|checkout $TMP/elsewhere,|" "$RUNM/panes.txt"; rm -f "$RUNM/panes.txt.bak"
+    reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNM" B feat/b main 2,3 2>&1; echo "exit=$?")
+    assert_match "failed move, a checkout git does not name: refused" "$out" "lane B's checkout $TMP/elsewhere in $RUNM/panes.txt is not this repo's worktree on branch feat/b: git has none on it"
+    assert_nomatch "failed move, a checkout git does not name: no install" "$out" 'dry-run.*install'
+    assert_nomatch "failed move, a checkout git does not name: no move, no start" "$(cat "$HERDR_STUB_LOG")" '^herdr (pane move|agent start)'
+    assert_eq "failed move, a checkout git does not name: no .env copied there" "$(ls -A "$TMP/elsewhere")" ""
+    printf '%s\n' "$before" > "$RUNM/panes.txt"
     mkwt "$r" feat/b   # the stub's worktree create makes none
     echo gone > "$HERDR_STUB_STATES_DIR/$wtpane"
     reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNM" B feat/b main 2,3 2>&1; echo "exit=$?")
