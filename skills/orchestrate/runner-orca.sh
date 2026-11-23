@@ -40,12 +40,16 @@ runner_agent_start() {
 # an agent Orca does not list yet (a terminal agent reports on its first turn)
 # is idle once its terminal's TUI is, else "unknown False"; gone when the
 # terminal is closed (terminal_handle_stale), not when the agent exits; and
-# unreadable when Orca does not answer for any other reason.
+# unreadable when Orca does not answer for any other reason, a wait included.
 runner_agent_state() {
   local out
   out=$(orca_listed "$2")
   [ "$out" = unlisted ] || { echo "$out"; return; }
-  if orca terminal wait --terminal "$2" --for tui-idle --timeout-ms 1000 --json >/dev/null 2>&1; then echo "idle True"; else echo "unknown False"; fi
+  # Satisfied: idle; unsatisfied (or Orca's timeout code): not yet; any other
+  # failure says nothing about the agent.
+  out=$(orca terminal wait --terminal "$2" --for tui-idle --timeout-ms 1000 --json 2>/dev/null) || true
+  echo "$out" | jsonq '("idle True" if d["result"]["wait"]["satisfied"] else "unknown False") if d.get("ok") else ("unknown False" if d["error"]["code"] == "timeout" else "unreadable")' 2>/dev/null \
+    || echo unreadable
 }
 # The agent in terminal PANE as Orca's agent list has it: "<status> <ready>",
 # unlisted, gone or unreadable (runner_agent_state, without the TUI's word).

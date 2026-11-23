@@ -274,6 +274,15 @@ if section executor; then
   assert_match "orca: never listed, its TUI busy: the start fails, saying so" "$out" 'acme-lane-a does not accept input in pane term-1 after 2 checks \(unknown\)'
   assert_match "orca: ... and how to see when it does, with orca" "$out" 'brief it once  orca agent list --json  shows it waiting or done'
   assert_nomatch "orca: ... naming no herdr command" "$out" 'herdr'
+  # A wait Orca cannot answer (an RPC error, not an unsatisfied wait) says
+  # nothing about the agent: unreadable.
+  echo unlisted-waitfail > "$S/term-1"
+  out=$(ostart claude READY_WAIT_SECONDS=2)
+  assert_match "orca: not listed, its wait failing: Orca cannot say" "$out" 'Orca cannot say whether acme-lane-a runs in term-1 after 2 checks'
+  for st in unlisted:unknown unlisted-waitfail:unreadable; do
+    rm -f "$S"/term-*; reset_stub; echo "${st%:*}" > "$S/term-1"
+    assert_eq "orca: one reading for an unlisted agent (${st%:*})" "$(bash -c 'set -o pipefail; . "$KIT/common.sh"; need_runner; orca terminal create --json >/dev/null; runner_agent_state acme-lane-a term-1' 2>&1)" "${st#*:}$([ "${st#*:}" = unknown ] && echo ' False')"
+  done
   # Not listed yet (a terminal agent reports on its first turn), but its TUI
   # is idle: it accepts input.
   echo unlisted-idle > "$S/term-1"
@@ -3901,7 +3910,11 @@ if section fake-orca; then
   printf 'working\nwaiting\n' > "$st/term-1"
   assert_eq "fake orca: several lines: the first, then dropped" "$(state 1) $(state 1) $(state 1)" "working waiting waiting"
   echo unlisted > "$st/term-2"; assert_eq "fake orca: an unlisted agent is not listed" "$(state 2)" none
-  assert_match "fake orca: ... and its busy TUI times a wait out" "$(o terminal wait --terminal term-2 --for tui-idle --timeout-ms 1 --json)" '"code": *"timeout"'
+  assert_match "fake orca: ... and its busy TUI leaves a wait unsatisfied" "$(o terminal wait --terminal term-2 --for tui-idle --timeout-ms 1 --json)" '"satisfied": *false'
+  echo unlisted-waitfail > "$st/term-2"; assert_eq "fake orca: unlisted-waitfail is not listed" "$(state 2)" none
+  out=$(o terminal wait --terminal term-2 --for tui-idle --timeout-ms 1 --json; echo "exit=$?")
+  assert_match "fake orca: ... and its wait fails, an RPC error" "$out" '"code": *"runtime_unavailable"'
+  assert_match "fake orca: ... exit 1" "$out" 'exit=1$'
   echo unlisted-idle > "$st/term-2"; assert_eq "fake orca: unlisted-idle is not listed either" "$(state 2)" none
   assert_match "fake orca: ... but its idle TUI satisfies a wait" "$(o terminal wait --terminal term-2 --for tui-idle --timeout-ms 1 --json)" '"satisfied": *true'
   echo gone > "$st/term-2"
@@ -3936,8 +3949,8 @@ if section fake-orca; then
   assert_match "fake orca: terminal wait --for tui-idle: an idle agent satisfies it" "$(o terminal wait --terminal term-1 --for tui-idle --timeout-ms 1000 --json)" '"satisfied": *true'
   echo working > "$st/term-1"
   out=$(o terminal wait --terminal term-1 --for tui-idle --timeout-ms 1000 --json; echo "exit=$?")
-  assert_match "fake orca: ... a working one times out" "$out" '"code": *"timeout"'
-  assert_match "fake orca: ... exit 1" "$out" 'exit=1$'
+  assert_match "fake orca: ... a working one leaves it unsatisfied" "$out" '"satisfied": *false'
+  assert_match "fake orca: ... exit 0" "$out" 'exit=0$'
   o terminal close --terminal term-1 --json >/dev/null
   assert_eq "fake orca: a closed terminal's agent is gone" "$(state 1)" none
   # Reachability and installation.
