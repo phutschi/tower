@@ -279,15 +279,19 @@ if section executor; then
   assert_match "orca trust: ... then Enter alone" "$log" '^orca terminal send --terminal term-1 --enter --json$'
   assert_eq "orca trust: the agent is not started twice" "$(grep -c '^orca terminal send --terminal term-1 --text claude' "$ORCA_STUB_LOG")" 1
   printf 'unlisted\nunlisted\ntrust\ntrust\nwaiting\n' > "$S/term-1"
+  printf 'Do you trust the contents of this directory?\n> 1. Yes, continue\n  2. No, quit\n' > "$S/term-1.tail"
   out=$(ostart codex)
+  assert_match "orca trust, codex: its own wording is the trust menu" "$out" 'exit=0$'
   assert_nomatch "orca trust, codex: no Down" "$(cat "$ORCA_STUB_LOG")" 'B --json$'
   assert_match "orca trust, codex: Enter alone" "$(cat "$ORCA_STUB_LOG")" '^orca terminal send --terminal term-1 --enter --json$'
   # Blocked on any other prompt (a hooks review, an update): no keys, the
   # start fails, and the prompt stays for the operator.
+  rm -f "$S"/term-*
   printf 'unlisted\nblocked\n' > "$S/term-1"
+  printf 'Hooks changed since you last ran: review them?\n> 1. Yes\n  2. No\n' > "$S/term-1.tail"
   out=$(ostart claude)
   assert_match "orca blocked, not the trust menu: the start fails" "$out" 'exit=1$'
-  assert_match "orca blocked, not the trust menu: ... saying to answer it in its terminal" "$out" 'acme-lane-a is blocked on a prompt in terminal term-1 that is not the workspace trust menu: answer it there'
+  assert_match "orca blocked, not the trust menu: ... saying to answer it in its terminal" "$out" 'acme-lane-a is blocked on a prompt in terminal term-1 that does not show the workspace trust menu: answer it there'
   assert_nomatch "orca blocked, not the trust menu: ... and sends no keys" "$(cat "$ORCA_STUB_LOG")" '^orca terminal send --terminal term-1 (--enter|--text .\[B)'
   echo done > "$S/term-1"
   out=$(ostart claude)

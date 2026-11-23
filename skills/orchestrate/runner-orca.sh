@@ -23,10 +23,10 @@ runner_agent_start() {
   while :; do
     case "$(runner_agent_state "$name" "$pane")" in
       blocked*)
-        if runner_agent_tail "$name" "$pane" 40 2>/dev/null | grep -qiE 'trust (this|the files in this) folder|trust the contents of this directory'; then
+        if runner_agent_tail "$name" "$pane" 40 2>/dev/null | grep -qiE 'trust[[:space:]]+(this|the[[:space:]]+files[[:space:]]+in[[:space:]]+this)[[:space:]]+folder|trust[[:space:]]+the[[:space:]]+contents[[:space:]]+of[[:space:]]+this[[:space:]]+directory'; then
           echo "agent blocked during startup" >&2
         else
-          echo "agent start: $name is blocked on a prompt in terminal $pane that is not the workspace trust menu: answer it there, then brief it" >&2
+          echo "agent start: $name is blocked on a prompt in terminal $pane that does not show the workspace trust menu: answer it there, then brief it" >&2
         fi
         return 1 ;;
       *" True"|gone|unreadable) return 0 ;;   # until_ready decides
