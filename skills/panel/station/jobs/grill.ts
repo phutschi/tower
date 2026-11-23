@@ -118,13 +118,25 @@ registerJobRunner(
     const asked = events.filter((e) => e.kind === "asked").at(-1)?.data;
     const replied = events.filter((e) => e.kind === "replied");
     const kept = events.filter((e) => e.kind === "spec").at(-1)?.data.spec;
-    const grilled = events.filter(
+    const recorded = events.filter(
       (e) => e.kind === "asked" || e.kind === "replied",
     );
-    const last = grilled.at(-1);
     let thread = asked?.thread as string | undefined;
     let round = asked ? (asked.round as number) + 1 : 0;
-    let cursor = last?.data.cursor as string | undefined;
+    let cursor = recorded.at(-1)?.data.cursor as string | undefined;
+    // A question kept but maybe never sent: it is sent again as it was, so
+    // the grill remembers what the person got.
+    const asking = events.filter((e) => e.kind === "asking").at(-1);
+    const unsent =
+      asking?.data.round === round ? String(asking.data.questions) : null;
+    const grilled =
+      unsent === null
+        ? recorded
+        : [
+            ...recorded,
+            { ...asking!, kind: "asked", data: { questions: unsent } },
+          ];
+    const last = grilled.at(-1);
     const handled = new Set(
       replied.flatMap((e) => (e.data.replies as Reply[]).map((r) => r.id)),
     );
@@ -173,14 +185,15 @@ ${quote(issue.body)}
     /**
      * Writes the spec to the issue, unless the person moved it on from
      * shaping first: their move wins. Checked before each try but a first
-     * one straight after the session (`checked`). Whether it wrote.
+     * one straight after the session (`checked`). Whether it is written: a
+     * try that failed to hear back may have got through.
      */
     const writeSpec = async (spec: string, checked: boolean) => {
       let moved = false;
       await retry(
         async () => {
           if (!checked) {
-            const { labels } = JSON.parse(
+            const now = JSON.parse(
               await gh([
                 "issue",
                 "view",
@@ -188,11 +201,11 @@ ${quote(issue.body)}
                 "--repo",
                 job.repo,
                 "--json",
-                "labels",
+                "labels,body",
               ]),
-            ) as { labels: { name: string }[] };
-            if (!labels.some((l) => l.name === "shaping")) {
-              moved = true;
+            ) as { labels: { name: string }[]; body: string };
+            if (!now.labels.some((l) => l.name === "shaping")) {
+              moved = now.body.trim() !== spec.trim();
               return "";
             }
           }
@@ -224,13 +237,36 @@ ${quote(issue.body)}
       reason: "moved on by the person",
     };
 
+    const ask = async (questions: string) => {
+      // Kept before it is sent: a takeover sends this text, not a new turn's.
+      await checkpoint("asking", { round, questions });
+      const sent = await retry(
+        () =>
+          sendMessage({
+            thread: `Grill ${ref}`,
+            subject: `Grill: ${issue.title}`,
+            body: questions,
+            idempotencyKey: `panel-grill-${job.id}-${round}`,
+          }),
+        signal,
+        RETRY,
+      );
+      thread = sent.threadId;
+      // Read on from where the last read stopped: a reply sent while the
+      // session thought sits before this question.
+      cursor ??= sent.cursor;
+      await checkpoint("asked", { thread, round, cursor, questions });
+      round++;
+    };
+
     // A failure after a session ran keeps its session id.
     try {
       // An earlier claim finished the spec: only its write to GitHub is left.
       if (typeof kept === "string")
         return (await writeSpec(kept, false)) ? { outcome: "done" } : movedOn;
       let run: HeadlessRun | null = null;
-      if (!last) run = await turn(opening);
+      if (unsent !== null) await ask(unsent);
+      else if (!last) run = await turn(opening);
       else if (last.kind === "replied")
         run = await turn(answered(last.data.replies as Reply[]));
       let nudged = false;
@@ -259,24 +295,7 @@ ${quote(issue.body)}
             typeof answer?.questions === "string" &&
             answer.questions.trim()
           ) {
-            const questions = answer.questions;
-            const sent = await retry(
-              () =>
-                sendMessage({
-                  thread: `Grill ${ref}`,
-                  subject: `Grill: ${issue.title}`,
-                  body: questions,
-                  idempotencyKey: `panel-grill-${job.id}-${round}`,
-                }),
-              signal,
-              RETRY,
-            );
-            thread = sent.threadId;
-            // Read on from where the last read stopped: a reply sent while the
-            // session thought sits before this question.
-            cursor ??= sent.cursor;
-            await checkpoint("asked", { thread, round, cursor, questions });
-            round++;
+            await ask(answer.questions);
             nudged = false;
           } else if (!nudged) {
             nudged = true;

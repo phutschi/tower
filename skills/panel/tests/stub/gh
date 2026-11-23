@@ -4,7 +4,8 @@
 # --json number,title,labels` prints them; a repo without a file has none.
 # A repo's labels are the lines of GH_STUB_DIR/<owner>_<repo>.labels: `label
 # create` adds one, and fails as gh does for one the repo has already.
-# `issue view N` answers that issue's title, body and labels; `issue edit`
+# `issue view N` answers that issue's title, body (the last one written, once
+# one was) and labels; `issue edit`
 # changes its labels in the file, so the next list sees the edit, and with
 # `--body-file -` writes the body it reads to GH_STUB_DIR/<owner>_<repo>_N.body.
 # Its pull requests live in GH_STUB_DIR/<owner>_<repo>.prs.json, as `gh pr
@@ -55,7 +56,9 @@ case "$verb" in
   "pr list") if [ -f "${file%.json}.prs.json" ]; then
       jq --arg s "$state" 'map(select($s == "" or $s == "all" or ((.state // "OPEN") | ascii_downcase) == $s))' "${file%.json}.prs.json"
     else echo "[]"; fi ;;
-  "issue view") jq --argjson n "${args[2]:?}" '.[] | select(.number == $n) | {title, body: (.body // ""), labels}' "$file" ;;
+  "issue view") body="${file%.json}_${args[2]:?}.body"; [ -f "$body" ] || body=/dev/null
+    jq --argjson n "${args[2]}" --rawfile written "$body" \
+      '.[] | select(.number == $n) | {title, body: (if $written == "" then .body // "" else $written end), labels}' "$file" ;;
   "label create") labels="${file%.json}.labels"
     if grep -qxF -- "${args[2]:?}" "$labels" 2>/dev/null; then
       echo "label with name \"${args[2]}\" already exists; use \`--force\` to update its color and description" >&2; exit 1

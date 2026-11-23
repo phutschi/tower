@@ -317,9 +317,8 @@ test("a grill stopped while it retries its GitHub write writes nothing more", as
   const specWrites = () =>
     ghLog().filter((l) => l.includes("--body-file")).length;
   await until(async () => specWrites() > 0, 10_000);
-  // The hub's own label write for the move needs gh to work again.
-  rmSync(join(dir(), "fail"));
-  await post("/api/issues/acme/widgets/5/stage", { stage: "needs-triage" });
+  // The person moves it back on GitHub, while the station's writes still fail.
+  setIssues("acme/widgets", [issue(5, "needs-triage")]);
   await until(async () => (await job()).state === "stopped", 10_000);
   await Bun.sleep(300);
   expect(specWrites()).toBe(1);
@@ -336,9 +335,8 @@ test("a grill whose spec write fails stops without writing once the person moves
   const specWrites = () =>
     ghLog().filter((l) => l.includes("--body-file")).length;
   await until(async () => specWrites() > 0, 10_000);
-  // The person's move goes through gh too.
-  rmSync(join(dir(), "fail"));
-  await post("/api/issues/acme/widgets/5/stage", { stage: "ready-for-agent" });
+  // The person moves it on GitHub, while the station's writes still fail.
+  setIssues("acme/widgets", [issue(5, "ready-for-agent", "area:export")]);
   await until(async () => (await job()).state === "stopped", 10_000);
   expect(await job()).toMatchObject({
     reason: "moved on by the person",
@@ -386,6 +384,69 @@ test("a station that takes over a grill whose spec is on the hub writes that spe
   expect(read("acme_widgets_5.body")).toBe(SPEC.spec);
   expect(lines("claude.log")).toHaveLength(2);
   expect((await job()).sessionId).toBe("sess-1");
+});
+
+test("a station that takes over a grill whose question was never sent sends that same question, with no new turn", async () => {
+  remote();
+  setIssues("acme/widgets", [issue(5, "needs-triage")]);
+  await start(["acme/widgets"], { serverStation: "server", leaseMs: 300 });
+  await post("/api/issues/acme/widgets/5/stage", { stage: "shaping" });
+  const down = join(dir(), "inbox-down");
+  writeFileSync(down, "");
+  const env = {
+    PANEL_GRILL_POLL_MS: "50",
+    PLANNOTATOR_STUB_THREAD: join(dir(), "thread.json"),
+    PLANNOTATOR_STUB_FAIL: down,
+  };
+  const first = station({
+    ...env,
+    CLAUDE_STUB_OUT: session("q.out", "sess-1", QUESTIONS),
+  });
+  await until(async () =>
+    lines("plannotator.log").some((l) => l.includes("send_message")),
+  );
+  first.kill("SIGKILL");
+  await first.exited;
+  rmSync(down);
+  station({
+    ...env,
+    CLAUDE_STUB_OUT: session("q2.out", "sess-2", { questions: "Why now?" }),
+  });
+  await until(async () => reads() > 0, 10_000);
+  expect(lines("claude.log")).toHaveLength(1);
+  const sends = lines("plannotator.log").filter((l) =>
+    l.includes("send_message"),
+  );
+  expect(sends.at(-1)).toContain(QUESTIONS.questions);
+  expect(
+    new Set(sends.map((l) => l.match(/panel-grill-[\w-]+/)![0])).size,
+  ).toBe(1);
+  const { events } = await api<{ events: JobEvent[] }>(
+    `/api/jobs/${(await job()).id}`,
+  );
+  expect(events.find((e) => e.kind === "asked")?.data.questions).toBe(
+    QUESTIONS.questions,
+  );
+  expect((await job()).sessionId).toBe("sess-1");
+});
+
+test("a station that takes over a grill whose spec write got through finishes it", async () => {
+  remote();
+  setIssues("acme/widgets", [issue(5, "needs-triage")]);
+  await start(["acme/widgets"], { serverStation: "server", leaseMs: 300 });
+  await post("/api/issues/acme/widgets/5/stage", { stage: "shaping" });
+  writeFileSync(join(dir(), "fail"), "edit");
+  const env = { CLAUDE_STUB_OUT: session("spec.out", "sess-1", SPEC) };
+  const first = station(env);
+  await until(async () => ghLog().some((l) => l.includes("--body-file")));
+  first.kill("SIGKILL");
+  await first.exited;
+  // Its write reached GitHub, but its station died before it heard so.
+  writeFileSync(join(dir(), "acme_widgets_5.body"), SPEC.spec);
+  setIssues("acme/widgets", [issue(5, "ready-for-agent")]);
+  rmSync(join(dir(), "fail"));
+  station(env);
+  await until(async () => (await job()).state === "done", 10_000);
 });
 
 test("a takeover of a grill whose first answer was the spec keeps the session id", async () => {
