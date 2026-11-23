@@ -213,36 +213,29 @@ tower note "roles: $ROLES_LINE"
 LANE_A_SESSION=""; [ -z "$SESSION_ROLE" ] || LANE_A_SESSION="role $SESSION_ROLE, topic $SESSION_TOPIC, "
 
 # --- the layout --------------------------------------------------------------
-split() { herdr pane split "$@" --cwd "$REPO" --no-focus | pane_id; }
-run_in() { herdr pane run "$1" "cd $(printf %q "$REPO/$2") && $3" >/dev/null; }
-WS=$(herdr pane get "$HERDR_PANE_ID" | jsonq 'd["result"]["pane"]["workspace_id"]') \
-  || die "bootstrap: no workspace for the orchestrator pane $HERDR_PANE_ID (herdr pane get)"
-# The orchestrator's tab: the console right of the orchestrator, half the tab
-# (its 60 columns); under it the shell, and dev left of the shell when declared.
-CONSOLE_PANE=$(split --current --direction right --ratio 0.5)
-SHELL_PANE=$(split --pane "$CONSOLE_PANE" --direction down --ratio 0.6)
+WS=$(runner_workspace "$(runner_self)") \
+  || die "bootstrap: no workspace for the orchestrator pane $(runner_self) (herdr pane get)"
+# The console, the shell, and dev when declared (runner_open_run_panes).
 DEV_I=$(pane_index dev); DEV_PANE=""
 if [ -n "$DEV_I" ]; then
-  DEV_PANE=$SHELL_PANE
-  SHELL_PANE=$(split --pane "$DEV_PANE" --direction right --ratio 0.5)
-  run_in "$DEV_PANE" "${PANE_DIRS[$DEV_I]}" "${PANE_CMDS[$DEV_I]}"
+  out=$(runner_open_run_panes "$REPO" "tower --stale $STALE" "${PANE_DIRS[$DEV_I]}" "${PANE_CMDS[$DEV_I]}")
+else
+  out=$(runner_open_run_panes "$REPO" "tower --stale $STALE")
 fi
-herdr pane run "$CONSOLE_PANE" "tower --stale $STALE" >/dev/null
+read -r CONSOLE_PANE SHELL_PANE DEV_PANE <<< "$out"
 # Lane A's tab, lane A its root: the lanes tab, with the Reviewer column when
 # anything reviews; with roles, the research tab for a lane A of a role other
 # than code or review (layout.sh lane_tab), and the lanes tab waits for its
 # first pane.
 LANE_A_TAB=lanes; [ "$ROLES" != on ] || LANE_A_TAB=$(lane_tab "$LANE_A_ROLE")
-out=$(herdr tab create --workspace "$WS" --cwd "$REPO" --label "$LANE_A_TAB" --no-focus)
-TAB_ID=$(echo "$out" | jsonq 'd["result"]["tab"]["tab_id"]')
-LANE_A_PANE=$(echo "$out" | jsonq 'd["result"]["root_pane"]["pane_id"]')
-COLUMN=""; [ "$LANE_A_TAB" != lanes ] || COLUMN="   $(reviewer_column "$REPO" "$LANE_A_PANE")"
+out=$(runner_open_lane_a "$WS" "$REPO" "$LANE_A_TAB")
+read -r LANE_A_PANE TAB_REST <<< "$out"
 
 # --- the pane map, before the agent start so add-lane and the brief have it even if that fails
 {
   echo "run dir:        $RUN_DIR"
-  echo "orchestrator:   $HERDR_PANE_ID"
-  printf '%-16s%s%s\n' "$LANE_A_TAB tab:" "$TAB_ID" "$COLUMN"
+  echo "orchestrator:   $(runner_self)"
+  printf '%-16s%s\n' "$LANE_A_TAB tab:" "$TAB_REST"
   echo "lane A:         $LANE_A_PANE   (agent \"$LANE_A\", kind $EXECUTOR_KIND, ${LANE_A_SESSION}branch $BRANCH, checkout $REPO, model $EXECUTOR_MODEL, tab $LANE_A_TAB)"
   [ -z "$DEV_PANE" ] || echo "dev:            $DEV_PANE   (${PANE_CMDS[$DEV_I]} in ${PANE_DIRS[$DEV_I]})"
   echo "shell:          $SHELL_PANE   (a shell in $REPO, for the human)"
@@ -253,7 +246,8 @@ COLUMN=""; [ "$LANE_A_TAB" != lanes ] || COLUMN="   $(reviewer_column "$REPO" "$
   echo "reviewer:       $REVIEWER"
   echo "roles:          $ROLES_LINE"
   echo "toolchain:      $PM"
-  echo "read a pane:    herdr pane read <id> --source recent-unwrapped --lines 60"
+  echo "read a pane:    $(runner_read_cmd)"
+  echo "message a pane: $(runner_message_cmd)"
 } > "$RUN_DIR/panes.txt"
 
 # bootstrap has no rerun: an agent left running is briefed once it accepts

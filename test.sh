@@ -178,6 +178,10 @@ if section common; then
     assert_match "$s.sh: outside both it refuses, naming herdr, Orca and /tower:run" "$(HERDR_ENV=0 "$KIT/$s.sh" 2>&1)" "needs herdr.*Orca.*/tower:run"
     assert_match "$s.sh: in Orca it passes the runner check" "$(env PATH="$TMP/orca-bin:$PATH" ORCA_CLI_COMMAND=orca HERDR_ENV=0 "$KIT/$s.sh" 2>&1)" '^usage: '
   done
+  # Only the runner files call herdr or orca; every other script goes through them.
+  raw=$(cd "$ROOT" && grep -nE '(^|[;&|!{]|\$\(|(^|[[:space:]])(if|until|while) )[[:space:]]*(herdr|orca) ' skills/*/*.sh \
+    | grep -v '^skills/orchestrate/runner[^/]*\.sh:' | grep -vE '^[^:]+:[0-9]+:[[:space:]]*#' || true)
+  assert_eq "no script but the runner files calls herdr or orca" "$raw" ""
   assert_match "DRY_RUN puts the stubs on PATH"  "$(in_kit 'command -v herdr')" "tests/stub/herdr$"
   reset_stub
   assert_eq "pane_id reads herdr's split answer" "$(in_kit 'herdr pane split --current | pane_id')" pane-1
@@ -439,6 +443,8 @@ if section bootstrap; then
   assert_match "pane map: shell line"                   "$map" "^shell: +pane-2 +\\(a shell in $r, for the human\\)$"
   assert_match "pane map: console line"                 "$map" '^console: +pane-1 '
   assert_match "pane map: check gate"                   "$map" '^check gate: +bun run typecheck && bun run test$'
+  assert_match "pane map: read a pane, with herdr"      "$map" '^read a pane: +herdr pane read <id> --source recent-unwrapped --lines 60$'
+  assert_match "pane map: message a pane, with herdr"   "$map" '^message a pane: herdr agent prompt <agent> "<text>"$'
   assert_nomatch "pane map: no dev line by default"     "$map" '^dev:'
   assert_nomatch "pane map: no research tab line"       "$map" '^research tab:'
   assert_nomatch "layout: no research tab opened"       "$log" '(--label|--tab-label) research( |$)'

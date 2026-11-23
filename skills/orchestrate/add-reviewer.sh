@@ -300,7 +300,7 @@ ID="$SLOT-$N"
 if [ -z "$TAB_LINE" ]; then
   ORCH=$(sed -nE 's/^orchestrator: +([^ ]+).*/\1/p' "$MAP")
   [ -n "$ORCH" ] || die "no orchestrator line in $MAP: run bootstrap.sh first"
-  WS=$(herdr pane get "$ORCH" 2>/dev/null | jsonq 'd["result"]["pane"]["workspace_id"]' 2>/dev/null) \
+  WS=$(runner_workspace "$ORCH") \
     || die "no workspace for the orchestrator pane $ORCH (herdr pane get): is it still open?"
 fi
 
@@ -329,14 +329,12 @@ elif [ "$REUSED" = 1 ]; then echo "reusing task $ID: an earlier call for $SLOT a
 # column (nothing reviewed at bootstrap), or a pane map from before the lanes
 # tab (lane lines without a tab), whose lanes are in the orchestrator's tab.
 if [ -z "$TAB_LINE" ]; then
-  LABEL=reviews; SPLIT=right; KEY="review tab:    "
+  LABEL=reviews; KEY="review tab:    "
   if [ -z "$LANES_LINE" ] && grep -qE '^lane A: .*, tab [a-z]+\)( starting)?$' "$MAP"; then
-    LABEL=lanes; SPLIT=down; KEY="lanes tab:     "
+    LABEL=lanes; KEY="lanes tab:     "
   fi
-  out=$(herdr tab create --workspace "$WS" --cwd "$REPO" --label "$LABEL" --no-focus)
-  TAB=$(echo "$out" | jsonq 'd["result"]["tab"]["tab_id"]')
-  R1_PANE=$(echo "$out" | jsonq 'd["result"]["root_pane"]["pane_id"]')
-  R2_PANE=$(herdr pane split --pane "$R1_PANE" --direction "$SPLIT" --ratio 0.5 --cwd "$REPO" --no-focus | pane_id)
+  out=$(runner_open_reviewer_slots "$WS" "$REPO" "$LABEL")
+  read -r TAB R1_PANE R2_PANE <<< "$out"
   TAB_LINE="$TAB   (R1 $R1_PANE, R2 $R2_PANE)"
   echo "$KEY $TAB_LINE" >> "$MAP"
   echo "$LABEL tab: $TAB — slots R1 $R1_PANE, R2 $R2_PANE"

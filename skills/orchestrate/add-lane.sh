@@ -149,11 +149,13 @@ check_rerun() {
   owned=$(printf '%s' "$board" | jsonq "','.join(d['lanes'].get('$LANE', []))")
   [ "$(printf '%s\n' "$want" | sort)" = "$(printf '%s\n' "$owned" | tr , '\n' | sort)" ] \
     || die "lane $LANE owns ${owned:-nothing} on the board, not $TASKS; rerun with those ids"
-  # Only herdr's pane_not_found is a closed pane; any other failure says
+  # Only a pane the runner says is gone is closed; any other failure says
   # nothing about it, and the map and the worktree stay.
-  if ! err=$(herdr pane get "$2" 2>&1 >/dev/null); then
-    case "$err" in
-      *'"pane_not_found"'*)
+  local rc=0
+  err=$(runner_pane_exists "$2" 2>&1) || rc=$?
+  if [ "$rc" != 0 ]; then
+    case "$rc" in
+      1)
         # herdr gives a moved pane a new id: an unplaced pane that is gone may
         # be in the grid already, its move done but not recorded.
         [ "$3" != "unplaced line" ] \
@@ -228,10 +230,7 @@ else
   # Ownership first: tower refuses an unknown id, so a typo stops here, before
   # a worktree exists.
   tower assign -- "$LANE" "$TASKS"
-  out=$(herdr worktree create --cwd "$REPO_ROOT" --branch "$BRANCH" --base "$BASE" --path "$WT" --label "$NAME" --no-focus) \
-    || die "add-lane: herdr worktree create failed: remove $WT and branch $BRANCH if they exist, then rerun  $KIT/add-lane.sh $RUN_DIR $LANE $BRANCH $BASE $TASKS"
-  WT_PANE=$(echo "$out" | jsonq 'd["result"]["root_pane"]["pane_id"]' 2>/dev/null) \
-    || die "add-lane: herdr created $WT but its answer names no pane: close the pane labelled $NAME, remove $WT and branch $BRANCH, then rerun  $KIT/add-lane.sh $RUN_DIR $LANE $BRANCH $BASE $TASKS"
+  WT_PANE=$(runner_open_lane "$REPO_ROOT" "$BRANCH" "$BASE" "$WT" "$NAME")
   # The new pane goes into the map before it is moved: a move that fails
   # leaves a lane a rerun can place.
   echo "unplaced $(lane_line "$WT_PANE")" >> "$MAP"
@@ -250,21 +249,9 @@ elif ! ( cd "$WT" && eval "$INSTALL_CMD" ) >"$INSTALL_LOG" 2>&1; then
 fi
 
 # Into the lane's tab, by its place among the lanes already there; a tab not
-# open yet opens with this lane as its root (layout.sh open_tab_with). A pane
+# open yet opens with this lane as its root (runner_place_lane). A pane
 # map from before the lanes tab has its lanes in the orchestrator's tab.
-read -r TARGET SPLIT <<< "$(grid_anchor "$MAP" "$TAB_LABEL")" || true
-TAB=$(tab_line "$MAP" "$TAB_LABEL")
-if [ -z "$TARGET" ] && [ -z "$TAB" ]; then
-  PANE=$(open_tab_with "$MAP" "$TAB_LABEL" "$WT_PANE") \
-    || die "add-lane: lane $LANE's pane $WT_PANE did not get a $TAB_LABEL tab of its own (see above); it is in the pane map as unplaced: when it was not moved, rerun  $KIT/add-lane.sh $RUN_DIR $LANE $BRANCH $BASE $TASKS  to place it; else turn  unplaced lane $LANE: $WT_PANE  in $MAP into  lane $LANE: <its pane's id>  (the rest as it is), add its tab line (named above, else  $TAB_LABEL tab: <its tab's id>), and rerun"
-else
-  [ -n "$TARGET" ] || die "add-lane: the $TAB_LABEL tab has no lane to place lane $LANE beside (see $MAP)"
-  [ -n "$TAB" ] || TAB=$HERDR_TAB_ID
-  moved=$(herdr pane move "$WT_PANE" --tab "$TAB" --split "$SPLIT" --target-pane "$TARGET" --ratio 0.5 --no-focus) \
-    || die "add-lane: herdr could not move lane $LANE's pane $WT_PANE into the grid; it is in the pane map as unplaced: rerun  $KIT/add-lane.sh $RUN_DIR $LANE $BRANCH $BASE $TASKS  to place it"
-  PANE=$(echo "$moved" | jsonq 'd["result"].get("move_result", d["result"])["pane"]["pane_id"]' 2>/dev/null) \
-    || die "add-lane: herdr moved lane $LANE's pane $WT_PANE but its answer names no pane: find the lane's pane in the grid (checkout $WT), turn  unplaced lane $LANE: $WT_PANE  in $MAP into  lane $LANE: <that pane's id>  (the rest as it is), and rerun  $KIT/add-lane.sh $RUN_DIR $LANE $BRANCH $BASE $TASKS"
-fi
+PANE=$(runner_place_lane "$MAP" "$TAB_LABEL" "$WT_PANE")
 
 # The lane goes into the map, in place of its unplaced line, before its agent
 # starts, as bootstrap's does: a start that fails leaves a lane a rerun can
