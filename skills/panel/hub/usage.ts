@@ -41,10 +41,10 @@ const WINDOWS: Record<string, Pick<UsageRow, "kind" | "model">> = {
   seven_day_opus: { kind: "weekly_scoped", model: "Opus" },
   seven_day_sonnet: { kind: "weekly_scoped", model: "Sonnet" },
 };
-// shortcut: a rejection that names no reset pauses this long; read the reset from the error once the CLI names one.
+// shortcut: a rejection that names no reset pauses this long, read the reset from the error once the CLI names one.
 const UNNAMED_RESET_MS = 15 * 60_000;
 
-/** shortcut: utilization as a share (0-1) or a percent; settle once the CLI's unit is documented. */
+/** shortcut: utilization as a share (0-1) or a percent, settle once the CLI's unit is documented. */
 const percentOf = (u: number) => (u <= 1 ? Math.round(u * 1000) / 10 : u);
 
 type Window =
