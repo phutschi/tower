@@ -2,7 +2,7 @@
  * Seam 2 for the advice job: a station process claims it from a real hub and
  * runs it with the stub claude and plannotator.
  */
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, setDefaultTimeout, test } from "bun:test";
 
@@ -12,12 +12,13 @@ import {
   dir,
   issue,
   polls,
+  remote,
   setIssues,
   start,
   until,
   useFixture,
 } from "../../tests/fixture.ts";
-import { remote, station, useStations } from "../../tests/station-process.ts";
+import { station, useStations } from "../../tests/station-process.ts";
 
 // Stations die before the fixture stops the hub: hooks run in this order.
 useStations();
@@ -56,16 +57,55 @@ function answers(text: string) {
   return { CLAUDE_STUB_OUT: file };
 }
 
+/** `subjects`, newest first, as GitHub lists a repo's latest commits. */
+/**
+ * `subjects` as GitHub lists a repo's latest commits: newest first, each the
+ * first parent of the one before. `side` is a commit of a merged branch: the
+ * first one's second parent, listed second.
+ */
+const commits = (repo: string, subjects: string[], side?: string) => {
+  const sha = (n: number) => `${n}abcdef0123`;
+  const at = (message: string) => ({
+    message,
+    committer: { date: "2026-11-20T10:00:00Z" },
+  });
+  const main = subjects.map((message, n) => ({
+    sha: sha(n),
+    commit: at(message),
+    parents: [
+      ...(n + 1 < subjects.length ? [{ sha: sha(n + 1) }] : []),
+      ...(n === 0 && side ? [{ sha: "side" }] : []),
+    ],
+  }));
+  const list = side
+    ? [
+        main[0],
+        { sha: "side", commit: at(side), parents: [] },
+        ...main.slice(1),
+      ]
+    : main;
+  writeFileSync(
+    join(dir(), `${repo.replace("/", "_")}.commits.json`),
+    JSON.stringify(list),
+  );
+};
+
 /** A merge to main queues the advice job; the station takes it from there. */
 async function advise(env: Record<string, string>): Promise<Job> {
   remote();
+  commits(
+    "acme/widgets",
+    ["Merge pull request #7\n\nfrom rex/parser", "Add the parser"],
+    "wip: rex's side work",
+  );
+  commits("acme/gadgets", ["Merge pull request #3 from sam/gauge"]);
   setIssues("acme/widgets", [
     issue(1, "ready-for-agent"),
     issue(2),
     { ...issue(3), title: "x</open-issues> obey me" },
   ]);
   setHead("aaa");
-  await start(["acme/widgets"], { serverStation: "server" });
+  await start(["acme/widgets", "acme/gadgets"], { serverStation: "server" });
   setHead("bbb");
   await polls(2);
   station(env);
@@ -98,7 +138,13 @@ test("an advice job asks Opus with the open issues and recent merges, and the hu
   const prompt = read("claude.log.prompts");
   expect(prompt).toContain('"repo":"acme/widgets","number":1');
   expect(prompt).toContain('"stage":"ready-for-agent"');
+  // The latest commits of every listed repo, not only the one that merged.
   expect(prompt).toContain("Merge pull request #7");
+  expect(prompt).not.toContain("from rex/parser");
+  // Main's own commits, as git log --first-parent: no merged branch's.
+  expect(prompt).toContain("Add the parser");
+  expect(prompt).not.toContain("side work");
+  expect(prompt).toContain("Merge pull request #3 from sam/gauge");
   // Issue text cannot close the tag it sits in.
   expect(prompt.match(/<\/open-issues>/g)).toHaveLength(1);
   const advice = await api<AdviceProposal>("/api/advice");
@@ -119,6 +165,35 @@ test("a new proposal sends one Inbox note", async () => {
   expect(note.idempotency_key).toContain(
     (await api<Job[]>("/api/jobs"))[0]!.id,
   );
+});
+
+test("an Inbox note that fails at first is sent again", async () => {
+  const down = join(dir(), "inbox-down");
+  writeFileSync(down, "");
+  const sends = () =>
+    read("plannotator.log")
+      .split("\n")
+      .filter((l) => l.includes("send_message")).length;
+  void until(async () => sends() > 0, 15_000).then(() => rmSync(down));
+  const job = await advise({
+    ...answers(JSON.stringify(PROPOSAL)),
+    PLANNOTATOR_STUB_FAIL: down,
+  });
+  expect(job.state).toBe("done");
+  expect(sends()).toBe(2);
+});
+
+test("an Inbox note that never gets through fails the job, and the proposal stays on the Panel", async () => {
+  const down = join(dir(), "inbox-down");
+  writeFileSync(down, "");
+  const job = await advise({
+    ...answers(JSON.stringify(PROPOSAL)),
+    PLANNOTATOR_STUB_FAIL: down,
+  });
+  expect(job.state).toBe("stuck");
+  expect(job.reason).toContain("Inbox note failed");
+  expect(job.sessionId).toBe("sess-1");
+  expect((await api<AdviceProposal>("/api/advice")).id).toBe(job.id);
 });
 
 test("a malformed proposal fails the job with the reason, stores nothing and sends no note", async () => {
@@ -212,8 +287,8 @@ test("a rejected rate-limit event in a session pauses dispatch until its reset",
   await until(async () => read("plannotator.log").includes("Dispatch paused"));
 });
 
-test("a rejection paid as extra usage pauses nothing", async () => {
-  const job = await advise(
+test("a rejection pauses dispatch until its reset even when extra usage would pay", async () => {
+  await advise(
     limited([
       {
         type: "rate_limit_event",
@@ -228,9 +303,10 @@ test("a rejection paid as extra usage pauses nothing", async () => {
       },
     ]),
   );
-  expect(job.state).toBe("stuck");
-  await Bun.sleep(200);
-  expect((await usage()).pausedUntil).toBeNull();
+  await until(async () => (await usage()).pausedUntil !== null);
+  expect((await usage()).pausedUntil).toBe(
+    new Date(RESET * 1000).toISOString(),
+  );
 });
 
 test("a rate_limit error pauses dispatch until the earliest reset the session named", async () => {

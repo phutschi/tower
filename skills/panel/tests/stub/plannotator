@@ -7,7 +7,9 @@
 # `inbox call read_thread` answers the thread in the file PLANNOTATOR_STUB_THREAD
 # names, or an empty one while there is no file or its cursor is the `after`
 # asked for.
+# While the file PLANNOTATOR_STUB_FAIL names is there, every call fails.
 printf 'plannotator %s\n' "$*" >> "${PLANNOTATOR_STUB_LOG:-/dev/null}"
+[ -n "${PLANNOTATOR_STUB_FAIL:-}" ] && [ -f "$PLANNOTATOR_STUB_FAIL" ] && { echo "plannotator: the Inbox is down (stub)" >&2; exit 1; }
 case "${1:-} ${2:-} ${3:-}" in
   "inbox call send_message")
     [ ! -e "${PLANNOTATOR_STUB_LOG:-/dev/null}.fail" ] || { echo "plannotator: the Inbox is not answering (stub)" >&2; exit 1; }

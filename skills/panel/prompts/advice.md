@@ -6,7 +6,7 @@ one run and land in one pull request. Your advice changes nothing: the person
 accepts or rejects each part of it.
 
 Below come the open issues, as JSON, and the latest commits on the main
-branch of the repo that just merged. Each issue has its stage (needs-triage,
+branch of each listed repo. Each issue has its stage (needs-triage,
 shaping, ready-for-agent, in-progress, in-review), its issue area when it has
 one, and the open issues it already waits on (`blockedBy`).
 

@@ -15,12 +15,13 @@ import {
   ghLog,
   issue,
   post,
+  remote,
   setIssues,
   start,
   until,
   useFixture,
 } from "../../tests/fixture.ts";
-import { remote, station, useStations } from "../../tests/station-process.ts";
+import { station, useStations } from "../../tests/station-process.ts";
 
 // Stations die before the fixture stops the hub: hooks run in this order.
 useStations();
@@ -223,6 +224,8 @@ test("a station that quits mid-grill hands it on: the next one waits on the same
   reply("Only rex.");
   await until(async () => (await job()).state === "done");
   expect(lines("claude.log")[1]).toContain("--resume sess-1");
+  // Both claims' turns count.
+  expect((await job()).tokens).toEqual({ input: 200, output: 20 });
 });
 
 test("a gh refusal while writing the spec is retried, and the spec is kept as an event", async () => {
@@ -281,4 +284,159 @@ test("a session event from a station that does not hold the job is refused", asy
   });
   expect(res.status).toBe(409);
   expect((await job()).sessionId).toBe("sess-1");
+});
+
+test("a GitHub write that never works fails the grill and keeps its session id and tokens", async () => {
+  await grill({
+    CLAUDE_STUB_OUT: session("q.out", "sess-1", QUESTIONS, 100),
+    CLAUDE_STUB_RESUME_OUT: session("spec.out", "sess-1", SPEC, 200),
+  });
+  await until(async () => reads() > 0);
+  writeFileSync(join(dir(), "fail"), "edit");
+  reply("Only rex.");
+  await until(async () => (await job()).state === "stuck", 15_000);
+  expect(await job()).toMatchObject({
+    reason: expect.stringContaining("edit failed"),
+    sessionId: "sess-1",
+    tokens: { input: 300, output: 30 },
+  });
+});
+
+test("a grill stopped while it retries its GitHub write writes nothing more", async () => {
+  // A slow poll makes the retry's wait long enough to stop the grill in.
+  replies("c1", "Only rex.");
+  await grill({
+    PANEL_GRILL_POLL_MS: "2500",
+    CLAUDE_STUB_OUT: session("q.out", "sess-1", QUESTIONS),
+    CLAUDE_STUB_RESUME_OUT: session("spec.out", "sess-1", SPEC),
+  });
+  await until(async () =>
+    lines("plannotator.log").some((l) => l.includes("send_message")),
+  );
+  writeFileSync(join(dir(), "fail"), "edit");
+  const specWrites = () =>
+    ghLog().filter((l) => l.includes("--body-file")).length;
+  await until(async () => specWrites() > 0, 10_000);
+  // The hub's own label write for the move needs gh to work again.
+  rmSync(join(dir(), "fail"));
+  await post("/api/issues/acme/widgets/5/stage", { stage: "needs-triage" });
+  await until(async () => (await job()).state === "stopped", 10_000);
+  await Bun.sleep(300);
+  expect(specWrites()).toBe(1);
+  expect(existsSync(join(dir(), "acme_widgets_5.body"))).toBe(false);
+});
+
+test("a grill stopped by a move back says why, and keeps its tokens", async () => {
+  await grill({ CLAUDE_STUB_OUT: session("q.out", "sess-1", QUESTIONS, 100) });
+  await until(async () => reads() > 0);
+  await post("/api/issues/acme/widgets/5/stage", { stage: "needs-triage" });
+  await until(async () => (await job()).state === "stopped");
+  expect(await job()).toMatchObject({
+    reason: "moved back to needs-triage",
+    sessionId: "sess-1",
+    tokens: { input: 100, output: 10 },
+  });
+});
+
+test("a station that takes over a grill whose spec is on the hub writes that spec and runs no session", async () => {
+  remote();
+  setIssues("acme/widgets", [issue(5, "needs-triage")]);
+  await start(["acme/widgets"], { serverStation: "server", leaseMs: 300 });
+  await post("/api/issues/acme/widgets/5/stage", { stage: "shaping" });
+  replies("c1", "Only rex.");
+  const env = {
+    PANEL_GRILL_POLL_MS: "50",
+    PLANNOTATOR_STUB_THREAD: join(dir(), "thread.json"),
+    CLAUDE_STUB_OUT: session("q.out", "sess-1", QUESTIONS),
+    CLAUDE_STUB_RESUME_OUT: session("spec.out", "sess-1", SPEC),
+  };
+  const first = station(env);
+  await until(async () =>
+    lines("plannotator.log").some((l) => l.includes("send_message")),
+  );
+  writeFileSync(join(dir(), "fail"), "edit");
+  await until(async () => ghLog().some((l) => l.includes("--body-file")));
+  first.kill("SIGKILL");
+  await first.exited;
+  rmSync(join(dir(), "fail"));
+  station(env);
+  await until(async () => (await job()).state === "done", 10_000);
+  expect(read("acme_widgets_5.body")).toBe(SPEC.spec);
+  expect(lines("claude.log")).toHaveLength(2);
+  expect((await job()).sessionId).toBe("sess-1");
+});
+
+test("a takeover of a grill whose first answer was the spec keeps the session id", async () => {
+  remote();
+  setIssues("acme/widgets", [issue(5, "needs-triage")]);
+  await start(["acme/widgets"], { serverStation: "server", leaseMs: 300 });
+  await post("/api/issues/acme/widgets/5/stage", { stage: "shaping" });
+  writeFileSync(join(dir(), "fail"), "edit");
+  const env = { CLAUDE_STUB_OUT: session("spec.out", "sess-1", SPEC) };
+  const first = station(env);
+  await until(async () => ghLog().some((l) => l.includes("--body-file")));
+  first.kill("SIGKILL");
+  await first.exited;
+  rmSync(join(dir(), "fail"));
+  station(env);
+  await until(async () => (await job()).state === "done", 10_000);
+  expect(lines("claude.log")).toHaveLength(1);
+  expect((await job()).sessionId).toBe("sess-1");
+});
+
+test("a grill stopped while its session thinks says why, and keeps the tokens of its turns so far", async () => {
+  const thinking = join(dir(), "thinking");
+  await grill({
+    CLAUDE_STUB_OUT: session("q.out", "sess-1", QUESTIONS, 100),
+    CLAUDE_STUB_RESUME_OUT: session("spec.out", "sess-1", SPEC, 200),
+    CLAUDE_STUB_RUN: `test -f '${thinking}' && exec sleep 3 >/dev/null 2>&1`,
+  });
+  await until(async () => reads() > 0);
+  writeFileSync(thinking, "");
+  reply("Only rex.");
+  await until(async () => lines("claude.log").length === 2);
+  await post("/api/issues/acme/widgets/5/stage", { stage: "needs-triage" });
+  await until(async () => (await job()).state === "stopped");
+  expect(await job()).toMatchObject({
+    reason: "moved back to needs-triage",
+    tokens: { input: 100, output: 10 },
+  });
+  expect(existsSync(join(dir(), "acme_widgets_5.body"))).toBe(false);
+});
+
+test("a grill taken over where its session cannot resume is rebuilt from the thread so far, and goes on", async () => {
+  remote();
+  setIssues("acme/widgets", [
+    Object.assign(issue(5, "needs-triage"), { body: "make export fast" }),
+  ]);
+  await start(["acme/widgets"], { serverStation: "server", leaseMs: 300 });
+  await post("/api/issues/acme/widgets/5/stage", { stage: "shaping" });
+  const env = {
+    PANEL_GRILL_POLL_MS: "50",
+    PLANNOTATOR_STUB_THREAD: join(dir(), "thread.json"),
+  };
+  const first = station({
+    ...env,
+    CLAUDE_STUB_OUT: session("q.out", "sess-1", QUESTIONS),
+  });
+  await until(async () => reads() > 0);
+  first.kill("SIGKILL");
+  await first.exited;
+  // Another Mac: its Claude has no transcript of sess-1.
+  station(
+    { ...env, CLAUDE_STUB_OUT: session("spec.out", "sess-2", SPEC) },
+    "laptop",
+  );
+  reply("Only rex.");
+  await until(async () => (await job()).state === "done", 10_000);
+  const calls = lines("claude.log");
+  expect(calls).toHaveLength(2);
+  expect(calls[1]).not.toContain("--resume");
+  const rebuilt = prompts()[1]!;
+  expect(rebuilt).toContain("# Grill");
+  expect(rebuilt).toContain("make export fast");
+  expect(rebuilt).toContain(QUESTIONS.questions);
+  expect(rebuilt).toContain("Only rex.");
+  expect((await job()).sessionId).toBe("sess-2");
+  expect(read("acme_widgets_5.body")).toBe(SPEC.spec);
 });

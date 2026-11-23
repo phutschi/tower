@@ -13,7 +13,9 @@
 # `api repos/<owner>/<repo>/contents/CONTEXT-MAP.md` answers {} when the file
 # GH_STUB_DIR/<owner>_<repo>.context-map exists, and GitHub's 404 when not.
 # `api repos/<owner>/<repo>/commits/HEAD` answers the head of main from
-# GH_STUB_DIR/<owner>_<repo>.head (0 without one); `api repos/…/issues/N`
+# GH_STUB_DIR/<owner>_<repo>.head (0 without one); `api repos/…/commits?…`
+# its latest commits from GH_STUB_DIR/<owner>_<repo>.commits.json ([] without
+# one); `api repos/…/issues/N`
 # answers that issue's id, 1000+N. `api repos/…/issues/N/dependencies/blocked_by`
 # lists, or with -X POST adds, the blockers in GH_STUB_DIR/<owner>_<repo>.deps,
 # one `N <blocker id> [<blocker's owner/repo>]` line each (the blocker's
@@ -76,6 +78,8 @@ case "$verb" in
         echo "{}" ;;
       repos/*/commits/HEAD) head=${args[1]#repos/}; head=${head%/commits/HEAD}
         cat "$GH_STUB_DIR/${head/\//_}.head" 2>/dev/null || echo 0 ;;
+      repos/*/commits\?*) r=${args[1]#repos/}; r=${r%/commits\?*}
+        cat "$GH_STUB_DIR/${r/\//_}.commits.json" 2>/dev/null || echo "[]" ;;
       repos/*/issues/*[0-9]) echo "{\"id\": $((1000 + ${args[1]##*/}))}" ;;
       repos/*/issues/*/dependencies/blocked_by)
         r=${args[1]#repos/}; r=${r%%/issues/*}; deps="$GH_STUB_DIR/${r/\//_}.deps"

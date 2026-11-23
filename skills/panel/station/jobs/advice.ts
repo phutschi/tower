@@ -12,14 +12,45 @@ import { keepOpen, parseProposal } from "../../hub/advice.ts";
 import type { PanelIssue } from "../../types.ts";
 import { jsonIn, reportLimits, runHeadless } from "../claude.ts";
 import { sendInboxNote } from "../inbox.ts";
+import { retry } from "../retry.ts";
 import { registerJobRunner } from "../station.ts";
 
 const run = promisify(execFile);
 const PROMPT = join(import.meta.dir, "../../prompts/advice.md");
 
+interface Commit {
+  sha: string;
+  commit: { message: string; committer: { date: string } };
+  parents: { sha: string }[];
+}
+
+/**
+ * `repo`'s latest 20 commits on main, one `sha date subject` line each:
+ * main's own, following first parents as `git log --first-parent` does, so a
+ * merged branch's commits crowd out no merge.
+ */
+async function latestCommits(repo: string): Promise<string[]> {
+  const { stdout } = await run(
+    "gh",
+    ["api", `repos/${repo}/commits?per_page=100`],
+    { timeout: 60_000 },
+  );
+  // shortcut: first parents within the latest 100 commits only, page on when a merged branch outgrows them.
+  const listed = JSON.parse(stdout) as Commit[];
+  const bySha = new Map(listed.map((c) => [c.sha, c]));
+  const lines: string[] = [];
+  for (let c = listed[0]; c && lines.length < 20;) {
+    lines.push(
+      `${c.sha.slice(0, 7)} ${c.commit.committer.date.slice(0, 10)} ${c.commit.message.split("\n")[0]}`,
+    );
+    c = c.parents[0] && bySha.get(c.parents[0].sha);
+  }
+  return lines;
+}
+
 registerJobRunner(
   "advice",
-  async ({ job, hubUrl, workspace, emit, signal }) => {
+  async ({ job, hubUrl, workspace, emit, checkpoint, signal }) => {
     const res = await fetch(`${hubUrl}/api/issues`);
     if (!res.ok) throw new Error(`the hub refused its issues: ${res.status}`);
     const open = ((await res.json()) as PanelIssue[])
@@ -32,15 +63,22 @@ registerJobRunner(
         issueArea,
         blockedBy,
       }));
-    const merges = (
-      await run(
-        "git",
-        ["log", "--first-parent", "-n", "20", "--format=%h %cs %s"],
-        {
-          cwd: workspace.path,
-        },
-      )
-    ).stdout;
+    // The latest commits on main of every listed repo, newest first.
+    const listed = await fetch(`${hubUrl}/api/repos`);
+    if (!listed.ok)
+      throw new Error(`the hub refused its repos: ${listed.status}`);
+    const repos = (await listed.json()) as string[];
+    const merges = Object.fromEntries(
+      await Promise.all(
+        repos.map(async (r) => [
+          r,
+          await retry(() => latestCommits(r), signal, {
+            tries: 3,
+            maxWaitMs: 1000,
+          }),
+        ]),
+      ),
+    );
     // As JSON with < escaped, untrusted text cannot close the tag it sits in.
     const data = (v: unknown) => JSON.stringify(v).replaceAll("<", "\\u003c");
     const prompt = `${readFileSync(PROMPT, "utf8")}
@@ -48,8 +86,8 @@ registerJobRunner(
 ${data(open)}
 </open-issues>
 
-<recent-merges repo="${job.repo}">
-${data(merges.trim().split("\n"))}
+<recent-merges>
+${data(merges)}
 </recent-merges>
 `;
     const session = await runHeadless({
@@ -87,14 +125,29 @@ ${data(merges.trim().split("\n"))}
         reason: `malformed proposal: ${dropped[0]}`,
         ...ran,
       };
-    await emit("proposal", { ...proposal });
+    // Stored on the hub before the note points the person to it.
+    await checkpoint("proposal", { ...proposal });
     const parts = proposal.order.length + proposal.bundles.length;
-    await sendInboxNote({
-      thread: "Order advice",
-      subject: "A new order advice",
-      body: `A new order advice is on the Panel after a merge to ${job.repo}: ${parts} part${parts === 1 ? "" : "s"} to accept or reject.`,
-      idempotencyKey: `panel-advice-${job.id}`,
-    }).catch((err: unknown) => emit("inbox-failed", { error: String(err) }));
+    try {
+      // The key makes a note that got through and is sent again post once.
+      await retry(
+        () =>
+          sendInboxNote({
+            thread: "Order advice",
+            subject: "A new order advice",
+            body: `A new order advice is on the Panel after a merge to ${job.repo}: ${parts} part${parts === 1 ? "" : "s"} to accept or reject.`,
+            idempotencyKey: `panel-advice-${job.id}`,
+          }),
+        signal,
+        { tries: 3, maxWaitMs: 1000 },
+      );
+    } catch (err) {
+      return {
+        outcome: "failed",
+        reason: `the proposal is on the Panel, but its Inbox note failed: ${String(err)}`,
+        ...ran,
+      };
+    }
     return { outcome: "done", ...ran };
   },
 );

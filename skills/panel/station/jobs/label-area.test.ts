@@ -7,7 +7,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, setDefaultTimeout, test } from "bun:test";
 
-import type { Job } from "../../types.ts";
+import type { Job, UsageView } from "../../types.ts";
 import {
   api,
   dir,
@@ -150,4 +150,50 @@ test("an answer that names no context of the map fails the job and sets nothing"
     "names no context of the map: Shipping",
   );
   expect(labels(3)).toEqual([]);
+});
+
+test("a labelling session refused at a usage limit pauses dispatch until its reset", async () => {
+  await newIssue();
+  const resetsAt = Math.floor(Date.now() / 1000) + 3600;
+  const file = join(dir(), "claude.out");
+  writeFileSync(
+    file,
+    [
+      {
+        type: "rate_limit_event",
+        session_id: "sess-7",
+        rate_limit_info: {
+          status: "rejected",
+          rateLimitType: "five_hour",
+          resetsAt,
+        },
+      },
+      {
+        type: "result",
+        subtype: "error_during_execution",
+        is_error: true,
+        session_id: "sess-7",
+        errors: ["usage limit reached"],
+      },
+    ]
+      .map((l) => JSON.stringify(l))
+      .join("\n") + "\n",
+  );
+  station({ CLAUDE_STUB_OUT: file, CLAUDE_STUB_EXIT: "1" });
+  await until(async () => (await labelJob())?.state === "stuck");
+  expect((await api<UsageView>("/api/usage")).pausedUntil).toBe(
+    new Date(resetsAt * 1000).toISOString(),
+  );
+});
+
+test("a GitHub write that fails after the session keeps the session's id and tokens", async () => {
+  await newIssue();
+  writeFileSync(join(dir(), "fail"), "edit");
+  station(answers("Billing"));
+  await until(async () => (await labelJob())?.state === "stuck");
+  expect(await labelJob()).toMatchObject({
+    reason: expect.stringContaining("edit failed"),
+    sessionId: "sess-7",
+    tokens: { input: 400, output: 3 },
+  });
 });
