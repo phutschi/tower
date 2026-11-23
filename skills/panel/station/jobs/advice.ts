@@ -126,7 +126,11 @@ ${data(merges)}
         ...ran,
       };
     // Stored on the hub before the note points the person to it.
-    await checkpoint("proposal", { ...proposal });
+    try {
+      await checkpoint("proposal", { ...proposal });
+    } catch (err) {
+      return { outcome: "failed", reason: String(err), ...ran };
+    }
     const parts = proposal.order.length + proposal.bundles.length;
     try {
       // The key makes a note that got through and is sent again post once.

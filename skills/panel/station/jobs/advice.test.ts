@@ -10,6 +10,7 @@ import type { AdviceProposal, Job, UsageView } from "../../types.ts";
 import {
   api,
   dir,
+  hubUrl,
   issue,
   polls,
   remote,
@@ -90,8 +91,13 @@ const commits = (repo: string, subjects: string[], side?: string) => {
   );
 };
 
-/** A merge to main queues the advice job; the station takes it from there. */
-async function advise(env: Record<string, string>): Promise<Job> {
+/**
+ * A merge to main queues the advice job; the station takes it from there,
+ * with `env`, or the env it makes once the hub is up.
+ */
+async function advise(
+  env: Record<string, string> | (() => Record<string, string>),
+): Promise<Job> {
   remote();
   commits(
     "acme/widgets",
@@ -108,10 +114,10 @@ async function advise(env: Record<string, string>): Promise<Job> {
   await start(["acme/widgets", "acme/gadgets"], { serverStation: "server" });
   setHead("bbb");
   await polls(2);
-  station(env);
+  station(typeof env === "function" ? env() : env);
   await until(async () => {
     const [job] = await api<Job[]>("/api/jobs");
-    return job?.state === "done" || job?.state === "stuck";
+    return ["done", "stuck", "stopped"].includes(job?.state ?? "");
   }, 15000);
   return (await api<Job[]>("/api/jobs"))[0]!;
 }
@@ -194,6 +200,21 @@ test("an Inbox note that never gets through fails the job, and the proposal stay
   expect(job.reason).toContain("Inbox note failed");
   expect(job.sessionId).toBe("sess-1");
   expect((await api<AdviceProposal>("/api/advice")).id).toBe(job.id);
+});
+
+test("an advice job stopped as its session ends keeps the session's tokens", async () => {
+  const { CLAUDE_STUB_OUT: out } = answers(JSON.stringify(PROPOSAL));
+  // The repo is unlisted while the session runs, which answers once stopped.
+  const job = await advise(() => ({
+    CLAUDE_STUB_RUN: `curl -s -X DELETE ${hubUrl()}/api/repos/acme/widgets >/dev/null; (sleep 1; cat '${out}') &`,
+  }));
+  expect(job).toMatchObject({
+    state: "stopped",
+    reason: "the repo was unlisted",
+    sessionId: "sess-1",
+    tokens: { input: 1500, output: 80 },
+  });
+  expect(read("plannotator.log")).toBe("");
 });
 
 test("a malformed proposal fails the job with the reason, stores nothing and sends no note", async () => {
