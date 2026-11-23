@@ -873,6 +873,7 @@ if section add-lane; then
   assert_match "orca B rerun, a stale handle: fails" "$out" 'exit=1$'
   assert_match "orca B rerun, a stale handle: asks to rebind it" "$out" "Orca says lane B's terminal handle $bpane is stale: it may still be open under a new handle\\. Find lane B's terminal in Orca, put its handle on lane B's line in $RUN/panes.txt, then rerun"
   assert_nomatch "orca B rerun, a stale handle: no removal advised" "$out" 'remove'
+  assert_match "orca B rerun, a stale handle: if it was closed, how to restart the agent by hand, with its model and grants" "$out" "if Orca has no such terminal, it was closed: open a terminal in /orca-stub/worktrees/wt-4, start the agent there with  cd /orca-stub/worktrees/wt-4 && claude --model [^ ]+ *, put that terminal's handle on lane B's line"
   assert_nomatch "orca B rerun, a stale handle: nothing created or started" "$(cat "$ORCA_STUB_LOG")" '^orca (worktree create|terminal create|terminal send) '
   rm -f "$ORCA_STUB_STATES_DIR/$bpane"
   # A worktree create that fails, or answers with no worktree: refused,

@@ -74,9 +74,11 @@ agent_of() { runner_agent_state "$1" "${2:-}"; }
 # agent herdr cannot classify), gone or unreadable (agent_of).
 state_of() { local a; a=$(agent_of "$1" "${2:-}"); echo "${a%% *}"; }
 # The message for a stale handle (runner_pane_exists 3) on stderr: WHO's
-# terminal may still be open, so it is rebound by hand, never removed.
-stale_handle() {  # WHO PANE LINE
-  echo "$(runner_name) says $1's terminal handle $2 is stale: it may still be open under a new handle. Find $1's terminal in $(runner_name), put its handle on $3 in ${MAP:-the pane map}, then rerun; if $(runner_name) has no such terminal, it was closed: open one where it worked and put that handle there" >&2
+# terminal may still be open, so it is rebound by hand, never removed. CLOSED
+# says what to do when it was closed instead (default: open a terminal where
+# it worked and put that handle there).
+stale_handle() {  # WHO PANE LINE [CLOSED]
+  echo "$(runner_name) says $1's terminal handle $2 is stale: it may still be open under a new handle. Find $1's terminal in $(runner_name), put its handle on $3 in ${MAP:-the pane map}, then rerun; if $(runner_name) has no such terminal, it was closed: ${4:-open one where it worked and put that handle there}" >&2
 }
 # The kit's record of the agents it launched for run RUN_DIR: "<agent> <pane>"
 # per launch, the last line for an agent standing. It lives beside the run

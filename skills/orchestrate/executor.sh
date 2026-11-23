@@ -126,13 +126,14 @@ agent_checkout() {
   printf '%s' "$co"
 }
 
-start_agent() {
-  local name="$1" pane="$2"
+# The harness arguments of an agent of EXECUTOR_KIND, into AGENT_ARGS; 3 when
+# they cannot be built (a git dir that cannot be read).
+agent_args() {
   case "$EXECUTOR_KIND" in
     # SESSION_ROLE and SESSION_TOPIC (roles.sh; set by the caller only when
     # the run has roles) go to the Claude launcher.
-    claude) runner_agent_start "$name" claude "$pane" -- --model "$EXECUTOR_MODEL" \
-      ${SESSION_ROLE:+--role "$SESSION_ROLE"} ${SESSION_TOPIC:+--topic "$SESSION_TOPIC"} ;;
+    claude) AGENT_ARGS=(--model "$EXECUTOR_MODEL" \
+      ${SESSION_ROLE:+--role "$SESSION_ROLE"} ${SESSION_TOPIC:+--topic "$SESSION_TOPIC"}) ;;
     cursor)
       # --trust is the only guard against cursor's trust box: herdr reports
       # that box as idle and ready, so a brief would be typed into it, and
@@ -144,8 +145,8 @@ start_agent() {
       # lane worktree) are added dirs.
       local common
       common=$(git -C "$(agent_checkout)" rev-parse --path-format=absolute --git-common-dir) || return 3
-      runner_agent_start "$name" cursor "$pane" -- --model "$EXECUTOR_MODEL" \
-        --trust --force --disable-auto-update ${RUN_DIR:+--add-dir "$RUN_DIR"} --add-dir "$common" ;;
+      AGENT_ARGS=(--model "$EXECUTOR_MODEL" \
+        --trust --force --disable-auto-update ${RUN_DIR:+--add-dir "$RUN_DIR"} --add-dir "$common") ;;
     codex)
       local extra=() common gitdir roots="" p co
       co=$(agent_checkout)
@@ -176,18 +177,22 @@ start_agent() {
           extra+=(-c "shell_environment_policy.set.$v=$q")
         done
       fi
-      runner_agent_start "$name" codex "$pane" -- -m "$EXECUTOR_MODEL" \
+      AGENT_ARGS=(-m "$EXECUTOR_MODEL" \
         -a never -s workspace-write -c sandbox_workspace_write.network_access=true \
-        -c check_for_update_on_startup=false "${extra[@]}" ;;
-  esac || {
-    local rc=$?
-    # Anything but the runner's "nothing sent" may have launched it (the git
-    # failures above return 3 before this: nothing sent).
-    [ "$rc" = 3 ] || launch_note "$name" "$pane"
-    return "$rc"
-  }
-  launch_note "$name" "$pane"
+        -c check_for_update_on_startup=false "${extra[@]}") ;;
+  esac
 }
+start_agent() {
+  local name="$1" pane="$2" rc=0
+  agent_args || return 3
+  runner_agent_start "$name" "$EXECUTOR_KIND" "$pane" -- "${AGENT_ARGS[@]}" || rc=$?
+  # Anything but the runner's "nothing sent" may have launched it.
+  [ "$rc" = 3 ] || launch_note "$name" "$pane"
+  return "$rc"
+}
+# The command a person runs to start this agent by hand, in its checkout: its
+# CLI with the model and grants start_agent gives it.
+launch_line() { agent_args || return 1; printf '%q ' "$(kind_cli "$EXECUTOR_KIND")" "${AGENT_ARGS[@]}"; }
 # A start's failure code for its caller: the runner's 3 (nothing sent) and 4
 # (sent without a receipt) pass through; any other failure is 1.
 launch_rc() { case "$1" in 3|4) echo "$1" ;; *) echo 1 ;; esac; }
