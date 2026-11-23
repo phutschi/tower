@@ -41,8 +41,8 @@ All notable changes to this project are documented here. The format follows
   thread. A comment there becomes a fix for the lane that wrote the line; a
   session without the tool skips it with a tower note.
 - `NOTIFY`, a one-line command only the environment or the user contract
-  sets: preflight runs
-  it once at its end with the PR link and the number of open decisions.
+  sets: preflight runs it once at its end with the PR link and the number of
+  open decisions.
 - A Reviewer marks a choice with a finding's `decision` options; triage
   writes `decided_by`, and the PR's findings tables show it.
 

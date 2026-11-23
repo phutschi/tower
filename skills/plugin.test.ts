@@ -40,9 +40,9 @@ test("the plugin carries the package's version", () => {
   expect(json(".claude-plugin/plugin.json").version).toBe(version);
   expect(json(".cursor-plugin/plugin.json").version).toBe(version);
   // release.yml publishes the tag's release with this body.
-  expect(read(".github/release-body.md").split("\n")[0]).toStartWith(
-    `## [${version}]`,
-  );
+  const heading = read(".github/release-body.md").split("\n")[0];
+  expect(heading).toStartWith(`## [${version}]`);
+  expect(read("CHANGELOG.md")).toContain(heading);
 });
 
 test("the plugin and its marketplace entry name the four skills", () => {
