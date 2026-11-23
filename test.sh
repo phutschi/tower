@@ -332,6 +332,15 @@ if section executor; then
   out=$(ostart claude)
   assert_match "orca: an answered trust prompt high in the tail: ready" "$out" 'exit=0$'
   assert_nomatch "orca: ... and no keys sent" "$(cat "$ORCA_STUB_LOG")" '^orca terminal send --terminal term-1 (--enter|--text .\[B)'
+  # The launch mark (add-lane's LAUNCH_MARK, set after executor.sh clears an
+  # inherited one): set once the start line may have been typed, left absent
+  # only when Orca refused it.
+  mstart() { reset_stub; (cd "$r" && env HOME="$TMP/rev-home" EXECUTOR_KIND=claude MARK="$TMP/mark" "$@" bash -c '. "$KIT/common.sh"; need_runner; orca terminal create --json >/dev/null; . "$KIT/executor.sh"; LAUNCH_MARK=$MARK; start_agent_with_trust_retry acme-lane-a term-1' >/dev/null 2>&1); }
+  rm -f "$S"/term-* "$TMP/mark"; printf 'unlisted\nblocked\n' > "$S/term-1"; mstart
+  assert_eq "orca: a launch sent, then failed: marked sent" "$([ -e "$TMP/mark" ] && echo sent || echo unsent)" sent
+  rm -f "$S"/term-* "$TMP/mark"; mstart ORCA_STUB_SEND_FAIL=1
+  assert_eq "orca: a launch Orca refused: not marked" "$([ -e "$TMP/mark" ] && echo sent || echo unsent)" unsent
+  assert_eq "executor.sh: an inherited LAUNCH_MARK is cleared" "$(LAUNCH_MARK=/x in_kit 'EXECUTOR_KIND=claude; . "$KIT/executor.sh"; echo "[${LAUNCH_MARK:-}]"')" "[]"
   # Blocked on any other prompt (a hooks review, an update): no keys, the
   # start fails, and the prompt stays for the operator.
   rm -f "$S"/term-*
@@ -890,6 +899,16 @@ if section add-lane; then
   assert_match "orca D, its launch not sent: recorded unsent" "$(cat "$RUN/panes.txt")" '^lane D: .*\) unsent$'
   assert_match "orca D, its launch not sent: says a rerun starts it" "$out" "lane D's launch was never sent: rerun  .*add-lane\\.sh .* D feat/d2 main 5  to start it in $dpane"
   mkdir -p "$TMP/orca-wt"; git -C "$r" worktree add -q -b feat/d2 "$dwt"   # the worktree Orca made
+  echo unlisted-idle > "$ORCA_STUB_STATES_DIR/$dpane"   # its terminal: a shell, no agent
+  # An agent working there after all (started by hand): refused, nothing typed.
+  echo working > "$ORCA_STUB_STATES_DIR/$dpane"
+  : > "$ORCA_STUB_LOG"; out=$(lane D feat/d2 main 5; echo "exit=$?")
+  assert_match "orca D rerun, an agent working there: refused" "$out" "an agent is working in $dpane although its launch was never sent"
+  assert_nomatch "orca D rerun, an agent working there: nothing typed" "$(cat "$ORCA_STUB_LOG")" '^orca terminal send '
+  echo unlisted-idle > "$ORCA_STUB_STATES_DIR/$dpane"
+  : > "$ORCA_STUB_LOG"; out=$(ORCA_STUB_SEND_FAIL=1 lane D feat/d2 main 5; echo "exit=$?")
+  assert_match "orca D rerun, not sent again: still unsent" "$(cat "$RUN/panes.txt")" '^lane D: .*\) unsent$'
+  assert_eq "orca D rerun, not sent again: one launch tried" "$(grep -c "^orca terminal send --terminal $dpane --text claude " "$ORCA_STUB_LOG")" 1
   : > "$ORCA_STUB_LOG"; out=$(lane D feat/d2 main 5; echo "exit=$?")
   assert_match "orca D rerun: started" "$out" 'exit=0$'
   assert_eq "orca D rerun: its agent typed once, in the same terminal" "$(grep -c "^orca terminal send --terminal $dpane --text claude " "$ORCA_STUB_LOG")" 1
@@ -969,6 +988,7 @@ if section add-lane; then
     reset_stub; out=$(cd "$r" && HERDR_STUB_BUSY_STARTS=99 START_TRIES=1 "$KIT/add-lane.sh" "$RUNF" B feat/b main 2,3 2>&1; echo "exit=$?")
     assert_match "failed start: add-lane fails"          "$out" 'exit=1$'
     assert_match "failed start: the lane is in the pane map" "$(cat "$RUNF/panes.txt")" '^lane B: +pane-[0-9]+ +\(agent "bun-vitest-lane-b", kind claude, branch feat/b, checkout '"$r"'/.worktrees/feat/b, model '
+    assert_match "failed start (herdr): starting, never unsent" "$(cat "$RUNF/panes.txt")" '^lane B: .*\) starting$'
     assert_match "failed start: says how to resume"      "$out" 'lane B is in the pane map, starting: rerun  .*/add-lane\.sh .* B feat/b main 2,3  to resume it'
     bpane=$(sed -nE 's/^lane B: +([^ ]+).*/\1/p' "$RUNF/panes.txt")
     echo gone > "$HERDR_STUB_STATES_DIR/bun-vitest-lane-b"

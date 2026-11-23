@@ -56,6 +56,7 @@
 # second apart, it then gets to accept input.
 
 MODEL_DEFAULTS_FILE="${MODEL_DEFAULTS_FILE:-$KIT/model-defaults}"
+unset LAUNCH_MARK   # start_agent's mark of a sent launch: add-lane's start_lane sets it, nothing else
 
 # KEY's default: its value in this shell (the call's environment, the repo
 # contract or the user contract) when set, else the model-defaults file's
@@ -181,7 +182,8 @@ start_agent() {
         -c check_for_update_on_startup=false "${extra[@]}" ;;
   esac || {
     local rc=$?
-    # Anything but the runner's "nothing sent" may have launched it.
+    # Anything but the runner's "nothing sent" may have launched it (the git
+    # failures above return before this: nothing sent).
     [ "$rc" = 3 ] || [ -z "${LAUNCH_MARK:-}" ] || : > "$LAUNCH_MARK"
     return "$rc"
   }

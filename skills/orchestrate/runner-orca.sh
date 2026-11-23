@@ -11,16 +11,19 @@ orca() { command "$ORCA_CLI_COMMAND" "$@"; }   # set: runner_detect saw it
 # NAME's agent CLI of KIND, started in terminal PANE with HARNESS_ARGS: its
 # command line typed into the terminal's shell. Orca's error, if any, is
 # printed, and 3 returned: nothing was sent. It then reads the agent until
-# Orca lists it as working, waiting or done (START_TRIES reads, a second apart). One blocked on the workspace trust
-# menu, its terminal showing it, is said as herdr says it ("agent blocked
-# during startup"), for executor.sh to answer; blocked on any other prompt, it
-# fails, the prompt left for the operator.
+# Orca lists it as working, waiting or done (START_TRIES reads, a second
+# apart). One blocked on the workspace trust menu, its terminal showing it, is
+# said as herdr says it ("agent blocked during startup"), for executor.sh to
+# answer; blocked on any other prompt, it fails, the prompt left for the
+# operator.
 runner_agent_start() {
   local name="$1" kind="$2" pane="$3" line out tries=0; shift 4
   # A missing CLI would leave a shell saying "command not found" (executor.sh kind_installed).
   kind_installed "$kind" || { echo "agent start: $(kind_cli "$kind") is not installed: install it, or use another kind" >&2; return 3; }
   line=$(printf '%q ' "$(kind_cli "$kind")" "$@"); line=${line% }
-  out=$(orca terminal send --terminal "$pane" --text "$line" --enter --json) || { echo "$out" >&2; return 3; }
+  # Orca refused the send, except on a timeout, which may have typed it.
+  out=$(orca terminal send --terminal "$pane" --text "$line" --enter --json) || {
+    echo "$out" >&2; case "$out" in *'timeout"'*) return 1 ;; *) return 3 ;; esac; }
   while :; do
     case "$(runner_agent_state "$name" "$pane")" in
       blocked*)

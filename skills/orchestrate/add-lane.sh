@@ -253,6 +253,8 @@ if [ -n "$PANE" ]; then
     *) [ -n "$STARTING" ] || die "lane $LANE already exists (see $MAP)" ;;
   esac
   check_rerun "$(lane_line "$PANE")$STARTING" "$PANE" line
+  [ "$STARTING" != " unsent" ] || [ "$state" != working ] \
+    || die "lane $LANE: an agent is working in $PANE although its launch was never sent; check it there, and end it before you rerun"
   if [ "$state" = gone ] || [ "$STARTING" = " unsent" ]; then
     set_lane_line "$(lane_line "$PANE") starting"
     start_lane

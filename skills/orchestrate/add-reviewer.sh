@@ -173,7 +173,7 @@ if [ -n "$LANE" ]; then
 else
   _line=$(grep -E "^lane [A-D]: +[^ ]+ +\(agent \"[^\"]*\", kind $LANE_KIND, " "$MAP" | head -1 || true)
 fi
-LANE_MODEL=$(echo "$_line" | sed -nE -e 's/, tab [a-z]+\)/)/' -e 's/.*, model (.*)\)( starting)?$/\1/p')   # a lane still starting too, its tab dropped; unset _line _kind
+LANE_MODEL=$(echo "$_line" | sed -nE -e 's/, tab [a-z]+\)/)/' -e 's/.*, model (.*)\)( starting| unsent)?$/\1/p')   # a lane still starting too, its tab dropped; unset _line _kind
 
 _here="$PWD"; cd "$REPO"
 CONTRACT_RUN="$RUN_DIR" . "$KIT/detect-stack.sh"   # the run's pinned contract: REVIEWER_KIND, REVIEWER_MODEL (the environment wins)
@@ -353,7 +353,7 @@ elif [ "$REUSED" = 1 ]; then echo "reusing task $ID: an earlier call for $SLOT a
 # tab (lane lines without a tab), whose lanes are in the orchestrator's tab.
 if [ -z "$TAB_LINE" ]; then
   LABEL=reviews; KEY="review tab:    "
-  if [ -z "$LANES_LINE" ] && grep -qE '^lane A: .*, tab [a-z]+\)( starting)?$' "$MAP"; then
+  if [ -z "$LANES_LINE" ] && grep -qE '^lane A: .*, tab [a-z]+\)( starting| unsent)?$' "$MAP"; then
     LABEL=lanes; KEY="lanes tab:     "
   fi
   out=$(runner_open_reviewer_slots "$WS" "$REPO" "$LABEL")

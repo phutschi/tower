@@ -4,8 +4,10 @@
 # NAME's agent CLI of KIND, started in PANE with HARNESS_ARGS. herdr's answer,
 # or its error, is printed for the caller's busy and trust handling.
 runner_agent_start() {
-  local name="$1" kind="$2" pane="$3"; shift 4
-  herdr agent start "$name" --kind "$kind" --pane "$pane" -- "$@"
+  local name="$1" kind="$2" pane="$3" rc=0; shift 4
+  herdr agent start "$name" --kind "$kind" --pane "$pane" -- "$@" || rc=$?
+  [ "$rc" != 3 ] || rc=1   # 3 is the runner contract's "nothing sent"; herdr's own 3 says no such thing
+  return "$rc"
 }
 # An agent as herdr reads it, one line: "<agent_status> <interactive_ready>"
 # (True or False; True when herdr leaves the field out, as an older herdr

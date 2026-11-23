@@ -31,7 +31,7 @@ grid_anchor() {  # MAP LABEL: "<pane> <right|down>" for the next lane in tab LAB
   # shellcheck disable=SC2207  # pane ids, one word each
   p=($(awk -v tab="$2" '/^lane [A-D]: / {
     t = "lanes"
-    if (match($0, /, tab [a-z]+\)( starting)?$/)) { t = substr($0, RSTART + 6); sub(/\).*/, "", t) }
+    if (match($0, /, tab [a-z]+\)( starting| unsent)?$/)) { t = substr($0, RSTART + 6); sub(/\).*/, "", t) }
     if (t == tab) print $3
   }' "$1"))
   case ${#p[@]} in
