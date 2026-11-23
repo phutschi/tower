@@ -249,8 +249,9 @@ The orchestrator sends each brief and fix prompt with
 `send-brief.sh <run-dir> <agent> <file>`. It finds the agent's pane on its
 one lane or Reviewer line, checks that the pane is open, and sends the file
 through the runner: `herdr agent prompt` by the agent's name, or
-`orca terminal send` with Enter to its terminal. It runs nothing from the
-pane map, which a lane can write.
+`orca terminal send` with Enter to its terminal, only while Orca lists an
+agent there ready for input (else it holds the brief and says why). It runs
+nothing from the pane map, which a lane can write.
 
 ## A run on a paired Orca server
 

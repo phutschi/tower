@@ -42,8 +42,16 @@ runner_agent_start() {
 # terminal is closed (terminal_handle_stale), not when the agent exits; and
 # unreadable when Orca does not answer for any other reason.
 runner_agent_state() {
+  local out
+  out=$(orca_listed "$2")
+  [ "$out" = unlisted ] || { echo "$out"; return; }
+  if orca terminal wait --terminal "$2" --for tui-idle --timeout-ms 1000 --json >/dev/null 2>&1; then echo "idle True"; else echo "unknown False"; fi
+}
+# The agent in terminal PANE as Orca's agent list has it: "<status> <ready>",
+# unlisted, gone or unreadable (runner_agent_state, without the TUI's word).
+orca_listed() {
   local out key
-  if ! out=$(orca terminal show --terminal "$2" --json 2>/dev/null); then
+  if ! out=$(orca terminal show --terminal "$1" --json 2>/dev/null); then
     case "$out" in *'"terminal_handle_stale"'*) echo gone ;; *) echo unreadable ;; esac
     return
   fi
@@ -51,15 +59,23 @@ runner_agent_state() {
     && out=$(orca agent list --json 2>/dev/null) \
     && out=$(echo "$out" | KEY=$key jsonq '(lambda a: {"working": "working True", "waiting": "idle True", "done": "idle True"}.get(a["state"], "%s False" % a["state"]) if a else "unlisted")(next((a for a in d["result"]["agents"] if a.get("paneKey") == __import__("os").environ["KEY"]), None))' 2>/dev/null) \
     || { echo unreadable; return; }
-  [ "$out" = unlisted ] || { echo "$out"; return; }
-  if orca terminal wait --terminal "$2" --for tui-idle --timeout-ms 1000 --json >/dev/null 2>&1; then echo "idle True"; else echo "unknown False"; fi
+  echo "$out"
 }
 runner_name() { echo Orca; }
 runner_ready_hint() { echo "orca agent list --json  shows it waiting or done"; }
 runner_agent_tail() { orca terminal read --terminal "$2" --json | jsonq '"\n".join(d["result"]["terminal"]["tail"])' | tail -n "$3"; }
 runner_send_text()  { orca terminal send --terminal "$1" --text "$2" --json >/dev/null; }
-# NAME PANE TEXT: TEXT typed into terminal PANE, then Enter.
-runner_send_message() { orca terminal send --terminal "$2" --text "$3" --enter --json >/dev/null; }
+# NAME PANE TEXT: TEXT typed into terminal PANE, then Enter, only while Orca
+# lists an agent there ready for input: anything else at that address (a
+# shell, a menu) would take the text as its own input.
+runner_send_message() {
+  local s; s=$(orca_listed "$2")
+  case "$s" in
+    "idle True"|"working True") ;;
+    *) echo "Orca does not list an agent ready for input in terminal $2 ($s): the brief is held; send it again once  orca agent list --json  shows $1's terminal waiting or done" >&2; return 1 ;;
+  esac
+  orca terminal send --terminal "$2" --text "$3" --enter --json >/dev/null
+}
 # Each key a send of its own: Orca refuses text and Enter together while an
 # agent shows a menu.
 runner_send_keys() {

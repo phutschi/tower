@@ -3993,6 +3993,19 @@ if section send-brief; then
   out=$(send "$RUN" bun-vitest-lane-a "$RUN/brief-empty.md")
   assert_match "send-brief, an empty brief: refused" "$out" "send-brief: no brief, or an empty one, at $RUN/brief-empty.md"
   assert_eq "send-brief, an empty brief: nothing sent" "$(sent)" ""
+  if [ "${RUNNER:-herdr}" = orca ]; then
+    # Orca: only an agent it lists as ready gets the brief; a terminal whose
+    # agent it does not list (a shell, an agent not started) or a blocked one
+    # holds it.
+    for st in unlisted-idle blocked; do
+      echo "$st" > "$S/$apane"
+      out=$(send "$RUN" bun-vitest-lane-a "$RUN/brief-A.md")
+      assert_match "send-brief (orca), agent $st: held" "$out" "send-brief: Orca does not list an agent ready for input in terminal $apane \\(${st%-idle}"
+      assert_match "send-brief (orca), agent $st: ... fails" "$out" 'exit=1$'
+      assert_eq "send-brief (orca), agent $st: nothing sent" "$(sent)" ""
+    done
+    rm -f "$S/$apane"
+  fi
   # A Reviewer's line names its agent the same way.
   spane=$(sed -nE 's/^shell: +([^ ]+).*/\1/p' "$RUN/panes.txt")
   printf 'reviewer R1:    %s   (agent "bun-vitest-r1-1", kind codex, model gpt-6-astra, review "Lane review A", findings %s)\n' "$spane" "$RUN/findings/lane-a.json" >> "$RUN/panes.txt"
