@@ -17,14 +17,16 @@
 # (the terminal is open but its agent has not reported to Orca yet, so it is
 # not listed; its TUI is busy), "unlisted-idle" (the same, its TUI idle),
 # "unlisted-waitfail" and "unlisted-waittimeout" (the same, its wait failing),
+# "unlisted-trust" (the same, a trust menu on screen, its TUI idle: an Enter
+# sent alone answers it, dropping the line),
 # "unreadable" (Orca does not answer: runtime_unavailable) or "trust" (a trust
 # menu: the agent shows blocked, a text-plus-Enter send is refused with
 # agent_prompt_blocked, and an Enter sent alone answers the menu, dropping
 # the line). With no file, the agent is working. With several lines, each call
 # that reports the state answers the first and drops it; the last one stays.
 # `terminal read` answers ORCA_STUB_STATES_DIR/<handle>.tail as its tail;
-# without one, a trust menu's tail shows the workspace trust prompt (a plain
-# blocked is any other prompt).
+# without one, a trust menu's tail shows the workspace trust prompt, Claude's
+# or ORCA_STUB_TRUST_TAIL (a plain blocked is any other prompt).
 # `terminal wait --for tui-idle` is satisfied by waiting, done or
 # unlisted-idle, fails for "unlisted-waitfail" (an unlisted agent whose wait
 # Orca cannot answer: runtime_unavailable) and "unlisted-waittimeout" (Orca's
@@ -73,6 +75,7 @@ take() {
 # A terminal's own errors: gone or unreadable.
 live() { case "$(peek "$1")" in gone) err terminal_handle_stale ;; unreadable) err runtime_unavailable ;; esac; }
 reported() { case "$1" in trust) echo blocked ;; *) echo "$1" ;; esac; }
+trusty() { case "$(peek "$1")" in trust|unlisted-trust) return 0 ;; esac; return 1; }
 row() { awk -v h="$1" '$1 == h' "$counter.terminals" 2>/dev/null; }
 case "${1:-} ${2:-}" in
   "worktree current") ok "{\"worktree\":{\"id\":$(js "$current"),\"path\":$(js "$(pwd -P)"),\"parentWorktreeId\":null}}" ;;
@@ -103,8 +106,8 @@ case "${1:-} ${2:-}" in
     ok "{\"terminal\":{\"handle\":\"$h\",\"tabId\":\"$tab\",\"leafId\":\"$leaf\",\"worktreeId\":\"$wt\"}}" ;;
   "terminal send")
     h=$(flag terminal); live "$h"
-    if [ "$(peek "$h")" = trust ]; then
-      if has text && has enter; then err agent_prompt_blocked; fi
+    if trusty "$h"; then
+      if [ "$(peek "$h")" = trust ] && has text && has enter; then err agent_prompt_blocked; fi
       if has enter; then
         if [ "$(wc -l < "$states/$h")" -gt 1 ]; then tail -n +2 "$states/$h" > "$states/$h.next"; mv "$states/$h.next" "$states/$h"; else rm -f "$states/$h"; fi
       fi
@@ -113,12 +116,12 @@ case "${1:-} ${2:-}" in
   "terminal read")
     h=$(flag terminal); live "$h"
     tail=$([ -n "$states" ] && [ -f "$states/$h.tail" ] && python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().splitlines()))' < "$states/$h.tail") || tail='[]'
-    [ "$(peek "$h")" != trust ] || [ "$tail" != '[]' ] || tail='["Do you trust the files in this folder?", " 1. No, exit", " 2. Yes, I trust this folder"]'
+    ! trusty "$h" || [ "$tail" != '[]' ] || tail="[$(js "${ORCA_STUB_TRUST_TAIL:-Do you trust the files in this folder?}"), \" 1. Yes, continue\", \" 2. No, exit\"]"
     ok "{\"terminal\":{\"handle\":\"$h\",\"status\":\"running\",\"tail\":$tail}}" ;;
   "terminal wait")
     h=$(flag terminal); live "$h"
     case "$(reported "$(take "$h")")" in
-      waiting|done|unlisted-idle) ok "{\"wait\":{\"handle\":\"$h\",\"condition\":\"$(flag for)\",\"satisfied\":true}}" ;;
+      waiting|done|unlisted-idle|unlisted-trust) ok "{\"wait\":{\"handle\":\"$h\",\"condition\":\"$(flag for)\",\"satisfied\":true}}" ;;
       unlisted-waitfail) err runtime_unavailable ;;
       unlisted-waittimeout) err timeout ;;
       *) ok "{\"wait\":{\"handle\":\"$h\",\"condition\":\"$(flag for)\",\"satisfied\":false}}" ;;

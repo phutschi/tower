@@ -20,7 +20,7 @@ runner_agent_start() {
   while :; do
     case "$(runner_agent_state "$name" "$pane")" in
       blocked*)
-        if runner_agent_tail "$name" "$pane" 40 2>/dev/null | grep -qiE 'trust[[:space:]]+(this|the[[:space:]]+files[[:space:]]+in[[:space:]]+this)[[:space:]]+folder|trust[[:space:]]+the[[:space:]]+contents[[:space:]]+of[[:space:]]+this[[:space:]]+directory'; then
+        if orca_trust_menu "$pane"; then
           echo "agent blocked during startup" >&2
         else
           echo "agent start: $name is blocked on a prompt in terminal $pane that does not show the workspace trust menu: answer it there, then brief it" >&2
@@ -35,18 +35,25 @@ runner_agent_start() {
 # The agent in terminal PANE as Orca reads it, as herdr's: "<status> <ready>"
 # (Orca's waiting and done, a finished turn and its resting state, are idle);
 # an agent Orca does not list yet (a terminal agent reports on its first turn)
-# is idle once its terminal's TUI is, else "unknown False"; gone when the
+# is "blocked False" while its terminal shows the trust prompt, idle once its
+# terminal's TUI is, else "unknown False"; gone when the
 # terminal is closed (terminal_handle_stale), not when the agent exits; and
 # unreadable when Orca does not answer for any other reason, a wait included.
 runner_agent_state() {
   local out
   out=$(orca_listed "$2")
   [ "$out" = unlisted ] || { echo "$out"; return; }
+  # A trust menu idles the TUI before the agent reports: blocked, not ready.
+  if orca_trust_menu "$2"; then echo "blocked False"; return; fi
   # Satisfied: idle; unsatisfied (or Orca's timeout code): not yet; any other
   # failure says nothing about the agent.
   out=$(orca terminal wait --terminal "$2" --for tui-idle --timeout-ms 1000 --json 2>/dev/null) || true
   echo "$out" | jsonq '("idle True" if d["result"]["wait"]["satisfied"] else "unknown False") if d.get("ok") else ("unknown False" if d["error"]["code"] == "timeout" else "unreadable")' 2>/dev/null \
     || echo unreadable
+}
+# Does terminal PANE show Claude's or codex's workspace trust prompt?
+orca_trust_menu() {
+  runner_agent_tail "" "$1" 40 2>/dev/null | grep -qiE 'trust[[:space:]]+(this|the[[:space:]]+files[[:space:]]+in[[:space:]]+this)[[:space:]]+folder|trust[[:space:]]+the[[:space:]]+contents[[:space:]]+of[[:space:]]+this[[:space:]]+directory'
 }
 # The agent in terminal PANE as Orca's agent list has it: "<status> <ready>",
 # unlisted, gone or unreadable (runner_agent_state, without the TUI's word).
