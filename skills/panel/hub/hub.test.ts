@@ -479,6 +479,9 @@ test("a bundle issue moved back on GitHub sends the others back, again on a late
   await polls(1);
   await post("/api/jobs/claim", { station: "server", kinds: ["run"] });
   await until(async () => labelsOf(3).includes("in-progress"));
+  // A poll may have set in-progress ahead of the claim's own move, still
+  // queued: the next poll runs after it, so no hub edit lands on the move.
+  await polls(1);
   process.env.GH_STUB_FAIL = "edit";
   setIssues("acme/widgets", [issue(1, "shaping"), issue(3, "in-progress")]);
   await polls(2);
