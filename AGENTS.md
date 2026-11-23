@@ -24,7 +24,11 @@ read docs/agents.md instead.
   checkout. They need git and python3.
 - Tests: `bun:test`, colocated as `*.test.ts`. The fold (`src/state.ts`) is
   pure and table-driven; the screen (`src/ui/rows.ts`) is pure rows; commands
-  take an injected `Io` (`src/testing.ts` has the fake).
+  take an injected `Io` (`src/testing.ts` has the fake). `bunfig.toml` preloads
+  `src/test-tmpdir.ts`, which gives each `bun test` run from the repo root its
+  own temp folder and removes it after. It is the one non-test file under
+  `src/` that imports `bun:test`; `tsconfig.build.json` leaves it out, as it
+  does `src/testing.ts`.
 - Imports of local files carry explicit `.ts`/`.tsx` extensions.
 - Fixtures are neutral: repo `acme`, people `rex` and `sam`,
   `someone@example.com`. No real names or paths.
