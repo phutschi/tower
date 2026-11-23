@@ -487,6 +487,37 @@ test("a grill stopped while its session thinks says why, and keeps the tokens of
   expect(existsSync(join(dir(), "acme_widgets_5.body"))).toBe(false);
 });
 
+test("a grill whose session's transcript is gone goes on in a new session with the grill so far", async () => {
+  const gone = join(dir(), "gone.out");
+  writeFileSync(
+    gone,
+    JSON.stringify({
+      type: "result",
+      subtype: "error_during_execution",
+      is_error: true,
+      session_id: "sess-1",
+      errors: ["No conversation found with session ID: sess-1"],
+    }) + "\n",
+  );
+  const first = session("q.out", "sess-1", QUESTIONS);
+  await grill({ CLAUDE_STUB_OUT: first, CLAUDE_STUB_RESUME_OUT: gone });
+  await until(async () => reads() > 0);
+  // The next new session answers the spec.
+  session("q.out", "sess-2", SPEC);
+  reply("Only rex.");
+  await until(async () => (await job()).state === "done", 10_000);
+  const calls = lines("claude.log");
+  expect(calls).toHaveLength(3);
+  expect(calls[1]).toContain("--resume sess-1");
+  expect(calls[2]).not.toContain("--resume");
+  const rebuilt = prompts()[2]!;
+  expect(rebuilt).toContain("# Grill");
+  expect(rebuilt).toContain(QUESTIONS.questions);
+  expect(rebuilt.match(/Only rex\./g)).toHaveLength(1);
+  expect((await job()).sessionId).toBe("sess-2");
+  expect(read("acme_widgets_5.body")).toBe(SPEC.spec);
+});
+
 test("a grill taken over where its session cannot resume is rebuilt from the thread so far, and goes on", async () => {
   remote();
   setIssues("acme/widgets", [
