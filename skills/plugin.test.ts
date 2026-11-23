@@ -40,7 +40,7 @@ test("the plugin carries the package's version", () => {
   expect(json(".claude-plugin/plugin.json").version).toBe(version);
   expect(json(".cursor-plugin/plugin.json").version).toBe(version);
   // release.yml publishes the tag's release with this body.
-  const heading = read(".github/release-body.md").split("\n")[0];
+  const heading = read(".github/release-body.md").split("\n")[0] ?? "";
   expect(heading).toStartWith(`## [${version}]`);
   expect(read("CHANGELOG.md")).toContain(heading);
 });
