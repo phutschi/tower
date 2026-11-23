@@ -200,7 +200,8 @@ export async function runStation(
   };
 
   const tick = async () => {
-    await flush();
+    // Not awaited: a backlog of events must not hold up the heartbeats.
+    void flush();
     for (const [id, job] of running) {
       const res = await call(`/api/jobs/${id}/heartbeat`, {}).catch(() => null);
       if (job.ended) continue;
@@ -212,6 +213,8 @@ export async function runStation(
       // stopped it meanwhile (its lease ran out while the station was cut
       // off), it is stopped as they asked: a run's workspace closes.
       if (res?.status === 409) {
+        // Acted on only once the control is read: the next tick tries again.
+        if (control === null) continue;
         job.ended = true;
         job.abort.abort(
           control?.stop ? { stop: control.reason ?? "stopped" } : undefined,
@@ -226,7 +229,14 @@ export async function runStation(
     await executor.prune().catch((err: unknown) => {
       console.error(`station: pruning kept checkouts: ${String(err)}`);
     });
-    for (let job = await claim(); job; job = await claim()) {
+    // A station quitting takes nothing new; a job claimed meanwhile is not
+    // started, and its lease runs out.
+    for (
+      let job = stopped ? null : await claim();
+      job;
+      job = stopped ? null : await claim()
+    ) {
+      if (stopped) break;
       if (running.has(job.id)) continue;
       const abort = new AbortController();
       running.set(job.id, { abort, done: work(job, abort) });

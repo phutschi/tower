@@ -4,8 +4,9 @@
  * forwards the run's tower record as job events until the hub ends the job
  * (its PR is ready). A run the user stops has its workspace closed through
  * the kit's stop-run.sh. A run whose orchestrator exited, or that made no
- * progress for the repo's stale threshold while waiting on no answer, is
- * stuck: the job fails and frees the station.
+ * progress for the repo's stale threshold with no question open in its Inbox
+ * thread, is stuck: the job fails and frees the station; a stalled run's
+ * workspace is closed, its checkout kept.
  */
 import { execFile } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -15,6 +16,8 @@ import { promisify } from "node:util";
 
 import type { Job } from "../../types.ts";
 import type { Workspace } from "../executor.ts";
+import { waitsOnPerson } from "../inbox.ts";
+import { wait } from "../retry.ts";
 import { registerJobRunner, stopReason } from "../station.ts";
 
 const run = promisify(execFile);
@@ -48,14 +51,8 @@ export function brief(job: Job, ws: Workspace): string {
   );
 }
 
-/** Resolves after `ms`, or as soon as `signal` aborts. */
-const sleep = (ms: number, signal: AbortSignal) =>
-  new Promise<void>((resolve) => {
-    const timer = setTimeout(resolve, ms);
-    signal.addEventListener("abort", () => (clearTimeout(timer), resolve()), {
-      once: true,
-    });
-  });
+/** A kit or tower call that hangs is killed: it would hold the run's checks. */
+const BOUNDED = { timeout: 60_000, killSignal: "SIGKILL" } as const;
 
 registerJobRunner("run", async ({ job, workspace, emit, signal }) => {
   // Stopped while its checkout was made: start no orchestrator.
@@ -90,25 +87,40 @@ registerJobRunner("run", async ({ job, workspace, emit, signal }) => {
   // The orchestrator and the repo's stale threshold; null when the kit
   // cannot say, which counts as alive.
   const health = () =>
-    run(RUN_STATE, [opened.agent], { cwd: workspace.path }).then(
+    run(RUN_STATE, [opened.agent], { cwd: workspace.path, ...BOUNDED }).then(
       (r) => JSON.parse(r.stdout) as { agent: string; stale: number },
       () => null,
     );
+  // Closes the run's workspace; what is wrong when it stays open.
+  const close = () =>
+    run(STOP_RUN, [opened.workspace]).then(
+      () => "",
+      (err: unknown) => `; its workspace is still open: ${String(err)}`,
+    );
+  const thread = job.issues.map((n) => `${job.repo}#${n}`).join(" + ");
   let last = "";
-  let tasks: { status?: string }[] = [];
   let sent = 0; // transcript entries sent so far
+  let stale = 30; // the last threshold the kit gave
   let progress = Date.now();
   while (!signal.aborted) {
     const state = await run("tower", ["state", "--json"], {
       cwd: workspace.path,
+      maxBuffer: 256 * 1024 * 1024,
+      ...BOUNDED,
     }).then(
       (r) => r.stdout.trim(),
-      () => "", // no run recorded yet
+      (err: { code?: unknown }) => {
+        // A non-zero exit: no run recorded yet. Anything else is worth a line.
+        if (typeof err.code !== "number")
+          console.error(
+            `station: reading the run's tower state: ${String(err)}`,
+          );
+        return "";
+      },
     );
     if (state && state !== last) {
       last = state;
       const read = JSON.parse(state) as Record<string, unknown>;
-      tasks = Array.isArray(read.tasks) ? (read.tasks as typeof tasks) : [];
       const transcript = Array.isArray(read.transcript) ? read.transcript : [];
       if (transcript.length < sent) sent = 0; // another run's record
       // Progress is a new event; tower marking a quiet task stale is not.
@@ -123,25 +135,24 @@ registerJobRunner("run", async ({ job, workspace, emit, signal }) => {
     const now = await health();
     if (now?.agent === "gone")
       return { outcome: "failed", reason: "its orchestrator exited" };
+    stale = now?.stale ?? stale;
     // A working orchestrator makes progress (planning has no record yet).
-    // So does an idle one with a blocked task: it waits on an answer. One
-    // blocked itself (a prompt nobody answers) does not.
-    if (
-      now?.agent === "working" ||
-      (now?.agent === "idle" && tasks.some((t) => t.status === "blocked"))
-    )
-      progress = Date.now();
-    else if (now && Date.now() - progress > now.stale * 60_000)
-      return { outcome: "failed", reason: `no progress for ${now.stale} min` };
-    await sleep(POLL_MS, signal);
+    if (now?.agent === "working") progress = Date.now();
+    else if (Date.now() - progress > stale * 60_000) {
+      // A question in the run's thread with no answer yet is no stall.
+      if (await waitsOnPerson(thread, workspace.path).catch(() => false))
+        progress = Date.now();
+      else
+        return {
+          outcome: "failed",
+          reason: `no progress for ${stale} min${await close()}`,
+        };
+    }
+    await wait(POLL_MS, signal);
   }
   const stop = stopReason(signal);
   if (stop === null)
     return { outcome: "stopped", reason: "the station let the run go" };
   // A workspace that stays open keeps its orchestrator working: say so.
-  const left = await run(STOP_RUN, [opened.workspace]).then(
-    () => "",
-    (err: unknown) => `; its workspace is still open: ${String(err)}`,
-  );
-  return { outcome: "stopped", reason: stop + left };
+  return { outcome: "stopped", reason: stop + (await close()) };
 });

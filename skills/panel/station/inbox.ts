@@ -7,16 +7,22 @@ import { promisify } from "node:util";
 
 const run = promisify(execFile);
 
+/** One Inbox action; `cwd` is the project it is filed under (default: here). */
 const call = async (
   action: string,
   fields: object,
-  bin = "plannotator",
+  cwd?: string,
 ): Promise<unknown> =>
   JSON.parse(
     (
-      await run(bin, ["inbox", "call", action, JSON.stringify(fields)], {
-        timeout: 60_000,
-      })
+      await run(
+        "plannotator",
+        ["inbox", "call", action, JSON.stringify(fields)],
+        {
+          timeout: 60_000,
+          ...(cwd ? { cwd } : {}),
+        },
+      )
     ).stdout,
   ) as unknown;
 
@@ -69,4 +75,30 @@ export async function readThread(
       .filter((m) => m.author?.kind === "person")
       .map((m) => ({ id: m.id, body: m.body ?? "" })),
   };
+}
+
+/**
+ * Whether the thread named `thread`, in the project at `cwd`, waits on the
+ * person: an agent wrote last there, and nobody has answered yet.
+ */
+export async function waitsOnPerson(
+  thread: string,
+  cwd: string,
+): Promise<boolean> {
+  const list = (await call(
+    "read_thread",
+    { asked_by: "anyone", limit: 50 },
+    cwd,
+  )) as {
+    threads?: {
+      thread_name?: string;
+      subject?: string;
+      last_author?: string;
+    }[];
+  };
+  return (list.threads ?? []).some(
+    (t) =>
+      (t.thread_name === thread || t.subject === thread) &&
+      t.last_author === "agent",
+  );
 }

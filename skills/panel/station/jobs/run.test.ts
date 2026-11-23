@@ -410,13 +410,23 @@ test("a run whose orchestrator exited is stuck, and frees its station", async ()
   expect((await jobs())[0]!.reason).toBe("its orchestrator exited");
 });
 
-test("a run with no progress for the repo's stale threshold is stuck, unless it waits on an answer", async () => {
-  // A blocked task: the run waits on an Inbox answer, which is no stall.
-  writeFileSync(
-    join(dir(), "tower-state.json"),
-    JSON.stringify({ v: 1, tasks: [{ id: "1", status: "blocked" }] }),
-  );
-  await setup({}, undefined, undefined, { ".orchestrate": "STALE=0\n" });
+test("a stalled run is stuck and its workspace closed, unless its Inbox thread waits on an answer", async () => {
+  const threads = join(dir(), "threads.json");
+  const thread = (lastAuthor: string) =>
+    writeFileSync(
+      threads,
+      JSON.stringify({
+        threads: [
+          { thread_name: "acme/widgets#12", last_author: lastAuthor },
+          { thread_name: "acme/widgets#99", last_author: "agent" },
+        ],
+      }),
+    );
+  // The orchestrator asked in the run's thread: no stall while it waits.
+  thread("agent");
+  await setup({ PLANNOTATOR_STUB_THREADS: threads }, undefined, undefined, {
+    ".orchestrate": "STALE=0\n",
+  });
   await ready(12);
   await until(async () => (await jobs())[0]?.state === "claimed");
   const id = (await jobs())[0]!.id;
@@ -424,14 +434,13 @@ test("a run with no progress for the repo's stale threshold is stuck, unless it 
   agentIs(dir(), "acme-widgets-12", "idle");
   await Bun.sleep(500);
   expect((await jobs())[0]!.state).toBe("claimed");
-  writeFileSync(
-    join(dir(), "tower-state.json"),
-    JSON.stringify({ v: 1, tasks: [{ id: "1", status: "in_progress" }] }),
-  );
+  // The person answered; the run does nothing with it.
+  thread("person");
   await until(async () => (await jobs())[0]?.state === "stuck");
   expect((await jobs())[0]!.reason).toBe("no progress for 0 min");
-  // The orchestrator may still be at work: its workspace stays for a look.
-  expect(log()).not.toMatch(/^workspace close/m);
+  // Nobody watches it: its workspace closes, its checkout stays.
+  expect(log()).toMatch(/^workspace close ws-1$/m);
+  expect(existsSync(String((await started(id))!.path))).toBe(true);
 });
 
 test("a run whose orchestrator is working is not stuck, even before it has a tower record", async () => {
