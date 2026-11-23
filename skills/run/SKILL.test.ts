@@ -29,7 +29,7 @@ test("has the open Agent Skills frontmatter", () => {
   expect(frontmatter).toMatch(/^description: .+/m);
 });
 
-test("names no harness", () => {
+test("names no harness and no runner", () => {
   const lower = skill.toLowerCase();
   for (const word of [
     "claude code",
@@ -39,6 +39,8 @@ test("names no harness", () => {
     "cursor-agent",
     "gemini",
     "run_in_background",
+    "herdr",
+    "orca",
   ])
     expect(lower).not.toContain(word);
 });

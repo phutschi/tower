@@ -1,6 +1,6 @@
 ---
 name: orchestrate
-description: 'Use when asked to implement a plan or a piece of work with separate executor agents inside herdr ("/tower:orchestrate <plan>", "implement this plan with orchestrate", "spin up orchestrate", "orchestrate this", "run this with lanes"). The plan usually comes from /tower:spec-to-plan. The session becomes the orchestrator: it opens the run, derives or loads the task list, briefs one to four lanes, watches, reviews, merges, runs preflight, opens the PR, closes. Requires HERDR_ENV=1; without herdr, use /tower:run. Not for single-task changes you can make yourself.'
+description: 'Use when asked to implement a plan or a piece of work with separate executor agents inside herdr or Orca ("/tower:orchestrate <plan>", "implement this plan with orchestrate", "spin up orchestrate", "orchestrate this", "run this with lanes"). The plan usually comes from /tower:spec-to-plan. The session becomes the orchestrator: it opens the run, derives or loads the task list, briefs one to four lanes, watches, reviews, merges, runs preflight, opens the PR, closes. Requires a herdr pane (HERDR_ENV=1) or an Orca terminal or chat (ORCA_CLI_COMMAND); outside both, use /tower:run. Not for single-task changes you can make yourself.'
 ---
 
 # Orchestrating a run
@@ -16,12 +16,16 @@ tower is the record and the console: its board and transcript are the only
 record of a run. Every script refuses to start when tower does not run, and
 says how to install it.
 
-## First: herdr
+## First: herdr or Orca
 
-This skill is herdr-only. Before anything else, check that this session runs
-in a herdr pane (`HERDR_ENV=1`) and that `herdr` runs. If not, stop: tell the
-user the skill needs herdr, and that `/tower:run` does the same job with any
-runner. Every script refuses the same way, before it creates anything.
+This skill drives herdr or Orca, whichever runner it was started in. Before
+anything else, check that this session runs in a herdr pane (`HERDR_ENV=1`)
+with `herdr` runnable, or in an Orca terminal or chat (`ORCA_CLI_COMMAND` is
+set) with `orca status` answering; herdr wins when both are there. If neither,
+stop: tell the user the skill needs herdr or Orca, and that `/tower:run` does
+the same job with any runner. If Orca is there but `orca status` fails, say
+Orca is not reachable. Every script refuses the same way, before it creates
+anything (`runner.sh`).
 
 ## Then: an orchestrator session
 

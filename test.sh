@@ -73,6 +73,8 @@ unset CREDITS_TIMEOUT CODEX_STUB_RATE_LIMITS CLAUDE_CONFIG_DIR
 # Session roles (roles.sh): no launcher unless a test says so, whatever
 # session test.sh is started from.
 unset CLAUDE_ROUTER_ROLE CLAUDE_STUB_ROLE
+# The runner: herdr (HERDR_ENV=1 above) unless a test says Orca.
+unset ORCA_CLI_COMMAND
 # The repo contract's names and the run switches: the fixtures decide them,
 # not the shell test.sh is started from (a codex lane exports EXECUTOR_KIND).
 unset EXECUTOR_KIND EXECUTOR_MODEL SPEC_REVIEWER_MODEL QUALITY_REVIEWER_MODEL STALE PM TYPECHECK_TASK \
@@ -152,13 +154,30 @@ if section common; then
   assert_match "TOWER_POINTER: says how to install tower" "$(in_kit 'echo "$TOWER_POINTER"')" 'github\.com/phutschi/tower'
   assert_nomatch "TOWER_POINTER: names no version" "$(in_kit 'echo "$TOWER_POINTER"')" '[0-9]+\.[0-9]+'
   assert_match "need names the missing tool"     "$(in_kit 'need git nosuchtool')" "missing dependency: nosuchtool"
-  assert_match "in_herdr passes under DRY_RUN"   "$(in_kit 'in_herdr && echo inside')" "^inside$"
-  out=$(HERDR_ENV=0 in_kit 'in_herdr && echo inside')
-  assert_nomatch "in_herdr: outside herdr it refuses" "$out" "^inside$"
-  assert_match "in_herdr: ... saying the skill needs herdr" "$out" "needs herdr"
-  assert_match "in_herdr: ... and pointing to /tower:run" "$out" "/tower:run"
-  out=$(HERDR_STUB=absent in_kit 'in_herdr && echo inside')
-  assert_match "in_herdr: without a runnable herdr it refuses the same way" "$out" "needs herdr.*/tower:run"
+  # A minimal orca answering `status` (ORCA_STATUS=fail: Orca not reachable).
+  mkdir -p "$TMP/orca-bin"
+  printf '#!/bin/sh\necho "orca $*" >> "$HERDR_STUB_LOG"\n[ "$1" = status ] && [ "${ORCA_STATUS:-}" != fail ] && { echo "{\\"result\\":{}}"; exit 0; }\nexit 1\n' > "$TMP/orca-bin/orca"
+  chmod +x "$TMP/orca-bin/orca"
+  in_orca() { env PATH="$TMP/orca-bin:$PATH" ORCA_CLI_COMMAND=orca "$@" bash -c ". \"\$KIT/common.sh\"; runner_detect" 2>&1; }
+  assert_eq "runner_detect: herdr when HERDR_ENV=1 and herdr answers" "$(in_kit 'runner_detect')" herdr
+  assert_eq "runner_detect: orca when ORCA_CLI_COMMAND is set, herdr is absent and orca status answers" "$(in_orca HERDR_ENV=0)" orca
+  assert_eq "runner_detect: ... and when herdr does not answer" "$(in_orca HERDR_STUB=absent)" orca
+  assert_eq "runner_detect: herdr when both herdr and Orca are present" "$(in_orca HERDR_ENV=1)" herdr
+  out=$(in_orca HERDR_ENV=0 ORCA_STATUS=fail; echo "exit=$?")
+  assert_match "runner_detect: Orca set but orca status fails, it says Orca is not reachable" "$out" "Orca is not reachable"
+  assert_match "runner_detect: ... and fails" "$out" 'exit=1$'
+  out=$(HERDR_ENV=0 in_kit 'runner_detect; echo "exit=$?"')
+  assert_match "runner_detect: outside both it refuses, naming herdr, Orca and /tower:run" "$out" "needs herdr.*Orca.*/tower:run"
+  assert_match "runner_detect: ... and fails" "$out" 'exit=1$'
+  out=$(HERDR_STUB=absent in_kit 'runner_detect')
+  assert_match "runner_detect: without a runnable herdr it refuses the same way" "$out" "needs herdr.*Orca.*/tower:run"
+  assert_eq "need_runner: exports RUNNER" "$(in_kit 'need_runner; bash -c "echo \$RUNNER"')" herdr
+  out=$(HERDR_ENV=0 in_kit 'need_runner; echo after')
+  assert_nomatch "need_runner: outside both it stops the script" "$out" "^after$"
+  for s in bootstrap add-lane add-reviewer watch-lanes; do
+    assert_match "$s.sh: outside both it refuses, naming herdr, Orca and /tower:run" "$(HERDR_ENV=0 "$KIT/$s.sh" 2>&1)" "needs herdr.*Orca.*/tower:run"
+    assert_eq "$s.sh: in Orca it passes the runner check" "$(env PATH="$TMP/orca-bin:$PATH" ORCA_CLI_COMMAND=orca HERDR_ENV=0 "$KIT/$s.sh" 2>&1 | grep -cE 'needs herdr|not reachable')" 0
+  done
   assert_match "DRY_RUN puts the stubs on PATH"  "$(in_kit 'command -v herdr')" "tests/stub/herdr$"
   reset_stub
   assert_eq "pane_id reads herdr's split answer" "$(in_kit 'herdr pane split --current | pane_id')" pane-1

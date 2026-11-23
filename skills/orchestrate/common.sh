@@ -49,14 +49,7 @@ if [ "${DRY_RUN:-0}" = 1 ]; then
   export HERDR_ENV="${HERDR_ENV:-1}" HERDR_PANE_ID="${HERDR_PANE_ID:-pane-0}" HERDR_TAB_ID="${HERDR_TAB_ID:-tab-0}"
 fi
 
-# The orchestrate skill is herdr-only: it runs from a herdr pane with herdr
-# runnable, or it refuses before touching anything.
-in_herdr() {
-  [ "${HERDR_ENV:-}" = 1 ] && herdr --version >/dev/null 2>&1 && return 0
-  local hint=" DRY_RUN=1 shows what this script would do."
-  [ "${DRY_RUN:-0}" = 1 ] && hint=""
-  die "not inside herdr: the orchestrate skill needs herdr (https://herdr.dev) and runs from a herdr pane (HERDR_ENV=1). Without herdr, use /tower:run, which works with any runner.$hint"
-}
+. "$KIT/runner.sh"
 need()     { local c; for c in "$@"; do command -v "$c" >/dev/null || die "missing dependency: $c"; done; }
 jsonq()    { python3 -c "import json,sys; d=json.load(sys.stdin); print($1)"; }
 pane_id()  { jsonq 'd["result"]["pane"]["pane_id"]'; }

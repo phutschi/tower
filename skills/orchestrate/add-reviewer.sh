@@ -111,7 +111,7 @@
 set -euo pipefail
 KIT="$(cd "$(dirname "$0")" && pwd)"
 . "$KIT/common.sh"
-in_herdr; need git python3 node
+need_runner; need git python3 node
 need_tower
 [ $# -eq 5 ] || [ $# -eq 6 ] || die 'usage: add-reviewer.sh <run-dir> <R1|R2> <lane-kind> "<review title>" <findings-file> [lane]'
 RUN_DIR="$1"; SLOT="$2"; LANE_KIND="$3"; TITLE="$4"; FINDINGS="$5"; LANE="${6:-}"
