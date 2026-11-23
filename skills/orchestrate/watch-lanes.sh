@@ -85,9 +85,16 @@ ROUND=${ROUND_SECONDS:-}; GRACE=${GRACE_SECONDS:-45}; POLL=${POLL_SECONDS:-15}
 UNREADABLE_MAX=${UNREADABLE_POLLS:-12}
 [[ "$UNREADABLE_MAX" =~ ^[1-9][0-9]*$ ]] || die "UNREADABLE_POLLS: a whole number of polls >= 1; got '$UNREADABLE_MAX'"
 
-# The agent's pane: its pane map line (a lane's or a Reviewer's); none when
-# the run dir has no map.
-pane_of()  { sed -nE "s/^[^:]+: +([^ ]+) +\(agent \"$1\".*/\1/p" "$RUN_DIR/panes.txt" 2>/dev/null | head -1; }
+# Each agent's pane: the one lane or Reviewer line naming it literally
+# (common.sh agent_pane), read once here; a name no line names, or two do, is
+# refused before the first poll.
+[ -f "$RUN_DIR/panes.txt" ] || die "watch-lanes: no pane map at $RUN_DIR/panes.txt"
+PANES=()
+for name in "${NAMES[@]}"; do
+  p=$(agent_pane "$RUN_DIR/panes.txt" "$name" 2>&1) || die "watch-lanes: $p"
+  PANES+=("$p")
+done
+pane_of() { local i; for i in "${!NAMES[@]}"; do [ "${NAMES[$i]}" != "$1" ] || { echo "${PANES[$i]}"; return; }; done; }
 tail_of()  { runner_agent_tail "$1" "$(pane_of "$1")" 40 2>/dev/null | grep -v '^[[:space:]]*$' | tail -12; }
 # The end line of round $1: round 1 is the brief's report, a later round a fix
 # prompt's, with the round tag r<n> inside the brackets.

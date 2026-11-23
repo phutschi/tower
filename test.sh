@@ -2429,10 +2429,25 @@ if section watch; then
       complete) "$t" task 1 done --model opus --run "$dir" >/dev/null ;;
       closed)   "$t" close "the run ended" --run "$dir" >/dev/null ;;
     esac
+    # The agents the watch is given: a lane each for a and b, and Reviewer r.
+    printf '%s\n' 'lane A:         pane-a   (agent "a", kind claude, branch main, checkout /work/acme, model opus, tab lanes)' \
+      'lane B:         pane-b   (agent "b", kind claude, branch feat/b, checkout /work/acme-b, model opus, tab lanes)' \
+      'reviewer R1:    pane-r   (agent "r", kind codex, model gpt-6-astra, review "Lane review A", findings /work/r.json)' > "$dir/panes.txt"
     echo "$dir"
   }
   RUN=$(watch_run open); RUN_COMPLETE=$(watch_run complete); RUN_CLOSED=$(watch_run closed)
   watch() { (cd "$TMP" && ROUND_SECONDS="${ROUND:-3}" GRACE_SECONDS=0 POLL_SECONDS=0 "$KIT/watch-lanes.sh" "${ON:-$RUN}" "$@" 2>&1; echo "exit=$?"); }
+  # Each agent is one lane or Reviewer line's, by its literal name: anything
+  # else is refused before the first poll.
+  out=$(watch zz)
+  assert_match "watch: an agent no line names: refused" "$out" "watch-lanes: no lane or Reviewer line in $RUN/panes.txt names agent zz"
+  assert_match "watch: ... at once" "$out" 'exit=1$'
+  out=$(watch 'a.*')
+  assert_match "watch: a name read literally, not as a pattern" "$out" 'names agent a\.\*'
+  cp "$RUN/panes.txt" "$TMP/watch-map"; grep '^lane A:' "$TMP/watch-map" | sed 's/^lane A:/lane C:/' >> "$RUN/panes.txt"
+  out=$(watch a)
+  assert_match "watch: an agent two lines name: refused" "$out" "watch-lanes: 2 lines in $RUN/panes.txt name agent a"
+  cp "$TMP/watch-map" "$RUN/panes.txt"
   if [ "${RUNNER:-herdr}" = orca ]; then
   # Orca: each agent is found by its terminal, the pane map's lane line; its
   # states and tail are the terminal's (ORCA_STUB_STATES_DIR/term-1).
