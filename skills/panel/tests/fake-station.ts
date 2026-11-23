@@ -3,7 +3,8 @@
  * kinds in FAKE_KINDS. Each fake job emits its workspace and two steps, then
  * waits for WORKDIR/release-<job id>: empty to finish, "fail" to fail. With
  * FAKE_CHECKPOINT=1 it first waits for WORKDIR/checkpoint-<job id>, sends a
- * "spec" checkpoint, and once the hub has it writes WORKDIR/acted-<job id>.
+ * "spec" checkpoint, and once the hub has it writes WORKDIR/acted-<job id>;
+ * WORKDIR/refused-<job id> when the checkpoint is refused.
  */
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -28,7 +29,12 @@ for (const kind of env("FAKE_KINDS").split(",").filter(Boolean))
       if (env("FAKE_CHECKPOINT") === "1") {
         const at = join(workdir, `checkpoint-${job.id}`);
         while (!existsSync(at) && !signal.aborted) await Bun.sleep(20);
-        await checkpoint("spec", { n: 3 });
+        try {
+          await checkpoint("spec", { n: 3 });
+        } catch (err) {
+          writeFileSync(join(workdir, `refused-${job.id}`), String(err));
+          return { outcome: "failed", reason: String(err) };
+        }
         writeFileSync(join(workdir, `acted-${job.id}`), "");
       }
       const release = join(workdir, `release-${job.id}`);

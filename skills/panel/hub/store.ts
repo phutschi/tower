@@ -156,11 +156,16 @@ export class Store {
     this.db.run("INSERT OR IGNORE INTO repos (name) VALUES (?)", [name]);
   }
 
-  /** Unlists a repo; its issues leave the snapshot, its jobs stay as history. */
+  /**
+   * Unlists a repo; its issues leave the snapshot, and its jobs not over yet
+   * are stopped, staying as history.
+   */
   removeRepo(name: string) {
     this.db.transaction(() => {
       this.db.run("DELETE FROM repos WHERE name = ?", [name]);
       this.db.run("DELETE FROM issues WHERE repo = ?", [name]);
+      for (const j of this.jobs())
+        if (j.repo === name) this.requestStop(j.id, "the repo was unlisted");
     })();
   }
 
@@ -438,12 +443,13 @@ export class Store {
    */
   finish(station: string, r: JobResult): boolean {
     const t = r.tokens;
+    // NULL + n is NULL: a result with no tokens keeps the totals.
     return (
       this.db.run(
         `UPDATE jobs SET state = ?, reason = ?, session_id = COALESCE(?, session_id),
            duration_ms = ?,
-           tokens_in = CASE WHEN ? THEN COALESCE(tokens_in, 0) + ? ELSE tokens_in END,
-           tokens_out = CASE WHEN ? THEN COALESCE(tokens_out, 0) + ? ELSE tokens_out END,
+           tokens_in = COALESCE(COALESCE(tokens_in, 0) + ?, tokens_in),
+           tokens_out = COALESCE(COALESCE(tokens_out, 0) + ?, tokens_out),
            lease_until = NULL, station = ?, lost_by = NULL
          WHERE id = ? AND ${FINISHES}`,
         [
@@ -451,10 +457,8 @@ export class Store {
           r.reason ?? null,
           r.sessionId ?? null,
           r.durationMs,
-          t ? 1 : 0,
-          t?.input ?? 0,
-          t ? 1 : 0,
-          t?.output ?? 0,
+          t?.input ?? null,
+          t?.output ?? null,
           station,
           r.jobId,
           station,

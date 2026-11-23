@@ -340,6 +340,25 @@ test("a checkpoint the hub has not stored holds the job's next step until the hu
   expect(events.map((e) => e.kind)).toContain("spec");
 });
 
+test("a checkpoint for a job the station holds no more is refused, and its action never runs", async () => {
+  await setup();
+  await grills(1);
+  const { workdir } = station("server", "grill", { FAKE_CHECKPOINT: "1" });
+  await until(async () => (await jobs())[0]?.state === "claimed");
+  const id = (await jobs())[0]!.id;
+  // The hub ends the job: its result is in.
+  await post(`/api/jobs/${id}/result`, {
+    station: "server",
+    outcome: "done",
+    durationMs: 5,
+  });
+  writeFileSync(join(workdir, `checkpoint-${id}`), "");
+  await until(async () => existsSync(join(workdir, `refused-${id}`)));
+  expect(existsSync(join(workdir, `acted-${id}`))).toBe(false);
+  const { events } = await api<JobWithEvents>(`/api/jobs/${id}`);
+  expect(events.map((e) => e.kind)).not.toContain("spec");
+});
+
 test("the Panel lists stations with switch, limit and current jobs, and each job's events", async () => {
   await setup();
   await put("/api/stations/laptop", { limit: 3 });

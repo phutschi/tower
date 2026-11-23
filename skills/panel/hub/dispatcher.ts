@@ -19,7 +19,8 @@ const LABELS: readonly string[] = STAGES.filter((s) => s !== "closed");
 /** The furthest stage label an issue carries; no stage label is needs-triage. */
 export function stageOf(labels: string[]): Stage {
   let stage: Stage = "needs-triage";
-  for (const s of STAGES) if (labels.includes(s)) stage = s;
+  // A label named closed is any label: closed is GitHub's state.
+  for (const s of LABELS) if (labels.includes(s)) stage = s as Stage;
   return stage;
 }
 
@@ -32,15 +33,26 @@ const JOB_FOR: Partial<Record<Stage, JobKind>> = {
 };
 const jobFor = (to: Stage): JobKind | null => JOB_FOR[to] ?? null;
 
-/** The jobs a stage move calls off: the ones working an issue's stage. */
+/** The jobs a step back calls off: the ones working an issue's stage. */
 const STOPPABLE: readonly JobKind[] = ["grill", "run"];
 
-/** Why a move stops the issue's jobs, or null when it is not a step back. */
-function stopsJobs(from: Stage, to: Stage): string | null {
+/**
+ * Why a move stops one of the issue's jobs, or null when it does not. A
+ * close stops every job; a step back the ones working the stage; a move on
+ * out of shaping its grill, unless the grill made that move: it keeps its
+ * spec on the hub before it moves the issue.
+ */
+function stopsJob(store: Store, j: Job, from: Stage, to: Stage): string | null {
   if (to === "closed") return "the issue was closed";
-  return STAGES.indexOf(to) < STAGES.indexOf(from)
-    ? `moved back to ${to}`
-    : null;
+  if (STAGES.indexOf(to) < STAGES.indexOf(from))
+    return STOPPABLE.includes(j.kind) ? `moved back to ${to}` : null;
+  if (
+    j.kind === "grill" &&
+    from === "shaping" &&
+    !store.events(j.id).some((e) => e.kind === "spec")
+  )
+    return `moved on to ${to}`;
+  return null;
 }
 
 /** The accepted bundle an issue is built in, if any. */
@@ -70,12 +82,40 @@ function runIssues(
 }
 
 /**
+ * Queues the job of `kind` a move of `number` asks for. A run is queued held,
+ * until the hub has checked its blockers. An issue whose job of that kind is
+ * not over yet gets no second one. A bundle that is ready takes over the
+ * waiting runs of its issues; one already claimed keeps them.
+ */
+function queue(
+  store: Store,
+  repo: string,
+  number: number,
+  kind: JobKind,
+  now: Date,
+  bundleOf: BundleOf,
+) {
+  const issues =
+    kind === "run" ? runIssues(store, repo, number, bundleOf) : [number];
+  if (!issues) return;
+  const others = [
+    ...new Map(
+      issues
+        .flatMap((n) => store.activeJobs(repo, n))
+        .filter((j) => j.kind === kind)
+        .map((j) => [j.id, j]),
+    ).values(),
+  ];
+  const same = (j: Job) => j.issues.join() === issues.join();
+  if (others.some((j) => same(j) || j.state === "claimed")) return;
+  for (const j of others) store.requestStop(j.id, "joined a bundle");
+  store.addJob(kind, repo, issues, now, kind === "run" ? "held" : "queued");
+}
+
+/**
  * Records one issue's stage, and acts when it was moved since last seen: a
- * step back or a close stops the issue's job, and the new stage queues the
- * job it asks for. A run is queued held, until the hub has checked its
- * blockers. A reopened issue was not moved, and an issue whose job of that
- * kind is not over yet gets no second one. A bundle that is ready takes over
- * the waiting runs of its issues; one already claimed keeps them.
+ * move stops the jobs it calls off (stopsJob), and the new stage queues the
+ * job it asks for. A reopened issue was not moved.
  */
 export function record(
   store: Store,
@@ -87,35 +127,39 @@ export function record(
     const prev = store.issue(next.repo, next.number);
     store.putIssue(next);
     if (!prev || prev.stage === next.stage || prev.stage === "closed") return;
-    const stop = stopsJobs(prev.stage, next.stage);
-    if (stop)
-      for (const j of store.activeJobs(next.repo, next.number))
-        if (STOPPABLE.includes(j.kind)) store.requestStop(j.id, stop);
+    for (const j of store.activeJobs(next.repo, next.number)) {
+      const stop = stopsJob(store, j, prev.stage, next.stage);
+      if (stop) store.requestStop(j.id, stop);
+    }
     const kind = jobFor(next.stage);
-    if (!kind) return;
-    const issues =
-      kind === "run"
-        ? runIssues(store, next.repo, next.number, bundleOf)
-        : [next.number];
-    if (!issues) return;
-    const others = [
-      ...new Map(
-        issues
-          .flatMap((n) => store.activeJobs(next.repo, n))
-          .filter((j) => j.kind === kind)
-          .map((j) => [j.id, j]),
-      ).values(),
-    ];
-    const same = (j: Job) => j.issues.join() === issues.join();
-    if (others.some((j) => same(j) || j.state === "claimed")) return;
-    for (const j of others) store.requestStop(j.id, "joined a bundle");
-    store.addJob(
-      kind,
-      next.repo,
-      issues,
-      now,
-      kind === "run" ? "held" : "queued",
-    );
+    if (kind) queue(store, next.repo, next.number, kind, now, bundleOf);
+  });
+}
+
+/**
+ * After the bundles of `repo` changed: stops each waiting run whose issues
+ * are no longer what their bundle builds, and queues the runs the bundles
+ * ask for now. A claimed run keeps its issues.
+ */
+export function regroup(
+  store: Store,
+  repo: string,
+  now: Date,
+  bundleOf: BundleOf,
+) {
+  store.transaction(() => {
+    for (const j of store.jobs()) {
+      if (j.kind !== "run" || j.repo !== repo) continue;
+      if (j.state !== "queued" && j.state !== "held") continue;
+      const wants = j.issues.map((n) =>
+        runIssues(store, repo, n, bundleOf)?.join(),
+      );
+      if (wants.some((w) => w !== j.issues.join()))
+        store.requestStop(j.id, "its bundle changed");
+    }
+    for (const i of store.issues(repo))
+      if (i.stage === "ready-for-agent")
+        queue(store, repo, i.number, "run", now, bundleOf);
   });
 }
 
@@ -173,9 +217,11 @@ export function merged(
   now: Date,
 ) {
   const prev = advice.head(repo);
-  advice.setHead(repo, head);
-  if (prev === undefined || prev === head) return;
+  // Queued before the head is saved: the two stores commit apart, and a
+  // repeat finds the queued advice.
   const queued = (j: Job) =>
     j.kind === "advice" && j.repo === repo && j.state === "queued";
-  if (!store.jobs().some(queued)) store.addJob("advice", repo, [], now);
+  if (prev !== undefined && prev !== head && !store.jobs().some(queued))
+    store.addJob("advice", repo, [], now);
+  advice.setHead(repo, head);
 }

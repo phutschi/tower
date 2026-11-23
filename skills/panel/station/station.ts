@@ -106,7 +106,8 @@ export async function runStation(
         if (res.ok) sent.settle?.();
         else {
           const why = `the hub refused ${sent.path}: ${await res.text()}`;
-          console.error(`station: ${why}`);
+          // 409: the job is over or another station's; the heartbeat says so.
+          if (res.status !== 409) console.error(`station: ${why}`);
           sent.settle?.(new Error(why));
         }
       }

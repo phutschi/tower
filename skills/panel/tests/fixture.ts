@@ -82,8 +82,14 @@ export async function acceptBundle(...issues: number[]): Promise<string> {
  */
 export async function held(kind: Job["kind"]): Promise<Job> {
   await put("/api/stations/fixture", { enabled: true, limit: 100 });
-  await post("/api/jobs/claim", { station: "fixture", kinds: [kind] });
-  return (await api<Job[]>("/api/jobs")).filter((j) => j.kind === kind).at(-1)!;
+  const res = await post("/api/jobs/claim", {
+    station: "fixture",
+    kinds: [kind],
+  });
+  return (
+    ((await res.json()) as Job | null) ??
+    (await api<Job[]>("/api/jobs")).filter((j) => j.kind === kind).at(-1)!
+  );
 }
 
 export const setHead = (repo: string, sha: string) =>

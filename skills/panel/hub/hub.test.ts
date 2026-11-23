@@ -16,10 +16,12 @@ import {
   dir,
   ghIssues,
   ghLog,
+  held,
   hubUrl,
   issue,
   polls,
   post,
+  put,
   setHead,
   setIssues,
   start,
@@ -399,7 +401,7 @@ test("a bundle accepted around an issue that already has a waiting run takes tha
   await post("/api/issues/acme/widgets/3/stage", { stage: "ready-for-agent" });
   await polls(1);
   expect((await runs()).map((j) => [j.issues, j.state, j.reason])).toEqual([
-    [[1], "stopped", "joined a bundle"],
+    [[1], "stopped", "its bundle changed"],
     [[1, 3], "queued", null],
   ]);
 });
@@ -511,4 +513,166 @@ test("the hub refuses to listen on every address: it is reached on the tailnet o
     expect(
       startHub({ dbPath: join(dir(), "hub.db"), host, port: 0, pollMs: 20 }),
     ).rejects.toThrow("never on every address");
+});
+
+test("an open issue with a label named closed is not closed", async () => {
+  setIssues("acme/widgets", [
+    issue(1, "closed"),
+    issue(2, "closed", "shaping"),
+  ]);
+  await start();
+  const stages = (await api<PanelIssue[]>("/api/issues")).map((i) => [
+    i.number,
+    i.stage,
+  ]);
+  expect(stages).toEqual([
+    [1, "needs-triage"],
+    [2, "shaping"],
+  ]);
+});
+
+test("closing an issue stops its waiting label-area job", async () => {
+  contextMap();
+  setIssues("acme/widgets", [issue(1)]);
+  await start();
+  setIssues("acme/widgets", [issue(1), issue(3)]);
+  await polls(2);
+  setIssues("acme/widgets", [issue(1)]);
+  await polls(2);
+  expect((await labelJobs()).map((j) => [j.state, j.reason])).toEqual([
+    ["stopped", "the issue was closed"],
+  ]);
+});
+
+test("a move on out of shaping stops the issue's working grill; the grill's own move, after its spec, does not", async () => {
+  setIssues("acme/widgets", [issue(1), issue(2)]);
+  await start(["acme/widgets"], { serverStation: "server" });
+  await put("/api/stations/server", { limit: 2 });
+  for (const n of [1, 2])
+    await post(`/api/issues/acme/widgets/${n}/stage`, { stage: "shaping" });
+  const claim = async () =>
+    (await (
+      await post("/api/jobs/claim", { station: "server", kinds: ["grill"] })
+    ).json()) as Job;
+  const [one, two] = [await claim(), await claim()];
+  // The grill of #2 keeps its spec on the hub, then moves #2 itself.
+  await post(`/api/jobs/${two.id}/events`, {
+    station: "server",
+    ts: new Date().toISOString(),
+    kind: "spec",
+    data: { spec: "the spec" },
+  });
+  await post("/api/issues/acme/widgets/1/stage", { stage: "ready-for-agent" });
+  setIssues("acme/widgets", [
+    issue(1, "ready-for-agent"),
+    issue(2, "ready-for-agent"),
+  ]);
+  await polls(2);
+  expect(await api<unknown>(`/api/jobs/${one.id}/control`)).toEqual({
+    stop: true,
+    reason: "moved on to ready-for-agent",
+  });
+  expect(await api<unknown>(`/api/jobs/${two.id}/control`)).toEqual({
+    stop: false,
+    reason: null,
+  });
+  expect((await runs()).map((j) => [j.issues, j.state])).toEqual([
+    [[1], "queued"],
+    [[2], "queued"],
+  ]);
+});
+
+test("accepting a bundle around a waiting run stops that run until the whole bundle is ready", async () => {
+  setIssues("acme/widgets", [issue(1, "shaping"), issue(2, "shaping")]);
+  setHead("acme/widgets", "aaa");
+  await start();
+  await post("/api/issues/acme/widgets/1/stage", { stage: "ready-for-agent" });
+  await polls(1);
+  await acceptBundle(1, 2);
+  expect((await runs()).map((j) => [j.issues, j.state, j.reason])).toEqual([
+    [[1], "stopped", "its bundle changed"],
+  ]);
+  await post("/api/issues/acme/widgets/2/stage", { stage: "ready-for-agent" });
+  expect((await runs()).map((j) => [j.issues, j.state])).toEqual([
+    [[1], "stopped"],
+    [[1, 2], "queued"],
+  ]);
+});
+
+test("a newer accepted bundle takes its issues out of older ones, and their waiting runs follow", async () => {
+  setIssues("acme/widgets", [
+    issue(1, "shaping"),
+    issue(2, "shaping"),
+    issue(3, "shaping"),
+  ]);
+  setHead("acme/widgets", "aaa");
+  await start();
+  await acceptBundle(1, 2);
+  for (const n of [1, 2, 3])
+    await post(`/api/issues/acme/widgets/${n}/stage`, {
+      stage: "ready-for-agent",
+    });
+  const newer = await acceptBundle(2, 3);
+  expect((await runs()).map((j) => [j.issues, j.state])).toEqual([
+    [[1, 2], "stopped"],
+    [[3], "stopped"],
+    [[1], "queued"],
+    [[2, 3], "queued"],
+  ]);
+  const bundles = (await api<PanelIssue[]>("/api/issues")).map((i) => [
+    i.number,
+    i.bundleId,
+  ]);
+  expect(bundles).toEqual([
+    [1, null],
+    [2, newer],
+    [3, newer],
+  ]);
+});
+
+test("accepting an order part holds the waiting run it makes wait, before any poll", async () => {
+  setIssues("acme/widgets", [issue(1), issue(2, "shaping")]);
+  setHead("acme/widgets", "aaa");
+  await start();
+  await post("/api/issues/acme/widgets/2/stage", { stage: "ready-for-agent" });
+  setHead("acme/widgets", "bbb");
+  await polls(2);
+  expect((await runs()).map((j) => j.state)).toEqual(["queued"]);
+  const job = await held("advice");
+  await post(`/api/jobs/${job.id}/events`, {
+    station: job.station,
+    ts: new Date().toISOString(),
+    kind: "proposal",
+    data: {
+      order: [{ repo: "acme/widgets", issue: 2, after: [1], reason: "r" }],
+      bundles: [],
+    },
+  });
+  // No poll gets that far meanwhile: listing the issues fails.
+  writeFileSync(join(dir(), "fail"), "list");
+  await post(`/api/advice/${job.id}/accept`, { order: [0], bundles: [] });
+  expect((await runs()).map((j) => [j.state, j.reason])).toEqual([
+    ["held", "waits on #1"],
+  ]);
+});
+
+test("unlisting a repo stops its waiting and claimed jobs, and keeps them", async () => {
+  setIssues("acme/widgets", [issue(1), issue(2)]);
+  await start(["acme/widgets"], { serverStation: "server" });
+  for (const n of [1, 2])
+    await post(`/api/issues/acme/widgets/${n}/stage`, { stage: "shaping" });
+  const claimed = (await (
+    await post("/api/jobs/claim", { station: "server", kinds: ["grill"] })
+  ).json()) as Job;
+  await fetch(`${hubUrl()}/api/repos/acme/widgets`, { method: "DELETE" });
+  const [a, b] = await jobsNow();
+  expect(a!.id).toBe(claimed.id);
+  expect(await api<unknown>(`/api/jobs/${a!.id}/control`)).toEqual({
+    stop: true,
+    reason: "the repo was unlisted",
+  });
+  expect(b).toMatchObject({
+    state: "stopped",
+    reason: "the repo was unlisted",
+  });
 });

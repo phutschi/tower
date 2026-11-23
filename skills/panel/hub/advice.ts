@@ -211,11 +211,25 @@ export class AdviceStore {
       for (const b of p.bundles) {
         if (!bundles.includes(b.id)) continue;
         b.decision = decision;
-        if (decision === "accepted")
-          this.db.run(
-            "INSERT INTO bundles (id, repo, issues, accepted_at) VALUES (?, ?, ?, ?)",
-            [b.id, b.repo, JSON.stringify(b.issues), now.toISOString()],
-          );
+        if (decision !== "accepted") continue;
+        // The newest bundle wins: its issues leave the older ones, and an
+        // older one left with a single issue is no bundle.
+        for (const old of this.bundles()) {
+          if (old.repo !== b.repo) continue;
+          const rest = old.issues.filter((n) => !b.issues.includes(n));
+          if (rest.length === old.issues.length) continue;
+          if (rest.length < 2)
+            this.db.run("DELETE FROM bundles WHERE id = ?", [old.id]);
+          else
+            this.db.run("UPDATE bundles SET issues = ? WHERE id = ?", [
+              JSON.stringify(rest),
+              old.id,
+            ]);
+        }
+        this.db.run(
+          "INSERT INTO bundles (id, repo, issues, accepted_at) VALUES (?, ?, ?, ?)",
+          [b.id, b.repo, JSON.stringify(b.issues), now.toISOString()],
+        );
       }
       this.db.run("UPDATE proposals SET body = ? WHERE id = ?", [
         JSON.stringify(p),

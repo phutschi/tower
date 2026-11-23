@@ -12,7 +12,7 @@ import {
   type UsageRow,
 } from "../types.ts";
 import { AdviceStore, keepOpen, parseProposal } from "./advice.ts";
-import { isStageLabel, merged, record, sync } from "./dispatcher.ts";
+import { isStageLabel, merged, record, regroup, sync } from "./dispatcher.ts";
 import { GitHub } from "./github.ts";
 import { sendInboxNote } from "../station/inbox.ts";
 import { renderPanel, type PanelData } from "./panel-page.ts";
@@ -374,6 +374,18 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
         }
       else advice.decide(id, decision, order, [], now());
       advice.decide(id, decision, [], bundles, now());
+      // What was accepted holds now, not at the next poll: runs follow
+      // their bundles, and wait on their new blockers.
+      if (decision === "accepted")
+        for (const repo of new Set([
+          ...order.map((i) => p.order[i]!.repo),
+          ...p.bundles.filter((x) => bundles.includes(x.id)).map((x) => x.repo),
+        ])) {
+          regroup(store, repo, now(), bundleOf);
+          await gate(repo).catch((err: unknown) =>
+            console.error(`hub: checking ${repo}'s blockers: ${String(err)}`),
+          );
+        }
       return Response.json(advice.proposal(id));
     });
 
@@ -471,7 +483,11 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
           // A claimed run moves its issues to in-progress; the poll tries
           // again if this fails (followRuns).
           if (job?.kind === "run")
-            void serial(() => setStages(job, "in-progress")).catch((err) =>
+            void serial(async () => {
+              // Not if the user stopped it while a move ran ahead of it.
+              if (!store.control(job.id)?.stop)
+                await setStages(job, "in-progress");
+            }).catch((err) =>
               console.error(`hub: setting in-progress failed: ${String(err)}`),
             );
           return Response.json(job);
@@ -513,13 +529,11 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
           // Only from the station working the job: one that lost it says nothing.
           if (typeof station !== "string" || !store.holds(job.id, station))
             return bad("the station holds this job no more", 409);
-          if (kind === "session" && typeof data.sessionId === "string")
-            store.setSession(job.id, data.sessionId);
-          if (kind === "tokens") {
-            if (!isCount(data.input) || !isCount(data.output))
-              return bad("a tokens event has input and output counts");
-            store.addTokens(job.id, { input: data.input, output: data.output });
-          }
+          if (
+            kind === "tokens" &&
+            !(isCount(data.input) && isCount(data.output))
+          )
+            return bad("a tokens event has input and output counts");
           if (kind === "rate-limit") {
             const info = parseRateLimit(data);
             if (!info)
@@ -547,7 +561,17 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
             });
             advice.add(job.id, kept, now());
           }
-          store.addEvent({ jobId: req.params.id, ts, kind, data });
+          // One write: an event sent again after a failure counts once.
+          store.transaction(() => {
+            if (kind === "session" && typeof data.sessionId === "string")
+              store.setSession(job.id, data.sessionId);
+            if (kind === "tokens")
+              store.addTokens(job.id, {
+                input: data.input as number,
+                output: data.output as number,
+              });
+            store.addEvent({ jobId: job.id, ts, kind, data });
+          });
           return Response.json({ ok: true });
         },
       },
