@@ -35,6 +35,8 @@
 # (runtime_unavailable); =garbled: it succeeds with an answer that has no
 # worktree in it; =suffix: it makes the worktree on <branch>-2, as Orca does
 # when the branch is taken (`worktree show` says so).
+# ORCA_STUB_SEND_FAIL=1: every `terminal send` with text fails
+# (runtime_unavailable).
 # ORCA_STUB_STATUS=fail: `status` answers runtime_unavailable; =offline: it
 # succeeds, saying the runtime is not reachable (both: Orca not reachable).
 # ORCA_STUB=absent refuses to run, so orca counts as not installed; it logs
@@ -106,6 +108,7 @@ case "${1:-} ${2:-}" in
     ok "{\"terminal\":{\"handle\":\"$h\",\"tabId\":\"$tab\",\"leafId\":\"$leaf\",\"worktreeId\":\"$wt\"}}" ;;
   "terminal send")
     h=$(flag terminal); live "$h"
+    [ "${ORCA_STUB_SEND_FAIL:-}" != 1 ] || ! has text || err runtime_unavailable
     if trusty "$h"; then
       if [ "$(peek "$h")" = trust ] && has text && has enter; then err agent_prompt_blocked; fi
       if has enter && ! has text; then

@@ -882,6 +882,19 @@ if section add-lane; then
   assert_match "orca D, made on another branch: ... saying which, and what to remove" "$out" "Orca made lane D's worktree on branch feat/d-2, not feat/d: remove it \\(\"\\\$ORCA_CLI_COMMAND\" worktree rm --worktree id:repo-0::/orca-stub/worktrees/wt-[0-9]+ --force\\) and branch feat/d-2"
   assert_nomatch "orca D, made on another branch: no terminal" "$(cat "$ORCA_STUB_LOG")" '^orca terminal create '
   assert_nomatch "orca D, made on another branch: no lane D line" "$(cat "$RUN/panes.txt")" 'lane D:'
+  # A launch Orca never sent (its send refused) is recorded as unsent; the
+  # rerun starts the agent once, in the same terminal.
+  : > "$ORCA_STUB_LOG"; out=$(ORCA_STUB_SEND_FAIL=1 ORCA_STUB_WORKTREES="$TMP/orca-wt" lane D feat/d2 main 5; echo "exit=$?")
+  dpane=$(sed -nE 's/^lane D: +([^ ]+).*/\1/p' "$RUN/panes.txt"); dwt=$(sed -nE 's/^lane D: .* checkout (.*), model .*/\1/p' "$RUN/panes.txt")
+  assert_match "orca D, its launch not sent: fails" "$out" 'exit=1$'
+  assert_match "orca D, its launch not sent: recorded unsent" "$(cat "$RUN/panes.txt")" '^lane D: .*\) unsent$'
+  assert_match "orca D, its launch not sent: says a rerun starts it" "$out" "lane D's launch was never sent: rerun  .*add-lane\\.sh .* D feat/d2 main 5  to start it in $dpane"
+  mkdir -p "$TMP/orca-wt"; git -C "$r" worktree add -q -b feat/d2 "$dwt"   # the worktree Orca made
+  : > "$ORCA_STUB_LOG"; out=$(lane D feat/d2 main 5; echo "exit=$?")
+  assert_match "orca D rerun: started" "$out" 'exit=0$'
+  assert_eq "orca D rerun: its agent typed once, in the same terminal" "$(grep -c "^orca terminal send --terminal $dpane --text claude " "$ORCA_STUB_LOG")" 1
+  assert_nomatch "orca D rerun: no new worktree or terminal" "$(cat "$ORCA_STUB_LOG")" '^orca (worktree create|terminal create) '
+  assert_match "orca D rerun: the line is a started lane" "$(cat "$RUN/panes.txt")" '^lane D: .*, tab lanes\)$'
   # Ids and paths with a space are kept whole: the orchestrator's workspace
   # (its checkout's path) and the worktree Orca makes.
   rs=$(fixture_repo bun-vitest); mkdir -p "$TMP/team space"; mv "$(dirname "$rs")" "$TMP/team space/r"; rs="$TMP/team space/r/bun-vitest"

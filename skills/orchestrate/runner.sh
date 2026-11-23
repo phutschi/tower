@@ -29,7 +29,7 @@ need_runner() {
 
 # The runner functions, loaded by need_runner alone (each runner-<runner>.sh
 # documents them):
-#   runner_agent_start NAME KIND PANE -- HARNESS_ARGS...
+#   runner_agent_start NAME KIND PANE -- HARNESS_ARGS...   3: it failed with nothing sent
 #   runner_agent_state NAME PANE   "<status> <ready>", gone or unreadable;
 #                                  gone: herdr, the agent is not found (Orca never says it:
 #                                  a stale handle may name a terminal still open)

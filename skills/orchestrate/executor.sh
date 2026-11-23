@@ -179,7 +179,13 @@ start_agent() {
       runner_agent_start "$name" codex "$pane" -- -m "$EXECUTOR_MODEL" \
         -a never -s workspace-write -c sandbox_workspace_write.network_access=true \
         -c check_for_update_on_startup=false "${extra[@]}" ;;
-  esac
+  esac || {
+    local rc=$?
+    # Anything but the runner's "nothing sent" may have launched it.
+    [ "$rc" = 3 ] || [ -z "${LAUNCH_MARK:-}" ] || : > "$LAUNCH_MARK"
+    return "$rc"
+  }
+  [ -z "${LAUNCH_MARK:-}" ] || : > "$LAUNCH_MARK"
 }
 
 # S as a TOML basic string, for a codex -c value.
