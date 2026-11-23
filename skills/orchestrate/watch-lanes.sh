@@ -33,6 +33,9 @@
 # attention too (`tower: run closed`), and so is a complete board once no watched agent
 # is working (`tower: run complete`): a complete board alone is not, since a
 # lane's check gate and report, preflight and the PR come after its last task.
+# Exit 1 before the first poll when <run-dir>/panes.txt is missing, or when no
+# lane or Reviewer line names an agent literally, or two do (common.sh
+# agent_pane): drop that agent, or fix the map.
 #
 # Idle is ambiguous: a lane that was just prompted, or is waiting on its own
 # review subagent, reads idle for a moment. So idle counts only after

@@ -2458,9 +2458,14 @@ if section watch; then
   assert_match "watch: ... at once" "$out" 'exit=1$'
   out=$(watch 'a.*')
   assert_match "watch: a name read literally, not as a pattern" "$out" 'names agent a\.\*'
+  assert_match "watch: ... refused" "$out" 'exit=1$'
   cp "$RUN/panes.txt" "$TMP/watch-map"; grep '^lane A:' "$TMP/watch-map" | sed 's/^lane A:/lane C:/' >> "$RUN/panes.txt"
   out=$(watch a)
   assert_match "watch: an agent two lines name: refused" "$out" "watch-lanes: 2 lines in $RUN/panes.txt name agent a"
+  assert_match "watch: ... at once" "$out" 'exit=1$'
+  rm "$RUN/panes.txt"; out=$(watch a)
+  assert_match "watch: no pane map: refused, saying so" "$out" "watch-lanes: no pane map at $RUN/panes.txt"
+  assert_match "watch: ... at once" "$out" 'exit=1$'
   cp "$TMP/watch-map" "$RUN/panes.txt"
   if [ "${RUNNER:-herdr}" = orca ]; then
   # Orca: each agent is found by its terminal, the pane map's lane line; its
