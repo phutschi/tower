@@ -3517,6 +3517,7 @@ if section start-run; then
   assert_match "start-run: the orchestrator is claude, in the workspace's first pane" "$log" '^herdr agent start acme-widgets-12 --kind claude --pane pane-1 '
   assert_match "start-run: the brief is its first prompt"     "$log" '^herdr agent prompt acme-widgets-12 Run /tower:spec-to-plan on acme/widgets#12\.$'
   assert_match "start-run: prints the workspace and the pane" "$out" '^\{"workspace":"ws-1","pane":"pane-1"\}$'
+  assert_nomatch "start-run: a started run keeps its workspace" "$log" 'workspace close'
   reset_stub
   "$KIT/start-run.sh" acme-widgets-platform-infrastructure-12 "$r" "$brief" >/dev/null 2>&1
   "$KIT/start-run.sh" acme-widgets-platform-infrastructure-13 "$r" "$brief" >/dev/null 2>&1

@@ -42,6 +42,7 @@ async function hub(args: string[]) {
   });
   mkdirSync(dirname(values.db), { recursive: true });
   const usageMs = Number(values["usage-seconds"]) * 1000;
+  if (!(usageMs >= 0)) usage();
   const hub = await startHub({
     dbPath: values.db,
     host: values.host,
@@ -107,9 +108,10 @@ const bootout = (cmd: string, role: Role) => {
       stdio: "pipe",
     });
   } catch (err) {
-    // 3 (older macOS) and 113 say the service is not loaded.
+    // Nothing runs: 3 (no such service), 112 (no such domain: nobody is
+    // logged in at the screen), 113 (service not found).
     const { status } = err as { status?: number };
-    if (status === 3 || status === 113) return;
+    if (status === 3 || status === 112 || status === 113) return;
     console.error(
       `${cmd} ${role}: launchctl could not unload ${label(role)}: ${String(err)}`,
     );
@@ -131,8 +133,10 @@ function install(args: string[]) {
     },
   });
   let run: string[];
+  let panel = "";
   if (role === "hub") {
     const host = tailscaleIp();
+    panel = `http://${host}:${values.port}`;
     run = [
       "hub",
       "--host",
@@ -142,9 +146,6 @@ function install(args: string[]) {
       "--server-station",
       values["server-station"],
     ];
-    console.log(
-      `install hub: the Panel will be at http://${host}:${values.port}`,
-    );
   } else {
     if (!values.hub) usage();
     run = ["station", "--hub", values.hub, "--name", values.name];
@@ -163,6 +164,7 @@ function install(args: string[]) {
     process.exit(1);
   }
   console.log(`install ${role}: ${path} is loaded`);
+  if (panel) console.log(`install hub: the Panel is at ${panel}`);
 }
 
 function uninstall(args: string[]) {
