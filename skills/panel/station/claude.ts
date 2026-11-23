@@ -37,8 +37,6 @@ interface StreamLine {
     utilization?: number;
     /** Seconds since the epoch. */
     resetsAt?: number;
-    overageStatus?: RateLimitInfo["status"];
-    isUsingOverage?: boolean;
   };
 }
 
@@ -96,12 +94,8 @@ export async function runHeadless(opts: {
     const info = msg.type === "rate_limit_event" && msg.rate_limit_info;
     if (info)
       run.rateLimits.push({
-        // A request the plan refused but extra usage pays for goes on.
-        status:
-          info.status === "rejected" &&
-          (info.overageStatus === "allowed" || info.isUsingOverage)
-            ? "allowed_warning"
-            : info.status,
+        // A plan rejection pauses dispatch even when extra usage would pay.
+        status: info.status,
         ...(info.rateLimitType ? { rateLimitType: info.rateLimitType } : {}),
         ...(info.utilization === undefined
           ? {}

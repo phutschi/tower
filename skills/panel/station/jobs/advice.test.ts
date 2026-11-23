@@ -212,8 +212,8 @@ test("a rejected rate-limit event in a session pauses dispatch until its reset",
   await until(async () => read("plannotator.log").includes("Dispatch paused"));
 });
 
-test("a rejection paid as extra usage pauses nothing", async () => {
-  const job = await advise(
+test("a rejection pauses dispatch until its reset even when extra usage would pay", async () => {
+  await advise(
     limited([
       {
         type: "rate_limit_event",
@@ -228,9 +228,10 @@ test("a rejection paid as extra usage pauses nothing", async () => {
       },
     ]),
   );
-  expect(job.state).toBe("stuck");
-  await Bun.sleep(200);
-  expect((await usage()).pausedUntil).toBeNull();
+  await until(async () => (await usage()).pausedUntil !== null);
+  expect((await usage()).pausedUntil).toBe(
+    new Date(RESET * 1000).toISOString(),
+  );
 });
 
 test("a rate_limit error pauses dispatch until the earliest reset the session named", async () => {
