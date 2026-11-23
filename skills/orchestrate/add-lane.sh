@@ -62,8 +62,10 @@
 # agent_not_found, a rerun with another branch, kind, model or task ids than
 # the first call's (ids expanded by `tower ids`, so an id tower refuses is
 # refused in its words), and a lane whose pane (herdr's pane_not_found) or
-# worktree is gone: the message says what to remove. A pane herdr cannot be
-# asked about is refused with nothing to remove; rerun once herdr answers.
+# worktree is gone: the message says what to remove. So is a checkout on the
+# lane's line that git does not name as this repo's worktree on its branch.
+# A pane herdr cannot be asked about is refused with nothing to remove; rerun
+# once herdr answers.
 # Not resumed, but said: a worktree create that fails or answers with no pane
 # (remove what it made, then rerun), and a move whose answer names no pane
 # (the moved pane's id goes into the map by hand; the install ran before the
@@ -169,6 +171,17 @@ check_rerun() {
     esac
   fi
   [ -d "$WT" ] || die "lane $LANE's checkout $WT is gone: close its pane $2 and remove its $3 from $MAP, then add the lane again"
+  # A lane can write the pane map (docs/orchestrate.md): its checkout is used
+  # only when git names it as this repo's worktree on the lane's branch.
+  [ "$(branch_worktree)" = "$(cd "$WT" && pwd -P)" ] \
+    || die "lane $LANE's checkout $WT in $MAP is not this repo's worktree on branch $BRANCH (git worktree list): set its checkout to that worktree, then rerun  $RERUN"
+}
+# The checkout git has on $BRANCH among this repo's worktrees, its real path;
+# empty when there is none.
+branch_worktree() {
+  local p
+  p=$(git -C "$REPO_ROOT" worktree list --porcelain | awk -v b="branch refs/heads/$BRANCH" '/^worktree /{p=substr($0,10)} $0==b{print p; exit}')
+  [ -z "$p" ] || (cd "$p" 2>/dev/null && pwd -P)
 }
 
 # Replaces the pane map's line matching $1 (a grep pattern) with $2 at the

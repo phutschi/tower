@@ -139,6 +139,14 @@ if [ -z "$ONLY" ] && [ "$LIST" = 0 ]; then
   [ "$fail" = 0 ]; exit
 fi
 reset_stub() { : > "$HERDR_STUB_LOG"; rm -f "$HERDR_STUB_COUNTER" "$HERDR_STUB_COUNTER.busy" "$HERDR_STUB_COUNTER.enters" "$HERDR_STUB_COUNTER.trust" "$HERDR_STUB_COUNTER.started" "$HERDR_STUB_COUNTER.tabs" "$ORCA_STUB_COUNTER" "$ORCA_STUB_COUNTER.terminals" "$ORCA_STUB_COUNTER.worktrees"; }
+# mkwt REPO BRANCH: REPO's worktree on BRANCH at REPO/.worktrees/BRANCH, as a
+# runner's worktree create makes it (the stubs make none); kept if there.
+mkwt() {
+  local d="$1/.worktrees/$2"; [ -d "$d" ] && return 0
+  git -C "$1" worktree prune
+  if git -C "$1" show-ref --verify --quiet "refs/heads/$2"; then git -C "$1" worktree add -q "$d" "$2"
+  else git -C "$1" worktree add -q -b "$2" "$d"; fi
+}
 # A new git repo built from tests/fixtures/<name> (or empty), named <name>, in
 # a directory of its own: every call is a fresh repo, so tower's run pointer
 # (in the repo's git dir) is never shared between two runs. Prints its path.
@@ -888,7 +896,7 @@ if section add-lane; then
     assert_match "failed start: says how to resume"      "$out" 'lane B is in the pane map, starting: rerun  .*/add-lane\.sh .* B feat/b main 2,3  to resume it'
     bpane=$(sed -nE 's/^lane B: +([^ ]+).*/\1/p' "$RUNF/panes.txt")
     echo gone > "$HERDR_STUB_STATES_DIR/bun-vitest-lane-b"
-    mkdir -p "$r/.worktrees/feat/b"   # the stub's worktree create makes none
+    mkwt "$r" feat/b   # the stub's worktree create makes none
     reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNF" B feat/b main 2,3 2>&1; echo "exit=$?"); log=$(cat "$HERDR_STUB_LOG")
     assert_match "rerun: add-lane finishes"               "$out" 'exit=0$'
     assert_nomatch "rerun: no second worktree"            "$log" '^herdr worktree create'
@@ -941,12 +949,24 @@ if section add-lane; then
     assert_nomatch "rerun, tower state failing: no start" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start'
     reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNF" B feat/b main 2-3 2>&1; echo "exit=$?")
     assert_match "rerun, the same ids as a range: finishes" "$out" 'exit=0$'
+    # The pane map is lane-writable: a checkout that git does not name as this
+    # repo's worktree on the lane's branch is refused before the install, the
+    # .env copy or the start use it.
     echo gone > "$HERDR_STUB_STATES_DIR/bun-vitest-lane-b"
+    mkdir -p "$TMP/elsewhere"; before=$(cat "$RUNF/panes.txt")
+    sed -i.bak "s|checkout $r/.worktrees/feat/b,|checkout $TMP/elsewhere,|" "$RUNF/panes.txt"; rm -f "$RUNF/panes.txt.bak"
+    reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNF" B feat/b main 2,3 2>&1; echo "exit=$?")
+    assert_match "rerun, a checkout git does not name: refused" "$out" 'exit=1$'
+    assert_match "rerun, a checkout git does not name: ... saying so" "$out" "lane B's checkout $TMP/elsewhere in $RUNF/panes.txt is not this repo's worktree on branch feat/b \\(git worktree list\\)"
+    assert_nomatch "rerun, a checkout git does not name: no install" "$out" 'dry-run.*install'
+    assert_nomatch "rerun, a checkout git does not name: no start" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start'
+    assert_eq "rerun, a checkout git does not name: no .env copied there" "$(ls -A "$TMP/elsewhere")" ""
+    printf '%s\n' "$before" > "$RUNF/panes.txt"
     rm -rf "$r/.worktrees/feat/b"
     reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNF" B feat/b main 2,3 2>&1; echo "exit=$?")
     assert_match "rerun, worktree removed: refused, saying what to remove" "$out" "lane B's checkout .*/\.worktrees/feat/b is gone: close its pane $bpane and remove its line"
     assert_nomatch "rerun, worktree removed: no start"   "$(cat "$HERDR_STUB_LOG")" '^herdr agent start'
-    mkdir -p "$r/.worktrees/feat/b"; echo gone > "$HERDR_STUB_STATES_DIR/$bpane"
+    mkwt "$r" feat/b; echo gone > "$HERDR_STUB_STATES_DIR/$bpane"
     reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNF" B feat/b main 2,3 2>&1; echo "exit=$?")
     assert_match "rerun, pane closed: refused, saying what to remove" "$out" "lane B's pane $bpane is gone \(herdr pane get\): remove its line"
     assert_nomatch "rerun, pane closed: no start"        "$(cat "$HERDR_STUB_LOG")" '^herdr agent start'
@@ -976,7 +996,7 @@ if section add-lane; then
       reset_stub; out=$(cd "$r" && HERDR_STUB_BUSY_STARTS=99 START_TRIES=1 "$KIT/add-lane.sh" "$RUNP" "$l" "$br" main "$ids" 2>&1; echo "exit=$?")
       assert_match "first call with '$ids': the start fails" "$out" 'exit=1$'
       assert_match "first call with '$ids': the lane is in the pane map" "$(cat "$RUNP/panes.txt")" "^lane $l: "
-      echo gone > "$HERDR_STUB_STATES_DIR/bun-vitest-lane-$ln"; mkdir -p "$r/.worktrees/$br"
+      echo gone > "$HERDR_STUB_STATES_DIR/bun-vitest-lane-$ln"; mkwt "$r" "$br"
       reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNP" "$l" "$br" main "$ids" 2>&1; echo "exit=$?")
       assert_match "rerun with '$ids': the same ids, so it finishes" "$out" 'exit=0$'
       assert_match "rerun with '$ids': the agent starts"  "$(cat "$HERDR_STUB_LOG")" "^herdr agent start bun-vitest-lane-$ln "
@@ -1041,7 +1061,7 @@ if section add-lane; then
     (cd "$r" && "$KIT/bootstrap.sh" "$RUNR" "Slow" main "$KIT/example-tasks.tsv" >/dev/null 2>&1); reset_stub
     echo unready > "$HERDR_STUB_STATES_DIR/bun-vitest-lane-b.started"
     out=$(cd "$r" && READY_WAIT_SECONDS=1 "$KIT/add-lane.sh" "$RUNR" B feat/b main 2 2>&1; echo "exit=$?")
-    rm -f "$HERDR_STUB_STATES_DIR/bun-vitest-lane-b.started"; mkdir -p "$r/.worktrees/feat/b"
+    rm -f "$HERDR_STUB_STATES_DIR/bun-vitest-lane-b.started"; mkwt "$r" feat/b
     assert_match "never ready: add-lane fails"           "$out" 'exit=1$'
     assert_nomatch "never ready: no ready line"          "$out" 'lane B ready'
     assert_match "never ready: the lane's line says starting" "$(cat "$RUNR/panes.txt")" '^lane B: .* starting$'
@@ -1084,7 +1104,7 @@ if section add-lane; then
     assert_match "failed move: the worktree is installed before the move" "$out" '\[dry-run\] \(cd .*/.worktrees/feat/b && bun install\)'
     assert_nomatch "failed move: no placed lane B"       "$(cat "$RUNM/panes.txt")" '^lane B:'
     assert_match "failed move: the lane is recorded as unplaced" "$(cat "$RUNM/panes.txt")" "^unplaced lane B: +$wtpane +\(agent \"bun-vitest-lane-b\", kind claude, branch feat/b, checkout $r/\.worktrees/feat/b, model "
-    mkdir -p "$r/.worktrees/feat/b"   # the stub's worktree create makes none
+    mkwt "$r" feat/b   # the stub's worktree create makes none
     echo gone > "$HERDR_STUB_STATES_DIR/$wtpane"
     reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNM" B feat/b main 2,3 2>&1; echo "exit=$?")
     assert_match "failed move, pane closed: says the move may have gone through" "$out" "lane B's pane $wtpane is gone \(herdr pane get\).*look for .*/\.worktrees/feat/b in the grid"
@@ -1120,7 +1140,7 @@ if section add-lane; then
     reset_stub; (cd "$r" && HERDR_STUB_MOVE_FAIL=1 "$KIT/add-lane.sh" "$RUNG" B feat/b main 2,3 >/dev/null 2>&1)
     gbin="$TMP/grep-fails-map"; mkdir -p "$gbin"; realgrep=$(command -v grep)
     printf '#!/usr/bin/env bash\ncase "$1 $2" in "-v ^unplaced lane "*) echo "grep: "%q": read error" >&2; exit 2 ;; esac\nexec %q "$@"\n' "$RUNG/panes.txt" "$realgrep" > "$gbin/grep"; chmod +x "$gbin/grep"
-    mkdir -p "$r/.worktrees/feat/b"; before=$(cat "$RUNG/panes.txt")
+    mkwt "$r" feat/b; before=$(cat "$RUNG/panes.txt")
     reset_stub; out=$(cd "$r" && PATH="$gbin:$PATH" "$KIT/add-lane.sh" "$RUNG" B feat/b main 2,3 2>&1; echo "exit=$?")
     assert_match "map read fails: add-lane fails"        "$out" 'exit=1$'
     assert_match "map read fails: says how to recover"   "$out" "could not rewrite .*/panes\.txt; lane B's pane is pane-[0-9]+: turn its unplaced line into  lane B: pane-[0-9]+  \(the rest as it is\) and rerun"
@@ -1140,7 +1160,7 @@ if section add-lane; then
     reset_stub; out=$(cd "$r" && HERDR_STUB_BUSY_STARTS=99 START_TRIES=1 "$KIT/add-lane.sh" "$RUNO" C feat/c main 3 2>&1; echo "exit=$?")
     assert_match "older pane map: a failed start ..."    "$out" 'exit=1$'
     sed -i.bak 's/, tab lanes) starting$/) starting/' "$RUNO/panes.txt"   # as a kit from before the lanes tab wrote it
-    echo gone > "$HERDR_STUB_STATES_DIR/bun-vitest-lane-c"; mkdir -p "$r/.worktrees/feat/c"
+    echo gone > "$HERDR_STUB_STATES_DIR/bun-vitest-lane-c"; mkwt "$r" feat/c
     reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUNO" C feat/c main 3 2>&1; echo "exit=$?"); rm -f "$HERDR_STUB_STATES_DIR/bun-vitest-lane-c"
     assert_match "older pane map: ... and its rerun resumes the lane" "$out" 'exit=0$'
     # A lane's line keeps its place in the pane map when it is rewritten, so the
@@ -1150,7 +1170,7 @@ if section add-lane; then
     (cd "$r" && "$KIT/bootstrap.sh" "$RUNO" "Order" main "$KIT/example-tasks.tsv" >/dev/null 2>&1)
     (cd "$r" && HERDR_STUB_BUSY_STARTS=99 START_TRIES=1 "$KIT/add-lane.sh" "$RUNO" B feat/b main 2 >/dev/null 2>&1)
     (cd "$r" && "$KIT/add-lane.sh" "$RUNO" C feat/c main 3 >/dev/null 2>&1)
-    echo gone > "$HERDR_STUB_STATES_DIR/bun-vitest-lane-b"; mkdir -p "$r/.worktrees/feat/b"
+    echo gone > "$HERDR_STUB_STATES_DIR/bun-vitest-lane-b"; mkwt "$r" feat/b
     (cd "$r" && "$KIT/add-lane.sh" "$RUNO" B feat/b main 2 >/dev/null 2>&1); rm -f "$HERDR_STUB_STATES_DIR/bun-vitest-lane-b"
     bpane=$(sed -nE 's/^lane B: +([^ ]+).*/\1/p' "$RUNO/panes.txt")
     reset_stub; (cd "$r" && "$KIT/add-lane.sh" "$RUNO" D feat/d main 4 >/dev/null 2>&1)
@@ -3695,7 +3715,7 @@ EOF
   assert_nomatch "a data lane: no Reviewer column in the research tab" "$(cat "$HERDR_STUB_LOG")" '^herdr pane split '
   # A rerun keeps the topic the lane started with, though its task was renamed.
   TOWER_RUN="$RUN" "$KIT/tests/stub/tower" change 2 --title "Something else entirely" >/dev/null
-  echo gone > "$S/bun-vitest-lane-b"; mkdir -p "$r/.worktrees/feat/b"   # the stub makes no worktree
+  echo gone > "$S/bun-vitest-lane-b"; mkwt "$r" feat/b   # the stub makes no worktree
   reset_stub; out=$(lane B feat/b main 2; echo "exit=$?")
   assert_match "rerun after a rename: the lane starts again" "$out" 'exit=0$'
   assert_match "rerun after a rename: ... under its first topic" "$(cat "$HERDR_STUB_LOG")" '^herdr agent start bun-vitest-lane-b .* --role data --topic b-ship-to-fix-for-the$'
@@ -3755,7 +3775,7 @@ EOF
   assert_match "... saying a rerun places it"          "$out" "rerun  .*/add-lane\.sh .* B feat/b main 2  to place it"
   assert_match "... the lane stays unplaced"           "$(cat "$RUN/panes.txt")" '^unplaced lane B: '
   assert_nomatch "... no research tab line"            "$(cat "$RUN/panes.txt")" '^research tab:'
-  mkdir -p "$r/.worktrees/feat/b"
+  mkwt "$r" feat/b
   reset_stub; out=$(cd "$r" && "$KIT/add-lane.sh" "$RUN" B feat/b main 2 2>&1; echo "exit=$?")
   assert_match "... a rerun places it"                 "$out" 'exit=0$'
   assert_match "... a rerun opens the research tab"    "$(cat "$HERDR_STUB_LOG")" '^herdr pane move pane-[0-9]+ --new-tab --workspace ws-0 --tab-label research --no-focus$'
