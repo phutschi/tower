@@ -39,6 +39,7 @@ need_runner() {
 #   runner_send_text PANE TEXT
 #   runner_send_keys PANE KEY...
 #   runner_send_message NAME PANE TEXT   TEXT as one prompt to NAME (send-brief.sh)
+#   runner_names_agents            0 when the runner reaches an agent by its name (herdr)
 # and the layout (CONTEXT.md Layout):
 #   runner_self                    the orchestrator's pane or workspace, for the pane map
 #   runner_workspace PANE          the workspace the run's tabs open in

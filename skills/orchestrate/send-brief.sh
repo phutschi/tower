@@ -20,6 +20,14 @@ RUN_DIR="$1"; NAME="$2"; BRIEF="$3"; MAP="$RUN_DIR/panes.txt"
 [ -f "$MAP" ] || die "send-brief: no pane map at $MAP"
 [ -s "$BRIEF" ] || die "send-brief: no brief, or an empty one, at $BRIEF"
 PANE=$(agent_pane "$MAP" "$NAME" 2>&1) || die "send-brief: $PANE"
+# The kit's launch record binds the agent to its pane (common.sh launched): a
+# lane can rewrite the pane map. herdr, which prompts by name, needs no record.
+read -r _ LAUNCHED _ <<< "$(launched "$RUN_DIR" "$NAME")"
+if [ -n "$LAUNCHED" ]; then
+  [ "$LAUNCHED" = "$PANE" ] || die "send-brief: the pane map gives $NAME pane $PANE, but the kit launched it in $LAUNCHED: nothing sent; check its line in $MAP"
+else
+  runner_names_agents || die "send-brief: the kit has no record of launching $NAME ($(launch_record "$RUN_DIR")): nothing sent"
+fi
 rc=0; err=$(runner_pane_exists "$PANE" 2>&1) || rc=$?
 case $rc in
   0) ;;

@@ -78,6 +78,12 @@ state_of() { local a; a=$(agent_of "$1" "${2:-}"); echo "${a%% *}"; }
 stale_handle() {  # WHO PANE LINE
   echo "$(runner_name) says $1's terminal handle $2 is stale: it may still be open under a new handle. Find $1's terminal in $(runner_name), put its handle on $3 in ${MAP:-the pane map}, then rerun; if $(runner_name) has no such terminal, it was closed: open one where it worked and put that handle there" >&2
 }
+# The kit's record of the agents it launched for run RUN_DIR: "<agent> <pane>
+# <kind>" per launch, the last line for an agent standing. It lives beside the
+# run dir, which a lane can write, so it binds an agent to its pane where the
+# pane map cannot.
+launch_record() { echo "$(dirname "$1")/.$(basename "$1").launched"; }
+launched() { awk -v n="$2" '$1 == n { l = $0 } END { if (l != "") print l }' "$(launch_record "$1")" 2>/dev/null; }   # RUN_DIR NAME
 # The orchestrator's pane or workspace in pane map MAP: its whole line after
 # the label (an Orca workspace id holds its checkout's path, spaces and all).
 orchestrator_of() { sed -nE 's/^orchestrator: +//p' "$1" | head -1; }

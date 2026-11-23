@@ -4208,19 +4208,22 @@ if section send-brief; then
   assert_match "send-brief, an empty brief: refused" "$out" "send-brief: no brief, or an empty one, at $RUN/brief-empty.md"
   assert_eq "send-brief, an empty brief: nothing sent" "$(sent)" ""
   if [ "${RUNNER:-herdr}" = orca ]; then
-    # Orca: only an agent it lists as ready gets the brief; a terminal whose
-    # agent it does not list (a shell, an agent not started) or a blocked one
-    # holds it.
-    for st in unlisted-idle blocked; do
+    # Orca: working or waiting, the brief goes; done, only while the screen
+    # shows the agent (an agent that exited stays listed done, at a shell);
+    # unlisted, once the screen is idle (a terminal agent reports on its first
+    # turn); blocked or busy and unlisted, it is held.
+    for st in waiting done unlisted-idle; do
       echo "$st" > "$S/$apane"
       out=$(send "$RUN" bun-vitest-lane-a "$RUN/brief-A.md")
-      assert_match "send-brief (orca), agent $st: held, saying why" "$out" "send-brief: Orca did not take the brief for bun-vitest-lane-a in $apane; nothing was sent, send again \\(Orca lists no agent ready for input in terminal $apane \\(${st%-idle}"
-      assert_match "send-brief (orca), agent $st: ... fails" "$out" 'exit=1$'
-      assert_eq "send-brief (orca), agent $st: nothing sent" "$(sent)" ""
+      assert_match "send-brief (orca), agent $st: sent" "$out" 'exit=0$'
     done
-    echo waiting > "$S/$apane"
-    out=$(send "$RUN" bun-vitest-lane-a "$RUN/brief-A.md")
-    assert_match "send-brief (orca), agent waiting: sent" "$out" 'exit=0$'
+    for st in done-shell:"lists bun-vitest-lane-a as done, but terminal $apane's screen does not show the agent" unlisted:"Orca lists no agent in terminal $apane, and its screen is not idle" blocked:"terminal $apane as blocked: not ready for input"; do
+      echo "${st%%:*}" > "$S/$apane"
+      out=$(send "$RUN" bun-vitest-lane-a "$RUN/brief-A.md")
+      assert_match "send-brief (orca), agent ${st%%:*}: held, saying why" "$out" "send-brief: Orca did not take the brief for bun-vitest-lane-a in $apane; nothing was sent, send again \\(.*${st#*:}"
+      assert_match "send-brief (orca), agent ${st%%:*}: ... fails" "$out" 'exit=1$'
+      assert_eq "send-brief (orca), agent ${st%%:*}: nothing sent" "$(sent)" ""
+    done
     rm -f "$S/$apane"
   else
     # herdr not taking the prompt: said, with herdr's error.
@@ -4234,7 +4237,25 @@ if section send-brief; then
   spane=$(sed -nE 's/^shell: +([^ ]+).*/\1/p' "$RUN/panes.txt")
   printf 'reviewer R1:    %s   (agent "bun-vitest-r1-1", kind codex, model gpt-6-astra, review "Lane review A", findings %s)\n' "$spane" "$RUN/findings/lane-a.json" >> "$RUN/panes.txt"
   out=$(send "$RUN" bun-vitest-r1-1 "$RUN/brief-A.md")
+  # The kit's own launch record (beside the run dir, out of a lane's reach)
+  # binds an agent to its pane: Orca refuses an agent it has no record of
+  # launching; herdr sends by name.
+  if [ "${RUNNER:-herdr}" = orca ]; then
+    assert_match "send-brief (orca), an agent the kit never launched: refused" "$out" "send-brief: the kit has no record of launching bun-vitest-r1-1"
+    assert_eq "send-brief (orca), an agent the kit never launched: nothing sent" "$(sent)" ""
+  else
+    assert_match "send-brief (herdr), no launch record: sent by name" "$out" "sent to bun-vitest-r1-1 in $spane\$"
+  fi
+  echo "bun-vitest-r1-1 $spane" >> "$(dirname "$RUN")/.$(basename "$RUN").launched"
+  out=$(send "$RUN" bun-vitest-r1-1 "$RUN/brief-A.md")
   assert_match "send-brief, a Reviewer: sent to its pane" "$out" "sent to bun-vitest-r1-1 in $spane\$"
+  # A swapped handle: the map gives lane A's agent another live pane.
+  cp "$RUN/panes.txt" "$TMP/sb-map"; sed -i.bak "/^lane A:/s|$apane|$spane|" "$RUN/panes.txt"; rm -f "$RUN/panes.txt.bak"
+  sed -i.bak '/^reviewer R1:/d' "$RUN/panes.txt"; rm -f "$RUN/panes.txt.bak"
+  out=$(send "$RUN" bun-vitest-lane-a "$RUN/brief-A.md")
+  assert_match "send-brief, a swapped handle: refused" "$out" "send-brief: the pane map gives bun-vitest-lane-a pane $spane, but the kit launched it in $apane"
+  assert_eq "send-brief, a swapped handle: nothing sent" "$(sent)" ""
+  cp "$TMP/sb-map" "$RUN/panes.txt"
   echo gone > "$S/$apane"
   out=$(send "$RUN" bun-vitest-lane-a "$RUN/brief-A.md")
   rm -f "$S/$apane"

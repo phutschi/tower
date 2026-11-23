@@ -64,30 +64,61 @@ runner_agent_state() {
 orca_trust_menu() {
   runner_agent_tail "" "$1" 40 2>/dev/null | grep -v '^[[:space:]]*$' | tail -n 8 | grep -qiE 'trust[[:space:]]+(this|the[[:space:]]+files[[:space:]]+in[[:space:]]+this)[[:space:]]+folder|trust[[:space:]]+the[[:space:]]+contents[[:space:]]+of[[:space:]]+this[[:space:]]+directory'
 }
-# The agent in terminal PANE as Orca's agent list has it: "<status> <ready>",
-# unlisted or unreadable (runner_agent_state, without the TUI's word).
-orca_listed() {
+# The state Orca's agent list gives the agent in terminal PANE (working,
+# waiting, done, blocked, ...), unlisted, or unreadable.
+orca_raw() {
   local out key
   # A stale handle proves nothing: Orca's handles end with its runtime.
   out=$(orca terminal show --terminal "$1" --json 2>/dev/null) || { echo unreadable; return; }
   key=$(echo "$out" | jsonq '"%s:%s" % (d["result"]["terminal"]["tabId"], d["result"]["terminal"]["leafId"])' 2>/dev/null) \
     && out=$(orca agent list --json 2>/dev/null) \
-    && out=$(echo "$out" | KEY=$key jsonq '(lambda a: {"working": "working True", "waiting": "idle True", "done": "idle True"}.get(a["state"], "%s False" % a["state"]) if a else "unlisted")(next((a for a in d["result"]["agents"] if a.get("paneKey") == __import__("os").environ["KEY"]), None))' 2>/dev/null) \
+    && out=$(echo "$out" | KEY=$key jsonq '(lambda a: a["state"] if a else "unlisted")(next((a for a in d["result"]["agents"] if a.get("paneKey") == __import__("os").environ["KEY"]), None))' 2>/dev/null) \
     || { echo unreadable; return; }
   echo "$out"
+}
+# The same as "<status> <ready>" (waiting and done are idle), unlisted or
+# unreadable: runner_agent_state, without the TUI's word.
+orca_listed() {
+  local s; s=$(orca_raw "$1")
+  case "$s" in
+    working) echo "working True" ;;
+    waiting|done) echo "idle True" ;;
+    unlisted|unreadable) echo "$s" ;;
+    *) echo "$s False" ;;
+  esac
+}
+# Does terminal PANE's rendered screen show an agent's interface, not a shell?
+# shortcut: an agent is told from a shell by its interface's own words, upgrade once Orca's CLI says what runs in a terminal.
+orca_screen_shows_agent() {
+  local screen last
+  screen=$(orca terminal read --terminal "$1" --screen --json 2>/dev/null \
+    | jsonq '"\n".join(d["result"]["terminal"]["tail"]) if d["result"]["terminal"].get("source") == "screen" else ""' 2>/dev/null) || return 1
+  echo "$screen" | grep -qiE '\? for shortcuts|esc to interrupt|bypass permissions|context left|add a follow-up' || return 1
+  last=$(echo "$screen" | grep -v '^[[:space:]]*$' | tail -1)
+  ! echo "$last" | grep -qE '[$%#❯][[:space:]]*$'
 }
 runner_name() { echo Orca; }
 runner_ready_hint() { echo "\"\$ORCA_CLI_COMMAND\" agent list --json  shows it waiting or done"; }
 runner_agent_tail() { orca terminal read --terminal "$2" --json | jsonq '"\n".join(d["result"]["terminal"]["tail"])' | tail -n "$3"; }
 runner_send_text()  { orca terminal send --terminal "$1" --text "$2" --json >/dev/null; }
-# NAME PANE TEXT: TEXT typed into terminal PANE, then Enter, only while Orca
-# lists an agent there ready for input: anything else at that address (a
-# shell, a menu) would take the text as its own input.
+runner_names_agents() { return 1; }   # Orca reaches an agent only through its terminal handle
+# NAME PANE TEXT: TEXT typed into terminal PANE, then Enter, only to an agent
+# ready for input there: anything else at that address (a shell, a menu)
+# would take the text as its own input. Working or waiting, it goes. Done, it
+# goes only while the screen shows the agent: Orca keeps an agent that exited
+# to its shell listed as done. Unlisted, it goes once the screen is idle, by
+# the start's rule (runner_agent_state): a terminal agent reports to Orca on
+# its first turn. Held, it fails, saying why: nothing was sent.
 runner_send_message() {
-  local s out; s=$(orca_listed "$2")
+  local s out
+  s=$(orca_raw "$2")
   case "$s" in
-    "idle True"|"working True") ;;
-    *) echo "Orca lists no agent ready for input in terminal $2 ($s): send once  \"\$ORCA_CLI_COMMAND\" agent list --json  shows $1's terminal waiting or done" >&2; return 1 ;;
+    working|waiting) ;;
+    done) orca_screen_shows_agent "$2" \
+      || { echo "Orca lists $1 as done, but terminal $2's screen does not show the agent (it may have exited to its shell): check it there" >&2; return 1; } ;;
+    unlisted) [ "$(runner_agent_state "$1" "$2")" = "idle True" ] \
+      || { echo "Orca lists no agent in terminal $2, and its screen is not idle: send once  \"\$ORCA_CLI_COMMAND\" agent list --json  shows $1's terminal waiting or done" >&2; return 1; } ;;
+    *) echo "Orca lists $1's terminal $2 as $s: not ready for input" >&2; return 1 ;;
   esac
   out=$(orca terminal send --terminal "$2" --text "$3" --enter --json) || { echo "$out" >&2; return 1; }
 }

@@ -18,13 +18,15 @@
 # not listed; its TUI is busy), "unlisted-idle" (the same, its TUI idle),
 # "unlisted-waitfail" and "unlisted-waittimeout" (the same, its wait failing),
 # "unlisted-trust" (the same, a trust menu on screen, its TUI idle: an Enter
-# sent alone answers it, dropping the line),
+# sent alone answers it, dropping the line), "done-shell" (listed done, its
+# agent exited: the screen shows a shell prompt),
 # "unreadable" (Orca does not answer: runtime_unavailable) or "trust" (a trust
 # menu: the agent shows blocked, a text-plus-Enter send is refused with
 # agent_prompt_blocked, and an Enter sent alone answers the menu, dropping
 # the line). With no file, the agent is working. With several lines, each call
 # that reports the state answers the first and drops it; the last one stays.
-# `terminal read` answers ORCA_STUB_STATES_DIR/<handle>.tail as its tail;
+# `terminal read` answers ORCA_STUB_STATES_DIR/<handle>.tail as its tail
+# (with --screen, source "screen" and, without a .tail, a screen by state);
 # without one, a trust menu's tail shows Claude's workspace trust prompt (a
 # plain blocked is any other prompt).
 # `terminal wait --for tui-idle` is satisfied by waiting, done or
@@ -78,7 +80,7 @@ take() {
 }
 # A terminal's own errors: gone or unreadable.
 live() { case "$(peek "$1")" in gone) err terminal_handle_stale ;; unreadable) err runtime_unavailable ;; esac; }
-reported() { case "$1" in trust) echo blocked ;; *) echo "$1" ;; esac; }
+reported() { case "$1" in trust) echo blocked ;; done-shell) echo done ;; *) echo "$1" ;; esac; }
 trusty() { case "$(peek "$1")" in trust|unlisted-trust) return 0 ;; esac; return 1; }
 row() { awk -v h="$1" '$1 == h' "$counter.terminals" 2>/dev/null; }
 case "${1:-} ${2:-}" in
@@ -123,7 +125,18 @@ case "${1:-} ${2:-}" in
     h=$(flag terminal); live "$h"
     tail=$([ -n "$states" ] && [ -f "$states/$h.tail" ] && python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().splitlines()))' < "$states/$h.tail") || tail='[]'
     ! trusty "$h" || [ "$tail" != '[]' ] || tail='["Do you trust the files in this folder?", " 1. No, exit", " 2. Yes, I trust this folder"]'
-    ok "{\"terminal\":{\"handle\":\"$h\",\"status\":\"running\",\"tail\":$tail}}" ;;
+    # --screen: the rendered screen, an agent's interface or, done-shell, a
+    # shell prompt.
+    src=""
+    if has screen; then
+      src=',"source":"screen"'
+      [ "$tail" != '[]' ] || case "$(peek "$h")" in
+        done-shell) tail='["Bye!", "acme $ "]' ;;
+        unlisted*)  tail='["acme $ "]' ;;
+        *)          tail='["> ", "  ? for shortcuts"]' ;;
+      esac
+    fi
+    ok "{\"terminal\":{\"handle\":\"$h\",\"status\":\"running\"$src,\"tail\":$tail}}" ;;
   "terminal wait")
     h=$(flag terminal); live "$h"
     case "$(reported "$(take "$h")")" in

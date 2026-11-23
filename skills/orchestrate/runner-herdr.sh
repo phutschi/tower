@@ -30,6 +30,7 @@ runner_name() { echo herdr; }
 runner_ready_hint() { echo "herdr agent get $1  shows interactive_ready true"; }
 runner_agent_tail() { herdr agent read "$1" --source recent-unwrapped --lines "$3"; }
 runner_send_text()  { herdr pane send-text "$1" "$2" >/dev/null; }
+runner_names_agents() { :; }   # herdr prompts an agent by its name, whatever its pane
 runner_send_message() { herdr agent prompt "$1" "$3" >/dev/null; }   # NAME PANE TEXT: NAME's prompt, by name
 runner_send_keys()  { local pane="$1"; shift; herdr pane send-keys "$pane" "$@" >/dev/null; }
 
