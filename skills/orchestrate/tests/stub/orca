@@ -37,7 +37,8 @@
 # ORCA_STUB_WORKTREE_FAIL=1: every `worktree create` fails
 # (runtime_unavailable); =garbled: it succeeds with an answer that has no
 # worktree in it; =suffix: it makes the worktree on <branch>-2, as Orca does
-# when the branch is taken (`worktree show` says so).
+# when the branch is taken (`worktree show` says so); =nobranch: `worktree
+# show` names no branch for it.
 # ORCA_STUB_PEEK=<pane map>: each `terminal create` logs that map's tab
 # lines, as "peek: <line>", after its own log line.
 # ORCA_STUB_CREATE_FAIL=<title>: a `terminal create` with that --title fails
@@ -96,7 +97,7 @@ case "${1:-} ${2:-}" in
       garbled) ok '{}' ;;
     esac
     n=$(next_n); path="${ORCA_STUB_WORKTREES:-/orca-stub/worktrees}/wt-$n"; parent=$(flag parent-worktree); [ -z "$parent" ] || parent=$(wt_id "$parent")
-    b=$(flag branch); [ "${ORCA_STUB_WORKTREE_FAIL:-}" != suffix ] || b="$b-2"
+    b=$(flag branch); [ "${ORCA_STUB_WORKTREE_FAIL:-}" != suffix ] || b="$b-2"; [ "${ORCA_STUB_WORKTREE_FAIL:-}" != nobranch ] || b=""
     printf '%s|%s|%s|%s|%s\n' "repo-0::$path" "$path" "$(flag name)" "$b" "$parent" >> "$counter.worktrees"
     ok "{\"worktree\":{\"id\":\"repo-0::$path\",\"path\":\"$path\"}}" ;;
   "worktree show")

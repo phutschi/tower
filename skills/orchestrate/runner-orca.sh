@@ -225,10 +225,11 @@ runner_open_lane() {
   if [ -d "$path" ]; then got=$(git -C "$path" symbolic-ref --short HEAD 2>/dev/null) || got=""
   else got=$(orca worktree show --worktree "id:$id" --json 2>/dev/null | jsonq '(d["result"]["worktree"].get("branch") or "").replace("refs/heads/", "", 1)' 2>/dev/null) || got=""
   fi
-  [ -n "$got" ] || die "add-lane: Orca made lane $LANE's worktree $path, but its branch cannot be read: remove it (\"\$ORCA_CLI_COMMAND\" worktree rm --worktree id:$id --force) and branch $branch, then rerun  $RERUN"
-  [ "$got" = "$branch" ] || die "add-lane: Orca made lane $LANE's worktree on branch $got, not $branch: remove it (\"\$ORCA_CLI_COMMAND\" worktree rm --worktree id:$id --force) and branch $got, then rerun  $RERUN"
+  # An unread branch proves nothing about who owns it: nothing is named for removal.
+  [ -n "$got" ] || die "add-lane: Orca made lane $LANE's worktree $path, but its branch cannot be read: look at it (\"\$ORCA_CLI_COMMAND\" worktree show --worktree $(printf %q "id:$id") --json) and at branch $branch before you remove anything: another process may have taken the branch. Then rerun  $RERUN"
+  [ "$got" = "$branch" ] || die "add-lane: Orca made lane $LANE's worktree on branch $got, not $branch: remove it (\"\$ORCA_CLI_COMMAND\" worktree rm --worktree $(printf %q "id:$id") --force) and branch $got, then rerun  $RERUN"
   read -r pane _ <<< "$(orca_new terminal create --worktree "id:$id" --title "$label" --command "cd $(printf %q "$path")")"
-  [ -n "$pane" ] || die "add-lane: Orca created lane $LANE's worktree $path but no terminal in it: remove it (\"\$ORCA_CLI_COMMAND\" worktree rm --worktree id:$id --force) and branch $branch, then rerun  $RERUN"
+  [ -n "$pane" ] || die "add-lane: Orca created lane $LANE's worktree $path but no terminal in it: remove it (\"\$ORCA_CLI_COMMAND\" worktree rm --worktree $(printf %q "id:$id") --force) and branch $branch, then rerun  $RERUN"
   echo "$pane $path"
 }
 # Each lane has its worktree; there is no grid to place it in.

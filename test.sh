@@ -931,6 +931,13 @@ if section add-lane; then
   assert_eq "orca D rerun: its agent typed once, in the same terminal" "$(grep -c "^orca terminal send --terminal $dpane --text claude " "$ORCA_STUB_LOG")" 1
   assert_nomatch "orca D rerun: no new worktree or terminal" "$(cat "$ORCA_STUB_LOG")" '^orca (worktree create|terminal create) '
   assert_match "orca D rerun: the line is a started lane" "$(cat "$RUN/panes.txt")" '^lane D: .*, tab lanes\)$'
+  # A branch Orca's answer leaves unread: nothing is named for removal (it may
+  # be another process's); the worktree is named for a look, one argument.
+  : > "$ORCA_STUB_LOG"; out=$(ORCA_STUB_WORKTREE_FAIL=nobranch ORCA_STUB_WORKTREES="/orca-stub/team repo" lane C feat/c4 main 4; echo "exit=$?")
+  assert_match "orca C, its branch unread: refused" "$out" 'exit=1$'
+  assert_match "orca C, its branch unread: names the worktree to inspect, as one argument" "$out" "Orca made lane C's worktree /orca-stub/team repo/wt-[0-9]+, but its branch cannot be read: look at it .*worktree show --worktree id:repo-0::/orca-stub/team\\\\ repo/wt-[0-9]+ --json"
+  assert_nomatch "orca C, its branch unread: no removal advised" "$out" 'remove it|worktree rm'
+  assert_nomatch "orca C, its branch unread: no terminal" "$(cat "$ORCA_STUB_LOG")" '^orca terminal create '
   # Ids and paths with a space are kept whole: the orchestrator's workspace
   # (its checkout's path) and the worktree Orca makes.
   rs=$(fixture_repo bun-vitest); mkdir -p "$TMP/team space"; mv "$(dirname "$rs")" "$TMP/team space/r"; rs="$TMP/team space/r/bun-vitest"
@@ -2508,6 +2515,7 @@ if section watch; then
   assert_match "watch: a name only inside a review title: refused" "$out" "no lane or Reviewer line in $RUN/panes.txt names agent ghost"
   out=$(ROUND=1 watch a)
   assert_nomatch "watch: a name also inside another row's title: not ambiguous" "$out" 'lines in .* name agent a'
+  assert_match "watch: ... it polls" "$out" 'exit=3$'
   cp "$TMP/watch-map" "$RUN/panes.txt"
   rm "$RUN/panes.txt"; out=$(watch a)
   assert_match "watch: no pane map: refused, saying so" "$out" "watch-lanes: no pane map at $RUN/panes.txt"
