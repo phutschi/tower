@@ -56,7 +56,6 @@
 # second apart, it then gets to accept input.
 
 MODEL_DEFAULTS_FILE="${MODEL_DEFAULTS_FILE:-$KIT/model-defaults}"
-unset LAUNCH_MARK   # start_agent's mark of a sent launch: add-lane's start_lane sets it, nothing else
 
 # KEY's default: its value in this shell (the call's environment, the repo
 # contract or the user contract) when set, else the model-defaults file's
@@ -144,14 +143,14 @@ start_agent() {
       # The run dir (tower's record) and the common git dir (commits from a
       # lane worktree) are added dirs.
       local common
-      common=$(git -C "$(agent_checkout)" rev-parse --path-format=absolute --git-common-dir) || return 1
+      common=$(git -C "$(agent_checkout)" rev-parse --path-format=absolute --git-common-dir) || return 3
       runner_agent_start "$name" cursor "$pane" -- --model "$EXECUTOR_MODEL" \
         --trust --force --disable-auto-update ${RUN_DIR:+--add-dir "$RUN_DIR"} --add-dir "$common" ;;
     codex)
       local extra=() common gitdir roots="" p co
       co=$(agent_checkout)
-      common=$(git -C "$co" rev-parse --path-format=absolute --git-common-dir) || return 1
-      gitdir=$(git -C "$co" rev-parse --path-format=absolute --git-dir) || return 1
+      common=$(git -C "$co" rev-parse --path-format=absolute --git-common-dir) || return 3
+      gitdir=$(git -C "$co" rev-parse --path-format=absolute --git-dir) || return 3
       [ -n "${RUN_DIR:-}" ] && extra+=(--add-dir "$RUN_DIR")
       if [ "$gitdir" = "$common" ]; then
         extra+=(--add-dir "$common")
@@ -183,13 +182,15 @@ start_agent() {
   esac || {
     local rc=$?
     # Anything but the runner's "nothing sent" may have launched it (the git
-    # failures above return before this: nothing sent).
-    [ "$rc" = 3 ] || { [ -z "${LAUNCH_MARK:-}" ] || : > "$LAUNCH_MARK"; launch_note "$name" "$pane"; }
+    # failures above return 3 before this: nothing sent).
+    [ "$rc" = 3 ] || launch_note "$name" "$pane"
     return "$rc"
   }
-  [ -z "${LAUNCH_MARK:-}" ] || : > "$LAUNCH_MARK"
   launch_note "$name" "$pane"
 }
+# A start's failure code for its caller: the runner's 3 (nothing sent) and 4
+# (sent without a receipt) pass through; any other failure is 1.
+launch_rc() { case "$1" in 3|4) echo "$1" ;; *) echo 1 ;; esac; }
 # The run's launch record (common.sh launch_record) gains NAME in PANE.
 launch_note() { [ -z "${RUN_DIR:-}" ] || echo "$1 $2" >> "$(launch_record "$RUN_DIR")"; }
 
@@ -217,14 +218,14 @@ toml_string() { local s=${1//\\/\\\\}; printf '"%s"' "${s//\"/\\\"}"; }
 # left running in its pane.
 start_agent_with_trust_retry() {
   local name="$1" pane="$2" rc
-  start_answering_trust "$name" "$pane" || return 1
+  start_answering_trust "$name" "$pane" || return $?
   rc=0; until_ready "$name" "$pane" || rc=$?
   case $rc in
     0) return 0 ;;
     2) return 1 ;;
   esac
   echo "agent start: $name exited right after its start in pane $pane; starting it once more" >&2
-  start_answering_trust "$name" "$pane" || return 1
+  start_answering_trust "$name" "$pane" || return $?
   rc=0; until_ready "$name" "$pane" || rc=$?
   case $rc in
     0) return 0 ;;
@@ -269,8 +270,9 @@ ready_of() {
 }
 
 start_answering_trust() {
-  local name="$1" pane="$2" out tries=1
+  local name="$1" pane="$2" out tries=1 rc
   until out=$(start_agent "$name" "$pane" 2>&1); do
+    rc=$?
     if echo "$out" | grep -q agent_pane_busy && [ "$tries" -lt "${START_TRIES:-10}" ]; then
       tries=$((tries+1))
       [ "${DRY_RUN:-0}" = 1 ] || sleep 1
@@ -293,8 +295,8 @@ start_answering_trust() {
       local state; state=$(state_of "$name" "$pane")
       case "$state" in
         working|idle) return 0 ;;
-        gone) start_agent "$name" "$pane" >/dev/null || {
-          echo "agent start: $name did not start again in pane $pane after its trust prompt; check it there" >&2; return 1; } ;;
+        gone) start_agent "$name" "$pane" >/dev/null || { rc=$?
+          echo "agent start: $name did not start again in pane $pane after its trust prompt; check it there" >&2; return "$(launch_rc "$rc")"; } ;;
         unreadable) echo "agent start: $(runner_name) cannot say whether $name started after its trust prompt; check pane $pane" >&2; return 1 ;;
         *) echo "agent start: $name is still $state in pane $pane after its trust prompt was answered; answer it there, and the agent runs" >&2; return 1 ;;
       esac
@@ -304,7 +306,7 @@ start_answering_trust() {
       if echo "$out" | grep -q agent_pane_busy; then
         echo "agent start: pane $pane is still not a ready shell after $tries tries; check it, or raise START_TRIES" >&2
       fi
-      return 1
+      return "$(launch_rc "$rc")"
     fi
   done
 }

@@ -332,15 +332,15 @@ if section executor; then
   out=$(ostart claude)
   assert_match "orca: an answered trust prompt high in the tail: ready" "$out" 'exit=0$'
   assert_nomatch "orca: ... and no keys sent" "$(cat "$ORCA_STUB_LOG")" '^orca terminal send --terminal term-1 (--enter|--text .\[B)'
-  # The launch mark (add-lane's LAUNCH_MARK, set after executor.sh clears an
-  # inherited one): set once the start line may have been typed, left absent
-  # only when Orca refused it.
-  mstart() { reset_stub; (cd "$r" && env HOME="$TMP/rev-home" EXECUTOR_KIND=claude MARK="$TMP/mark" "$@" bash -c '. "$KIT/common.sh"; need_runner; orca terminal create --json >/dev/null; . "$KIT/executor.sh"; LAUNCH_MARK=$MARK; start_agent_with_trust_retry acme-lane-a term-1' >/dev/null 2>&1); }
-  rm -f "$S"/term-* "$TMP/mark"; printf 'unlisted\nblocked\n' > "$S/term-1"; mstart
-  assert_eq "orca: a launch sent, then failed: marked sent" "$([ -e "$TMP/mark" ] && echo sent || echo unsent)" sent
-  rm -f "$S"/term-* "$TMP/mark"; mstart ORCA_STUB_SEND_FAIL=1
-  assert_eq "orca: a launch Orca refused: not marked" "$([ -e "$TMP/mark" ] && echo sent || echo unsent)" unsent
-  assert_eq "executor.sh: an inherited LAUNCH_MARK is cleared" "$(LAUNCH_MARK=/x in_kit 'EXECUTOR_KIND=claude; . "$KIT/executor.sh"; echo "[${LAUNCH_MARK:-}]"')" "[]"
+  # The start's return code says what was sent: 3, Orca refused the launch
+  # line (nothing typed); 4, Orca took it without a receipt (unknown); any
+  # other failure, it may have been typed.
+  rcstart() { reset_stub; (cd "$r" && env HOME="$TMP/rev-home" EXECUTOR_KIND=claude "$@" bash -c '. "$KIT/common.sh"; need_runner; orca terminal create --json >/dev/null; . "$KIT/executor.sh"; start_agent_with_trust_retry acme-lane-a term-1; echo "rc=$?"' 2>&1 | tail -1); }
+  rm -f "$S"/term-*; printf 'unlisted\nblocked\n' > "$S/term-1"
+  assert_eq "orca: a launch sent, then failed: neither 3 nor 4" "$(rcstart)" rc=1
+  rm -f "$S"/term-*; assert_eq "orca: a launch Orca refused: 3" "$(rcstart ORCA_STUB_SEND_FAIL=refused)" rc=3
+  rm -f "$S"/term-*; assert_eq "orca: a launch with no receipt: 4" "$(rcstart ORCA_STUB_SEND_FAIL=unknown)" rc=4
+  rm -f "$S"/term-*; assert_eq "orca: a lost reply (runtime_unavailable) proves nothing: 4" "$(rcstart ORCA_STUB_SEND_FAIL=1)" rc=4
   # Blocked on any other prompt (a hooks review, an update): no keys, the
   # start fails, and the prompt stays for the operator.
   rm -f "$S"/term-*
@@ -358,7 +358,7 @@ if section executor; then
   assert_match "orca: a closed terminal: the start fails with Orca's error" "$out" 'terminal_handle_stale'
   rm -f "$S"/term-*
   out=$(ostart claude CLAUDE_STUB=absent)
-  assert_match "orca: claude not installed: the start fails" "$out" 'exit=1$'
+  assert_match "orca: claude not installed: the start fails, nothing sent (3)" "$out" 'exit=3$'
   assert_match "orca: ... naming the missing CLI" "$out" 'claude is not installed'
   assert_nomatch "orca: ... and typing nothing" "$(cat "$ORCA_STUB_LOG")" '^orca terminal send '
   out=$(ostart cursor CURSOR_STUB=absent)
@@ -900,22 +900,33 @@ if section add-lane; then
   assert_nomatch "orca D, made on another branch: no lane D line" "$(cat "$RUN/panes.txt")" 'lane D:'
   # A launch Orca never sent (its send refused) is recorded as unsent; the
   # rerun starts the agent once, in the same terminal.
-  : > "$ORCA_STUB_LOG"; out=$(ORCA_STUB_SEND_FAIL=1 ORCA_STUB_WORKTREES="$TMP/orca-wt" lane D feat/d2 main 5; echo "exit=$?")
+  : > "$ORCA_STUB_LOG"; out=$(ORCA_STUB_SEND_FAIL=refused ORCA_STUB_WORKTREES="$TMP/orca-wt" lane D feat/d2 main 5; echo "exit=$?")
   dpane=$(sed -nE 's/^lane D: +([^ ]+).*/\1/p' "$RUN/panes.txt"); dwt=$(sed -nE 's/^lane D: .* checkout (.*), model .*/\1/p' "$RUN/panes.txt")
   assert_match "orca D, its launch not sent: fails" "$out" 'exit=1$'
   assert_match "orca D, its launch not sent: recorded unsent" "$(cat "$RUN/panes.txt")" '^lane D: .*\) unsent$'
   assert_match "orca D, its launch not sent: says a rerun starts it" "$out" "lane D's launch was never sent: rerun  .*add-lane\\.sh .* D feat/d2 main 5  to start it in $dpane"
   mkdir -p "$TMP/orca-wt"; git -C "$r" worktree add -q -b feat/d2 "$dwt"   # the worktree Orca made
-  echo unlisted-idle > "$ORCA_STUB_STATES_DIR/$dpane"   # its terminal: a shell, no agent
+  # Its terminal showing no shell (an agent on screen, idle): no launch typed.
+  echo unlisted-idle > "$ORCA_STUB_STATES_DIR/$dpane"
+  : > "$ORCA_STUB_LOG"; out=$(lane D feat/d2 main 5; echo "exit=$?")
+  assert_match "orca D rerun, its screen not a shell: refused" "$out" "lane D's launch was never sent, but terminal $dpane's screen does not show a shell"
+  assert_nomatch "orca D rerun, its screen not a shell: nothing typed" "$(cat "$ORCA_STUB_LOG")" '^orca terminal send '
+  echo unlisted-shell > "$ORCA_STUB_STATES_DIR/$dpane"   # its terminal: a shell, no agent
   # An agent working there after all (started by hand): refused, nothing typed.
   echo working > "$ORCA_STUB_STATES_DIR/$dpane"
   : > "$ORCA_STUB_LOG"; out=$(lane D feat/d2 main 5; echo "exit=$?")
   assert_match "orca D rerun, an agent working there: refused" "$out" "an agent is working in $dpane although its launch was never sent"
   assert_nomatch "orca D rerun, an agent working there: nothing typed" "$(cat "$ORCA_STUB_LOG")" '^orca terminal send '
-  echo unlisted-idle > "$ORCA_STUB_STATES_DIR/$dpane"
-  : > "$ORCA_STUB_LOG"; out=$(ORCA_STUB_SEND_FAIL=1 lane D feat/d2 main 5; echo "exit=$?")
+  echo unlisted-shell > "$ORCA_STUB_STATES_DIR/$dpane"
+  : > "$ORCA_STUB_LOG"; out=$(ORCA_STUB_SEND_FAIL=refused lane D feat/d2 main 5; echo "exit=$?")
   assert_match "orca D rerun, not sent again: still unsent" "$(cat "$RUN/panes.txt")" '^lane D: .*\) unsent$'
   assert_eq "orca D rerun, not sent again: one launch tried" "$(grep -c "^orca terminal send --terminal $dpane --text claude " "$ORCA_STUB_LOG")" 1
+  # A launch with no receipt stays pending (starting): the operator looks
+  # at the terminal before anything is typed again.
+  : > "$ORCA_STUB_LOG"; out=$(ORCA_STUB_SEND_FAIL=unknown lane D feat/d2 main 5; echo "exit=$?")
+  assert_match "orca D rerun, no receipt: pending, not unsent" "$(cat "$RUN/panes.txt")" '^lane D: .*\) starting$'
+  assert_match "orca D rerun, no receipt: says to inspect the terminal first" "$out" "Orca cannot say whether lane D's launch reached $dpane \\(no receipt\\): look at that terminal before anything is sent again"
+  sed -i.bak '/^lane D:/s/ starting$/ unsent/' "$RUN/panes.txt"; rm -f "$RUN/panes.txt.bak"   # the operator saw no agent there
   : > "$ORCA_STUB_LOG"; out=$(lane D feat/d2 main 5; echo "exit=$?")
   assert_match "orca D rerun: started" "$out" 'exit=0$'
   assert_eq "orca D rerun: its agent typed once, in the same terminal" "$(grep -c "^orca terminal send --terminal $dpane --text claude " "$ORCA_STUB_LOG")" 1
@@ -4217,6 +4228,15 @@ if section send-brief; then
       out=$(send "$RUN" bun-vitest-lane-a "$RUN/brief-A.md")
       assert_match "send-brief (orca), agent $st: sent" "$out" 'exit=0$'
     done
+    rm -f "$S/$apane"
+    # A send Orca took without a receipt may have arrived: not "send again".
+    out=$(ORCA_STUB_SEND_FAIL=unknown send "$RUN" bun-vitest-lane-a "$RUN/brief-A.md")
+    assert_match "send-brief (orca), no receipt: says to look before sending again" "$out" "send-brief: Orca cannot say whether the brief reached bun-vitest-lane-a in $apane \\(no receipt\\): look at that terminal before you send anything again"
+    assert_nomatch "send-brief (orca), no receipt: never 'nothing was sent'" "$out" 'nothing was sent'
+    assert_match "send-brief (orca), no receipt: fails" "$out" 'exit=1$'
+    out=$(ORCA_STUB_SEND_FAIL=refused send "$RUN" bun-vitest-lane-a "$RUN/brief-A.md")
+    assert_match "send-brief (orca), refused: nothing was sent, send again" "$out" 'nothing was sent, send again'
+
     for st in unlisted-shell:"Orca lists no agent in terminal $apane, and its screen shows a shell" done-shell:"lists bun-vitest-lane-a as done, but terminal $apane's screen does not show the agent" unlisted:"Orca lists no agent in terminal $apane, and its screen is not idle" blocked:"terminal $apane as blocked: not ready for input"; do
       echo "${st%%:*}" > "$S/$apane"
       out=$(send "$RUN" bun-vitest-lane-a "$RUN/brief-A.md")

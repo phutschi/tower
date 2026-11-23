@@ -40,8 +40,10 @@
 # when the branch is taken (`worktree show` says so).
 # ORCA_STUB_CREATE_FAIL=<title>: a `terminal create` with that --title fails
 # (runtime_unavailable).
-# ORCA_STUB_SEND_FAIL=1: every `terminal send` with text fails
-# (runtime_unavailable).
+# ORCA_STUB_SEND_FAIL: every `terminal send` with text fails: =1 with
+# runtime_unavailable (a lost reply), =refused as Orca refuses input
+# (accepted false, exit 1), =unknown as input taken with no receipt
+# (deliveryOutcome unknown, retrySafe false).
 # ORCA_STUB_STATUS=fail: `status` answers runtime_unavailable; =offline: it
 # succeeds, saying the runtime is not reachable (both: Orca not reachable).
 # ORCA_STUB=absent refuses to run, so orca counts as not installed; it logs
@@ -114,7 +116,13 @@ case "${1:-} ${2:-}" in
     ok "{\"terminal\":{\"handle\":\"$h\",\"tabId\":\"$tab\",\"leafId\":\"$leaf\",\"worktreeId\":\"$wt\"}}" ;;
   "terminal send")
     h=$(flag terminal); live "$h"
-    [ "${ORCA_STUB_SEND_FAIL:-}" != 1 ] || ! has text || err runtime_unavailable
+    if has text; then
+      case "${ORCA_STUB_SEND_FAIL:-}" in
+        1)       err runtime_unavailable ;;
+        refused) printf '{"id":"stub","ok":true,"result":{"send":{"handle":"%s","accepted":false,"refusedReason":"stub"}}}\n' "$h"; exit 1 ;;
+        unknown) printf '{"id":"stub","ok":false,"error":{"code":"incompatible_runtime","message":"no receipt","data":{"deliveryOutcome":"unknown","retrySafe":false}}}\n'; exit 1 ;;
+      esac
+    fi
     if trusty "$h"; then
       if [ "$(peek "$h")" = trust ] && has text && has enter; then err agent_prompt_blocked; fi
       if has enter && ! has text; then

@@ -51,6 +51,10 @@ case $rc in
   3) stale_handle "$NAME" "$PANE" "its line"; exit 1 ;;
   *) die "send-brief: $(runner_name) cannot say whether $NAME's pane $PANE is open; nothing sent, send again once it answers ($(runner_name): ${err:-no output})" ;;
 esac
-err=$(runner_send_message "$NAME" "$PANE" "$TEXT" 2>&1) \
-  || die "send-brief: $(runner_name) did not take the brief for $NAME in $PANE; nothing was sent, send again${err:+ ($err)}"
+rc=0; err=$(runner_send_message "$NAME" "$PANE" "$TEXT" 2>&1) || rc=$?
+case $rc in
+  0) ;;
+  4) die "send-brief: $(runner_name) cannot say whether the brief reached $NAME in $PANE (no receipt): look at that terminal before you send anything again${err:+ ($err)}" ;;
+  *) die "send-brief: $(runner_name) did not take the brief for $NAME in $PANE; nothing was sent, send again${err:+ ($err)}" ;;
+esac
 echo "brief $BRIEF sent to $NAME in $PANE"

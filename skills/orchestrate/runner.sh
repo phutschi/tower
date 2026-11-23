@@ -29,7 +29,8 @@ need_runner() {
 
 # The runner functions, loaded by need_runner alone (each runner-<runner>.sh
 # documents them):
-#   runner_agent_start NAME KIND PANE -- HARNESS_ARGS...   3: it failed with nothing sent
+#   runner_agent_start NAME KIND PANE -- HARNESS_ARGS...   3: it failed with nothing sent;
+#                                  4: sent without a receipt, it may have arrived
 #   runner_agent_state NAME PANE   "<status> <ready>", gone or unreadable;
 #                                  gone: herdr, the agent is not found (Orca never says it:
 #                                  a stale handle may name a terminal still open)
@@ -38,7 +39,9 @@ need_runner() {
 #   runner_ready_hint NAME         how a human sees NAME accept input
 #   runner_send_text PANE TEXT
 #   runner_send_keys PANE KEY...
-#   runner_send_message NAME PANE TEXT   TEXT as one prompt to NAME (send-brief.sh)
+#   runner_send_message NAME PANE TEXT   TEXT as one prompt to NAME (send-brief.sh); 1 nothing
+#                                  sent, 4 sent without a receipt
+#   runner_pane_at_shell PANE      0 when PANE's screen shows a shell (Orca)
 #   runner_names_agents            0 when the runner reaches an agent by its name (herdr)
 # and the layout (CONTEXT.md Layout):
 #   runner_self                    the orchestrator's pane or workspace, for the pane map

@@ -57,8 +57,10 @@
 # lane whose agent herdr does not find is started again in the lane's pane and
 # worktree; and a starting lane's agent left running is taken ("resumed") once
 # it accepts input, or refused, saying to answer or end it, while it does not.
-# A launch the runner never sent ends the line in " unsent" instead, and the
-# rerun starts the agent once in that pane (Orca: its terminal stays open).
+# A launch the runner proves it never sent ends the line in " unsent"
+# instead, and the rerun starts the agent once in that pane, while its screen
+# shows a shell (Orca: its terminal stays open). One sent without a receipt
+# stays " starting": look at the terminal before anything is typed again.
 # Nothing else is redone (the worktree exists and the task ids are assigned).
 # Refused before anything is created: a kind whose CLI is not installed
 # (executor.sh need_kind, which names it), on a rerun too.
@@ -218,18 +220,17 @@ set_lane_line() {
 RERUN="$KIT/add-lane.sh $RUN_DIR $LANE $BRANCH $BASE $TASKS"
 STARTED_AGAIN="started again"
 # Starts the lane's agent in $PANE, or dies saying how to resume. A launch the
-# runner never sent (executor.sh LAUNCH_MARK stays absent) is recorded as
-# unsent: the rerun starts it once, in the same pane.
+# runner proves it never sent (executor.sh's 3) is recorded as unsent: the
+# rerun starts it once, in the same pane. One sent without a receipt (4) stays
+# starting: someone looks at the terminal before anything is typed again.
 start_lane() {
-  local d rc=0; d=$(mktemp -d) || die "add-lane: mktemp -d failed"
-  LAUNCH_MARK="$d/sent"
+  local rc=0
   start_agent_with_trust_retry "$NAME" "$PANE" || rc=$?
-  [ "$rc" = 0 ] || [ -e "$LAUNCH_MARK" ] || rc=unsent
-  rm -rf "$d"; unset LAUNCH_MARK
   case $rc in
     0) ;;
-    unsent) set_lane_line "$(lane_line "$PANE") unsent"
-            die "add-lane: lane $LANE's launch was never sent: rerun  $RERUN  to start it in $PANE" ;;
+    3) set_lane_line "$(lane_line "$PANE") unsent"
+       die "add-lane: lane $LANE's launch was never sent: rerun  $RERUN  to start it in $PANE" ;;
+    4) die "add-lane: $(runner_name) cannot say whether lane $LANE's launch reached $PANE (no receipt): look at that terminal before anything is sent again. An agent there: rerun  $RERUN  to take it once it accepts input. No agent, a shell: end lane $LANE's line in $MAP with \" unsent\" instead of \" starting\", then rerun" ;;
     *) die "add-lane: agent $NAME is not ready in $PANE; lane $LANE is in the pane map, starting: rerun  $RERUN  to resume it" ;;
   esac
 }
@@ -258,6 +259,9 @@ if [ -n "$PANE" ]; then
   check_rerun "$(lane_line "$PANE")$STARTING" "$PANE" line
   [ "$STARTING" != " unsent" ] || [ "$state" != working ] \
     || die "lane $LANE: an agent is working in $PANE although its launch was never sent; check it there, and end it before you rerun"
+  # A launch is typed only where the screen shows a shell, nothing else.
+  [ "$STARTING" != " unsent" ] || runner_pane_at_shell "$PANE" \
+    || die "lane $LANE's launch was never sent, but terminal $PANE's screen does not show a shell: check it there (an agent started by hand?), then rerun  $RERUN"
   if [ "$state" = gone ] || [ "$STARTING" = " unsent" ]; then
     set_lane_line "$(lane_line "$PANE") starting"
     start_lane

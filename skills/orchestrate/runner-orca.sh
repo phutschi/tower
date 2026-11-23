@@ -10,7 +10,8 @@ orca() { command "$ORCA_CLI_COMMAND" "$@"; }   # set: runner_detect saw it
 
 # NAME's agent CLI of KIND, started in terminal PANE with HARNESS_ARGS: its
 # command line typed into the terminal's shell. Orca's error, if any, is
-# printed, and 3 returned: nothing was sent. It then reads the agent until
+# printed, and 3 returned when Orca proves nothing was typed, 4 when it may
+# have been (no receipt, a lost reply). It then reads the agent until
 # Orca lists it as working, waiting or done (START_TRIES reads, a second
 # apart). One blocked on the workspace trust menu, its terminal showing it, is
 # said as herdr says it ("agent blocked during startup"), for executor.sh to
@@ -21,9 +22,8 @@ runner_agent_start() {
   # A missing CLI would leave a shell saying "command not found" (executor.sh kind_installed).
   kind_installed "$kind" || { echo "agent start: $(kind_cli "$kind") is not installed: install it, or use another kind" >&2; return 3; }
   line=$(printf '%q ' "$(kind_cli "$kind")" "$@"); line=${line% }
-  # Orca refused the send, except on a timeout, which may have typed it.
   out=$(orca terminal send --terminal "$pane" --text "$line" --enter --json) || {
-    echo "$out" >&2; case "$out" in *'timeout"'*) return 1 ;; *) return 3 ;; esac; }
+    echo "$out" >&2; if orca_send_refused "$out"; then return 3; else return 4; fi; }
   while :; do
     case "$(runner_agent_state "$name" "$pane")" in
       blocked*)
@@ -110,6 +110,14 @@ runner_name() { echo Orca; }
 runner_ready_hint() { echo "\"\$ORCA_CLI_COMMAND\" agent list --json  shows it waiting or done"; }
 runner_agent_tail() { orca terminal read --terminal "$2" --json | jsonq '"\n".join(d["result"]["terminal"]["tail"])' | tail -n "$3"; }
 runner_send_text()  { orca terminal send --terminal "$1" --text "$2" --json >/dev/null; }
+# Does a failed send's answer OUT prove nothing was typed? Orca refused the
+# input (accepted false), called it safe to retry, or failed before any input
+# (a bad handle or argument, a menu refusing text with Enter). A lost reply or
+# a missing receipt proves nothing.
+orca_send_refused() {
+  echo "$1" | jsonq '(lambda d, x: (d["result"]["send"].get("accepted") is False) if d.get("ok") else (x.get("deliveryOutcome") != "unknown" and (x.get("retrySafe") is True or d["error"]["code"] in ("agent_prompt_blocked", "invalid_argument", "selector_not_found", "terminal_not_found", "terminal_handle_stale"))))(d, (d.get("error") or {}).get("data") or {})' 2>/dev/null | grep -qx True
+}
+runner_pane_at_shell() { screen_ends_in_shell "$(orca_screen "$1")"; }   # does PANE's screen end in a shell prompt?
 runner_names_agents() { return 1; }   # Orca reaches an agent only through its terminal handle
 # NAME PANE TEXT: TEXT typed into terminal PANE, then Enter, only to an agent
 # ready for input there: anything else at that address (a shell, a menu)
@@ -117,8 +125,8 @@ runner_names_agents() { return 1; }   # Orca reaches an agent only through its t
 # goes only while the screen shows the agent: Orca keeps an agent that exited
 # to its shell listed as done. Unlisted, it goes once the screen is idle, by
 # the start's rule (runner_agent_state): a terminal agent reports to Orca on
-# its first turn; but not to a screen ending in a shell prompt. Held, it
-# fails, saying why: nothing was sent.
+# its first turn; but not to a screen ending in a shell prompt. Held, or
+# refused by Orca, it returns 1: nothing was sent; sent without a receipt, 4.
 runner_send_message() {
   local s out
   s=$(orca_raw "$2")
@@ -134,7 +142,8 @@ runner_send_message() {
         || { echo "Orca lists no agent in terminal $2, and its screen shows a shell: check it there" >&2; return 1; } ;;
     *) echo "Orca lists $1's terminal $2 as $s: not ready for input" >&2; return 1 ;;
   esac
-  out=$(orca terminal send --terminal "$2" --text "$3" --enter --json) || { echo "$out" >&2; return 1; }
+  out=$(orca terminal send --terminal "$2" --text "$3" --enter --json) || {
+    echo "$out" >&2; if orca_send_refused "$out"; then return 1; else return 4; fi; }
 }
 # Each key a send of its own: Orca refuses text and Enter together while an
 # agent shows a menu.
