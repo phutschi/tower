@@ -594,6 +594,11 @@ if section bootstrap; then
   assert_nomatch "orca: ... and no shell line" "$(cat "$RUN/panes.txt" 2>/dev/null)" '^shell:'
   assert_match "orca: ... the console it opened recorded in the pane map" "$(cat "$RUN/panes.txt" 2>/dev/null)" '^opened: +term-1 +\(before a failure: close it\)$'
   assert_match "orca: ... and named to close" "$out" "opened term-1 before it failed: close it"
+  # Lane A's tab failing after the tower tab opened: both its panes named.
+  r=$(fixture_repo bun-vitest); RUN="$TMP/run-orca-fail-a"; reset_stub
+  out=$(ORCA_STUB_CREATE_FAIL=lane-a boot "$r" "$RUN" "Orca fail A" main; echo "exit=$?")
+  assert_match "orca: lane A's tab fails: the console and shell recorded" "$(cat "$RUN/panes.txt" 2>/dev/null)" '^opened: +term-1 term-2 +\(before a failure: close it\)$'
+  assert_match "orca: ... and named to close" "$out" "opened term-1 term-2 before it failed"
   r=$(fixture_repo contract); RUN="$TMP/run-orca-dev"; reset_stub
   out=$(boot "$r" "$RUN" "Orca dev" main; echo "exit=$?")
   log=$(cat "$ORCA_STUB_LOG"); map=$(cat "$RUN/panes.txt" 2>/dev/null)
@@ -1378,7 +1383,6 @@ if section add-reviewer; then
   rp=$(fixture_repo bun-vitest); RUNP="$TMP/run-orca-partial"; reset_stub
   (cd "$rp" && "$KIT/bootstrap.sh" "$RUNP" "Orca partial" main "$KIT/example-tasks.tsv" >/dev/null 2>&1)
   : > "$ORCA_STUB_LOG"; out=$(cd "$rp" && ORCA_STUB_CREATE_FAIL=R2 EXIT_WAIT_SECONDS=3 "$KIT/add-reviewer.sh" "$RUNP" R1 claude "Lane review A" "$RUNP/findings/a.json" 2>&1; echo "exit=$?")
-  p1=$(sed -nE 's/^orca terminal create .*--title R1 .*/x/p' "$ORCA_STUB_LOG" | wc -l | tr -d ' ')
   assert_match "orca, R2's tab fails: refused" "$out" 'exit=1$'
   assert_match "orca, R2's tab fails: R1 recorded at once" "$(cat "$RUNP/panes.txt")" '^review tab: +tab-[0-9]+ +\(R1 term-[0-9]+\)$'
   assert_match "orca, R2's tab fails: says the rerun opens R2" "$out" "opened R1's tab but not R2's: rerun  .*add-reviewer\\.sh"
@@ -1388,6 +1392,16 @@ if section add-reviewer; then
   assert_eq "orca, rerun: no second R1 tab" "$(grep -c '^orca terminal create .*--title R1 ' "$ORCA_STUB_LOG")" 0
   assert_match "orca, rerun: both slots recorded" "$(cat "$RUNP/panes.txt")" '^review tab: +tab-[0-9]+,tab-[0-9]+ +\(R1 term-[0-9]+, R2 term-[0-9]+\)$'
   assert_eq "orca, rerun: one review tab line" "$(grep -c '^review tab:' "$RUNP/panes.txt")" 1
+  # The same in a run whose slots open as its lanes tab (lane A in another
+  # tab, no lanes tab yet): the rerun keeps that line's key.
+  rp=$(fixture_repo bun-vitest); RUNP="$TMP/run-orca-partial-lanes"; reset_stub
+  (cd "$rp" && "$KIT/bootstrap.sh" "$RUNP" "Orca partial lanes" main "$KIT/example-tasks.tsv" >/dev/null 2>&1)
+  sed -i.bak -e '/^lanes tab:/d' -e '/^lane A:/s/, tab lanes)/, tab research)/' "$RUNP/panes.txt"; rm -f "$RUNP/panes.txt.bak"
+  (cd "$rp" && ORCA_STUB_CREATE_FAIL=R2 EXIT_WAIT_SECONDS=3 "$KIT/add-reviewer.sh" "$RUNP" R1 claude "Lane review A" "$RUNP/findings/a.json" >/dev/null 2>&1)
+  assert_match "orca, R2 fails, slots as the lanes tab: R1 recorded there" "$(cat "$RUNP/panes.txt")" '^lanes tab: +tab-[0-9]+ +\(R1 term-[0-9]+\)$'
+  (cd "$rp" && EXIT_WAIT_SECONDS=3 "$KIT/add-reviewer.sh" "$RUNP" R1 claude "Lane review A" "$RUNP/findings/a.json" >/dev/null 2>&1)
+  assert_match "orca, rerun: the lanes tab line holds both slots" "$(cat "$RUNP/panes.txt")" '^lanes tab: +tab-[0-9]+,tab-[0-9]+ +\(R1 term-[0-9]+, R2 term-[0-9]+\)$'
+  assert_eq "orca, rerun: one slot line in all" "$(grep -cE '^(lanes|review) tab:' "$RUNP/panes.txt")" 1
   rm -f "$S"/*
   else
     S="$HERDR_STUB_STATES_DIR"

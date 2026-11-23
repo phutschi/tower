@@ -356,14 +356,16 @@ elif [ "$REUSED" = 1 ]; then echo "reusing task $ID: an earlier call for $SLOT a
 # Each tab is recorded as soon as it opens: a call that fails after R1 leaves
 # R1 on the line, and the rerun opens R2 alone.
 if [ "$SLOTS_OPEN" = 0 ]; then
+  # A rerun keeps the key of the line that holds R1.
   LABEL=reviews; KEY="review tab:    "
-  if [ -z "$LANES_LINE" ] && grep -qE '^lane A: .*, tab [a-z]+\)( starting| unsent)?$' "$MAP"; then
+  if { [ -n "$TAB_LINE" ] && [ "$TAB_LINE" = "$LANES_LINE" ]; } \
+    || { [ -z "$LANES_LINE" ] && grep -qE '^lane A: .*, tab [a-z]+\)( starting| unsent)?$' "$MAP"; }; then
     LABEL=lanes; KEY="lanes tab:     "
   fi
   R1_PANE=$(slot_pane R1); TAB=${TAB_LINE%% *}
   rc=0; out=$(runner_open_reviewer_slots "$WS" "$REPO" "$LABEL" ${R1_PANE:+"$R1_PANE" "$TAB"}) || rc=$?
   read -r TAB R1_PANE R2_PANE <<< "$out"
-  [ -n "$R1_PANE" ] || exit 1   # nothing opened; the runner said why
+  [ -n "$R1_PANE" ] || exit 1   # nothing to record; the runner said why
   TAB_LINE="$TAB   (R1 $R1_PANE${R2_PANE:+, R2 $R2_PANE})"
   tmp=$(mktemp "$MAP.XXXXXX"); { grep -v "^${KEY%%:*}:" "$MAP" || [ $? -eq 1 ]; } > "$tmp"
   echo "$KEY $TAB_LINE" >> "$tmp"; mv "$tmp" "$MAP"

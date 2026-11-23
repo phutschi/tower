@@ -44,7 +44,7 @@ need_runner() {
 #   runner_workspace PANE          the workspace the run's tabs open in
 #   runner_open_run_panes WS REPO CONSOLE_CMD [DEV_DIR DEV_CMD]
 #                                  "<console> <shell> [<dev>]", then the pane map lines it adds;
-#                                  failing, the panes it opened before (to close)
+#                                  failing (Orca), the panes it opened before (to close)
 #   runner_open_lane_a WS REPO LABEL                          "<pane> <tab line after the label>"
 #   runner_open_lane REPO BRANCH BASE WT LABEL                "<pane> [<checkout>]": makes the
 #                                  worktree, at WT unless the runner names another checkout
