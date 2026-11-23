@@ -276,9 +276,9 @@ if [ -n "$PREV" ]; then
     unreadable) die "herdr cannot say whether Reviewer $PREV is still there (herdr agent get $PREV fails); rerun once herdr answers" ;;
     *)
       PANE=$(slot_pane "$SLOT")
-      herdr pane send-text "$PANE" "/exit" >/dev/null
+      runner_send_text "$PANE" "/exit"
       [ "${DRY_RUN:-0}" = 1 ] || sleep 1
-      herdr pane send-keys "$PANE" Enter >/dev/null
+      runner_send_keys "$PANE" Enter
       waited=0
       until state=$(state_of "$PREV"); [ "$state" = gone ]; do
         if [ "$waited" -ge "${EXIT_WAIT_SECONDS:-15}" ]; then
@@ -286,7 +286,7 @@ if [ -n "$PREV" ]; then
           die "Reviewer $PREV did not exit; end it in $PANE and rerun"
         fi
         if [ "$waited" -gt 0 ] && [ $((waited % 3)) -eq 0 ]; then
-          herdr pane send-keys "$PANE" Enter >/dev/null 2>&1 || true   # best effort; the gone check decides
+          runner_send_keys "$PANE" Enter 2>/dev/null || true   # best effort; the gone check decides
         fi
         [ "${DRY_RUN:-0}" = 1 ] || sleep 1
         waited=$((waited+1))
