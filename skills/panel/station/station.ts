@@ -207,7 +207,14 @@ export async function runStation(
       if (job.ended) continue;
       // The user stopped it: moved its issue back, or closed it.
       const control = await fetch(`${opts.hubUrl}/api/jobs/${id}/control`)
-        .then((r) => (r.ok ? (r.json() as Promise<Control>) : null))
+        // 404: the hub knows the job no more (a new database): no stop.
+        .then((r) =>
+          r.ok
+            ? (r.json() as Promise<Control>)
+            : r.status === 404
+              ? { stop: false, reason: null }
+              : null,
+        )
         .catch(() => null);
       // 409: the job is no longer this station's: let go. If the user
       // stopped it meanwhile (its lease ran out while the station was cut

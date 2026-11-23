@@ -3,7 +3,13 @@
  * runStation with fake runners) against a real hub, with real git against a
  * temp bare repo standing in for GitHub's.
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import {
   afterEach,
@@ -476,6 +482,18 @@ test("an empty session id in a result keeps the session the job reported", async
     sessionId: "",
   });
   expect((await jobs())[0]!.sessionId).toBe("s-1");
+});
+
+test("a job the hub knows no more (a new database) is let go", async () => {
+  await setup();
+  await grills(1);
+  const { workdir } = station();
+  await until(async () => (await jobs())[0]?.state === "claimed");
+  const id = (await jobs())[0]!.id;
+  await stopHub();
+  rmSync(join(dir(), "hub.db"), { force: true });
+  await restart();
+  await until(async () => existsSync(join(workdir, `aborted-${id}`)));
 });
 
 test("the Panel lists stations with switch, limit and current jobs, and each job's events", async () => {

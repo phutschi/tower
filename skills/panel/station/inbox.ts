@@ -78,8 +78,8 @@ export async function readThread(
 }
 
 /**
- * Whether the thread named `thread`, in the project at `cwd`, waits on the
- * person: an agent wrote last there, and nobody has answered yet.
+ * Whether the thread named `thread`, in the project at `cwd`, has a question
+ * the person has not answered yet (open, or picked and not sent).
  */
 export async function waitsOnPerson(
   thread: string,
@@ -92,13 +92,14 @@ export async function waitsOnPerson(
   )) as {
     threads?: {
       thread_name?: string;
-      subject?: string;
-      last_author?: string;
+      questions?: { open?: number; picked?: number };
     }[];
   };
+  // The Inbox ignores case and spacing in a thread's name.
+  const norm = (n = "") => n.toLowerCase().replace(/\s+/g, "");
   return (list.threads ?? []).some(
     (t) =>
-      (t.thread_name === thread || t.subject === thread) &&
-      t.last_author === "agent",
+      norm(t.thread_name) === norm(thread) &&
+      (t.questions?.open ?? 0) + (t.questions?.picked ?? 0) > 0,
   );
 }

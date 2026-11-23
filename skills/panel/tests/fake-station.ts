@@ -5,7 +5,8 @@
  * FAKE_CHECKPOINT=1 it first waits for WORKDIR/checkpoint-<job id>, sends a
  * "spec" checkpoint, and once the hub has it writes WORKDIR/acted-<job id>;
  * WORKDIR/refused-<job id> when the checkpoint is refused. A job the user
- * stops writes the reason to WORKDIR/stopped-<job id>; with
+ * stops writes the reason to WORKDIR/stopped-<job id>, and any aborted job
+ * writes WORKDIR/aborted-<job id>; with
  * FAKE_FAIL_ON_STOP=1 it then fails, with tokens.
  */
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -46,6 +47,7 @@ for (const kind of env("FAKE_KINDS").split(",").filter(Boolean))
       const release = join(workdir, `release-${job.id}`);
       while (!existsSync(release) && !signal.aborted) await Bun.sleep(20);
       if (signal.aborted) {
+        writeFileSync(join(workdir, `aborted-${job.id}`), "");
         const why = stopReason(signal);
         if (why !== null)
           writeFileSync(join(workdir, `stopped-${job.id}`), why);

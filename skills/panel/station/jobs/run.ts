@@ -33,13 +33,17 @@ const POLL_MS = Number(process.env.PANEL_RUN_POLL_MS) || 30_000;
 export const workspaceName = (job: Job) =>
   `${job.repo.replace("/", "-")}-${job.issues.join("-")}`;
 
+/** The run's Inbox thread: its issues' refs. */
+export const threadName = (job: Job) =>
+  job.issues.map((n) => `${job.repo}#${n}`).join(" + ");
+
 export function brief(job: Job, ws: Workspace): string {
   const refs = job.issues.map((n) => `${job.repo}#${n}`);
   const fill: Record<string, string> = {
     issues: refs.join(", "),
     // GitHub links an issue to the PR only with a keyword of its own.
     closes: job.issues.map((n) => `Closes #${n}`).join(", "),
-    thread: refs.join(" + "),
+    thread: threadName(job),
     path: ws.path,
     branch: ws.branch,
     database: ws.databaseName,
@@ -85,7 +89,7 @@ registerJobRunner("run", async ({ job, workspace, emit, signal }) => {
     ports: workspace.ports,
   });
   // The orchestrator and the repo's stale threshold; null when the kit
-  // cannot say, which counts as alive.
+  // cannot say (the last threshold then holds).
   const health = () =>
     run(RUN_STATE, [opened.agent], { cwd: workspace.path, ...BOUNDED }).then(
       (r) => JSON.parse(r.stdout) as { agent: string; stale: number },
@@ -93,11 +97,10 @@ registerJobRunner("run", async ({ job, workspace, emit, signal }) => {
     );
   // Closes the run's workspace; what is wrong when it stays open.
   const close = () =>
-    run(STOP_RUN, [opened.workspace]).then(
+    run(STOP_RUN, [opened.workspace], BOUNDED).then(
       () => "",
       (err: unknown) => `; its workspace is still open: ${String(err)}`,
     );
-  const thread = job.issues.map((n) => `${job.repo}#${n}`).join(" + ");
   let last = "";
   let sent = 0; // transcript entries sent so far
   let stale = 30; // the last threshold the kit gave
@@ -140,8 +143,16 @@ registerJobRunner("run", async ({ job, workspace, emit, signal }) => {
     if (now?.agent === "working") progress = Date.now();
     else if (Date.now() - progress > stale * 60_000) {
       // A question in the run's thread with no answer yet is no stall.
-      if (await waitsOnPerson(thread, workspace.path).catch(() => false))
-        progress = Date.now();
+      const waits = await waitsOnPerson(threadName(job), workspace.path).catch(
+        (err: unknown) => {
+          // An Inbox that cannot answer now ends no run that waits on it.
+          console.error(
+            `station: reading the run's Inbox thread: ${String(err)}`,
+          );
+          return true;
+        },
+      );
+      if (waits) progress = Date.now();
       else
         return {
           outcome: "failed",

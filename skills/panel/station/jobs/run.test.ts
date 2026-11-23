@@ -412,18 +412,25 @@ test("a run whose orchestrator exited is stuck, and frees its station", async ()
 
 test("a stalled run is stuck and its workspace closed, unless its Inbox thread waits on an answer", async () => {
   const threads = join(dir(), "threads.json");
-  const thread = (lastAuthor: string) =>
+  const thread = (open: number) =>
     writeFileSync(
       threads,
       JSON.stringify({
         threads: [
-          { thread_name: "acme/widgets#12", last_author: lastAuthor },
-          { thread_name: "acme/widgets#99", last_author: "agent" },
+          {
+            thread_name: "acme/widgets#12",
+            last_author: "agent",
+            questions: { open, picked: 0 },
+          },
+          {
+            thread_name: "acme/widgets#99",
+            questions: { open: 1, picked: 0 },
+          },
         ],
       }),
     );
   // The orchestrator asked in the run's thread: no stall while it waits.
-  thread("agent");
+  thread(1);
   await setup({ PLANNOTATOR_STUB_THREADS: threads }, undefined, undefined, {
     ".orchestrate": "STALE=0\n",
   });
@@ -434,8 +441,8 @@ test("a stalled run is stuck and its workspace closed, unless its Inbox thread w
   agentIs(dir(), "acme-widgets-12", "idle");
   await Bun.sleep(500);
   expect((await jobs())[0]!.state).toBe("claimed");
-  // The person answered; the run does nothing with it.
-  thread("person");
+  // The person answered, the orchestrator said thanks, then did nothing.
+  thread(0);
   await until(async () => (await jobs())[0]?.state === "stuck");
   expect((await jobs())[0]!.reason).toBe("no progress for 0 min");
   // Nobody watches it: its workspace closes, its checkout stays.
