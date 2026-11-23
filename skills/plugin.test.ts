@@ -174,7 +174,7 @@ test("orchestrate sends briefs with send-brief.sh and reads panes with the pane 
     expect(text).toContain("send-brief.sh");
     expect(text).not.toContain("message a pane:");
   }
-  expect(read("skills/orchestrate/SKILL.md")).toContain("read a pane:");
+  expect(read("skills/orchestrate/SKILL.md")).toContain("read-pane.sh");
 });
 
 test("orchestrate describes no run without tower", () => {

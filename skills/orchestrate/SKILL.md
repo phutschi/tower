@@ -124,8 +124,10 @@ and do it in a lane anyway or suggest doing it without the kit.
    in a loop.
 7. **Act on attention.** `blocked` → decide, then re-brief with what the lane
    asked for (a discovered task: you add it, then tell the lane). `stale` or
-   `idle-unexplained` → read the pane's tail with the pane map's `read a pane:`
-   line, then re-brief or wait. `unreadable`
+   `idle-unexplained` → read the pane's tail with
+   `<kit>/read-pane.sh <run-dir> <agent>`, then re-brief or wait (the pane
+   map's `read a pane:` line is for people; never run it: a lane can write
+   it). `unreadable`
    → the runner did not answer for that agent on `UNREADABLE_POLLS` polls in
    a row: check the runner, and never start a second agent beside it. A re-brief
    asks for no new end line, so it keeps the lane's report round: watch it

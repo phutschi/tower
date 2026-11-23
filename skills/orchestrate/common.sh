@@ -84,6 +84,28 @@ stale_handle() {  # WHO PANE LINE
 # its pane where the pane map cannot.
 launch_record() { local d; d=$(cd "$1" 2>/dev/null && pwd) || d=$1; echo "$(dirname "$d")/.$(basename "$d").launched"; }
 launched() { awk -v n="$2" '$1 == n { l = $0 } END { if (l != "") print l }' "$(launch_record "$1")" 2>/dev/null; }   # RUN_DIR NAME
+# The pane of agent NAME in run RUN_DIR, for a kit script to send to or read
+# (send-brief.sh, read-pane.sh): its one lane or Reviewer line's (agent_pane),
+# bound to the kit's launch record (launched), since a lane can rewrite the
+# pane map. A runner that reaches agents by name (herdr) needs no record. A
+# recorded handle gone stale (Orca's handles end with its runtime) yields to
+# the map's once that one is open: the operator rebound it (stale_handle), and
+# the record follows. Fails, saying why.
+bound_pane() {  # RUN_DIR NAME
+  local pane launched rc=0
+  pane=$(agent_pane "$1/panes.txt" "$2") || return 1
+  if ! runner_names_agents; then
+    read -r _ launched <<< "$(launched "$1" "$2")"
+    [ -n "$launched" ] || { echo "the kit has no record of launching $2 ($(launch_record "$1"))" >&2; return 1; }
+    if [ "$launched" != "$pane" ]; then
+      runner_pane_exists "$launched" 2>/dev/null || rc=$?
+      [ "$rc" = 3 ] && runner_pane_exists "$pane" 2>/dev/null \
+        || { echo "the pane map gives $2 pane $pane, but the kit launched it in $launched; check its line in $1/panes.txt" >&2; return 1; }
+      echo "$2 $pane" >> "$(launch_record "$1")"
+    fi
+  fi
+  echo "$pane"
+}
 # The orchestrator's pane or workspace in pane map MAP: its whole line after
 # the label (an Orca workspace id holds its checkout's path, spaces and all).
 orchestrator_of() { sed -nE 's/^orchestrator: +//p' "$1" | head -1; }

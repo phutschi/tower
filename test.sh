@@ -4291,6 +4291,17 @@ if section send-brief; then
     assert_match "send-brief (herdr), the prompt refused: says so, with herdr's error" "$out" "send-brief: herdr did not take the brief for bun-vitest-lane-a in $apane; nothing was sent, send again \\(.*agent_not_found"
     assert_match "send-brief (herdr), the prompt refused: fails" "$out" 'exit=1$'
   fi
+  # read-pane.sh reads an agent's screen as send-brief.sh finds its pane: the
+  # map's read line is never run.
+  if [ "${RUNNER:-herdr}" = orca ]; then printf 'line one\nline two\n' > "$S/$apane.tail"; else printf 'line one\nline two\n' > "$S/bun-vitest-lane-a.tail"; fi
+  echo "read a pane:    touch $TMP/read-pane-ran" >> "$RUN/panes.txt"
+  out=$( (cd "$r" && "$KIT/read-pane.sh" "$RUN" bun-vitest-lane-a 1 2>&1; echo "exit=$?") )
+  assert_match "read-pane: the agent's last lines" "$out" '^line two$'
+  assert_nomatch "read-pane: ... as many as asked" "$out" '^line one$'
+  assert_eq "read-pane: the map's read line is not run" "$([ -e "$TMP/read-pane-ran" ] && echo ran || echo not)" not
+  out=$( (cd "$r" && "$KIT/read-pane.sh" "$RUN" bun-vitest-lane-z 2>&1; echo "exit=$?") )
+  assert_match "read-pane, an agent no line names: refused" "$out" "read-pane: no lane or Reviewer line in $RUN/panes.txt names agent bun-vitest-lane-z"
+  rm -f "$S/$apane.tail" "$S/bun-vitest-lane-a.tail"; sed -i.bak '/^read a pane:    touch/d' "$RUN/panes.txt"; rm -f "$RUN/panes.txt.bak"
   # The brief is read once, from a regular file: a link (it could point
   # outside the run dir) or a directory is refused, with nothing sent.
   echo secret > "$TMP/outside.txt"; ln -sf "$TMP/outside.txt" "$RUN/brief-link.md"
