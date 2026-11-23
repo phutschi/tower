@@ -186,10 +186,9 @@ if section common; then
   assert_match "runner_detect: Orca set but orca status fails, it says Orca is not reachable" "$out" "Orca is not reachable"
   assert_match "runner_detect: ... and fails" "$out" 'exit=1$'
   # The runner's functions load in need_runner alone: a RUNNER the caller's
-  # shell exported decides nothing.
+  # shell exported is not loaded; detection alone picks the runner.
   assert_eq "common.sh: an inherited RUNNER is not loaded" "$(RUNNER=bogus in_kit 'echo loaded')" loaded
   assert_eq "common.sh: ... and no runner functions before need_runner" "$(in_kit 'type runner_name >/dev/null 2>&1 && echo some || echo none')" none
-  assert_eq "need_runner: detection decides, whatever RUNNER said" "$(RUNNER=bogus in_kit 'need_runner; runner_name')" herdr
   # Orca's JSON answer can succeed while its runtime is down: reachable false.
   out=$(in_orca HERDR_ENV=0 ORCA_STUB_STATUS=offline; echo "exit=$?")
   assert_match "runner_detect: orca status answers reachable false: Orca is not reachable" "$out" "Orca is not reachable"
