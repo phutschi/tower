@@ -4,6 +4,10 @@
 # Every call takes --json; an error is {"ok":false,"error":{"code":…}} on
 # stdout with a non-zero exit, and the code decides, never the wording.
 
+# Every orca call runs the CLI the session names (ORCA_CLI_COMMAND: orca,
+# orca-ide or a path), not whichever orca is on PATH.
+orca() { command "${ORCA_CLI_COMMAND:-orca}" "$@"; }
+
 # NAME's agent CLI of KIND, started in terminal PANE with HARNESS_ARGS: its
 # command line typed into the terminal's shell. Orca's error, if any, is
 # printed. It then reads the agent until Orca lists it as working, waiting or
@@ -72,7 +76,7 @@ orca_listed() {
   echo "$out"
 }
 runner_name() { echo Orca; }
-runner_ready_hint() { echo "orca agent list --json  shows it waiting or done"; }
+runner_ready_hint() { echo "\"\$ORCA_CLI_COMMAND\" agent list --json  shows it waiting or done"; }
 runner_agent_tail() { orca terminal read --terminal "$2" --json | jsonq '"\n".join(d["result"]["terminal"]["tail"])' | tail -n "$3"; }
 runner_send_text()  { orca terminal send --terminal "$1" --text "$2" --json >/dev/null; }
 # NAME PANE TEXT: TEXT typed into terminal PANE, then Enter, only while Orca
@@ -82,7 +86,7 @@ runner_send_message() {
   local s out; s=$(orca_listed "$2")
   case "$s" in
     "idle True"|"working True") ;;
-    *) echo "Orca lists no agent ready for input in terminal $2 ($s): send once  orca agent list --json  shows $1's terminal waiting or done" >&2; return 1 ;;
+    *) echo "Orca lists no agent ready for input in terminal $2 ($s): send once  \"\$ORCA_CLI_COMMAND\" agent list --json  shows $1's terminal waiting or done" >&2; return 1 ;;
   esac
   out=$(orca terminal send --terminal "$2" --text "$3" --enter --json) || { echo "$out" >&2; return 1; }
 }
@@ -141,7 +145,7 @@ runner_open_lane_a() {
   read -r pane tab <<< "$(orca_new terminal create --worktree "id:$1" --title lane-a --command "cd $(printf %q "$2")")" && [ -n "$pane" ] || return 1
   echo "$pane $tab"
 }
-runner_read_cmd()    { echo "orca terminal read --terminal <id> --json"; }
+runner_read_cmd()    { echo "\"\$ORCA_CLI_COMMAND\" terminal read --terminal <id> --json"; }
 # Lane LANE's worktree on BRANCH from BASE, a child worktree of the
 # orchestrator's workspace (the pane map's orchestrator line; $MAP is
 # add-lane's), named LABEL, with a terminal of its own, started in it. Orca
@@ -158,16 +162,16 @@ runner_open_lane() {
   out=$(orca worktree create --name "$label" --branch "$branch" --base-branch "$base" --parent-worktree "id:$ws" --setup skip --json) \
     || die "add-lane: Orca could not create lane $LANE's worktree ($out): remove branch $branch if it exists, then rerun  $RERUN"
   id=$(echo "$out" | jsonq 'd["result"]["worktree"]["id"]' 2>/dev/null) && path=$(echo "$out" | jsonq 'd["result"]["worktree"]["path"]' 2>/dev/null) || path=""
-  [ -n "$path" ] || die "add-lane: Orca made lane $LANE's worktree but its answer names none ($out): remove it (orca worktree list --json) and branch $branch, then rerun  $RERUN"
+  [ -n "$path" ] || die "add-lane: Orca made lane $LANE's worktree but its answer names none ($out): remove it (\"\$ORCA_CLI_COMMAND\" worktree list --json) and branch $branch, then rerun  $RERUN"
   # The branch may have been taken since the check: Orca then suffixes it.
   # git says which branch the checkout is on; Orca, when it is not on this disk.
   if [ -d "$path" ]; then got=$(git -C "$path" symbolic-ref --short HEAD 2>/dev/null) || got=""
   else got=$(orca worktree show --worktree "id:$id" --json 2>/dev/null | jsonq '(d["result"]["worktree"].get("branch") or "").replace("refs/heads/", "", 1)' 2>/dev/null) || got=""
   fi
-  [ -n "$got" ] || die "add-lane: Orca made lane $LANE's worktree $path, but its branch cannot be read: remove it (orca worktree rm --worktree id:$id --force) and branch $branch, then rerun  $RERUN"
-  [ "$got" = "$branch" ] || die "add-lane: Orca made lane $LANE's worktree on branch $got, not $branch: remove it (orca worktree rm --worktree id:$id --force) and branch $got, then rerun  $RERUN"
+  [ -n "$got" ] || die "add-lane: Orca made lane $LANE's worktree $path, but its branch cannot be read: remove it (\"\$ORCA_CLI_COMMAND\" worktree rm --worktree id:$id --force) and branch $branch, then rerun  $RERUN"
+  [ "$got" = "$branch" ] || die "add-lane: Orca made lane $LANE's worktree on branch $got, not $branch: remove it (\"\$ORCA_CLI_COMMAND\" worktree rm --worktree id:$id --force) and branch $got, then rerun  $RERUN"
   read -r pane _ <<< "$(orca_new terminal create --worktree "id:$id" --title "$label" --command "cd $(printf %q "$path")")"
-  [ -n "$pane" ] || die "add-lane: Orca created lane $LANE's worktree $path but no terminal in it: remove it (orca worktree rm --worktree id:$id --force) and branch $branch, then rerun  $RERUN"
+  [ -n "$pane" ] || die "add-lane: Orca created lane $LANE's worktree $path but no terminal in it: remove it (\"\$ORCA_CLI_COMMAND\" worktree rm --worktree id:$id --force) and branch $branch, then rerun  $RERUN"
   echo "$pane $path"
 }
 # Each lane has its worktree; there is no grid to place it in.

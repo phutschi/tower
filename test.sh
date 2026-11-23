@@ -189,6 +189,15 @@ if section common; then
   # shell exported is not loaded; detection alone picks the runner.
   assert_eq "common.sh: an inherited RUNNER is not loaded" "$(RUNNER=bogus in_kit 'echo loaded')" loaded
   assert_eq "common.sh: ... and no runner functions before need_runner" "$(in_kit 'type runner_name >/dev/null 2>&1 && echo some || echo none')" none
+  # Orca's CLI is the one ORCA_CLI_COMMAND names (orca-ide, a path), for the
+  # probe and every call; no orca on PATH is needed.
+  mkdir -p "$TMP/orca-ide-bin"; printf '#!/usr/bin/env bash\nexec "%s" "$@"\n' "$KIT/tests/stub/orca" > "$TMP/orca-ide-bin/orca-ide"; chmod +x "$TMP/orca-ide-bin/orca-ide"
+  : > "$ORCA_STUB_LOG"
+  out=$(env -u RUNNER DRY_RUN=0 HERDR_ENV=0 PATH="/usr/bin:/bin" ORCA_CLI_COMMAND="$TMP/orca-ide-bin/orca-ide" bash -c '. "$KIT/common.sh"; need_runner; echo "$RUNNER"; runner_self' 2>&1)
+  assert_match "ORCA_CLI_COMMAND: the probe runs it" "$out" '^orca$'
+  assert_match "ORCA_CLI_COMMAND: ... and so does every runner call" "$(cat "$ORCA_STUB_LOG")" '^orca worktree current --json$'
+  # Under DRY_RUN the fake wins over an Orca session's real CLI.
+  assert_eq "DRY_RUN: an inherited ORCA_CLI_COMMAND is replaced by the fake" "$(ORCA_CLI_COMMAND=/opt/orca/bin/orca in_kit 'echo "$ORCA_CLI_COMMAND"')" "$KIT/tests/stub/orca"
   # Orca's JSON answer can succeed while its runtime is down: reachable false.
   out=$(in_orca HERDR_ENV=0 ORCA_STUB_STATUS=offline; echo "exit=$?")
   assert_match "runner_detect: orca status answers reachable false: Orca is not reachable" "$out" "Orca is not reachable"
@@ -276,7 +285,7 @@ if section executor; then
   echo unlisted > "$S/term-1"
   out=$(ostart claude READY_WAIT_SECONDS=2)
   assert_match "orca: never listed, its TUI busy: the start fails, saying so" "$out" 'acme-lane-a does not accept input in pane term-1 after 2 checks \(unknown\)'
-  assert_match "orca: ... and how to see when it does, with orca" "$out" 'brief it once  orca agent list --json  shows it waiting or done'
+  assert_match "orca: ... and how to see when it does, with orca" "$out" 'brief it once  "\$ORCA_CLI_COMMAND" agent list --json  shows it waiting or done'
   assert_nomatch "orca: ... naming no herdr command" "$out" 'herdr'
   # A wait Orca cannot answer (an RPC error, not an unsatisfied wait) says
   # nothing about the agent: unreadable.
@@ -563,7 +572,7 @@ if section bootstrap; then
   assert_match "pane map (orca): lane A's terminal and checkout, in tab lanes" "$map" '^lane A: +term-3 +\(agent "bun-vitest-lane-a", kind claude, branch main, checkout '"$r"', model [^,]+, tab lanes\)$'
   assert_match "pane map (orca): lane A's tab" "$map" '^lanes tab: +tab-3$'
   assert_match "pane map (orca): the same switches line" "$map" '^switches: +TASK_REVIEW=on '
-  assert_match "pane map (orca): read a pane, with orca" "$map" '^read a pane: +orca terminal read --terminal <id> --json$'
+  assert_match "pane map (orca): read a pane, with orca" "$map" '^read a pane: +"\$ORCA_CLI_COMMAND" terminal read --terminal <id> --json$'
   assert_nomatch "pane map (orca): no message line, briefs go through the kit" "$map" '^message a pane:'
   assert_match "orca: the next step sends the brief with send-brief.sh" "$out" "send-brief\\.sh $RUN bun-vitest-lane-a $RUN/brief-A\\.md\$"
   # A layout call that fails (the console's terminal closed before its split)
@@ -863,13 +872,13 @@ if section add-lane; then
   assert_nomatch "orca D, worktree create fails: no terminal" "$(cat "$ORCA_STUB_LOG")" '^orca terminal create '
   : > "$ORCA_STUB_LOG"; out=$(ORCA_STUB_WORKTREE_FAIL=garbled lane D feat/d main 5; echo "exit=$?")
   assert_match "orca D, a create answer with no worktree: refused" "$out" 'exit=1$'
-  assert_match "orca D, a create answer with no worktree: ... saying what to remove" "$out" "Orca made lane D's worktree but its answer names none .*remove it \\(orca worktree list --json\\) and branch feat/d"
+  assert_match "orca D, a create answer with no worktree: ... saying what to remove" "$out" "Orca made lane D's worktree but its answer names none .*remove it \\(\"\\\$ORCA_CLI_COMMAND\" worktree list --json\\) and branch feat/d"
   assert_nomatch "orca D, a create answer with no worktree: no terminal" "$(cat "$ORCA_STUB_LOG")" '^orca terminal create '
   # A branch taken between the check and the create: Orca makes the worktree
   # on a suffixed branch, which is refused before a terminal opens.
   : > "$ORCA_STUB_LOG"; out=$(ORCA_STUB_WORKTREE_FAIL=suffix lane D feat/d main 5; echo "exit=$?")
   assert_match "orca D, made on another branch: refused" "$out" 'exit=1$'
-  assert_match "orca D, made on another branch: ... saying which, and what to remove" "$out" "Orca made lane D's worktree on branch feat/d-2, not feat/d: remove it \\(orca worktree rm --worktree id:repo-0::/orca-stub/worktrees/wt-[0-9]+ --force\\) and branch feat/d-2"
+  assert_match "orca D, made on another branch: ... saying which, and what to remove" "$out" "Orca made lane D's worktree on branch feat/d-2, not feat/d: remove it \\(\"\\\$ORCA_CLI_COMMAND\" worktree rm --worktree id:repo-0::/orca-stub/worktrees/wt-[0-9]+ --force\\) and branch feat/d-2"
   assert_nomatch "orca D, made on another branch: no terminal" "$(cat "$ORCA_STUB_LOG")" '^orca terminal create '
   assert_nomatch "orca D, made on another branch: no lane D line" "$(cat "$RUN/panes.txt")" 'lane D:'
   # Ids and paths with a space are kept whole: the orchestrator's workspace

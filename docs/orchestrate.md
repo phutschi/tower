@@ -243,8 +243,9 @@ Orca, the `orchestrator:` line holds the orchestrator's workspace
 B to D also record their worktree. Its `read a pane:` line is how a lane or
 you read a pane back without naming a runner:
 `herdr pane read <id> --source recent-unwrapped --lines 60` on herdr,
-`orca terminal read --terminal <id> --json` on Orca. The briefs tell lanes
-to read the dev pane with it.
+`"$ORCA_CLI_COMMAND" terminal read --terminal <id> --json` on Orca (every
+Orca terminal has `ORCA_CLI_COMMAND`, the CLI the kit runs too). The briefs
+tell lanes to read the dev pane with it.
 
 The orchestrator sends each brief and fix prompt with
 `send-brief.sh <run-dir> <agent> <file>`. It finds the agent's pane on its

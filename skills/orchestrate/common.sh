@@ -58,7 +58,9 @@ if [ "${DRY_RUN:-0}" = 1 ]; then
   # refusal); RUNNER=orca: inside Orca instead, with the fake orca as the
   # session's CLI.
   export HERDR_ENV="${HERDR_ENV:-1}" HERDR_PANE_ID="${HERDR_PANE_ID:-pane-0}" HERDR_TAB_ID="${HERDR_TAB_ID:-tab-0}"
-  [ "${RUNNER:-}" != orca ] || export HERDR_ENV=0 ORCA_CLI_COMMAND="${ORCA_CLI_COMMAND:-$KIT/tests/stub/orca}"
+  [ "${RUNNER:-}" != orca ] || export HERDR_ENV=0
+  # The fake orca, whatever CLI an Orca session named: a dry run reaches no Orca.
+  if [ "${RUNNER:-}" = orca ] || [ -n "${ORCA_CLI_COMMAND:-}" ]; then export ORCA_CLI_COMMAND="$KIT/tests/stub/orca"; fi
 fi
 
 . "$KIT/runner.sh"
