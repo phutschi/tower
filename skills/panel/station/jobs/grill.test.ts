@@ -224,6 +224,8 @@ test("a station that quits mid-grill hands it on: the next one waits on the same
   reply("Only rex.");
   await until(async () => (await job()).state === "done");
   expect(lines("claude.log")[1]).toContain("--resume sess-1");
+  // Both claims' turns count.
+  expect((await job()).tokens).toEqual({ input: 200, output: 20 });
 });
 
 test("a gh refusal while writing the spec is retried, and the spec is kept as an event", async () => {

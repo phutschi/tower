@@ -107,7 +107,6 @@ registerJobRunner("grill", async ({ job, hubUrl, workspace, emit, signal }) => {
   );
 
   let sessionId = last ? (job.sessionId ?? "") : "";
-  const tokens = { input: 0, output: 0 };
   const turn = async (prompt: string): Promise<HeadlessRun> => {
     const run = await runHeadless({
       prompt,
@@ -117,8 +116,8 @@ registerJobRunner("grill", async ({ job, hubUrl, workspace, emit, signal }) => {
       signal,
       ...(sessionId ? { resume: sessionId } : {}),
     });
-    tokens.input += run.tokens.input;
-    tokens.output += run.tokens.output;
+    // Each turn's tokens go to the hub, which adds them up over every claim.
+    await emit("tokens", { ...run.tokens });
     await reportLimits(run, emit);
     if (run.sessionId && run.sessionId !== sessionId) {
       sessionId = run.sessionId;
@@ -150,12 +149,12 @@ registerJobRunner("grill", async ({ job, hubUrl, workspace, emit, signal }) => {
       RETRY,
     );
 
-  // A failure after a session ran keeps what the grill cost.
+  // A failure after a session ran keeps its session id.
   try {
     // An earlier claim finished the spec: only its write to GitHub is left.
     if (typeof kept === "string") {
       await writeSpec(kept);
-      return { outcome: "done", sessionId: job.sessionId ?? "", tokens };
+      return { outcome: "done" };
     }
     let run: HeadlessRun | null = null;
     if (!last)
@@ -173,7 +172,7 @@ ${quote(issue.body)}
 
     while (!signal.aborted) {
       if (run) {
-        const ran = { sessionId, tokens };
+        const ran = { sessionId };
         if (run.error)
           return {
             outcome: "failed",
@@ -243,13 +242,12 @@ ${quote(issue.body)}
     }
   } catch (err) {
     if (!signal.aborted)
-      return { outcome: "failed", reason: String(err), sessionId, tokens };
+      return { outcome: "failed", reason: String(err), sessionId };
   }
   // The user's reason when they stopped it: moved its issue back, or closed it.
   return {
     outcome: "stopped",
     reason: stopReason(signal) ?? "the station stopped",
     sessionId,
-    tokens,
   };
 });
