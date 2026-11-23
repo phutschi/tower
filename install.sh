@@ -11,7 +11,7 @@
 #                        ~/.codex/skills
 #   install.sh --check   only check
 #
-# Needs: herdr or orca (the terminal: herdr, or Orca's CLI), tower (the record
+# Needs: herdr or Orca's CLI (ORCA_CLI_COMMAND, orca-ide or orca), tower (the record
 # and the console; it must run, and install.sh fetches the release binary into
 # TOWER_BIN_DIR, default ~/.local/bin, when it is missing), git, bash, python3
 # (reads the runner's JSON), node (reads package.json in JS repos), curl (fetches tower). Optional: claude
@@ -107,8 +107,12 @@ runs() { if tower_ok; then printf '  ok        tower\n'; else printf '  MISSING 
 # opt TOOL WHAT [PROBE-ARG]: with PROBE-ARG, the tool must also run (`TOOL PROBE-ARG`).
 opt()  { if command -v "$1" >/dev/null && { [ -z "${3:-}" ] || "$1" "$3" </dev/null >/dev/null 2>&1; }; then printf '  ok        %s (optional)\n' "$1"; else printf '  optional  %-12s %s\n' "$1" "$2"; fi; }
 echo "dependencies:"
-if command -v herdr >/dev/null; then have herdr; elif command -v orca >/dev/null; then have orca
-else printf '  MISSING   %-12s %s\n' "herdr or orca" "the terminal this kit runs in"; ok=0; fi
+# Orca's CLI as Orca finds it: ORCA_CLI_COMMAND's value, else orca-ide, else
+# orca (on Linux a bare orca can be the GNOME screen reader).
+if [ -n "${ORCA_CLI_COMMAND:-}" ]; then orca_cli=$ORCA_CLI_COMMAND
+elif command -v orca-ide >/dev/null; then orca_cli=orca-ide; else orca_cli=orca; fi
+if command -v herdr >/dev/null; then have herdr; elif command -v "$orca_cli" >/dev/null; then have "$orca_cli"
+else printf '  MISSING   %-12s %s\n' "herdr or $orca_cli" "the terminal this kit runs in"; ok=0; fi
 runs
 have git     "version control"
 have bash    "the scripts"

@@ -68,9 +68,12 @@ git clone git@github.com:phutschi/tower.git ~/tools/tower
 ~/tools/tower/install.sh
 ```
 
-That checks the dependencies (herdr or Orca's `orca`, tower, git, bash,
+That checks the dependencies (herdr or Orca's CLI, tower, git, bash,
 python3, node; claude, codex, cursor-agent, semgrep and gitleaks optional). tower is required and
-must run: a missing tower shows up here, not at the start of a run.
+must run: a missing tower shows up here, not at the start of a run. Orca's
+CLI is found as Orca finds it: the value of `ORCA_CLI_COMMAND` when it is set,
+else `orca-ide`, else `orca` (on Linux a bare `orca` can be the GNOME screen
+reader).
 
 When tower is missing, install.sh fetches it. The primary path is the release
 binary for macOS or Linux (arm64 or x64) of this checkout's version, into
@@ -122,17 +125,17 @@ panes and starts its agents. It decides before it creates anything:
 - **herdr** when the orchestrator runs in a herdr pane (`HERDR_ENV=1`) and
   herdr answers, even inside an Orca terminal.
 - **Orca** otherwise, when it runs in an Orca chat or terminal
-  (`ORCA_CLI_COMMAND` is set) and `orca status` answers.
+  (`ORCA_CLI_COMMAND` is set) and `"$ORCA_CLI_COMMAND" status` answers.
 
 Outside both it refuses, names herdr, Orca and `/tower:run`, and creates no
 run. In an Orca whose runtime does not answer it refuses too, and says Orca is
 not reachable.
 
 The run is the same in both: the same briefs, the same reviews, the same
-record. In Orca the kit drives terminals through the `orca` CLI the way it
-drives herdr panes: it starts each agent CLI in a terminal it opens, types the
-brief in once the agent accepts input, reads the terminal back and watches the
-agent's status. Orca's own orchestration (its runs, tasks and mailbox) is not
+record. In Orca the kit drives terminals through Orca's CLI, the command
+`ORCA_CLI_COMMAND` names, the way it drives herdr panes: it starts each agent
+CLI in a terminal it opens, types the brief in once the agent accepts input,
+reads the terminal back and watches the agent's status. Orca's own orchestration (its runs, tasks and mailbox) is not
 used: tower's board stays the only record (ADR 0005, ADR 0011).
 
 ## The layout
@@ -262,7 +265,7 @@ that machine, which your Orca opens workspaces on), then:
    branch.
 3. Start a chat there and run `/tower:orchestrate`, with or without a plan.
 
-The kit and `orca` run on the server and address the server's own Orca, so
+The kit and Orca's CLI run on the server and address the server's own Orca, so
 nothing names it. Its tower check runs there, and a missing tower stops the
 run before it starts. You watch from your Mac's Orca, with no second window
 and no SSH session. One run spread over several machines, plain SSH hosts and

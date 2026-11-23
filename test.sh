@@ -3394,7 +3394,18 @@ if section install; then
   assert_match "check: orca without herdr is a runner" "$out" '^  ok        orca$'
   assert_nomatch "check: ... herdr is then not missing" "$out" 'MISSING +herdr'
   assert_match "check: ... and passes"                 "$out" 'exit=0$'
-  rm "$O/orca"; out=$(HOME="$H2" DRY_RUN=0 PATH="$O:$B" "$ROOT/install.sh" --check 2>&1; echo "exit=$?")
+  # Orca's CLI as Orca finds it: ORCA_CLI_COMMAND's value, else orca-ide, else orca.
+  cp "$O/orca" "$O/orca-ide"; out=$(HOME="$H2" DRY_RUN=0 PATH="$O:$B" "$ROOT/install.sh" --check 2>&1)
+  assert_match "check: orca-ide comes before a bare orca" "$out" '^  ok        orca-ide$'
+  mkdir -p "$TMP/orca-app"; cp "$O/orca" "$TMP/orca-app/orca"
+  out=$(HOME="$H2" DRY_RUN=0 ORCA_CLI_COMMAND="$TMP/orca-app/orca" PATH="$O:$B" "$ROOT/install.sh" --check 2>&1; echo "exit=$?")
+  assert_match "check: ORCA_CLI_COMMAND's value comes before orca-ide" "$out" "^  ok        $TMP/orca-app/orca$"
+  assert_match "check: ... and passes"                 "$out" 'exit=0$'
+  out=$(HOME="$H2" DRY_RUN=0 ORCA_CLI_COMMAND="$TMP/orca-app/none" PATH="$O:$B" "$ROOT/install.sh" --check 2>&1; echo "exit=$?")
+  assert_nomatch "check: an ORCA_CLI_COMMAND that does not exist: orca-ide or orca does not stand in" "$out" '^  ok        orca(-ide)?$'
+  assert_match "check: ... the missing line names it"  "$out" "MISSING +herdr or $TMP/orca-app/none"
+  assert_match "check: ... and fails"                  "$out" 'exit=1$'
+  rm "$O/orca-ide" "$O/orca"; out=$(HOME="$H2" DRY_RUN=0 PATH="$O:$B" "$ROOT/install.sh" --check 2>&1; echo "exit=$?")
   assert_match "check: neither herdr nor orca is missing" "$out" 'MISSING +herdr or orca +the terminal this kit runs in'
   assert_match "check: ... and fails"                  "$out" 'exit=1$'
   : > "$CLAUDE_STUB_STATE"
