@@ -92,7 +92,7 @@ set -euo pipefail
 KIT="$(cd "$(dirname "$0")" && pwd)"
 . "$KIT/common.sh"
 . "$KIT/layout.sh"
-in_herdr; need git python3 node
+need_runner; need git python3 node
 [ $# -ge 3 ] || die 'usage: bootstrap.sh <run-dir> "<title>" <branch> [plan.md | tasks.tsv]'
 RUN_DIR="$1"; TITLE="$2"; BRANCH="$3"; SOURCE="${4:-}"
 [ -z "$SOURCE" ] || [ -f "$SOURCE" ] || die "no such plan or task file: $SOURCE"

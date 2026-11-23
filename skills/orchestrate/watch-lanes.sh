@@ -65,7 +65,7 @@
 set -uo pipefail
 KIT="$(cd "$(dirname "$0")" && pwd)"
 . "$KIT/common.sh"
-in_herdr; need python3
+need_runner; need python3
 need_tower
 USAGE='usage: watch-lanes.sh <run-dir> <agent>[:<round>]...   round: an integer >= 1, default 1'
 [ $# -ge 2 ] || die "$USAGE"

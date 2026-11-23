@@ -77,7 +77,7 @@ set -euo pipefail
 KIT="$(cd "$(dirname "$0")" && pwd)"
 . "$KIT/common.sh"
 . "$KIT/layout.sh"
-in_herdr; need git python3 node
+need_runner; need git python3 node
 need_tower
 [ $# -eq 5 ] || die 'usage: add-lane.sh <run-dir> <B|C|D> <branch> <base-branch> <task-ids>'
 RUN_DIR="$1"; LANE="$2"; BRANCH="$3"; BASE="$4"; TASKS="$5"
