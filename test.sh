@@ -259,9 +259,15 @@ if section executor; then
   assert_eq "orca: not yet listed: read until it is" "$([ "$(grep -c '^orca agent list --json$' "$ORCA_STUB_LOG")" -ge 3 ] && echo yes)" yes
   echo unlisted > "$S/term-1"
   out=$(ostart claude READY_WAIT_SECONDS=2)
-  assert_match "orca: never ready: the start fails, saying so" "$out" 'acme-lane-a does not accept input in pane term-1 after 2 checks'
+  assert_match "orca: never listed, its TUI busy: the start fails, saying so" "$out" 'acme-lane-a does not accept input in pane term-1 after 2 checks \(unknown\)'
   assert_match "orca: ... and how to see when it does, with orca" "$out" 'brief it once  orca agent list --json  shows it waiting or done'
   assert_nomatch "orca: ... naming no herdr command" "$out" 'herdr'
+  # Not listed yet (a terminal agent reports on its first turn), but its TUI
+  # is idle: it accepts input.
+  echo unlisted-idle > "$S/term-1"
+  out=$(ostart codex)
+  assert_match "orca: not listed, its TUI idle: ready" "$out" 'exit=0$'
+  assert_match "orca: ... asked of its terminal" "$(cat "$ORCA_STUB_LOG")" '^orca terminal wait --terminal term-1 --for tui-idle --timeout-ms [0-9]+ --json$'
   rm -f "$S"/term-*
   # A trust menu at start (the agent blocked, text-plus-Enter refused):
   # answered with separate sends, Down then Enter for claude, Enter for codex.
@@ -793,6 +799,16 @@ if section add-lane; then
   assert_match "orca B rerun, terminal gone: names the pane map line and the worktree to remove" "$out" "lane B's pane $bpane is gone \\(Orca\\): remove its line from $RUN/panes.txt and the worktree /orca-stub/worktrees/wt-4"
   assert_nomatch "orca B rerun, terminal gone: nothing created" "$(cat "$ORCA_STUB_LOG")" '^orca (worktree create|terminal create) '
   rm -f "$ORCA_STUB_STATES_DIR/$bpane"
+  # A worktree create that fails, or answers with no worktree: refused,
+  # saying what to remove, with no terminal opened.
+  : > "$ORCA_STUB_LOG"; out=$(ORCA_STUB_WORKTREE_FAIL=1 lane D feat/d main 5; echo "exit=$?")
+  assert_match "orca D, worktree create fails: refused" "$out" 'exit=1$'
+  assert_match "orca D, worktree create fails: ... with Orca's error and the branch to remove" "$out" "Orca could not create lane D's worktree .*runtime_unavailable.*remove branch feat/d if it exists"
+  assert_nomatch "orca D, worktree create fails: no terminal" "$(cat "$ORCA_STUB_LOG")" '^orca terminal create '
+  : > "$ORCA_STUB_LOG"; out=$(ORCA_STUB_WORKTREE_FAIL=garbled lane D feat/d main 5; echo "exit=$?")
+  assert_match "orca D, a create answer with no worktree: refused" "$out" 'exit=1$'
+  assert_match "orca D, a create answer with no worktree: ... saying what to remove" "$out" "Orca made lane D's worktree but its answer names none .*remove it \\(orca worktree list --json\\) and branch feat/d"
+  assert_nomatch "orca D, a create answer with no worktree: no terminal" "$(cat "$ORCA_STUB_LOG")" '^orca terminal create '
   # Orca gives a taken branch name a numeric suffix: an existing branch is
   # refused before any worktree is made, or the lane would commit elsewhere.
   git -C "$r" branch feat/c
@@ -3804,6 +3820,10 @@ if section fake-orca; then
   assert_match "fake orca: a worktree with no parent reports null" "$(o worktree show --worktree id:repo-0::/orca-stub/worktrees/wt-3 --json)" '"parentWorktreeId": *null'
   out=$(o terminal create --title "'lane \"a\"'" --json)
   assert_eq "fake orca: free text is valid JSON" "$(printf '%s' "$out" | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["terminal"]["title"])')" 'lane "a"'
+  out=$(ORCA_STUB_WORKTREE_FAIL=1 o worktree create --name x --json; echo "exit=$?")
+  assert_match "fake orca: ORCA_STUB_WORKTREE_FAIL=1: create fails" "$out" '"code": *"runtime_unavailable"'
+  assert_match "fake orca: ... exit 1" "$out" 'exit=1$'
+  assert_eq "fake orca: ORCA_STUB_WORKTREE_FAIL=garbled: no worktree in the answer" "$(ORCA_STUB_WORKTREE_FAIL=garbled o worktree create --name x --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"])')" '{}'
   out=$(o worktree show --worktree id:repo-0::/nowhere --json; echo "exit=$?")
   assert_match "fake orca: an unknown worktree is an error" "$out" '"code": *"selector_not_found"'
   assert_match "fake orca: ... exit 1" "$out" 'exit=1$'
@@ -3817,6 +3837,10 @@ if section fake-orca; then
   done
   printf 'working\nwaiting\n' > "$st/term-1"
   assert_eq "fake orca: several lines: the first, then dropped" "$(state 1) $(state 1) $(state 1)" "working waiting waiting"
+  echo unlisted > "$st/term-2"; assert_eq "fake orca: an unlisted agent is not listed" "$(state 2)" none
+  assert_match "fake orca: ... and its busy TUI times a wait out" "$(o terminal wait --terminal term-2 --for tui-idle --timeout-ms 1 --json)" '"code": *"timeout"'
+  echo unlisted-idle > "$st/term-2"; assert_eq "fake orca: unlisted-idle is not listed either" "$(state 2)" none
+  assert_match "fake orca: ... but its idle TUI satisfies a wait" "$(o terminal wait --terminal term-2 --for tui-idle --timeout-ms 1 --json)" '"satisfied": *true'
   echo gone > "$st/term-2"
   assert_eq "fake orca: a gone agent is not listed" "$(state 2)" none
   out=$(o terminal read --terminal term-2 --json; echo "exit=$?")
