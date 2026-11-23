@@ -19,6 +19,7 @@ import {
   until,
   useFixture,
 } from "../tests/fixture.ts";
+import { localTime } from "./panel-page.ts";
 import { usageRows } from "./usage.ts";
 
 useFixture();
@@ -106,7 +107,14 @@ test("a rejected rate-limit event pauses dispatch until its reset, with exactly 
   await Bun.sleep(100);
   const sent = sends();
   expect(sent).toHaveLength(1);
-  expect(sent[0]).toContain(resetsAt);
+  // People read local time; only the idempotency key keeps the ISO string.
+  const body = (
+    JSON.parse(sent[0]!.slice(sent[0]!.indexOf("{"))) as {
+      body: string;
+    }
+  ).body;
+  expect(body).toContain(`until ${localTime(resetsAt)}.`);
+  expect(body).not.toContain(resetsAt);
   // After the reset, claiming resumes.
   await until(async () => (await claim()) !== null, 5000);
   expect((await api<UsageView>("/api/usage")).pausedUntil).toBeNull();

@@ -158,6 +158,30 @@ function adviceView(advice: AdviceProposal | null): string {
     : "";
 }
 
+/**
+ * An ISO time as people read it: 24-hour, in this machine's zone unless one
+ * is given. Storage and the API keep ISO; a value that is no date passes on.
+ */
+export function localTime(iso: string, timeZone?: string): string {
+  const t = Date.parse(iso);
+  if (isNaN(t)) return iso;
+  // Built from parts: runtimes' ICU join date and time differently.
+  const part = Object.fromEntries(
+    new Intl.DateTimeFormat("en-GB", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+      ...(timeZone ? { timeZone } : {}),
+    })
+      .formatToParts(t)
+      .map((p) => [p.type, p.value]),
+  );
+  return `${part.day} ${part.month} ${part.year}, ${part.hour}:${part.minute}`;
+}
+
 const LIMIT_NAMES = { session: "5-hour window", weekly_all: "weekly" };
 const limitName = (r: UsageRow) =>
   r.kind === "weekly_scoped"
@@ -170,11 +194,11 @@ function limitsView(u: UsageView): string {
     .map((r) => {
       const p = Math.min(100, Math.max(0, Math.round(r.percent)));
       const level = p >= 90 ? " high" : p >= 70 ? " warm" : "";
-      return `<li class="limit${level}"><span class="limit-name">${esc(limitName(r))}: ${Math.round(r.percent)}%</span> <span class="resets">resets ${esc(r.resetsAt)}</span><span class="bar" aria-hidden="true"><span style="--p:${p}%"></span></span></li>`;
+      return `<li class="limit${level}"><span class="limit-name">${esc(limitName(r))}: ${Math.round(r.percent)}%</span> <span class="resets">resets ${esc(localTime(r.resetsAt))}</span><span class="bar" aria-hidden="true"><span style="--p:${p}%"></span></span></li>`;
     })
     .join("");
   const paused = u.pausedUntil
-    ? `<p data-paused>Paused at a usage limit: no new job starts until ${esc(u.pausedUntil)}.</p>`
+    ? `<p data-paused>Paused at a usage limit: no new job starts until ${esc(localTime(u.pausedUntil))}.</p>`
     : "";
   const source =
     u.source === "job-events"

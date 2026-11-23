@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { PanelIssue } from "../types.ts";
-import { renderPanel, type PanelData } from "./panel-page.ts";
+import { localTime, renderPanel, type PanelData } from "./panel-page.ts";
 
 const issue = (n: number, more: Partial<PanelIssue> = {}): PanelIssue => ({
   repo: "acme/widgets",
@@ -81,4 +81,30 @@ test("the group the page shows is its nav's current page", () => {
   expect(renderPanel(data())).toContain(
     '<a href="/" aria-current="page">stage</a>',
   );
+});
+
+test("a time for people is 24-hour local time, summer time included", () => {
+  expect(localTime("2026-11-03T04:05:00.000Z", "Europe/Berlin")).toBe(
+    "3 Nov 2026, 05:05",
+  );
+  expect(localTime("2026-07-03T14:00:00.000Z", "Europe/Berlin")).toBe(
+    "3 Jul 2026, 16:00",
+  );
+  expect(localTime("Mon")).toBe("Mon");
+});
+
+test("the pause and each limit's reset show local time, not the ISO string", () => {
+  const iso = "2026-11-03T14:00:00.000Z";
+  const html = renderPanel(
+    data({
+      usage: {
+        rows: [{ kind: "session", percent: 42, resetsAt: iso }],
+        source: "usage-report",
+        pausedUntil: iso,
+      },
+    }),
+  );
+  expect(html).not.toContain(iso);
+  expect(html).toContain(`resets ${localTime(iso)}`);
+  expect(html).toContain(`no new job starts until ${localTime(iso)}.`);
 });

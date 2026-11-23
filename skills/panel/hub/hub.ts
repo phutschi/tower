@@ -15,7 +15,7 @@ import { AdviceStore, keepOpen, parseProposal } from "./advice.ts";
 import { isStageLabel, merged, record, regroup, sync } from "./dispatcher.ts";
 import { GitHub, sameRepo, type IssueRef } from "./github.ts";
 import { sendInboxNote, threadName } from "../station/inbox.ts";
-import { renderPanel, type PanelData } from "./panel-page.ts";
+import { localTime, renderPanel, type PanelData } from "./panel-page.ts";
 import { ACTIVE, Store, type SnapshotIssue } from "./store.ts";
 import { UsageStore, parseRateLimit, readUsageReport } from "./usage.ts";
 
@@ -721,7 +721,7 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
                 key: `panel-pause-${paused}`,
                 thread: "Panel usage",
                 subject: "Dispatch paused at a usage limit",
-                body: `Claude refused a job at a usage limit${info.rateLimitType ? ` (${info.rateLimitType})` : ""}. No new job starts until ${paused}.`,
+                body: `Claude refused a job at a usage limit${info.rateLimitType ? ` (${info.rateLimitType})` : ""}. No new job starts until ${localTime(paused)}.`,
               });
               void sendNotes();
             }
