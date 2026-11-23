@@ -118,6 +118,7 @@ runner_pane_exists() {
     *) echo "$err" >&2; return 2 ;;
   esac
 }
+runner_pane_check()  { echo "herdr pane get"; }   # what runner_pane_exists asks, for a message
 runner_read_cmd()    { echo "herdr pane read <id> --source recent-unwrapped --lines 60"; }
 # The command that types TEXT into agent AGENT (in PANE); placeholders without them.
 runner_message_cmd() { echo "herdr agent prompt ${1:-<agent>} \"${3:-<text>}\""; }

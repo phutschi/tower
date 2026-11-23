@@ -96,7 +96,10 @@ PANE=$(lane_pane "$LANE")   # set: a rerun, the lane is already in the map
 UNPLACED=$(sed -nE "s/^unplaced lane $LANE: +([^ ]+).*/\1/p" "$MAP")   # set: a rerun after a failed move
 
 REPO_ROOT="$(repo_root)"
-WT="$REPO_ROOT/.worktrees/$BRANCH"
+# The lane's checkout: its pane map line's on a rerun (a runner may have
+# named its own), else under the repo's .worktrees.
+WT=$(grep -E "^(unplaced )?lane $LANE: " "$MAP" | sed -nE 's/.*, checkout (.*), model .*/\1/p' | head -1 || true)
+[ -n "$WT" ] || WT="$REPO_ROOT/.worktrees/$BRANCH"
 AGENT_CHECKOUT="$WT"   # executor.sh: a codex lane's sandbox grant follows its worktree
 unset AGENT_LOOK       # executor.sh: look's worktree dir is a codex Reviewer's alone
 _here="$PWD"; cd "$REPO_ROOT"
@@ -159,9 +162,9 @@ check_rerun() {
         # herdr gives a moved pane a new id: an unplaced pane that is gone may
         # be in the grid already, its move done but not recorded.
         [ "$3" != "unplaced line" ] \
-          || die "lane $LANE's pane $2 is gone (herdr pane get), or was moved without its new id recorded: look for $WT in the grid; if a pane has it, turn  unplaced lane $LANE: $2  in $MAP into  lane $LANE: <that pane's id>  (the rest as it is) and rerun, else remove the unplaced line from $MAP and the worktree $WT, then add the lane again"
-        die "lane $LANE's pane $2 is gone (herdr pane get): remove its $3 from $MAP and the worktree $WT, then add the lane again" ;;
-      *) die "herdr cannot say whether lane $LANE's pane $2 is open; rerun once herdr answers (herdr: ${err:-no output})" ;;
+          || die "lane $LANE's pane $2 is gone ($(runner_pane_check)), or was moved without its new id recorded: look for $WT in the grid; if a pane has it, turn  unplaced lane $LANE: $2  in $MAP into  lane $LANE: <that pane's id>  (the rest as it is) and rerun, else remove the unplaced line from $MAP and the worktree $WT, then add the lane again"
+        die "lane $LANE's pane $2 is gone ($(runner_pane_check)): remove its $3 from $MAP and the worktree $WT, then add the lane again" ;;
+      *) die "$(runner_name) cannot say whether lane $LANE's pane $2 is open; rerun once $(runner_name) answers ($(runner_name): ${err:-no output})" ;;
     esac
   fi
   [ -d "$WT" ] || die "lane $LANE's checkout $WT is gone: close its pane $2 and remove its $3 from $MAP, then add the lane again"
@@ -202,7 +205,7 @@ if [ -n "$PANE" ]; then
   state=$(state_of "$NAME" "$PANE")
   case "$state" in
     gone) ;;
-    unreadable) die "lane $LANE: herdr cannot say whether agent $NAME runs; rerun once herdr answers" ;;
+    unreadable) die "lane $LANE: $(runner_name) cannot say whether agent $NAME runs; rerun once $(runner_name) answers" ;;
     *) [ -n "$STARTING" ] || die "lane $LANE already exists (see $MAP)" ;;
   esac
   check_rerun "$(lane_line "$PANE")$STARTING" "$PANE" line
@@ -230,7 +233,8 @@ else
   # Ownership first: tower refuses an unknown id, so a typo stops here, before
   # a worktree exists.
   tower assign -- "$LANE" "$TASKS"
-  WT_PANE=$(runner_open_lane "$REPO_ROOT" "$BRANCH" "$BASE" "$WT" "$NAME")
+  out=$(runner_open_lane "$REPO_ROOT" "$BRANCH" "$BASE" "$WT" "$NAME")
+  read -r WT_PANE _wt <<< "$out"; WT=${_wt:-$WT}; AGENT_CHECKOUT=$WT; unset _wt
   # The new pane goes into the map before it is moved: a move that fails
   # leaves a lane a rerun can place.
   echo "unplaced $(lane_line "$WT_PANE")" >> "$MAP"

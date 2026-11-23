@@ -40,10 +40,12 @@ need_runner() {
 #   runner_open_run_panes WS REPO CONSOLE_CMD [DEV_DIR DEV_CMD]
 #                                  "<console> <shell> [<dev>]", then the pane map lines it adds
 #   runner_open_lane_a WS REPO LABEL                          "<pane> <tab line after the label>"
-#   runner_open_lane REPO BRANCH BASE WT LABEL                the lane's pane; makes the worktree
+#   runner_open_lane REPO BRANCH BASE WT LABEL                "<pane> [<checkout>]": makes the
+#                                  worktree, at WT unless the runner names another checkout
 #   runner_place_lane MAP LABEL PANE                          the pane's id once placed
 #   runner_open_reviewer_slots WS REPO LABEL                  "<tab> <r1> <r2>"
 #   runner_pane_exists PANE        0 open, 1 gone, 2 the runner cannot say
+#   runner_pane_check              what runner_pane_exists asks, for a message
 #   runner_read_cmd, runner_message_cmd [AGENT PANE TEXT]   the pane map's read a pane and
 #                                  message a pane lines; with arguments, the command for them
 # shellcheck source=/dev/null  # runner-herdr.sh or runner-orca.sh

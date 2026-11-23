@@ -107,3 +107,30 @@ runner_open_lane_a() {
 }
 runner_read_cmd()    { echo "orca terminal read --terminal <id> --json"; }
 runner_message_cmd() { echo "orca terminal send --terminal ${2:-<id>} --text \"${3:-<text>}\" --enter --json"; }
+# Lane LANE's worktree on BRANCH from BASE, a child worktree of the
+# orchestrator's workspace (the pane map's orchestrator line; $MAP is
+# add-lane's), named LABEL, with a terminal of its own. Orca picks its path
+# (WT is unused). Prints "<pane> <checkout>"; dies saying what to remove.
+runner_open_lane() {
+  local branch="$2" base="$3" label="$5" ws out id path pane
+  ws=$(sed -nE 's/^orchestrator: +([^ ]+).*/\1/p' "$MAP")
+  out=$(orca worktree create --name "$label" --branch "$branch" --base-branch "$base" --parent-worktree "id:$ws" --json) \
+    || die "add-lane: Orca could not create lane $LANE's worktree ($out): remove branch $branch if it exists, then rerun  $RERUN"
+  read -r id path <<< "$(echo "$out" | jsonq '"%s %s" % (d["result"]["worktree"]["id"], d["result"]["worktree"]["path"])')"
+  read -r pane _ <<< "$(orca_new terminal create --worktree "id:$id" --title "$label")"
+  [ -n "$pane" ] || die "add-lane: Orca created lane $LANE's worktree $path but no terminal in it: remove it (orca worktree rm --worktree id:$id --force) and branch $branch, then rerun  $RERUN"
+  echo "$pane $path"
+}
+# Each lane has its worktree; there is no grid to place it in.
+runner_place_lane() { echo "$3"; }
+# 0: terminal PANE is open; 1: Orca says its handle is stale; 2: Orca cannot
+# say, its error on stderr.
+runner_pane_exists() {
+  local out
+  out=$(orca terminal show --terminal "$1" --json) && return 0
+  case "$out" in
+    *'"terminal_handle_stale"'*) return 1 ;;
+    *) echo "$out" >&2; return 2 ;;
+  esac
+}
+runner_pane_check() { echo Orca; }
