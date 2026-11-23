@@ -33,7 +33,7 @@ runner_send_keys()  { local pane="$1"; shift; herdr pane send-keys "$pane" "$@" 
 
 runner_self() { echo "$HERDR_PANE_ID"; }
 # The workspace of PANE (the orchestrator's): fails when herdr cannot say.
-runner_workspace() { herdr pane get "$1" 2>/dev/null | jsonq 'd["result"]["pane"]["workspace_id"]' 2>/dev/null; }
+runner_workspace() { herdr pane get "$1" | jsonq 'd["result"]["pane"]["workspace_id"]'; }
 # The orchestrator's tab: the console right of the orchestrator, half the tab
 # (its 60 columns); under it the shell, and dev left of the shell when given,
 # running DEV_CMD in REPO/DEV_DIR. Prints "<console> <shell> [<dev>]".
@@ -138,7 +138,7 @@ reviewer_column() {
 open_tab_with() {
   local orch ws moved pane tab column="" line LANE_REVIEW PREFLIGHT
   orch=$(sed -nE 's/^orchestrator: +([^ ]+).*/\1/p' "$1")
-  ws=$(runner_workspace "$orch") \
+  ws=$(runner_workspace "$orch" 2>/dev/null) \
     || die "no workspace for the orchestrator pane $orch (herdr pane get): is it still open?"
   moved=$(herdr pane move "$3" --new-tab --workspace "$ws" --tab-label "$2" --no-focus) \
     || die "herdr could not move pane $3 into a new $2 tab"

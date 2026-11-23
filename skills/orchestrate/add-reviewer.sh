@@ -300,7 +300,7 @@ ID="$SLOT-$N"
 if [ -z "$TAB_LINE" ]; then
   ORCH=$(sed -nE 's/^orchestrator: +([^ ]+).*/\1/p' "$MAP")
   [ -n "$ORCH" ] || die "no orchestrator line in $MAP: run bootstrap.sh first"
-  WS=$(runner_workspace "$ORCH") \
+  WS=$(runner_workspace "$ORCH" 2>/dev/null) \
     || die "no workspace for the orchestrator pane $ORCH (herdr pane get): is it still open?"
 fi
 

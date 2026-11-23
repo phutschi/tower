@@ -178,9 +178,10 @@ if section common; then
     assert_match "$s.sh: outside both it refuses, naming herdr, Orca and /tower:run" "$(HERDR_ENV=0 "$KIT/$s.sh" 2>&1)" "needs herdr.*Orca.*/tower:run"
     assert_match "$s.sh: in Orca it passes the runner check" "$(env PATH="$TMP/orca-bin:$PATH" ORCA_CLI_COMMAND=orca HERDR_ENV=0 "$KIT/$s.sh" 2>&1)" '^usage: '
   done
-  # Only the runner files call herdr or orca; every other script goes through them.
-  raw=$(cd "$ROOT" && grep -nE '(^|[;&|!{]|\$\(|(^|[[:space:]])(if|until|while) )[[:space:]]*(herdr|orca) ' skills/*/*.sh \
-    | grep -v '^skills/orchestrate/runner[^/]*\.sh:' | grep -vE '^[^:]+:[0-9]+:[[:space:]]*#' || true)
+  # Only the runner files call herdr or orca; every other script goes through them
+  # (a comment, or a message an echo or die prints, may name them).
+  raw=$(cd "$ROOT" && grep -nE '(^|[;&|!{]|\$\(|(^|[[:space:]])(if|elif|until|while|then|do|else|exec|command|time) )[[:space:]]*(herdr|orca) ' skills/*/*.sh \
+    | grep -v '^skills/orchestrate/runner[^/]*\.sh:' | grep -vE '^[^:]+:[0-9]+:[[:space:]]*(#|echo |die )' || true)
   assert_eq "no script but the runner files calls herdr or orca" "$raw" ""
   assert_match "DRY_RUN puts the stubs on PATH"  "$(in_kit 'command -v herdr')" "tests/stub/herdr$"
   reset_stub
