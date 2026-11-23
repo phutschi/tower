@@ -285,10 +285,14 @@ test("a pause note the Inbox refused is sent again until it goes through", async
   const resetsAt = new Date(Date.now() + 60 * 60_000).toISOString();
   await limit(job, { status: "rejected", resetsAt });
   const sends = () => notes().filter((l) => l.includes("send_message"));
-  await until(async () => sends().length > 0);
-  rmSync(fail);
+  // Refused, it is tried again: sweeps run every 100ms.
   await until(async () => sends().length > 1);
+  // A try in flight may go through as the refusal lifts: count none here.
+  rmSync(fail);
+  await Bun.sleep(500);
+  const sent = sends().length;
   expect(sends().at(-1)).toContain(`panel-pause-${resetsAt}`);
+  // Once through, it is sent no more.
   await Bun.sleep(300);
-  expect(sends().length).toBe(2);
+  expect(sends().length).toBe(sent);
 });
