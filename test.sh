@@ -2500,6 +2500,15 @@ if section watch; then
   out=$(watch a)
   assert_match "watch: an agent two lines name: refused" "$out" "watch-lanes: 2 lines in $RUN/panes.txt name agent a"
   assert_match "watch: ... at once" "$out" 'exit=1$'
+  # A Reviewer's free-text title may hold another row's marker: only the
+  # agent field counts.
+  cp "$TMP/watch-map" "$RUN/panes.txt"
+  printf '%s\n' 'reviewer R2:    pane-t   (agent "t", kind codex, model gpt-6-astra, review "re (agent "ghost", kind x) and (agent "a", kind y)", findings /work/t.json)' >> "$RUN/panes.txt"
+  out=$(watch ghost)
+  assert_match "watch: a name only inside a review title: refused" "$out" "no lane or Reviewer line in $RUN/panes.txt names agent ghost"
+  out=$(ROUND=1 watch a)
+  assert_nomatch "watch: a name also inside another row's title: not ambiguous" "$out" 'lines in .* name agent a'
+  cp "$TMP/watch-map" "$RUN/panes.txt"
   rm "$RUN/panes.txt"; out=$(watch a)
   assert_match "watch: no pane map: refused, saying so" "$out" "watch-lanes: no pane map at $RUN/panes.txt"
   assert_match "watch: ... at once" "$out" 'exit=1$'

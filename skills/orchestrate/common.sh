@@ -87,12 +87,16 @@ launched() { awk -v n="$2" '$1 == n { l = $0 } END { if (l != "") print l }' "$(
 # The orchestrator's pane or workspace in pane map MAP: its whole line after
 # the label (an Orca workspace id holds its checkout's path, spaces and all).
 orchestrator_of() { sed -nE 's/^orchestrator: +//p' "$1" | head -1; }
-# The pane of agent NAME in pane map MAP: the one lane or Reviewer line that
-# names it, read literally (the agent name is no pattern). Fails, saying why,
+# The pane of agent NAME in pane map MAP: the one lane or Reviewer line whose
+# agent field (the first in its parenthesis, before any free-text title) is
+# NAME, read literally (the agent name is no pattern). Fails, saying why,
 # when no line names it or more than one does.
 agent_pane() {  # MAP NAME
   local lines n
-  lines=$(NAME=$2 awk '/^(lane [A-D]|reviewer [^:]+): / && index($0, "(agent \"" ENVIRON["NAME"] "\",")' "$1")
+  lines=$(NAME=$2 awk '/^(lane [A-D]|reviewer [^:]+): / {
+    i = index($0, "(agent \""); if (!i) next
+    s = substr($0, i + 8); if (substr(s, 1, index(s, "\"") - 1) == ENVIRON["NAME"]) print
+  }' "$1")
   n=$(printf '%s' "$lines" | grep -c '^' || true)
   case $n in
     1) echo "$lines" | awk '{print $3}' ;;
