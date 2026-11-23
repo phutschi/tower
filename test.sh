@@ -841,6 +841,13 @@ if section add-lane; then
   assert_match "orca D, a create answer with no worktree: refused" "$out" 'exit=1$'
   assert_match "orca D, a create answer with no worktree: ... saying what to remove" "$out" "Orca made lane D's worktree but its answer names none .*remove it \\(orca worktree list --json\\) and branch feat/d"
   assert_nomatch "orca D, a create answer with no worktree: no terminal" "$(cat "$ORCA_STUB_LOG")" '^orca terminal create '
+  # A branch taken between the check and the create: Orca makes the worktree
+  # on a suffixed branch, which is refused before a terminal opens.
+  : > "$ORCA_STUB_LOG"; out=$(ORCA_STUB_WORKTREE_FAIL=suffix lane D feat/d main 5; echo "exit=$?")
+  assert_match "orca D, made on another branch: refused" "$out" 'exit=1$'
+  assert_match "orca D, made on another branch: ... saying which, and what to remove" "$out" "Orca made lane D's worktree on branch feat/d-2, not feat/d: remove it \\(orca worktree rm --worktree id:repo-0::/orca-stub/worktrees/wt-[0-9]+ --force\\) and branch feat/d-2"
+  assert_nomatch "orca D, made on another branch: no terminal" "$(cat "$ORCA_STUB_LOG")" '^orca terminal create '
+  assert_nomatch "orca D, made on another branch: no lane D line" "$(cat "$RUN/panes.txt")" 'lane D:'
   # Ids and paths with a space are kept whole: the orchestrator's workspace
   # (its checkout's path) and the worktree Orca makes.
   rs=$(fixture_repo bun-vitest); mkdir -p "$TMP/team space"; mv "$(dirname "$rs")" "$TMP/team space/r"; rs="$TMP/team space/r/bun-vitest"

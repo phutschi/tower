@@ -31,7 +31,8 @@
 # timeout code), and otherwise answers satisfied false, as Orca does. `terminal close` makes the terminal gone.
 # ORCA_STUB_WORKTREE_FAIL=1: every `worktree create` fails
 # (runtime_unavailable); =garbled: it succeeds with an answer that has no
-# worktree in it.
+# worktree in it; =suffix: it makes the worktree on <branch>-2, as Orca does
+# when the branch is taken (`worktree show` says so).
 # ORCA_STUB_STATUS=fail: `status` answers runtime_unavailable; =offline: it
 # succeeds, saying the runtime is not reachable (both: Orca not reachable).
 # ORCA_STUB=absent refuses to run, so orca counts as not installed; it logs
@@ -81,7 +82,8 @@ case "${1:-} ${2:-}" in
       garbled) ok '{}' ;;
     esac
     n=$(next_n); path="${ORCA_STUB_WORKTREES:-/orca-stub/worktrees}/wt-$n"; parent=$(flag parent-worktree); [ -z "$parent" ] || parent=$(wt_id "$parent")
-    printf '%s|%s|%s|%s|%s\n' "repo-0::$path" "$path" "$(flag name)" "$(flag branch)" "$parent" >> "$counter.worktrees"
+    b=$(flag branch); [ "${ORCA_STUB_WORKTREE_FAIL:-}" != suffix ] || b="$b-2"
+    printf '%s|%s|%s|%s|%s\n' "repo-0::$path" "$path" "$(flag name)" "$b" "$parent" >> "$counter.worktrees"
     ok "{\"worktree\":{\"id\":\"repo-0::$path\",\"path\":\"$path\"}}" ;;
   "worktree show")
     id=$(wt_id "$(flag worktree)")
