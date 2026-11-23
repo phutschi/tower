@@ -51,10 +51,11 @@ ready PR opened for the run closes its issues.
 - **Stuck runs:** a run that fails, whose station stops reporting, whose
   orchestrator exited, or that made no progress for the repo's stale
   threshold (`STALE` in its contract, 30 minutes by default: no new event
-  while its orchestrator is not working, and not idle on a blocked task
-  that waits on an answer) is marked stuck, gets one Inbox
-  message, and is never tried again: move its issues back to
-  ready-for-agent to start a new one.
+  while its orchestrator is not working, and no question of the run open
+  in its Inbox thread, which is named after its issues) is marked stuck,
+  gets one Inbox message, and is never tried again: move its issues back
+  to ready-for-agent to start a new one. A run stuck for no progress has
+  its workspace closed; its checkout is kept 24 hours.
 - **Usage limits:** when Claude refuses a job at a usage limit, the
   Dispatcher starts nothing new until the reset, and says so once in the
   Inbox. The Panel shows each job's duration and tokens, and your limits.
