@@ -322,3 +322,15 @@ test("a grill stopped while it retries its GitHub write writes nothing more", as
   expect(specWrites()).toBe(1);
   expect(existsSync(join(dir(), "acme_widgets_5.body"))).toBe(false);
 });
+
+test("a grill stopped by a move back says why, and keeps its tokens", async () => {
+  await grill({ CLAUDE_STUB_OUT: session("q.out", "sess-1", QUESTIONS, 100) });
+  await until(async () => reads() > 0);
+  await post("/api/issues/acme/widgets/5/stage", { stage: "needs-triage" });
+  await until(async () => (await job()).state === "stopped");
+  expect(await job()).toMatchObject({
+    reason: "moved back to needs-triage",
+    sessionId: "sess-1",
+    tokens: { input: 100, output: 10 },
+  });
+});

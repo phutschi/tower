@@ -21,7 +21,7 @@ import {
   type HeadlessRun,
 } from "../claude.ts";
 import { readThread, sendMessage } from "../inbox.ts";
-import { registerJobRunner } from "../station.ts";
+import { registerJobRunner, stopReason } from "../station.ts";
 
 const PROMPT = join(import.meta.dir, "../../prompts/grill.md");
 const POLL_MS = Number(process.env.PANEL_GRILL_POLL_MS) || 60_000;
@@ -242,13 +242,15 @@ registerJobRunner("grill", async ({ job, hubUrl, workspace, emit, signal }) => {
       await emit("replied", { cursor, replies: fresh });
       run = await turn(answered(fresh));
     }
-    return {
-      outcome: "stopped",
-      reason: "the station stopped",
-      sessionId,
-      tokens,
-    };
   } catch (err) {
-    return { outcome: "failed", reason: String(err), sessionId, tokens };
+    if (!signal.aborted)
+      return { outcome: "failed", reason: String(err), sessionId, tokens };
   }
+  // The user's reason when they stopped it: moved its issue back, or closed it.
+  return {
+    outcome: "stopped",
+    reason: stopReason(signal) ?? "the station stopped",
+    sessionId,
+    tokens,
+  };
 });
