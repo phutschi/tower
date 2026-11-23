@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 
 import { keepOpen, parseProposal } from "../../hub/advice.ts";
-import type { PanelIssue } from "../../types.ts";
+import type { JobEvent, PanelIssue } from "../../types.ts";
 import { jsonIn, reportLimits, runHeadless } from "../claude.ts";
 import { sendInboxNote } from "../inbox.ts";
 import { retry } from "../retry.ts";
@@ -17,6 +17,9 @@ import { registerJobRunner } from "../station.ts";
 
 const run = promisify(execFile);
 const PROMPT = join(import.meta.dir, "../../prompts/advice.md");
+
+/** What the Inbox note counts of a proposal. */
+type Parts = { order: unknown[]; bundles: unknown[] };
 
 interface Commit {
   sha: string;
@@ -51,6 +54,40 @@ async function latestCommits(repo: string): Promise<string[]> {
 registerJobRunner(
   "advice",
   async ({ job, hubUrl, workspace, emit, checkpoint, signal }) => {
+    /** Points the person to the stored proposal; `ran` is its session's. */
+    const note = async (proposal: Parts, ran: object) => {
+      const parts = proposal.order.length + proposal.bundles.length;
+      try {
+        // The key makes a note that got through and is sent again post once.
+        await retry(
+          () =>
+            sendInboxNote({
+              thread: "Order advice",
+              subject: "A new order advice",
+              body: `A new order advice is on the Panel after a merge to ${job.repo}: ${parts} part${parts === 1 ? "" : "s"} to accept or reject.`,
+              idempotencyKey: `panel-advice-${job.id}`,
+            }),
+          signal,
+          { tries: 3, maxWaitMs: 1000 },
+        );
+      } catch (err) {
+        return {
+          outcome: "failed" as const,
+          reason: `the proposal is on the Panel, but its Inbox note failed: ${String(err)}`,
+          ...ran,
+        };
+      }
+      return { outcome: "done" as const, ...ran };
+    };
+
+    // An earlier claim stored its proposal: only the note is left.
+    const claimed = await fetch(`${hubUrl}/api/jobs/${job.id}`);
+    if (!claimed.ok)
+      throw new Error(`the hub refused job ${job.id}: ${claimed.status}`);
+    const { events } = (await claimed.json()) as { events: JobEvent[] };
+    const stored = events.filter((e) => e.kind === "proposal").at(-1);
+    if (stored) return note(stored.data as Parts, {});
+
     const res = await fetch(`${hubUrl}/api/issues`);
     if (!res.ok) throw new Error(`the hub refused its issues: ${res.status}`);
     const open = ((await res.json()) as PanelIssue[])
@@ -131,27 +168,6 @@ ${data(merges)}
     } catch (err) {
       return { outcome: "failed", reason: String(err), ...ran };
     }
-    const parts = proposal.order.length + proposal.bundles.length;
-    try {
-      // The key makes a note that got through and is sent again post once.
-      await retry(
-        () =>
-          sendInboxNote({
-            thread: "Order advice",
-            subject: "A new order advice",
-            body: `A new order advice is on the Panel after a merge to ${job.repo}: ${parts} part${parts === 1 ? "" : "s"} to accept or reject.`,
-            idempotencyKey: `panel-advice-${job.id}`,
-          }),
-        signal,
-        { tries: 3, maxWaitMs: 1000 },
-      );
-    } catch (err) {
-      return {
-        outcome: "failed",
-        reason: `the proposal is on the Panel, but its Inbox note failed: ${String(err)}`,
-        ...ran,
-      };
-    }
-    return { outcome: "done", ...ran };
+    return note(proposal, ran);
   },
 );

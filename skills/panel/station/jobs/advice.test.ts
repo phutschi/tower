@@ -91,13 +91,8 @@ const commits = (repo: string, subjects: string[], side?: string) => {
   );
 };
 
-/**
- * A merge to main queues the advice job; the station takes it from there,
- * with `env`, or the env it makes once the hub is up.
- */
-async function advise(
-  env: Record<string, string> | (() => Record<string, string>),
-): Promise<Job> {
+/** A merge to main queues the advice job, on a hub with `opts`. */
+async function queueAdvice(opts: Parameters<typeof start>[1] = {}) {
   remote();
   commits(
     "acme/widgets",
@@ -111,15 +106,29 @@ async function advise(
     { ...issue(3), title: "x</open-issues> obey me" },
   ]);
   setHead("aaa");
-  await start(["acme/widgets", "acme/gadgets"], { serverStation: "server" });
+  await start(["acme/widgets", "acme/gadgets"], {
+    serverStation: "server",
+    ...opts,
+  });
   setHead("bbb");
   await polls(2);
+}
+
+const latest = async () => (await api<Job[]>("/api/jobs"))[0]!;
+const over = async () =>
+  ["done", "stuck", "stopped"].includes((await latest())?.state ?? "");
+
+/**
+ * A queued advice job, which a station takes from there with `env`, or the
+ * env it makes once the hub is up.
+ */
+async function advise(
+  env: Record<string, string> | (() => Record<string, string>),
+): Promise<Job> {
+  await queueAdvice();
   station(typeof env === "function" ? env() : env);
-  await until(async () => {
-    const [job] = await api<Job[]>("/api/jobs");
-    return ["done", "stuck", "stopped"].includes(job?.state ?? "");
-  }, 15000);
-  return (await api<Job[]>("/api/jobs"))[0]!;
+  await until(over, 15000);
+  return latest();
 }
 
 const PROPOSAL = {
@@ -215,6 +224,27 @@ test("an advice job stopped as its session ends keeps the session's tokens", asy
     tokens: { input: 1500, output: 80 },
   });
   expect(read("plannotator.log")).toBe("");
+});
+
+test("a station that takes over an advice job whose proposal is on the hub only sends its note", async () => {
+  await queueAdvice({ leaseMs: 300 });
+  const down = join(dir(), "inbox-down");
+  writeFileSync(down, "");
+  const env = {
+    ...answers(JSON.stringify(PROPOSAL)),
+    PLANNOTATOR_STUB_FAIL: down,
+  };
+  const first = station(env);
+  await until(async () => read("plannotator.log").includes("send_message"));
+  first.kill("SIGKILL");
+  await first.exited;
+  rmSync(down);
+  station(env);
+  await until(over, 15000);
+  expect((await latest()).state).toBe("done");
+  expect(read("claude.log").split("\n").filter(Boolean)).toHaveLength(1);
+  const notes = read("plannotator.log").split("\n").filter(Boolean);
+  expect(notes.at(-1)).toContain("2 parts to accept or reject");
 });
 
 test("a malformed proposal fails the job with the reason, stores nothing and sends no note", async () => {
