@@ -1795,7 +1795,7 @@ if section user-contract; then
   assert_eq "user contract: a PATH it sets does not break its reader" "$(detect_in "$r" 'echo "[$STALE]"')" "[9]"
   # These read the contract in a scrubbed environment (env -i): a regression
   # that echoes values can then show only this fake token, never the caller's.
-  detect_clean() { (cd "$1" && env -i PATH="$PATH" HOME="$TMP/uc-home" KIT="$KIT" DRY_RUN=1 XDG_CONFIG_HOME="$UC" \
+  detect_clean() { (cd "$1" && env -i PATH="$PATH" HOME="$TMP/uc-home" KIT="$KIT" DRY_RUN=1 ORCA_STUB_COUNTER="$TMP/orca-counter" XDG_CONFIG_HOME="$UC" \
     XDG_STATE_HOME="$XDG_STATE_HOME" SECRET_TOKEN_UC=sk_live_rex bash -c "set -euo pipefail; . \"\$KIT/common.sh\"; . \"\$KIT/detect-stack.sh\"; $2" 2>&1); }
   # The reader's own names are out of its reach too: none of them lets a key in.
   uc '_allowed=" CHECK_CMD "' 'CHECK_CMD="echo from-user-contract"'
@@ -1835,7 +1835,7 @@ if section user-contract; then
   # A caller that traces (bash -x, while debugging the kit) sees no value
   # but the user contract's own.
   uc STALE=9
-  out=$( (cd "$r" && env -i PATH="$PATH" HOME="$TMP/uc-home" KIT="$KIT" DRY_RUN=1 XDG_CONFIG_HOME="$UC" XDG_STATE_HOME="$XDG_STATE_HOME" \
+  out=$( (cd "$r" && env -i PATH="$PATH" HOME="$TMP/uc-home" KIT="$KIT" DRY_RUN=1 ORCA_STUB_COUNTER="$TMP/orca-counter" XDG_CONFIG_HOME="$UC" XDG_STATE_HOME="$XDG_STATE_HOME" \
     SECRET_TOKEN_UC=sk_live_rex bash -c 'set -x; . "$KIT/common.sh"; . "$KIT/detect-stack.sh"; echo "[$STALE]"' 2>&1) )
   assert_nomatch "user contract: a traced caller sees no environment value" "$out" 'sk_live_rex'
   assert_match "user contract: ... and the contract loads" "$out" '^\[9\]$'
@@ -3862,7 +3862,7 @@ if section fake-orca; then
   assert_eq "fake orca, no counter: leaves nothing in TMPDIR" "$(ls -A "$TMP/stub-tmp")" ""
   c=$(env -u ORCA_STUB_COUNTER TMPDIR="$TMP/stub-tmp" bash -c '. "$KIT/common.sh"; echo "$ORCA_STUB_COUNTER"')
   assert_match "DRY_RUN, no counter: the fake's state in a new dir of its own" "$c" '/tmp\.[^/]+/orca-counter$'
-  assert_eq "DRY_RUN, no counter: ... only its owner can enter" "$(stat -f %Lp "$(dirname "$c")" 2>/dev/null || stat -c %a "$(dirname "$c")")" 700
+  assert_eq "DRY_RUN, no counter: ... only its owner can enter" "$(stat -c %a "$(dirname "$c")" 2>/dev/null || stat -f %Lp "$(dirname "$c")")" 700
   # Workspaces: the caller's, and child worktrees that record their parent.
   assert_match "fake orca: worktree current names the caller's workspace" "$(o worktree current --json)" "\"id\": *\"repo-0::$(pwd -P)\""
   reset_stub

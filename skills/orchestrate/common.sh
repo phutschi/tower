@@ -49,7 +49,11 @@ if [ "${DRY_RUN:-0}" = 1 ]; then
   export HERDR_STUB_LOG="${HERDR_STUB_LOG:-/dev/stderr}"
   export ORCA_STUB_LOG="${ORCA_STUB_LOG:-$HERDR_STUB_LOG}"
   # The fake orca's state for this script and its calls, in a dir only it owns.
-  if [ -z "${ORCA_STUB_COUNTER:-}" ]; then ORCA_STUB_COUNTER="$(mktemp -d)/orca-counter"; export ORCA_STUB_COUNTER; fi
+  # shortcut: the dir is left behind (a few bytes a hand run), remove it on exit once DRY_RUN runs in a loop.
+  if [ -z "${ORCA_STUB_COUNTER:-}" ]; then
+    _own=$(mktemp -d) || die "DRY_RUN: mktemp -d failed, so the fake orca has nowhere to keep its state"
+    export ORCA_STUB_COUNTER="$_own/orca-counter"; unset _own
+  fi
   # Inside herdr unless the caller says otherwise (HERDR_ENV=0 tests the
   # refusal); RUNNER=orca: inside Orca instead, with the fake orca as the
   # session's CLI.

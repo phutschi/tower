@@ -45,7 +45,7 @@ printf 'orca %s\n' "$*" >> "${ORCA_STUB_LOG:-/dev/null}"
 # Without ORCA_STUB_COUNTER, this call's state lives in a dir of its own,
 # removed when it exits: nothing counts up across calls then.
 counter="${ORCA_STUB_COUNTER:-}"
-[ -n "$counter" ] || { _own=$(mktemp -d) && trap 'rm -rf "$_own"' EXIT && counter="$_own/counter"; }
+[ -n "$counter" ] || { _own=$(mktemp -d) || exit 1; trap 'rm -rf "$_own"' EXIT; counter="$_own/counter"; }
 states="${ORCA_STUB_STATES_DIR:-}"
 next_n() { local n; n=$(cat "$counter" 2>/dev/null || echo 0); n=$((n+1)); echo "$n" > "$counter"; echo "$n"; }
 # flag NAME: the value after --NAME in the call, empty when absent.
