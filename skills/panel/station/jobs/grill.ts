@@ -106,6 +106,7 @@ registerJobRunner("grill", async ({ job, hubUrl, workspace, emit, signal }) => {
   }, signal)) as { events: JobEvent[] };
   const asked = events.filter((e) => e.kind === "asked").at(-1)?.data;
   const replied = events.filter((e) => e.kind === "replied");
+  const kept = events.filter((e) => e.kind === "spec").at(-1)?.data.spec;
   const last = events
     .filter((e) => e.kind === "asked" || e.kind === "replied")
     .at(-1);
@@ -137,8 +138,35 @@ registerJobRunner("grill", async ({ job, hubUrl, workspace, emit, signal }) => {
     return run;
   };
 
+  const writeSpec = (spec: string) =>
+    retry(
+      () =>
+        gh(
+          [
+            "issue",
+            "edit",
+            String(number),
+            "--repo",
+            job.repo,
+            "--body-file",
+            "-",
+            "--add-label",
+            "ready-for-agent",
+            "--remove-label",
+            "shaping",
+          ],
+          spec,
+        ),
+      signal,
+    );
+
   // A failure after a session ran keeps what the grill cost.
   try {
+    // An earlier claim finished the spec: only its write to GitHub is left.
+    if (typeof kept === "string") {
+      await writeSpec(kept);
+      return { outcome: "done", sessionId, tokens };
+    }
     let run: HeadlessRun | null = null;
     if (!last)
       run = await turn(`${readFileSync(PROMPT, "utf8")}
@@ -167,29 +195,9 @@ ${quote(issue.body)}
           spec?: unknown;
         } | null;
         if (typeof answer?.spec === "string" && answer.spec.trim()) {
-          const spec = answer.spec;
           // Kept on the hub first, so a GitHub that stays down loses no spec.
-          await emit("spec", { spec });
-          await retry(
-            () =>
-              gh(
-                [
-                  "issue",
-                  "edit",
-                  String(number),
-                  "--repo",
-                  job.repo,
-                  "--body-file",
-                  "-",
-                  "--add-label",
-                  "ready-for-agent",
-                  "--remove-label",
-                  "shaping",
-                ],
-                spec,
-              ),
-            signal,
-          );
+          await emit("spec", { spec: answer.spec });
+          await writeSpec(answer.spec);
           return { outcome: "done", ...ran };
         }
         if (typeof answer?.questions === "string" && answer.questions.trim()) {

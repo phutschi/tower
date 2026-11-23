@@ -334,3 +334,30 @@ test("a grill stopped by a move back says why, and keeps its tokens", async () =
     tokens: { input: 100, output: 10 },
   });
 });
+
+test("a station that takes over a grill whose spec is on the hub writes that spec and runs no session", async () => {
+  remote();
+  setIssues("acme/widgets", [issue(5, "needs-triage")]);
+  await start(["acme/widgets"], { serverStation: "server", leaseMs: 300 });
+  await post("/api/issues/acme/widgets/5/stage", { stage: "shaping" });
+  replies("c1", "Only rex.");
+  const env = {
+    PANEL_GRILL_POLL_MS: "50",
+    PLANNOTATOR_STUB_THREAD: join(dir(), "thread.json"),
+    CLAUDE_STUB_OUT: session("q.out", "sess-1", QUESTIONS),
+    CLAUDE_STUB_RESUME_OUT: session("spec.out", "sess-1", SPEC),
+  };
+  const first = station(env);
+  await until(async () =>
+    lines("plannotator.log").some((l) => l.includes("send_message")),
+  );
+  writeFileSync(join(dir(), "fail"), "edit");
+  await until(async () => ghLog().some((l) => l.includes("--body-file")));
+  first.kill("SIGKILL");
+  await first.exited;
+  rmSync(join(dir(), "fail"));
+  station(env);
+  await until(async () => (await job()).state === "done", 10_000);
+  expect(read("acme_widgets_5.body")).toBe(SPEC.spec);
+  expect(lines("claude.log")).toHaveLength(2);
+});
