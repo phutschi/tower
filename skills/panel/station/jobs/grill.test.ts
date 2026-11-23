@@ -403,3 +403,40 @@ test("a grill stopped while its session thinks says why, and keeps the tokens of
   });
   expect(existsSync(join(dir(), "acme_widgets_5.body"))).toBe(false);
 });
+
+test("a grill taken over where its session cannot resume is rebuilt from the thread so far, and goes on", async () => {
+  remote();
+  setIssues("acme/widgets", [
+    Object.assign(issue(5, "needs-triage"), { body: "make export fast" }),
+  ]);
+  await start(["acme/widgets"], { serverStation: "server", leaseMs: 300 });
+  await post("/api/issues/acme/widgets/5/stage", { stage: "shaping" });
+  const env = {
+    PANEL_GRILL_POLL_MS: "50",
+    PLANNOTATOR_STUB_THREAD: join(dir(), "thread.json"),
+  };
+  const first = station({
+    ...env,
+    CLAUDE_STUB_OUT: session("q.out", "sess-1", QUESTIONS),
+  });
+  await until(async () => reads() > 0);
+  first.kill("SIGKILL");
+  await first.exited;
+  // Another Mac: its Claude has no transcript of sess-1.
+  station(
+    { ...env, CLAUDE_STUB_OUT: session("spec.out", "sess-2", SPEC) },
+    "laptop",
+  );
+  reply("Only rex.");
+  await until(async () => (await job()).state === "done", 10_000);
+  const calls = lines("claude.log");
+  expect(calls).toHaveLength(2);
+  expect(calls[1]).not.toContain("--resume");
+  const rebuilt = prompts()[1]!;
+  expect(rebuilt).toContain("# Grill");
+  expect(rebuilt).toContain("make export fast");
+  expect(rebuilt).toContain(QUESTIONS.questions);
+  expect(rebuilt).toContain("Only rex.");
+  expect((await job()).sessionId).toBe("sess-2");
+  expect(read("acme_widgets_5.body")).toBe(SPEC.spec);
+});

@@ -31,9 +31,12 @@ export function useStations() {
 /** A station outlives no test: one leaked by a broken teardown dies by this. */
 const STATION_MAX_MS = 60_000;
 
-/** Starts the station `server` with `env` on top of the test's. */
-export function station(env: Record<string, string> = {}) {
-  const workdir = join(dir(), "station");
+/**
+ * Starts the station `server` with `env` on top of the test's, in `workdir`:
+ * another workdir stands for another Mac.
+ */
+export function station(env: Record<string, string> = {}, at = "station") {
+  const workdir = join(dir(), at);
   mkdirSync(workdir, { recursive: true });
   const proc = Bun.spawn(
     [
