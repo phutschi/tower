@@ -219,6 +219,13 @@ launch_rc() { case "$1" in 3|4) echo "$1" ;; *) echo 1 ;; esac; }
 launch_note() { [ -z "${RUN_DIR:-}" ] || launch_append "$RUN_DIR" "$1" "$2"; }
 # Does the run's launch record have NAME in PANE (no run dir: nothing to have)?
 launch_recorded() { [ -z "${RUN_DIR:-}" ] || [ "$(launched "$RUN_DIR" "$1")" = "$1 $2" ]; }
+# On a trust prompt left to the operator (the start's 6): the record of NAME
+# in PANE that could not be written, said with how to write it, since
+# answering the prompt alone leaves no brief able to reach the agent.
+unbound_note() {
+  launch_recorded "$1" "$2" \
+    || echo "agent start: the kit could not record $1 in $2 either, so no brief reaches it yet: once it runs there, record it with  $(bind_cmd "$RUN_DIR" "$1" "$2")  (it starts nothing)" >&2
+}
 
 # S as a TOML basic string, for a codex -c value.
 toml_string() { local s=${1//\\/\\\\}; printf '"%s"' "${s//\"/\\\"}"; }
@@ -313,13 +320,14 @@ start_answering_trust() {
       # (start_agent). herdr usually reports that box as idle and ready;
       # this covers a herdr that reports it as blocked.
       echo "agent start: $name is blocked during startup in pane $pane although it started with --trust; check the pane" >&2
-      return 1
+      unbound_note "$name" "$pane"; return 1
     elif [ "$rc" = 6 ]; then
       # Every failure returns 1 itself: callers run this under || too, where
       # errexit is off.
       local keys=(Enter); [ "$EXECUTOR_KIND" = codex ] || keys=(Down Enter)
       runner_send_keys "$pane" "${keys[@]}" || {
-        echo "agent start: could not answer $name's trust prompt in pane $pane ($(runner_name) could not send the keys); answer it there, and the agent runs" >&2; return 1; }
+        echo "agent start: could not answer $name's trust prompt in pane $pane ($(runner_name) could not send the keys); answer it there, and the agent runs" >&2
+        unbound_note "$name" "$pane"; return 1; }
       [ "${DRY_RUN:-0}" = 1 ] || sleep 3
       # Started again only when herdr says the agent is not there (common.sh
       # state_of): a failing herdr call must not put a second agent beside it.
@@ -331,8 +339,8 @@ start_answering_trust() {
           return 0 ;;
         gone) start_agent "$name" "$pane" >/dev/null || { rc=$?
           echo "agent start: $name did not start again in pane $pane after its trust prompt; check it there" >&2; return "$(launch_rc "$rc")"; } ;;
-        unreadable) echo "agent start: $(runner_name) cannot say whether $name started after its trust prompt; check pane $pane" >&2; return 1 ;;
-        *) echo "agent start: $name is still $state in pane $pane after its trust prompt was answered; answer it there, and the agent runs" >&2; return 1 ;;
+        unreadable) echo "agent start: $(runner_name) cannot say whether $name started after its trust prompt; check pane $pane" >&2; unbound_note "$name" "$pane"; return 1 ;;
+        *) echo "agent start: $name is still $state in pane $pane after its trust prompt was answered; answer it there, and the agent runs" >&2; unbound_note "$name" "$pane"; return 1 ;;
       esac
       return 0
     else

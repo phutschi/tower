@@ -479,6 +479,14 @@ agent"
     out=$(start acme-lane-a HERDR_STUB_TRUST_STARTS=1)
     assert_eq "trust answered, then gone: started once more" "$(grep -c '^herdr agent start acme-lane-a ' "$HERDR_STUB_LOG")" 2
     assert_match "trust answered, then gone: ... then it runs" "$out" 'exit=0$'
+    # A trust prompt left to the operator (its keys not sent) while the
+    # record cannot be written: both said, with how to record the agent.
+    mkdir -p "$TMP/rec-run-h"; rech=$(in_kit "launch_record '$TMP/rec-run-h'"); mkdir -p "$rech"; rm -f "$HERDR_STUB_STATES_DIR"/acme-lane-a*
+    out=$(start acme-lane-a HERDR_STUB_TRUST_STARTS=1 HERDR_STUB_SEND_KEYS_FAIL=1 RUN_DIR="$TMP/rec-run-h")
+    assert_match "trust left to the operator, no record: says to answer it" "$out" "could not answer acme-lane-a's trust prompt in pane pane-9"
+    assert_match "trust left to the operator, no record: ... and how to record the agent" "$out" "the kit could not record acme-lane-a in pane-9 either, so no brief reaches it yet: once it runs there, record it with  .*bind-pane\\.sh $TMP/rec-run-h acme-lane-a pane-9  \\(it starts nothing\\)"
+    assert_match "trust left to the operator, no record: fails" "$out" 'exit=1$'
+    rmdir "$rech"
     # Ready means accepting input: herdr's interactive_ready. Until then the
     # start waits (READY_WAIT_SECONDS checks), and fails when it never comes.
     rm -f "$HERDR_STUB_STATES_DIR"/acme-lane-a*; echo "unready unready idle" > "$HERDR_STUB_STATES_DIR/acme-lane-a.started"
