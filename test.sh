@@ -1897,6 +1897,15 @@ if section add-reviewer; then
     assert_match "rerun, still blocked: stops"          "$out" 'exit=1$'
     assert_match "rerun, still blocked: says what it read, and to look" "$out" "Reviewer bun-vitest-r1-1's review is still pending, and herdr reads its terminal pane-4 as blocked: nothing was typed into it or closed\\. Look at it there"
     assert_nomatch "rerun, still blocked: nothing sent, nothing started" "$log" '^herdr (pane send-text|pane send-keys|agent start)'
+    # Reported done instead (a finished Reviewer), it is ended and the review
+    # started again under the same name, as before.
+    printf 'done\ndone\ngone\n' > "$S/bun-vitest-r1-1"; : > "$HERDR_STUB_LOG"   # read for resuming, for ending, then gone
+    out=$(cd "$r" && EXIT_WAIT_SECONDS=3 "$KIT/add-reviewer.sh" "$RUNB" R1 claude "Blocked again" "$RUNB/findings/a.json" 2>&1; echo "exit=$?"); log=$(cat "$HERDR_STUB_LOG")
+    assert_match "rerun, done: finishes"                "$out" 'exit=0$'
+    assert_match "rerun, done: the agent left in the slot is sent /exit" "$log" '^herdr pane send-text pane-4 /exit$'
+    assert_match "rerun, done: the review starts again under the same name" "$log" '^herdr agent start bun-vitest-r1-1 '
+    sed -i.bak '/^reviewer R1:/s/)$/) starting/' "$RUNB/panes.txt"; rm -f "$RUNB/panes.txt.bak"
+    "$KIT/tests/stub/tower" task R1-1 pending --run "$RUNB" >/dev/null 2>&1 || true
     # Once the operator has ended it there, the rerun starts the review again.
     echo gone > "$S/bun-vitest-r1-1"; : > "$HERDR_STUB_LOG"
     out=$(cd "$r" && EXIT_WAIT_SECONDS=3 "$KIT/add-reviewer.sh" "$RUNB" R1 claude "Blocked again" "$RUNB/findings/a.json" 2>&1; echo "exit=$?"); log=$(cat "$HERDR_STUB_LOG")
