@@ -229,7 +229,7 @@ restart_by_hand() {
   [ "$(grep -E "^lane $LANE: " "$MAP")" = "$(lane_line "$PANE")${STARTING:-}" ] || return 0
   [ -d "$WT" ] && [ "$(branch_worktree)" = "$(cd "$WT" && pwd -P)" ] || return 0
   line=$(launch_line 2>/dev/null) || return 0
-  echo "open a terminal in $WT, start the agent there with  cd $(printf %q "$WT") && $line, put that terminal's handle on lane $LANE's line in $MAP, record it with  $KIT/bind-pane.sh $(printf %q "$RUN_DIR") $NAME <its handle>, and brief it with send-brief.sh (no rerun)"
+  echo "open a terminal in $WT, start the agent there with  cd $(printf %q "$WT") && $line, put that terminal's handle on lane $LANE's line in $MAP, record it with  $(bind_cmd "$RUN_DIR" "$NAME"), and brief it with send-brief.sh (no rerun)"
 }
 STARTED_AGAIN="started again"
 # Starts the lane's agent in $PANE, or dies saying how to resume. A launch the

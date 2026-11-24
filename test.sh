@@ -4592,6 +4592,13 @@ if section send-brief; then
     assert_match "send-brief (orca), the recorded handle stale, the map rebound: refused" "$out" "but the kit's record has it in $apane; .*record it with  $KIT/bind-pane\\.sh $RUN bun-vitest-lane-a $spane"
     assert_eq "send-brief (orca), the recorded handle stale, the map rebound: nothing sent" "$(sent)" ""
     assert_match "send-brief (orca), ... the record unchanged" "$(in_kit "launched '$RUN' bun-vitest-lane-a")" "^bun-vitest-lane-a $apane\$"
+    # The copyable bind command gives every argument as one literal shell
+    # word: shell syntax in the map's handle runs nothing.
+    sed -i.bak "/^lane A:/s/ $spane / term-9\$(id) /" "$RUN/panes.txt"; rm -f "$RUN/panes.txt.bak"
+    out=$(send "$RUN" bun-vitest-lane-a "$RUN/brief-A.md")
+    cmd=$(printf '%s\n' "$out" | sed -nE 's/.*record it with  (.*)\): nothing sent$/\1/p' | head -1)
+    assert_eq "send-brief (orca), shell syntax in the map's handle: the bind command takes it as one literal word" "$(eval "set -- $cmd"; echo "$#|$1|$4")" "4|$KIT/bind-pane.sh|term-9\$(id)"
+    sed -i.bak "/^lane A:/s/ term-9\$(id) / $spane /" "$RUN/panes.txt"; rm -f "$RUN/panes.txt.bak"
     out=$(bind "$RUN" bun-vitest-lane-a "$spane")
     out=$(send "$RUN" bun-vitest-lane-a "$RUN/brief-A.md")
     assert_match "send-brief (orca), the new handle recorded with bind-pane: sent" "$out" "sent to bun-vitest-lane-a in $spane\$"

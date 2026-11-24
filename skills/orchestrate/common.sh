@@ -91,9 +91,19 @@ state_of() { local a; a=$(agent_of "$1" "${2:-}"); echo "${a%% *}"; }
 # says what to do when it was closed instead (default: open a terminal where
 # it worked and put that handle there). AGENT, when WHO is one the kit
 # launched, is recorded at the new handle with bind-pane.sh, by the operator.
+# The command that records AGENT in PANE for run RUN_DIR (bind-pane.sh), for
+# the operator to copy: each argument one literal shell word, whatever the
+# pane map spelled. An empty RUN_DIR, or no PANE, prints its placeholder.
+bind_cmd() {  # RUN_DIR AGENT [PANE]
+  local c; c=$(printf '%q ' "$KIT/bind-pane.sh")
+  if [ -n "$1" ]; then c+=$(printf '%q ' "$1"); else c+="<run-dir> "; fi
+  c+=$(printf '%q' "$2")
+  if [ -n "${3:-}" ]; then c+=" $(printf '%q' "$3")"; else c+=" <its handle>"; fi
+  echo "$c"
+}
 stale_handle() {  # WHO PANE LINE [CLOSED [AGENT]]
   local bind=""
-  [ -z "${5:-}" ] || bind=" and record it with  $KIT/bind-pane.sh $(printf %q "${RUN_DIR:-<run-dir>}") $5 <its handle>"
+  [ -z "${5:-}" ] || bind=" and record it with  $(bind_cmd "${RUN_DIR:-}" "$5")"
   echo "$(runner_name) says $1's terminal handle $2 is stale: it may still be open under a new handle. Find $1's terminal in $(runner_name), put its handle on $3 in ${MAP:-the pane map}$bind, then rerun; if $(runner_name) has no such terminal, it was closed: ${4:-open one where it worked and put that handle there}" >&2
 }
 # The kit's record of the agents it launched for run RUN_DIR: "<agent> <pane>"
@@ -140,9 +150,9 @@ bound_pane() {  # RUN_DIR NAME
   pane=$(agent_pane "$1/panes.txt" "$2") || return 1
   if ! runner_names_agents; then
     read -r _ launched <<< "$(launched "$1" "$2")"
-    [ -n "$launched" ] || { echo "the kit has no record of launching $2 ($(launch_record "$1")): once you have seen $2 in $pane, record it with  $KIT/bind-pane.sh $(printf %q "$1") $2 $pane" >&2; return 1; }
+    [ -n "$launched" ] || { echo "the kit has no record of launching $2 ($(launch_record "$1")): once you have seen $2 in $pane, record it with  $(bind_cmd "$1" "$2" "$pane")" >&2; return 1; }
     [ "$launched" = "$pane" ] \
-      || { echo "the pane map gives $2 pane $pane, but the kit's record has it in $launched; check its line in $1/panes.txt (a handle you rebound: once you have seen $2 in $pane, record it with  $KIT/bind-pane.sh $(printf %q "$1") $2 $pane)" >&2; return 1; }
+      || { echo "the pane map gives $2 pane $pane, but the kit's record has it in $launched; check its line in $1/panes.txt (a handle you rebound: once you have seen $2 in $pane, record it with  $(bind_cmd "$1" "$2" "$pane"))" >&2; return 1; }
   fi
   echo "$pane"
 }

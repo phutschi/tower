@@ -196,7 +196,7 @@ start_agent() {
   case $rc in
     3|5) ;;
     *) launch_note "$name" "$pane" || {
-         local bind; bind="record it with  $KIT/bind-pane.sh $(printf %q "$RUN_DIR") $name $pane  (it starts nothing)"
+         local bind; bind="record it with  $(bind_cmd "$RUN_DIR" "$name" "$pane")  (it starts nothing)"
          case $rc in
            0) echo "agent start: $name was launched in $pane, but the kit could not record it, so no brief reaches it yet: once you have seen it there, $bind" >&2
               return 7 ;;
@@ -327,7 +327,7 @@ start_answering_trust() {
       local state; state=$(state_of "$name" "$pane")
       case "$state" in
         working|idle) launch_recorded "$name" "$pane" || {
-            echo "agent start: $name runs in $pane now its trust prompt is answered, but the kit could not record it, so no brief reaches it yet: record it with  $KIT/bind-pane.sh $(printf %q "$RUN_DIR") $name $pane  (it starts nothing)" >&2; return 1; }
+            echo "agent start: $name runs in $pane now its trust prompt is answered, but the kit could not record it, so no brief reaches it yet: record it with  $(bind_cmd "$RUN_DIR" "$name" "$pane")  (it starts nothing)" >&2; return 1; }
           return 0 ;;
         gone) start_agent "$name" "$pane" >/dev/null || { rc=$?
           echo "agent start: $name did not start again in pane $pane after its trust prompt; check it there" >&2; return "$(launch_rc "$rc")"; } ;;
