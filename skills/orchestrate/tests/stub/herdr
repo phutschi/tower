@@ -25,6 +25,8 @@
 # one, as an agent still loading); the word "legacy" answers idle
 # without the field, as an older herdr does.
 # HERDR_STUB_SEND_KEYS_FAIL=1: every `pane send-keys` fails.
+# HERDR_STUB_START_FAIL=echo: every `agent start` fails with another code
+# (server_unavailable), its message holding busy and trust words.
 # HERDR_STUB_EXIT_ON_ENTER=N: every `agent get` answers gone once N `pane
 # send-keys ... Enter` calls were made (counted through
 # HERDR_STUB_COUNTER.enters), as an agent that needs N Enters to exit; an
@@ -75,6 +77,7 @@ case "${1:-} ${2:-}" in
     tab=$(awk -v p="$3" '$1 == p { print $2 }' "$counter.tabs" 2>/dev/null)
     echo "{\"result\":{\"pane\":{\"pane_id\":\"$3\",\"workspace_id\":\"ws-0\",\"tab_id\":\"${tab:-tab-0}\"}}}" ;;
   "agent start")
+    [ "${HERDR_STUB_START_FAIL:-}" != echo ] || { echo '{"error":{"code":"server_unavailable","message":"agent blocked during startup; agent_pane_busy"}}' >&2; exit 1; }
     trust=$(cat "$counter.trust" 2>/dev/null || echo 0)
     if [ "$trust" -lt "${HERDR_STUB_TRUST_STARTS:-0}" ]; then
       echo $((trust+1)) > "$counter.trust"

@@ -1,12 +1,20 @@
 # herdr behind the runner functions (runner.sh). Sourced by runner.sh; every
 # herdr call of the kit is here, but runner_detect's probe.
 
-# NAME's agent CLI of KIND, started in PANE with HARNESS_ARGS. herdr's answer,
-# or its error, is printed for the caller's busy and trust handling.
+# NAME's agent CLI of KIND, started in PANE with HARNESS_ARGS. herdr's error,
+# if any, is printed; its code, never its wording elsewhere, gives the result:
+# agent_pane_busy is 5 (the pane is not a ready shell yet), agent_start_failed
+# saying the agent is blocked during startup is 6 (a trust prompt).
 runner_agent_start() {
-  local name="$1" kind="$2" pane="$3" rc=0; shift 4
-  herdr agent start "$name" --kind "$kind" --pane "$pane" -- "$@" || rc=$?
-  case $rc in 3|4) rc=1 ;; esac   # the contract's "nothing sent" and "no receipt"; herdr's own 3 and 4 say neither
+  local name="$1" kind="$2" pane="$3" rc=0 err; shift 4
+  err=$(herdr agent start "$name" --kind "$kind" --pane "$pane" -- "$@" 2>&1 >/dev/null) || rc=$?
+  [ "$rc" != 0 ] || return 0
+  echo "$err" >&2
+  case "$(echo "$err" | jsonq '(lambda e: "busy" if e.get("code") == "agent_pane_busy" else "trust" if e.get("code") == "agent_start_failed" and "blocked during startup" in (e.get("message") or "") else "")(d.get("error") or {})' 2>/dev/null)" in
+    busy) return 5 ;;
+    trust) return 6 ;;
+  esac
+  case $rc in 3|4|5|6) rc=1 ;; esac   # the contract's codes; herdr's own say none of them
   return "$rc"
 }
 # An agent as herdr reads it, one line: "<agent_status> <interactive_ready>"

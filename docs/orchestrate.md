@@ -268,8 +268,12 @@ file through the runner: `herdr agent prompt` by the agent's name, or
 agent listed working or waiting; to one listed done only while the screen
 shows the agent, since an agent that exited stays listed done at its shell;
 and to one not listed yet once its screen is idle, as the start counts it
-ready, unless the screen ends in a shell prompt. Otherwise it holds the brief and says why. It runs nothing from the
-pane map, which a lane can write.
+ready, and shows the agent: not a shell prompt, not a screen Orca cannot
+render, not one showing neither. Otherwise it holds the brief and says why.
+A brief Orca takes without a receipt, or with one that does not show it
+arrive (an old host, a provider that cannot tell, a permission prompt),
+counts as pending: look at the terminal before you send anything again. It
+runs nothing from the pane map, which a lane can write.
 
 ## A run on a paired Orca server
 

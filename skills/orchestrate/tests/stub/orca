@@ -48,7 +48,15 @@
 # ORCA_STUB_SEND_FAIL: every `terminal send` with text fails: =1 with
 # runtime_unavailable (a lost reply), =refused as Orca refuses input
 # (accepted false, exit 1), =unknown as input taken with no receipt
-# (deliveryOutcome unknown, retrySafe false).
+# (deliveryOutcome unknown, retrySafe false), =echo as that, its message and
+# its echoed command (data.originalCommand) holding busy and trust words.
+# ORCA_STUB_SEND_WARN: every `terminal send` with text and Enter is taken
+# (exit 0), its prompt receipt saying Orca could not see it arrive: =old-host
+# (a host with no receipts), =unsupported (a provider that cannot report),
+# =permission or =incarnation (incarnation_replaced). Without it, a text and
+# Enter send carries an ordinary receipt.
+# ORCA_STUB_SCREEN=unavailable: `terminal read --screen` has no rendered
+# screen to give (source screen-unavailable, an empty tail).
 # ORCA_STUB_STATUS=fail: `status` answers runtime_unavailable; =offline: it
 # succeeds, saying the runtime is not reachable (both: Orca not reachable).
 # ORCA_STUB=absent refuses to run, so orca counts as not installed; it logs
@@ -131,6 +139,7 @@ case "${1:-} ${2:-}" in
         1)       err runtime_unavailable ;;
         refused) printf '{"id":"stub","ok":true,"result":{"send":{"handle":"%s","accepted":false,"refusedReason":"stub"}}}\n' "$h"; exit 1 ;;
         unknown) printf '{"id":"stub","ok":false,"error":{"code":"incompatible_runtime","message":"no receipt","data":{"deliveryOutcome":"unknown","retrySafe":false}}}\n'; exit 1 ;;
+        echo)    printf '{"id":"stub","ok":false,"error":{"code":"incompatible_runtime","message":"agent blocked during startup","data":{"deliveryOutcome":"unknown","retrySafe":false,"originalCommand":"orca terminal send --text agent_pane_busy"}}}\n'; exit 1 ;;
       esac
     fi
     if trusty "$h"; then
@@ -139,14 +148,27 @@ case "${1:-} ${2:-}" in
         if [ "$(wc -l < "$states/$h")" -gt 1 ]; then tail -n +2 "$states/$h" > "$states/$h.next"; mv "$states/$h.next" "$states/$h"; else rm -f "$states/$h"; fi
       fi
     fi
-    ok "{\"send\":{\"handle\":\"$h\",\"accepted\":true}}" ;;
+    receipt=""
+    if has text && has enter; then
+      case "${ORCA_STUB_SEND_WARN:-}" in
+        old-host)    receipt='"provider":"old-host","observation":"unsupported"' ;;
+        unsupported) receipt='"provider":"unsupported","observation":"unsupported"' ;;
+        permission)  receipt='"provider":"claude","observation":"permission"' ;;
+        incarnation) receipt='"provider":"claude","observation":"incarnation_replaced"' ;;
+        *)           receipt='"provider":"claude"' ;;
+      esac
+      receipt=",\"prompt\":{\"requestId\":\"stub-req\",\"stages\":[\"input_accepted\"],$receipt}"
+    fi
+    ok "{\"send\":{\"handle\":\"$h\",\"accepted\":true$receipt}}" ;;
   "terminal read")
     h=$(flag terminal); live "$h"
     tail=$([ -n "$states" ] && [ -f "$states/$h.tail" ] && python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().splitlines()))' < "$states/$h.tail") || tail='[]'
     # --screen: the rendered screen, an agent's interface or, done-shell, a
     # shell prompt.
     src=""
-    if has screen; then
+    if has screen && [ "${ORCA_STUB_SCREEN:-}" = unavailable ]; then
+      src=',"source":"screen-unavailable"'; tail='[]'
+    elif has screen; then
       src=',"source":"screen"'
       [ "$tail" != '[]' ] || case "$(peek "$h")" in
         done-shell|unlisted-shell) tail='["Bye!", "acme $ "]' ;;

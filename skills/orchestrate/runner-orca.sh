@@ -14,9 +14,9 @@ orca() { command "$ORCA_CLI_COMMAND" "$@"; }   # set: runner_detect saw it
 # have been (no receipt, a lost reply). It then reads the agent until
 # Orca lists it as working, waiting or done (START_TRIES reads, a second
 # apart). One blocked on the workspace trust menu, by Orca's wait reason, is
-# said as herdr says it ("agent blocked during startup"), for executor.sh to
-# answer; blocked on any other prompt, it fails, the prompt left for the
-# operator.
+# 6, for executor.sh to answer; blocked on any other prompt, it fails, the
+# prompt left for the operator. A launch line goes to a shell, which gives
+# no delivery receipt: the agent's state, read after, is the evidence.
 runner_agent_start() {
   local name="$1" kind="$2" pane="$3" line out tries=0; shift 4
   # A missing CLI would leave a shell saying "command not found" (executor.sh kind_installed).
@@ -27,11 +27,8 @@ runner_agent_start() {
   while :; do
     case "$(runner_agent_state "$name" "$pane")" in
       blocked*)
-        if orca_trust_menu "$pane"; then
-          echo "agent blocked during startup" >&2
-        else
-          echo "agent start: $name is blocked on a prompt in terminal $pane that Orca does not report as the workspace trust prompt: answer it there, then brief it" >&2
-        fi
+        orca_trust_menu "$pane" && return 6
+        echo "agent start: $name is blocked on a prompt in terminal $pane that Orca does not report as the workspace trust prompt: answer it there, then brief it" >&2
         return 1 ;;
       *" True"|gone|unreadable) return 0 ;;   # until_ready decides
     esac
@@ -102,18 +99,26 @@ orca_screen() {
 screen_ends_in_shell() {
   echo "$1" | tail -1 | grep -qE '([^0-9]%|[$#>❯➜])[[:space:]]*$|^[[:space:]]*➜'
 }
-# Does terminal PANE's screen show an agent's interface, not a shell: its
-# footer words in the last 3 lines, and no prompt on the last?
+# Does SCREEN show an agent's interface, not a shell: its footer words in the
+# last 3 lines, and no prompt on the last? An empty SCREEN (Orca has no
+# rendered one) shows nothing.
 # shortcut: an agent is told from a shell by its interface's own words, upgrade once Orca's CLI says what runs in a terminal.
-orca_screen_shows_agent() {
-  local screen; screen=$(orca_screen "$1") || return 1
-  echo "$screen" | tail -3 | grep -qiE '\? for shortcuts|shift\+tab to cycle|esc to interrupt|bypass permissions|context left|add a follow-up|/ commands' || return 1
-  ! screen_ends_in_shell "$screen"
+screen_shows_agent() {
+  echo "$1" | tail -3 | grep -qiE '\? for shortcuts|shift\+tab to cycle|esc to interrupt|bypass permissions|context left|add a follow-up|/ commands' || return 1
+  ! screen_ends_in_shell "$1"
 }
+orca_screen_shows_agent() { screen_shows_agent "$(orca_screen "$1")"; }   # the same, for terminal PANE's screen
 runner_name() { echo Orca; }
 runner_ready_hint() { echo "\"\$ORCA_CLI_COMMAND\" agent list --json  shows it waiting or done"; }
 runner_agent_tail() { orca terminal read --terminal "$2" --json | jsonq '"\n".join(d["result"]["terminal"]["tail"])' | tail -n "$3"; }
 runner_send_text()  { orca terminal send --terminal "$1" --text "$2" --json >/dev/null; }
+# Did a send's answer OUT (exit 0) show its prompt arrive? Orca's receipt says
+# so, unless it names a host or provider that cannot tell (old-host,
+# unsupported), or says delivery went unobserved (a permission prompt, the
+# terminal's process replaced). No receipt shows nothing.
+orca_send_seen() {
+  echo "$1" | jsonq '(lambda p: bool(p) and p.get("provider") not in ("old-host", "unsupported") and p.get("observation") not in ("permission", "incarnation_replaced", "unsupported"))(d["result"]["send"].get("prompt") or {})' 2>/dev/null | grep -qx True
+}
 # Does a failed send's answer OUT prove nothing was typed? Orca refused the
 # input (accepted false), called it safe to retry, or failed before any input
 # (a bad handle or argument, a menu refusing text with Enter). A lost reply or
@@ -129,10 +134,12 @@ runner_names_agents() { return 1; }   # Orca reaches an agent only through its t
 # goes only while the screen shows the agent: Orca keeps an agent that exited
 # to its shell listed as done. Unlisted, it goes once the screen is idle, by
 # the start's rule (runner_agent_state): a terminal agent reports to Orca on
-# its first turn; but not to a screen ending in a shell prompt. Held, or
-# refused by Orca, it returns 1: nothing was sent; sent without a receipt, 4.
+# its first turn; and only while the screen shows the agent, not a shell, not
+# a screen Orca cannot render, not one showing neither. Held, or refused by
+# Orca, it returns 1: nothing was sent; sent without a receipt, or taken with
+# a receipt that does not show it arrive (orca_send_seen), 4.
 runner_send_message() {
-  local s out
+  local s out screen
   s=$(orca_raw "$2")
   case "$s" in
     working|waiting) ;;
@@ -141,13 +148,17 @@ runner_send_message() {
     unlisted)
       [ "$(runner_agent_state "$1" "$2")" = "idle True" ] \
         || { echo "Orca lists no agent in terminal $2, and its screen is not idle: send once  \"\$ORCA_CLI_COMMAND\" agent list --json  shows $1's terminal waiting or done" >&2; return 1; }
+      screen=$(orca_screen "$2")
       # An agent that exited before its first turn leaves an idle shell.
-      ! screen_ends_in_shell "$(orca_screen "$2")" \
-        || { echo "Orca lists no agent in terminal $2, and its screen shows a shell: check it there" >&2; return 1; } ;;
+      ! screen_ends_in_shell "$screen" \
+        || { echo "Orca lists no agent in terminal $2, and its screen shows a shell: check it there" >&2; return 1; }
+      screen_shows_agent "$screen" \
+        || { echo "Orca lists no agent in terminal $2, and its screen does not show the agent (Orca has no rendered screen of it, or it shows neither the agent nor a shell): check it there" >&2; return 1; } ;;
     *) echo "Orca lists $1's terminal $2 as $s: not ready for input" >&2; return 1 ;;
   esac
   out=$(orca terminal send --terminal "$2" --text "$3" --enter --json) || {
     echo "$out" >&2; if orca_send_refused "$out"; then return 1; else return 4; fi; }
+  orca_send_seen "$out" || { echo "Orca took the text, but its receipt does not show it arrive: $out" >&2; return 4; }
 }
 # Each key a send of its own: Orca refuses text and Enter together while an
 # agent shows a menu.

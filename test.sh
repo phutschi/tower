@@ -338,6 +338,15 @@ if section executor; then
   rm -f "$S"/term-*; assert_eq "orca: a launch Orca refused: 3" "$(rcstart ORCA_STUB_SEND_FAIL=refused)" rc=3
   rm -f "$S"/term-*; assert_eq "orca: a launch with no receipt: 4" "$(rcstart ORCA_STUB_SEND_FAIL=unknown)" rc=4
   rm -f "$S"/term-*; assert_eq "orca: a lost reply (runtime_unavailable) proves nothing: 4" "$(rcstart ORCA_STUB_SEND_FAIL=1)" rc=4
+  # The start's result is its return code, never words in Orca's answer: a
+  # lost reply whose message and echoed command hold busy and trust words is
+  # a launch with no receipt, with no retry and no trust keys.
+  rm -f "$S"/term-*; assert_eq "orca: busy and trust words in a no-receipt error: still 4" "$(rcstart ORCA_STUB_SEND_FAIL=echo)" rc=4
+  assert_eq "orca: ... the launch typed once" "$(grep -c '^orca terminal send --terminal term-1 --text claude' "$ORCA_STUB_LOG")" 1
+  assert_nomatch "orca: ... and no trust keys" "$(cat "$ORCA_STUB_LOG")" '^orca terminal send --terminal term-1 (--enter|--text .\[B)'
+  # A launch line goes to a shell, which gives no delivery receipt: the agent's
+  # own state says whether it started.
+  rm -f "$S"/term-*; assert_eq "orca: a launch taken with no delivery receipt: read by the agent's state" "$(rcstart ORCA_STUB_SEND_WARN=unsupported)" rc=0
   # Blocked on any other prompt (a hooks review, an update): no keys, the
   # start fails, and the prompt stays for the operator. The trust prompt is
   # known by Orca's own wait reason: an answered trust question still on the
@@ -800,6 +809,12 @@ if section bootstrap; then
     assert_match "busy pane: giving up shows herdr's answer" "$out" 'agent_pane_busy'
     assert_match "busy pane: giving up says what to do"   "$out" 'pane pane-3 is still not a ready shell after 3 tries; check it, or raise START_TRIES'
     assert_match "busy pane: giving up fails bootstrap"    "$out" 'exit=1$'
+    # Busy and trust are herdr's error codes, not words in its message.
+    r=$(fixture_repo bun-vitest); RUN="$TMP/run-start-words"; reset_stub
+    out=$(HERDR_STUB_START_FAIL="echo" boot "$r" "$RUN" "Start words" main; echo "exit=$?")
+    assert_eq "herdr start: busy words in another error: no retry" "$(grep -c '^herdr agent start bun-vitest-lane-a ' "$HERDR_STUB_LOG")" 1
+    assert_nomatch "herdr start: trust words in another error: no keys" "$(cat "$HERDR_STUB_LOG")" '^herdr pane send-keys'
+    assert_match "herdr start: ... the start fails with herdr's error" "$out" 'server_unavailable'
 
     # A fresh checkout's trust prompt blocks the start: it is answered, and the
     # agent is started again only when herdr says it is not there.
@@ -4291,6 +4306,25 @@ if section send-brief; then
       assert_match "send-brief (orca), agent $st: sent" "$out" 'exit=0$'
     done
     rm -f "$S/$apane"
+    # An unlisted agent gets its first brief only when the screen shows the
+    # agent: not when Orca has no rendered screen, nor when the screen shows
+    # neither the agent nor a shell.
+    echo unlisted-idle > "$S/$apane"
+    out=$(ORCA_STUB_SCREEN=unavailable send "$RUN" bun-vitest-lane-a "$RUN/brief-A.md")
+    assert_match "send-brief (orca), unlisted, no rendered screen: held" "$out" "Orca lists no agent in terminal $apane, and its screen does not show the agent"
+    assert_eq "send-brief (orca), unlisted, no rendered screen: nothing sent" "$(sent)" ""
+    printf 'Compiling...\nstill going\n' > "$S/$apane.tail"
+    out=$(send "$RUN" bun-vitest-lane-a "$RUN/brief-A.md")
+    assert_match "send-brief (orca), unlisted, a screen that is neither agent nor shell: held" "$out" "its screen does not show the agent"
+    assert_eq "send-brief (orca), unlisted, an ambiguous screen: nothing sent" "$(sent)" ""
+    rm -f "$S/$apane" "$S/$apane.tail"
+    # Orca took the brief (exit 0) but says it could not see it arrive: the
+    # operator looks before anything is sent again.
+    for w in old-host unsupported permission incarnation; do
+      out=$(ORCA_STUB_SEND_WARN=$w send "$RUN" bun-vitest-lane-a "$RUN/brief-A.md")
+      assert_match "send-brief (orca), taken with an unverified receipt ($w): look before sending again" "$out" "Orca cannot say whether the brief reached bun-vitest-lane-a in $apane"
+      assert_match "send-brief (orca), taken with an unverified receipt ($w): fails" "$out" 'exit=1$'
+    done
     # A send Orca took without a receipt may have arrived: not "send again".
     out=$(ORCA_STUB_SEND_FAIL=unknown send "$RUN" bun-vitest-lane-a "$RUN/brief-A.md")
     assert_match "send-brief (orca), no receipt: says to look before sending again" "$out" "send-brief: Orca cannot say whether the brief reached bun-vitest-lane-a in $apane \\(no receipt\\): look at that terminal before you send anything again"

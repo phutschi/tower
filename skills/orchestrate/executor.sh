@@ -186,15 +186,17 @@ start_agent() {
   local name="$1" pane="$2" rc=0
   agent_args || return 3
   runner_agent_start "$name" "$EXECUTOR_KIND" "$pane" -- "${AGENT_ARGS[@]}" || rc=$?
-  # Anything but the runner's "nothing sent" may have launched it.
-  [ "$rc" = 3 ] || launch_note "$name" "$pane"
+  # Anything but the runner's "nothing sent" (3, or 5: not a ready shell yet)
+  # may have launched it.
+  case $rc in 3|5) ;; *) launch_note "$name" "$pane" ;; esac
   return "$rc"
 }
 # The command a person runs to start this agent by hand, in its checkout: its
 # CLI with the model and grants start_agent gives it.
 launch_line() { agent_args || return 1; printf '%q ' "$(kind_cli "$EXECUTOR_KIND")" "${AGENT_ARGS[@]}"; }
 # A start's failure code for its caller: the runner's 3 (nothing sent) and 4
-# (sent without a receipt) pass through; any other failure is 1.
+# (sent without a receipt) pass through; any other failure (5 and 6
+# included, which start_answering_trust handles) is 1.
 launch_rc() { case "$1" in 3|4) echo "$1" ;; *) echo 1 ;; esac; }
 # The run's launch record (common.sh launch_record) gains NAME in PANE.
 launch_note() { [ -z "${RUN_DIR:-}" ] || echo "$1 $2" >> "$(launch_record "$RUN_DIR")"; }
@@ -202,11 +204,13 @@ launch_note() { [ -z "${RUN_DIR:-}" ] || echo "$1 $2" >> "$(launch_record "$RUN_
 # S as a TOML basic string, for a codex -c value.
 toml_string() { local s=${1//\\/\\\\}; printf '"%s"' "${s//\"/\\\"}"; }
 
-# A new pane's shell may not be ready yet when the agent starts: herdr answers
-# agent_pane_busy. Try again once a second, START_TRIES times in all (default 10).
-# A fresh checkout shows the agent's trust prompt, which herdr reports as
-# "blocked during startup" (runner-orca.sh says so only on Orca's
-# workspace-trust wait reason; any other prompt fails the start). Claude's
+# A new pane's shell may not be ready yet when the agent starts: the runner's
+# start returns 5 (herdr's agent_pane_busy). Try again once a second,
+# START_TRIES times in all (default 10). A fresh checkout shows the agent's
+# trust prompt: the start returns 6 (herdr's "blocked during startup";
+# runner-orca.sh only on Orca's workspace-trust wait reason, and any other
+# prompt fails the start). Only the return code decides: the runner's words
+# are for people. Claude's
 # prompt wants Down Enter ("Yes, I trust this folder" is the second option);
 # codex's wants Enter ("Yes, continue" is the first). Answer it, and try once
 # more if herdr then says the agent is gone.
@@ -276,18 +280,20 @@ ready_of() {
 
 start_answering_trust() {
   local name="$1" pane="$2" out tries=1 rc
-  until out=$(start_agent "$name" "$pane" 2>&1); do
-    rc=$?
-    if echo "$out" | grep -q agent_pane_busy && [ "$tries" -lt "${START_TRIES:-10}" ]; then
+  while :; do
+    rc=0; out=$(start_agent "$name" "$pane" 2>&1) || rc=$?
+    if [ "$rc" = 0 ]; then
+      return 0
+    elif [ "$rc" = 5 ] && [ "$tries" -lt "${START_TRIES:-10}" ]; then
       tries=$((tries+1))
       [ "${DRY_RUN:-0}" = 1 ] || sleep 1
-    elif echo "$out" | grep -q "blocked during startup" && [ "$EXECUTOR_KIND" = cursor ]; then
+    elif [ "$rc" = 6 ] && [ "$EXECUTOR_KIND" = cursor ]; then
       # cursor starts with --trust, and its box is never answered with keys
       # (start_agent). herdr usually reports that box as idle and ready;
       # this covers a herdr that reports it as blocked.
       echo "agent start: $name is blocked during startup in pane $pane although it started with --trust; check the pane" >&2
       return 1
-    elif echo "$out" | grep -q "blocked during startup"; then
+    elif [ "$rc" = 6 ]; then
       # Every failure returns 1 itself: callers run this under || too, where
       # errexit is off.
       local keys=(Enter); [ "$EXECUTOR_KIND" = codex ] || keys=(Down Enter)
@@ -308,7 +314,7 @@ start_answering_trust() {
       return 0
     else
       echo "$out" >&2
-      if echo "$out" | grep -q agent_pane_busy; then
+      if [ "$rc" = 5 ]; then
         echo "agent start: pane $pane is still not a ready shell after $tries tries; check it, or raise START_TRIES" >&2
       fi
       return "$(launch_rc "$rc")"
