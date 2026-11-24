@@ -946,6 +946,15 @@ if section add-lane; then
   : > "$ORCA_STUB_LOG"; out=$(lane D feat/d2 main 5; echo "exit=$?")
   assert_match "orca D rerun, its screen not a shell: refused" "$out" "lane D's launch was never sent, but terminal $dpane's screen does not show a shell"
   assert_nomatch "orca D rerun, its screen not a shell: nothing typed" "$(cat "$ORCA_STUB_LOG")" '^orca terminal send '
+  # A last line shaped like a prompt is no shell while Orca lists an agent
+  # there waiting or blocked (an input box, a status line): nothing typed.
+  for st in waiting blocked; do
+    echo "$st" > "$ORCA_STUB_STATES_DIR/$dpane"; printf 'Bye!\nacme $ \n' > "$ORCA_STUB_STATES_DIR/$dpane.tail"
+    : > "$ORCA_STUB_LOG"; out=$(lane D feat/d2 main 5; echo "exit=$?")
+    assert_match "orca D rerun, listed $st, a prompt-shaped screen: refused" "$out" "lane D's launch was never sent, but terminal $dpane's screen does not show a shell"
+    assert_nomatch "orca D rerun, listed $st, a prompt-shaped screen: nothing typed" "$(cat "$ORCA_STUB_LOG")" '^orca terminal send '
+  done
+  rm -f "$ORCA_STUB_STATES_DIR/$dpane.tail"
   # An agent working there after all (started by hand): refused, nothing typed.
   echo working > "$ORCA_STUB_STATES_DIR/$dpane"
   : > "$ORCA_STUB_LOG"; out=$(lane D feat/d2 main 5; echo "exit=$?")

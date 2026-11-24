@@ -67,9 +67,14 @@ runner_agent_state() {
 # lowest on the screen; old words above it, from a question already answered,
 # do not count.
 orca_trust_menu() {
+  case "$(orca_wait_reason "$1")" in agent-trust-workspace|codex-trust-workspace) return 0 ;; esac
+  return 1
+}
+# Orca's reason the agent in terminal PANE waits on a prompt (terminal show's
+# agentWait), empty for none; "?" when Orca does not answer.
+orca_wait_reason() {
   orca terminal show --terminal "$1" --json 2>/dev/null \
-    | jsonq '((d["result"]["terminal"].get("agentWait") or {}).get("reason") or "") in ("agent-trust-workspace", "codex-trust-workspace")' 2>/dev/null \
-    | grep -qx True
+    | jsonq '(d["result"]["terminal"].get("agentWait") or {}).get("reason") or ""' 2>/dev/null || echo "?"
 }
 # The state Orca's agent list gives the agent in terminal PANE (working,
 # waiting, done, blocked, ...), unlisted, or unreadable.
@@ -134,7 +139,15 @@ orca_send_seen() {
 orca_send_refused() {
   echo "$1" | jsonq '(lambda d, x: (d["result"]["send"].get("accepted") is False) if d.get("ok") else (x.get("deliveryOutcome") != "unknown" and (x.get("retrySafe") is True or d["error"]["code"] in ("agent_prompt_blocked", "invalid_argument", "selector_not_found", "terminal_not_found", "terminal_handle_stale"))))(d, (d.get("error") or {}).get("data") or {})' 2>/dev/null | grep -qx True
 }
-runner_pane_at_shell() { screen_is_shell "$(orca_screen "$1")"; }   # does PANE's screen end in a shell prompt?
+# Does terminal PANE show a shell, verified: Orca lists no agent there, or one
+# done (an agent that exited stays listed done), gives no wait reason, and the
+# screen shows a bare shell (screen_is_shell). An agent listed waiting,
+# working or blocked, or a prompt Orca names, holds whatever the screen shows.
+runner_pane_at_shell() {
+  case "$(orca_raw "$1")" in unlisted|done) ;; *) return 1 ;; esac
+  [ -z "$(orca_wait_reason "$1")" ] || return 1
+  screen_is_shell "$(orca_screen "$1")"
+}
 runner_names_agents() { return 1; }   # Orca reaches an agent only through its terminal handle
 # NAME PANE TEXT: TEXT typed into terminal PANE, then Enter, only to an agent
 # ready for input there: anything else at that address (a shell, a menu)
