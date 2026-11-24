@@ -187,8 +187,15 @@ start_agent() {
   agent_args || return 3
   runner_agent_start "$name" "$EXECUTOR_KIND" "$pane" -- "${AGENT_ARGS[@]}" || rc=$?
   # Anything but the runner's "nothing sent" (3, or 5: not a ready shell yet)
-  # may have launched it.
-  case $rc in 3|5) ;; *) launch_note "$name" "$pane" ;; esac
+  # may have launched it. A record that cannot be written leaves the agent
+  # running but unreachable by send-brief: said, with the recovery that
+  # starts nothing (bind-pane.sh), and 7.
+  case $rc in
+    3|5) ;;
+    *) launch_note "$name" "$pane" || {
+         echo "agent start: $name was launched in $pane, but the kit could not record it, so no brief reaches it yet: once you have seen it there, record it with  $KIT/bind-pane.sh $(printf %q "$RUN_DIR") $name $pane  (it starts nothing)" >&2
+         return 7; } ;;
+  esac
   return "$rc"
 }
 # The command a person runs to start this agent by hand, in its checkout: its
@@ -196,10 +203,11 @@ start_agent() {
 launch_line() { agent_args || return 1; printf '%q ' "$(kind_cli "$EXECUTOR_KIND")" "${AGENT_ARGS[@]}"; }
 # A start's failure code for its caller: the runner's 3 (nothing sent) and 4
 # (sent without a receipt) pass through; any other failure (5 and 6
-# included, which start_answering_trust handles) is 1.
+# included, which start_answering_trust handles, and 7: launched, its record
+# not written) is 1.
 launch_rc() { case "$1" in 3|4) echo "$1" ;; *) echo 1 ;; esac; }
 # The run's launch record (common.sh launch_record) gains NAME in PANE.
-launch_note() { [ -z "${RUN_DIR:-}" ] || echo "$1 $2" >> "$(launch_record "$RUN_DIR")"; }
+launch_note() { [ -z "${RUN_DIR:-}" ] || launch_append "$RUN_DIR" "$1" "$2"; }
 
 # S as a TOML basic string, for a codex -c value.
 toml_string() { local s=${1//\\/\\\\}; printf '"%s"' "${s//\"/\\\"}"; }

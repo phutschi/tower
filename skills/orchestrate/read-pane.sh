@@ -22,5 +22,5 @@ RUN_DIR="$1"; NAME="$2"; LINES="${3:-60}"
 PANE=$(bound_pane "$RUN_DIR" "$NAME" 2>&1) || die "read-pane: $PANE"
 runner_agent_tail "$NAME" "$PANE" "$LINES" && exit 0
 rc=0; runner_pane_exists "$PANE" 2>/dev/null || rc=$?
-[ "$rc" != 3 ] || { stale_handle "$NAME" "$PANE" "its line"; exit 1; }
+[ "$rc" != 3 ] || { stale_handle "$NAME" "$PANE" "its line" "" "$NAME"; exit 1; }
 die "read-pane: $(runner_name) could not read $NAME's pane $PANE"

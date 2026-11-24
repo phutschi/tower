@@ -241,7 +241,8 @@ no ready agent: its start fails, and a Reviewer there is not resumed. An Orca th
 so does a stale terminal handle: Orca's handles end with its runtime, so the
 terminal may still be open under a new one. A lane never settles on a missing
 answer, and add-lane, add-reviewer and send-brief ask you to put the
-terminal's new handle into the pane map rather than remove anything.
+terminal's new handle into the pane map, and record it with `bind-pane.sh`,
+rather than remove anything.
 
 ### The pane map
 
@@ -262,9 +263,13 @@ tell lanes to read the dev pane with it.
 The orchestrator sends each brief and fix prompt with
 `send-brief.sh <run-dir> <agent> <file>`. It finds the agent's pane on its
 one lane or Reviewer line and, on Orca, checks it against the kit's own
-launch record, kept beside the run dir, outside the dirs a sandboxed lane is
-granted: an agent the kit never launched is refused, and a recorded handle
-gone stale yields to the map's once that terminal is open. It checks that the pane is open, and sends the
+launch record, kept under `$XDG_STATE_HOME/tower/launched/` (named by the run
+dir's path, like the contract pin), outside everything a sandboxed lane may
+write: an agent the kit never launched is refused, and so is a map line that
+gives another pane than the record. When you rebind a stale handle, or a
+start could not write the record, record the terminal yourself, once you
+have seen the agent there: `bind-pane.sh <run-dir> <agent> <pane>` (the
+agent's line must give that pane; it starts nothing). It checks that the pane is open, and sends the
 file through the runner: `herdr agent prompt` by the agent's name, or
 `orca terminal send` with Enter to its terminal. On Orca the brief goes to an
 agent listed working or waiting; to one listed done only while the screen

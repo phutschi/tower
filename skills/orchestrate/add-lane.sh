@@ -177,7 +177,7 @@ check_rerun() {
           || die "lane $LANE's pane $2 is gone ($(runner_pane_check)), or was moved without its new id recorded: look for $WT in the grid; if a pane has it, turn  unplaced lane $LANE: $2  in $MAP into  lane $LANE: <that pane's id>  (the rest as it is) and rerun, else remove the unplaced line from $MAP and the worktree $WT, then add the lane again"
         die "lane $LANE's pane $2 is gone ($(runner_pane_check)): remove its $3 from $MAP and the worktree $WT, then add the lane again" ;;
       3) [ "$3" = line ] || { stale_handle "lane $LANE" "$2" "its $3"; exit 1; }
-         stale_handle "lane $LANE" "$2" "its $3" "$(restart_by_hand)"; exit 1 ;;
+         stale_handle "lane $LANE" "$2" "its $3" "$(restart_by_hand)" "$NAME"; exit 1 ;;
       *) die "$(runner_name) cannot say whether lane $LANE's pane $2 is open; rerun once $(runner_name) answers ($(runner_name): ${err:-no output})" ;;
     esac
   fi
@@ -229,7 +229,7 @@ restart_by_hand() {
   [ "$(grep -E "^lane $LANE: " "$MAP")" = "$(lane_line "$PANE")${STARTING:-}" ] || return 0
   [ -d "$WT" ] && [ "$(branch_worktree)" = "$(cd "$WT" && pwd -P)" ] || return 0
   line=$(launch_line 2>/dev/null) || return 0
-  echo "open a terminal in $WT, start the agent there with  cd $(printf %q "$WT") && $line, put that terminal's handle on lane $LANE's line in $MAP, and brief it with send-brief.sh (no rerun)"
+  echo "open a terminal in $WT, start the agent there with  cd $(printf %q "$WT") && $line, put that terminal's handle on lane $LANE's line in $MAP, record it with  $KIT/bind-pane.sh $(printf %q "$RUN_DIR") $NAME <its handle>, and brief it with send-brief.sh (no rerun)"
 }
 STARTED_AGAIN="started again"
 # Starts the lane's agent in $PANE, or dies saying how to resume. A launch the
@@ -265,7 +265,7 @@ if [ -n "$PANE" ]; then
     gone) ;;
     unreadable)
       rc=0; runner_pane_exists "$PANE" 2>/dev/null || rc=$?
-      [ "$rc" != 3 ] || { stale_handle "lane $LANE" "$PANE" "lane $LANE's line" "$(restart_by_hand)"; exit 1; }
+      [ "$rc" != 3 ] || { stale_handle "lane $LANE" "$PANE" "lane $LANE's line" "$(restart_by_hand)" "$NAME"; exit 1; }
       die "lane $LANE: $(runner_name) cannot say whether agent $NAME runs; rerun once $(runner_name) answers" ;;
     *) [ -n "$STARTING" ] || die "lane $LANE already exists (see $MAP)" ;;
   esac

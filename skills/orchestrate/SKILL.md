@@ -129,7 +129,11 @@ and do it in a lane anyway or suggest doing it without the kit.
    map's `read a pane:` line is for people; never run it: a lane can write
    it). `unreadable`
    → the runner did not answer for that agent on `UNREADABLE_POLLS` polls in
-   a row: check the runner, and never start a second agent beside it. A re-brief
+   a row: check the runner, and never start a second agent beside it. A
+   stale Orca handle (the kit's message says so): put the terminal's new
+   handle on the agent's line, then record it with
+   `<kit>/bind-pane.sh <run-dir> <agent> <pane>` once you have seen the agent
+   there; send-brief and read-pane trust only that record. A re-brief
    asks for no new end line, so it keeps the lane's report round: watch it
    as before. tower
    wait's `complete` → keep `watch-lanes.sh` running: a lane's check gate

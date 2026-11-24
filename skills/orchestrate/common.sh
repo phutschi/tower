@@ -89,36 +89,60 @@ state_of() { local a; a=$(agent_of "$1" "${2:-}"); echo "${a%% *}"; }
 # The message for a stale handle (runner_pane_exists 3) on stderr: WHO's
 # terminal may still be open, so it is rebound by hand, never removed. CLOSED
 # says what to do when it was closed instead (default: open a terminal where
-# it worked and put that handle there).
-stale_handle() {  # WHO PANE LINE [CLOSED]
-  echo "$(runner_name) says $1's terminal handle $2 is stale: it may still be open under a new handle. Find $1's terminal in $(runner_name), put its handle on $3 in ${MAP:-the pane map}, then rerun; if $(runner_name) has no such terminal, it was closed: ${4:-open one where it worked and put that handle there}" >&2
+# it worked and put that handle there). AGENT, when WHO is one the kit
+# launched, is recorded at the new handle with bind-pane.sh, by the operator.
+stale_handle() {  # WHO PANE LINE [CLOSED [AGENT]]
+  local bind=""
+  [ -z "${5:-}" ] || bind=" and record it with  $KIT/bind-pane.sh $(printf %q "${RUN_DIR:-<run-dir>}") $5 <its handle>"
+  echo "$(runner_name) says $1's terminal handle $2 is stale: it may still be open under a new handle. Find $1's terminal in $(runner_name), put its handle on $3 in ${MAP:-the pane map}$bind, then rerun; if $(runner_name) has no such terminal, it was closed: ${4:-open one where it worked and put that handle there}" >&2
 }
 # The kit's record of the agents it launched for run RUN_DIR: "<agent> <pane>"
-# per launch, the last line for an agent standing. It lives beside the run
-# dir, outside the dirs a sandboxed lane is granted, so it binds an agent to
-# its pane where the pane map cannot.
-launch_record() { local d; d=$(cd "$1" 2>/dev/null && pwd) || d=$1; echo "$(dirname "$d")/.$(basename "$d").launched"; }
-launched() { awk -v n="$2" '$1 == n { l = $0 } END { if (l != "") print l }' "$(launch_record "$1")" 2>/dev/null; }   # RUN_DIR NAME
+# per launch or rebind (bind-pane.sh), the last line for an agent standing.
+# It lives under $XDG_STATE_HOME (~/.local/state)/tower/launched/, named by
+# the run dir's path, as the contract pin does (detect-stack.sh contract_pin):
+# outside everything a codex lane may write, so it binds an agent to its pane
+# where the pane map, in the lane-writable run dir, cannot. Fails when there
+# is no run dir.
+launch_record() {
+  local d; d=$(cd -- "$1" >/dev/null 2>&1 && pwd -P) || return 1
+  echo "${XDG_STATE_HOME:-$HOME/.local/state}/tower/launched/$(printf '%s' "$d" | git hash-object --stdin)"
+}
+# RUN_DIR NAME: NAME's last line in the record; nothing when the record is
+# missing, or not a regular file of yours.
+launched() {
+  local f; f=$(launch_record "$1") || return 0
+  [ -f "$f" ] && [ ! -L "$f" ] && [ -O "$f" ] || return 0
+  awk -v n="$2" '$1 == n { l = $0 } END { if (l != "") print l }' "$f"
+}
+# RUN_DIR NAME PANE: "NAME PANE" appended to the record, a file of yours (mode
+# 600) in a dir of yours, opened without following a link. Fails, saying why.
+launch_append() {
+  local f; f=$(launch_record "$1") || { echo "no run dir at $1, so no launch record" >&2; return 1; }
+  python3 -I -c 'import os, stat, sys
+f, line = sys.argv[1], sys.argv[2]
+os.makedirs(os.path.dirname(f), mode=0o700, exist_ok=True)
+d = os.lstat(os.path.dirname(f))
+if not stat.S_ISDIR(d.st_mode) or d.st_uid != os.getuid(): sys.exit(1)
+fd = os.open(f, os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW | getattr(os, "O_NONBLOCK", 0), 0o600)
+st = os.fstat(fd)
+if not stat.S_ISREG(st.st_mode) or st.st_uid != os.getuid(): sys.exit(1)
+os.write(fd, (line + "\n").encode())' "$f" "$2 $3" 2>/dev/null \
+    || { echo "cannot write the launch record $f (it must be a regular file of yours, not a link)" >&2; return 1; }
+}
 # The pane of agent NAME in run RUN_DIR, for a kit script to send to or read
 # (send-brief.sh, read-pane.sh): its one lane or Reviewer line's (agent_pane),
 # bound to the kit's launch record (launched), since a lane can rewrite the
-# pane map. A runner that reaches agents by name (herdr) needs no record. A
-# recorded handle gone stale (Orca's handles end with its runtime) yields to
-# the map's once that one is open: the operator rebound it (stale_handle), and
-# the record follows. Fails, saying why.
+# pane map. A runner that reaches agents by name (herdr) needs no record. The
+# map and the record must agree: a handle rebound (stale_handle) counts once
+# the operator records it with bind-pane.sh. Fails, saying why.
 bound_pane() {  # RUN_DIR NAME
-  local pane launched rc=0
+  local pane launched
   pane=$(agent_pane "$1/panes.txt" "$2") || return 1
   if ! runner_names_agents; then
     read -r _ launched <<< "$(launched "$1" "$2")"
-    [ -n "$launched" ] || { echo "the kit has no record of launching $2 ($(launch_record "$1"))" >&2; return 1; }
-    if [ "$launched" != "$pane" ]; then
-      runner_pane_exists "$launched" 2>/dev/null || rc=$?
-      [ "$rc" = 3 ] && runner_pane_exists "$pane" 2>/dev/null \
-        || { echo "the pane map gives $2 pane $pane, but the kit launched it in $launched; check its line in $1/panes.txt" >&2; return 1; }
-      { echo "$2 $pane" >> "$(launch_record "$1")"; } 2>/dev/null \
-        || { echo "cannot write the launch record $(launch_record "$1")" >&2; return 1; }
-    fi
+    [ -n "$launched" ] || { echo "the kit has no record of launching $2 ($(launch_record "$1")): once you have seen $2 in $pane, record it with  $KIT/bind-pane.sh $(printf %q "$1") $2 $pane" >&2; return 1; }
+    [ "$launched" = "$pane" ] \
+      || { echo "the pane map gives $2 pane $pane, but the kit's record has it in $launched; check its line in $1/panes.txt (a handle you rebound: once you have seen $2 in $pane, record it with  $KIT/bind-pane.sh $(printf %q "$1") $2 $pane)" >&2; return 1; }
   fi
   echo "$pane"
 }

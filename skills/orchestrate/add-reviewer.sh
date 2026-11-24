@@ -306,7 +306,7 @@ if [ -n "$PREV" ]; then
     working) die "Reviewer $PREV is still working in $SLOT: wait until the slot is free, or use the other slot" ;;
     unreadable)
       rc=0; runner_pane_exists "$PANE" 2>/dev/null || rc=$?
-      [ "$rc" != 3 ] || { stale_handle "Reviewer $PREV" "$PANE" "reviewer $SLOT's line"; exit 1; }
+      [ "$rc" != 3 ] || { stale_handle "Reviewer $PREV" "$PANE" "reviewer $SLOT's line" "" "$PREV"; exit 1; }
       die "$(runner_name) cannot say whether Reviewer $PREV is still there; rerun once $(runner_name) answers" ;;
     *)
       runner_send_text "$PANE" "/exit"

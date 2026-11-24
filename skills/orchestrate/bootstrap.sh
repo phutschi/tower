@@ -195,6 +195,9 @@ export TOWER_RUN="$RUN_DIR"  # the calls below are about this run
 PIN=$(contract_pin "$RUN_DIR"); mkdir -p "$(dirname "$PIN")"
 { echo "# the repo contract bootstrap.sh read for the run $RUN_DIR"; [ ! -f "$CONTRACT_FILE" ] || cat "$CONTRACT_FILE"; } > "$PIN.$$"
 chmod 444 "$PIN.$$"; mv -f "$PIN.$$" "$PIN"
+# A new run starts with no launch record (common.sh launch_record): one left
+# by an earlier run at the same path binds nothing here.
+rm -f "$(launch_record "$RUN_DIR")"
 # <lane>=all: every task on the board, known once the run exists.
 [ -z "$LANE_ALL" ] || tower assign "$LANE_ALL" "$(tower state --json | jsonq '",".join(t["id"] for t in d["tasks"])')"
 tower note "switches: $(switches_line)"

@@ -338,6 +338,14 @@ agent"
   out=$(ostart codex)
   assert_match "orca trust, not listed yet: the start goes on" "$out" 'exit=0$'
   assert_match "orca trust, not listed yet: answered with Enter alone" "$(cat "$ORCA_STUB_LOG")" '^orca terminal send --terminal term-1 --enter --json$'
+  # A launch whose record cannot be written: the agent runs, unreachable by
+  # send-brief; the start fails, naming the recovery that starts nothing.
+  rm -f "$S"/term-*; mkdir -p "$TMP/rec-run"; rec=$(in_kit "launch_record '$TMP/rec-run'"); mkdir -p "$rec"
+  out=$(ostart claude RUN_DIR="$TMP/rec-run")
+  assert_match "orca: a launch record that cannot be written: the start fails" "$out" 'exit=1$'
+  assert_match "orca: ... saying the agent was launched, and how to record it" "$out" "acme-lane-a was launched in term-1, but the kit could not record it, so no brief reaches it yet: .*bind-pane\\.sh $TMP/rec-run acme-lane-a term-1  \\(it starts nothing\\)"
+  assert_eq "orca: ... launched once" "$(grep -c '^orca terminal send --terminal term-1 --text claude' "$ORCA_STUB_LOG")" 1
+  rmdir "$rec"
   # launch_line prints a start's command for a person: its words split back
   # into the same arguments, TOML quotes and all.
   ll=$(cd "$r" && env HOME="$TMP/rev-home" EXECUTOR_KIND=codex EXECUTOR_MODEL=gpt-6-astra RUN_DIR="$TMP/run x" AGENT_TMP="$TMP/t \"q\"" bash -c '. "$KIT/common.sh"; need_runner; . "$KIT/executor.sh"; launch_line' 2>&1)
@@ -905,7 +913,7 @@ if section add-lane; then
   echo gone > "$ORCA_STUB_STATES_DIR/$bpane"
   : > "$ORCA_STUB_LOG"; out=$(lane B feat/b main 2,3; echo "exit=$?")
   assert_match "orca B rerun, a stale handle: fails" "$out" 'exit=1$'
-  assert_match "orca B rerun, a stale handle: asks to rebind it" "$out" "Orca says lane B's terminal handle $bpane is stale: it may still be open under a new handle\\. Find lane B's terminal in Orca, put its handle on lane B's line in $RUN/panes.txt, then rerun"
+  assert_match "orca B rerun, a stale handle: asks to rebind it" "$out" "Orca says lane B's terminal handle $bpane is stale: it may still be open under a new handle\\. Find lane B's terminal in Orca, put its handle on lane B's line in $RUN/panes.txt and record it with  .*bind-pane\\.sh $RUN bun-vitest-lane-b <its handle>, then rerun"
   assert_nomatch "orca B rerun, a stale handle: no removal advised" "$out" 'remove'
   # Its restart command, only when the lane's line and checkout are checked:
   # the fake's worktree is not on disk, so the default text.
@@ -1472,7 +1480,7 @@ if section add-reviewer; then
   r1=$(sed -nE 's/^reviewer R1: +([^ ]+).*/\1/p' "$RUNS/panes.txt"); echo gone > "$S/$r1"
   : > "$ORCA_STUB_LOG"; out=$(cd "$rs" && EXIT_WAIT_SECONDS=3 "$KIT/add-reviewer.sh" "$RUNS" R1 claude "Lane review A third" "$RUNS/findings/a-3.json" 2>&1; echo "exit=$?")
   assert_match "orca R1, a stale handle: refused" "$out" 'exit=1$'
-  assert_match "orca R1, a stale handle: asks to rebind it" "$out" "Orca says Reviewer bun-vitest-r1-2's terminal handle $r1 is stale: .* put its handle on reviewer R1's line in $RUNS/panes\\.txt, then rerun"
+  assert_match "orca R1, a stale handle: asks to rebind it" "$out" "Orca says Reviewer bun-vitest-r1-2's terminal handle $r1 is stale: .* put its handle on reviewer R1's line in $RUNS/panes\\.txt and record it with  .*bind-pane\\.sh $RUNS bun-vitest-r1-2 <its handle>, then rerun"
   assert_nomatch "orca R1, a stale handle: nothing sent, closed or opened" "$(cat "$ORCA_STUB_LOG")" '^orca terminal (send|close|create) '
   # A slot's own terminal gone stale before its first Reviewer: rebound too.
   r2=$(sed -nE 's/^review tab: .*R2 ([^,)]+).*/\1/p' "$RUNS/panes.txt"); echo gone > "$S/$r2"
@@ -4438,8 +4446,8 @@ if section send-brief; then
   spane=$(sed -nE 's/^shell: +([^ ]+).*/\1/p' "$RUN/panes.txt")
   printf 'reviewer R1:    %s   (agent "bun-vitest-r1-1", kind codex, model gpt-6-astra, review "Lane review A", findings %s)\n' "$spane" "$RUN/findings/lane-a.json" >> "$RUN/panes.txt"
   out=$(send "$RUN" bun-vitest-r1-1 "$RUN/brief-A.md")
-  # The kit's own launch record (beside the run dir, out of a lane's reach)
-  # binds an agent to its pane: Orca refuses an agent it has no record of
+  # The kit's own launch record (under the user's state dir, out of a lane's
+  # reach) binds an agent to its pane: Orca refuses an agent it has no record of
   # launching; herdr sends by name.
   if [ "${RUNNER:-herdr}" = orca ]; then
     assert_match "send-brief (orca), an agent the kit never launched: refused" "$out" "send-brief: the kit has no record of launching bun-vitest-r1-1"
@@ -4447,8 +4455,25 @@ if section send-brief; then
   else
     assert_match "send-brief (herdr), no launch record: sent by name" "$out" "sent to bun-vitest-r1-1 in $spane\$"
   fi
-  assert_match "the kit records lane A's launch beside the run dir" "$(in_kit "launched '$RUN' bun-vitest-lane-a")" "^bun-vitest-lane-a $apane\$"
-  echo "bun-vitest-r1-1 $spane" >> "$(in_kit "launch_record '$RUN'")"
+  assert_match "the kit records lane A's launch" "$(in_kit "launched '$RUN' bun-vitest-lane-a")" "^bun-vitest-lane-a $apane\$"
+  rec=$(in_kit "launch_record '$RUN'")
+  assert_match "the launch record lives under the user's state dir, named by the run dir" "$rec" "^$XDG_STATE_HOME/tower/launched/[0-9a-f]+\$"
+  assert_eq "the launch record: a private file" "$(ls -l "$rec" | cut -c1-10)" -rw-------
+  # bind-pane.sh: the operator records an agent's pane by hand; the map's line
+  # must give that pane, and the runner must say it is open.
+  bind() { (cd "$r" && "$KIT/bind-pane.sh" "$@" 2>&1; echo "exit=$?"); }
+  out=$(bind "$RUN" bun-vitest-lane-a "$spane")
+  assert_match "bind-pane, a pane the map does not give the agent: refused" "$out" "bind-pane: the pane map gives bun-vitest-lane-a pane $apane, not $spane"
+  assert_match "bind-pane, a pane the map does not give the agent: fails" "$out" 'exit=1$'
+  out=$(bind "$RUN" bun-vitest-r1-1 "$spane")
+  assert_match "bind-pane: recorded" "$out" "recorded bun-vitest-r1-1 in $spane"
+  assert_match "bind-pane: ... in the record" "$(in_kit "launched '$RUN' bun-vitest-r1-1")" "^bun-vitest-r1-1 $spane\$"
+  # The record is written only as a regular file of yours, never through a link.
+  mv "$rec" "$rec.real"; ln -s "$TMP/rec-elsewhere" "$rec"
+  out=$(bind "$RUN" bun-vitest-r1-1 "$spane")
+  assert_match "bind-pane, the record a link: refused" "$out" "bind-pane: cannot write the launch record $rec"
+  assert_eq "bind-pane, the record a link: nothing written through it" "$([ -e "$TMP/rec-elsewhere" ] && echo written || echo none)" none
+  rm -f "$rec"; mv "$rec.real" "$rec"
   out=$(send "$RUN" bun-vitest-r1-1 "$RUN/brief-A.md")
   assert_match "send-brief, a Reviewer: sent to its pane" "$out" "sent to bun-vitest-r1-1 in $spane\$"
   # A swapped handle: the map gives lane A's agent another live pane.
@@ -4456,25 +4481,29 @@ if section send-brief; then
   sed -i.bak '/^reviewer R1:/d' "$RUN/panes.txt"; rm -f "$RUN/panes.txt.bak"
   out=$(send "$RUN" bun-vitest-lane-a "$RUN/brief-A.md")
   if [ "${RUNNER:-herdr}" = orca ]; then
-    assert_match "send-brief (orca), a swapped handle: refused" "$out" "send-brief: the pane map gives bun-vitest-lane-a pane $spane, but the kit launched it in $apane"
+    assert_match "send-brief (orca), a swapped handle: refused" "$out" "send-brief: the pane map gives bun-vitest-lane-a pane $spane, but the kit's record has it in $apane"
     assert_eq "send-brief (orca), a swapped handle: nothing sent" "$(sent)" ""
-    # Orca restarted: the recorded handle is stale, and the operator put the
-    # terminal's new handle in the map (stale_handle): it is sent, and the
-    # record follows.
+    # Orca restarted: the recorded handle is stale, and the map gives another
+    # open terminal. A map edit alone binds nothing (a lane can make it): the
+    # operator records the new handle with bind-pane.sh, then it is sent.
     echo gone > "$S/$apane"
     out=$(send "$RUN" bun-vitest-lane-a "$RUN/brief-A.md")
-    assert_match "send-brief (orca), the recorded handle stale, the map rebound: sent" "$out" "sent to bun-vitest-lane-a in $spane\$"
-    assert_match "send-brief (orca), ... the record follows" "$(in_kit "launched '$RUN' bun-vitest-lane-a")" "^bun-vitest-lane-a $spane\$"
-    rm -f "$S/$apane"; echo "bun-vitest-lane-a $apane" >> "$(in_kit "launch_record '$RUN'")"
+    assert_match "send-brief (orca), the recorded handle stale, the map rebound: refused" "$out" "but the kit's record has it in $apane; .*record it with  $KIT/bind-pane\\.sh $RUN bun-vitest-lane-a $spane"
+    assert_eq "send-brief (orca), the recorded handle stale, the map rebound: nothing sent" "$(sent)" ""
+    assert_match "send-brief (orca), ... the record unchanged" "$(in_kit "launched '$RUN' bun-vitest-lane-a")" "^bun-vitest-lane-a $apane\$"
+    out=$(bind "$RUN" bun-vitest-lane-a "$spane")
+    out=$(send "$RUN" bun-vitest-lane-a "$RUN/brief-A.md")
+    assert_match "send-brief (orca), the new handle recorded with bind-pane: sent" "$out" "sent to bun-vitest-lane-a in $spane\$"
+    rm -f "$S/$apane"
   else
     assert_match "send-brief (herdr), another pane in the map: sent by name all the same" "$(sent)" '^herdr agent prompt bun-vitest-lane-a '
   fi
-  cp "$TMP/sb-map" "$RUN/panes.txt"
+  cp "$TMP/sb-map" "$RUN/panes.txt"; bind "$RUN" bun-vitest-lane-a "$apane" >/dev/null
   echo gone > "$S/$apane"
   out=$(send "$RUN" bun-vitest-lane-a "$RUN/brief-A.md")
   rm -f "$S/$apane"
   if [ "${RUNNER:-herdr}" = orca ]; then
-    assert_match "send-brief (orca), a stale handle: asks to rebind it" "$out" "Orca says bun-vitest-lane-a's terminal handle $apane is stale: .* put its handle on its line in $RUN/panes\\.txt"
+    assert_match "send-brief (orca), a stale handle: asks to rebind it" "$out" "Orca says bun-vitest-lane-a's terminal handle $apane is stale: .* put its handle on its line in $RUN/panes\\.txt and record it with  $KIT/bind-pane\\.sh $RUN bun-vitest-lane-a <its handle>, then rerun"
   else
     assert_match "send-brief, its pane closed: refused" "$out" "send-brief: bun-vitest-lane-a's pane $apane is gone"
   fi
