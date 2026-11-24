@@ -292,10 +292,24 @@ if section executor; then
   echo unlisted-waitfail > "$S/term-1"
   out=$(ostart claude READY_WAIT_SECONDS=2)
   assert_match "orca: not listed, its wait failing: Orca cannot say" "$out" 'Orca cannot say whether acme-lane-a runs in term-1 after 2 checks'
-  for st in 'unlisted:unknown False' 'unlisted-waittimeout:unknown False' 'unlisted-waitfail:unreadable'; do
+  for st in 'unlisted:unknown False' 'unlisted-waittimeout:unknown False' 'unlisted-waitfail:unreadable' 'unlisted-shell:shell False'; do
     rm -f "$S"/term-*; reset_stub; echo "${st%%:*}" > "$S/term-1"
     assert_eq "orca: one reading for an unlisted agent (${st%%:*})" "$(bash -c 'set -o pipefail; . "$KIT/common.sh"; need_runner; orca terminal create --json >/dev/null; runner_agent_state acme-lane-a term-1' 2>&1)" "${st#*:}"
   done
+  # The agent's footer words win over a last line shaped like a prompt (a
+  # status line under its input box): an agent, not a shell.
+  rm -f "$S"/term-*; reset_stub; echo unlisted-idle > "$S/term-1"
+  printf '> \n  ? for shortcuts\n  acme git:(main)  Opus 5.5 ❯\n' > "$S/term-1.tail"
+  assert_eq "orca: footer words beat a prompt-shaped last line: ready" "$(bash -c '. "$KIT/common.sh"; need_runner; orca terminal create --json >/dev/null; runner_agent_state acme-lane-a term-1; orca_screen_shows_agent term-1 && echo agent' 2>&1)" "idle True
+agent"
+  rm -f "$S"/term-*
+  # A bare shell is no ready agent: a launch that left one (refused, or an
+  # agent that exited) fails the start, saying so.
+  echo unlisted-shell > "$S/term-1"
+  out=$(ostart claude READY_WAIT_SECONDS=2 START_TRIES=2)
+  assert_match "orca: a bare shell after the launch: the start fails" "$out" 'exit=1$'
+  assert_match "orca: ... saying its terminal shows a shell" "$out" "acme-lane-a's terminal term-1 shows a shell, not the agent"
+  rm -f "$S"/term-*
   # Not listed yet (a terminal agent reports on its first turn), but its TUI
   # is idle: it accepts input.
   echo unlisted-idle > "$S/term-1"
@@ -937,7 +951,7 @@ if section add-lane; then
   : > "$ORCA_STUB_LOG"; out=$(lane D feat/d2 main 5; echo "exit=$?")
   assert_match "orca D rerun, an agent working there: refused" "$out" "an agent is working in $dpane although its launch was never sent"
   assert_nomatch "orca D rerun, an agent working there: nothing typed" "$(cat "$ORCA_STUB_LOG")" '^orca terminal send '
-  echo unlisted-shell > "$ORCA_STUB_STATES_DIR/$dpane"
+  echo unlisted-shell-launch > "$ORCA_STUB_STATES_DIR/$dpane"
   : > "$ORCA_STUB_LOG"; out=$(ORCA_STUB_SEND_FAIL=refused lane D feat/d2 main 5; echo "exit=$?")
   assert_match "orca D rerun, not sent again: still unsent" "$(cat "$RUN/panes.txt")" '^lane D: .*\) unsent$'
   assert_eq "orca D rerun, not sent again: one launch tried" "$(grep -c "^orca terminal send --terminal $dpane --text claude " "$ORCA_STUB_LOG")" 1
@@ -1409,6 +1423,31 @@ if section add-reviewer; then
   : > "$ORCA_STUB_LOG"; out=$(review R1 claude "Lane review A again" "$RUN/findings/lane-a-2.json"; echo "exit=$?")
   assert_match "orca R1 resumed: in its own terminal" "$out" 'resuming bun-vitest-r1-2 in term-6'
   assert_nomatch "orca R1 resumed: nothing opened or closed" "$(cat "$ORCA_STUB_LOG")" '^orca terminal (create|close) '
+  # A Reviewer's terminal at a bare shell (a refused launch, or one that
+  # exited) is never resumed as ready: still starting, it waits for someone to
+  # look and mark it unsent; unsent, the Reviewer starts there.
+  echo unlisted-shell-launch > "$S/term-6"; sed -i.bak '/^reviewer R1:/s/)$/) starting/' "$RUN/panes.txt"
+  : > "$ORCA_STUB_LOG"; out=$(review R1 claude "Lane review A again" "$RUN/findings/lane-a-2.json"; echo "exit=$?")
+  assert_nomatch "orca R1, starting at a bare shell: not resumed as ready" "$out" 'resuming'
+  assert_match "orca R1, starting at a bare shell: says to look, then mark it unsent" "$out" "Reviewer bun-vitest-r1-2's terminal term-6 shows a shell, not the Reviewer: .* end reviewer R1's line in $RUN/panes\\.txt with \" unsent\" instead of \" starting\""
+  assert_nomatch "orca R1, starting at a bare shell: nothing typed into it" "$(cat "$ORCA_STUB_LOG")" '^orca terminal send '
+  sed -i.bak '/^reviewer R1:/s/ starting$/ unsent/' "$RUN/panes.txt"
+  : > "$ORCA_STUB_LOG"; out=$(review R1 claude "Lane review A again" "$RUN/findings/lane-a-2.json"; echo "exit=$?")
+  assert_match "orca R1, unsent at a shell: add-reviewer finishes" "$out" 'exit=0$'
+  assert_match "orca R1, unsent at a shell: its Reviewer started in that terminal" "$(cat "$ORCA_STUB_LOG")" '^orca terminal send --terminal term-6 --text codex '
+  assert_nomatch "orca R1, unsent at a shell: no /exit typed into it" "$(cat "$ORCA_STUB_LOG")" 'text /exit'
+  assert_match "orca R1, unsent at a shell: the same review" "$(cat "$RUN/panes.txt")" '^reviewer R1: +term-6 +\(agent "bun-vitest-r1-2", .*\)$'
+  # A launch Orca refused (nothing typed) marks the line unsent; one with no
+  # receipt stays starting, and says to look first.
+  sed -i.bak '/^reviewer R1:/s/$/ ended/' "$RUN/panes.txt"; echo gone > "$S/term-6"
+  out=$(ORCA_STUB_SEND_FAIL=refused review R1 claude "Lane review A next" "$RUN/findings/lane-a-n.json"; echo "exit=$?")
+  assert_match "orca R1, a refused launch: says a rerun starts it" "$out" "Reviewer bun-vitest-r1-3's launch was never sent: rerun  .*add-reviewer\\.sh .* to start it in term-7"
+  assert_match "orca R1, a refused launch: its line unsent" "$(cat "$RUN/panes.txt")" '^reviewer R1: +term-7 +\(agent "bun-vitest-r1-3", .*\) unsent$'
+  sed -i.bak '/^reviewer R1:/s/ unsent$/ ended/' "$RUN/panes.txt"; echo gone > "$S/term-7"
+  out=$(ORCA_STUB_SEND_FAIL=unknown review R1 claude "Lane review A next" "$RUN/findings/lane-a-n.json"; echo "exit=$?")
+  assert_match "orca R1, a launch with no receipt: look at the terminal first" "$out" "Orca cannot say whether Reviewer bun-vitest-r1-4's launch reached term-8 \\(no receipt\\): look at that terminal before anything is sent again"
+  assert_match "orca R1, a launch with no receipt: its line starting" "$(cat "$RUN/panes.txt")" '^reviewer R1: +term-8 +\(agent "bun-vitest-r1-4", .*\) starting$'
+  rm -f "$RUN/panes.txt.bak"
   rm -f "$S"/*
   # A workspace whose checkout path holds a space: the slots, and a new
   # Reviewer's tab, open in the whole workspace.
@@ -4317,6 +4356,11 @@ if section send-brief; then
     out=$(send "$RUN" bun-vitest-lane-a "$RUN/brief-A.md")
     assert_match "send-brief (orca), unlisted, a screen that is neither agent nor shell: held" "$out" "its screen does not show the agent"
     assert_eq "send-brief (orca), unlisted, an ambiguous screen: nothing sent" "$(sent)" ""
+    rm -f "$S/$apane" "$S/$apane.tail"
+    # An agent's footer words win over a status line shaped like a prompt.
+    echo done > "$S/$apane"; printf '> \n  ? for shortcuts\n  acme git:(main)  Opus 5.5 ❯\n' > "$S/$apane.tail"
+    out=$(send "$RUN" bun-vitest-lane-a "$RUN/brief-A.md")
+    assert_match "send-brief (orca), done, footer words over a prompt-shaped status line: sent" "$out" 'exit=0$'
     rm -f "$S/$apane" "$S/$apane.tail"
     # Orca took the brief (exit 0) but says it could not see it arrive: the
     # operator looks before anything is sent again.

@@ -21,7 +21,8 @@
 # "unlisted-trust" (the same, a trust menu on screen, its TUI idle: an Enter
 # sent alone answers it, dropping the line), "done-shell" (listed done, its
 # agent exited: the screen shows a shell prompt), "unlisted-shell" (not
-# listed, an idle shell on screen),
+# listed, an idle shell on screen), "unlisted-shell-launch" (the same, until
+# a text-and-Enter send starts an agent there: waiting),
 # "unreadable" (Orca does not answer: runtime_unavailable) or "trust" (a trust
 # menu: the agent shows blocked, a text-plus-Enter send is refused with
 # agent_prompt_blocked, and an Enter sent alone answers the menu, dropping
@@ -142,6 +143,7 @@ case "${1:-} ${2:-}" in
         echo)    printf '{"id":"stub","ok":false,"error":{"code":"incompatible_runtime","message":"agent blocked during startup","data":{"deliveryOutcome":"unknown","retrySafe":false,"originalCommand":"orca terminal send --text agent_pane_busy"}}}\n'; exit 1 ;;
       esac
     fi
+    if [ "$(peek "$h")" = unlisted-shell-launch ] && has text && has enter; then echo waiting > "$states/$h"; fi
     if trusty "$h"; then
       if [ "$(peek "$h")" = trust ] && has text && has enter; then err agent_prompt_blocked; fi
       if has enter && ! has text; then
@@ -171,7 +173,7 @@ case "${1:-} ${2:-}" in
     elif has screen; then
       src=',"source":"screen"'
       [ "$tail" != '[]' ] || case "$(peek "$h")" in
-        done-shell|unlisted-shell) tail='["Bye!", "acme $ "]' ;;
+        done-shell|unlisted-shell*) tail='["Bye!", "acme $ "]' ;;
         *)          tail='["> ", "  ? for shortcuts"]' ;;
       esac
     fi
@@ -179,7 +181,7 @@ case "${1:-} ${2:-}" in
   "terminal wait")
     h=$(flag terminal); live "$h"
     case "$(reported "$(take "$h")")" in
-      waiting|done|unlisted-idle|unlisted-trust|unlisted-shell) ok "{\"wait\":{\"handle\":\"$h\",\"condition\":\"$(flag for)\",\"satisfied\":true}}" ;;
+      waiting|done|unlisted-idle|unlisted-trust|unlisted-shell*) ok "{\"wait\":{\"handle\":\"$h\",\"condition\":\"$(flag for)\",\"satisfied\":true}}" ;;
       unlisted-waitfail) err runtime_unavailable ;;
       unlisted-waittimeout) err timeout ;;
       *) printf '{"id":"stub","ok":true,"result":{"wait":{"handle":"%s","condition":"%s","satisfied":false}}}\n' "$h" "$(flag for)"; exit 1 ;;

@@ -260,6 +260,8 @@ until_ready() {
   done
   if [ "$state" = unreadable ]; then
     echo "agent start: $(runner_name) cannot say whether $name runs in $pane after $checks checks" >&2
+  elif [ "$state" = shell ]; then
+    echo "agent start: $name's terminal $pane shows a shell, not the agent, after $checks checks: its launch did not run, or it exited; read the terminal for why, then start it again" >&2
   else
     echo "agent start: $name does not accept input in pane $pane after $checks checks ($state); it is left running in $pane: brief it once  $(runner_ready_hint "$name"), or end it and start it again" >&2
   fi

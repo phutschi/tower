@@ -40,9 +40,11 @@ runner_agent_start() {
 # (Orca's waiting and done, a finished turn and its resting state, are idle);
 # an agent Orca does not list yet (a terminal agent reports on its first turn)
 # is idle once its terminal's TUI is, "blocked False" if Orca then gives the
-# workspace-trust wait reason, else "unknown False"; never gone (not when the agent
-# exits, and a stale handle may name a terminal still open under another);
-# unreadable when Orca does not answer, a stale handle and a wait included.
+# workspace-trust wait reason, "shell False" if the screen shows a bare shell
+# (a launch refused, or an agent that exited before its first turn), else
+# "unknown False"; never gone (not when the agent exits, and a stale handle
+# may name a terminal still open under another); unreadable when Orca does
+# not answer, a stale handle and a wait included.
 runner_agent_state() {
   local out
   out=$(orca_listed "$2")
@@ -52,8 +54,12 @@ runner_agent_state() {
   out=$(orca terminal wait --terminal "$2" --for tui-idle --timeout-ms 1000 --json 2>/dev/null) || true
   out=$(echo "$out" | jsonq '("idle True" if d["result"]["wait"]["satisfied"] else "unknown False") if d.get("ok") else ("unknown False" if d["error"]["code"] == "timeout" else "unreadable")' 2>/dev/null) \
     || out=unreadable
-  # A trust menu idles the TUI before the agent reports: blocked, not ready.
-  [ "$out" != "idle True" ] || ! orca_trust_menu "$2" || out="blocked False"
+  # A trust menu idles the TUI before the agent reports: blocked, not ready;
+  # so does a bare shell.
+  if [ "$out" = "idle True" ]; then
+    if orca_trust_menu "$2"; then out="blocked False"
+    elif screen_is_shell "$(orca_screen "$2")"; then out="shell False"; fi
+  fi
   echo "$out"
 }
 # Is the agent in terminal PANE held at its workspace-trust prompt? Orca's own
@@ -99,14 +105,16 @@ orca_screen() {
 screen_ends_in_shell() {
   echo "$1" | tail -1 | grep -qE '([^0-9]%|[$#>❯➜])[[:space:]]*$|^[[:space:]]*➜'
 }
-# Does SCREEN show an agent's interface, not a shell: its footer words in the
-# last 3 lines, and no prompt on the last? An empty SCREEN (Orca has no
-# rendered one) shows nothing.
+# Does SCREEN show an agent's interface: its footer words in the last 3
+# lines? They win over a last line shaped like a prompt (a status line under
+# the input box). An empty SCREEN (Orca has no rendered one) shows nothing.
 # shortcut: an agent is told from a shell by its interface's own words, upgrade once Orca's CLI says what runs in a terminal.
 screen_shows_agent() {
-  echo "$1" | tail -3 | grep -qiE '\? for shortcuts|shift\+tab to cycle|esc to interrupt|bypass permissions|context left|add a follow-up|/ commands' || return 1
-  ! screen_ends_in_shell "$1"
+  echo "$1" | tail -3 | grep -qiE '\? for shortcuts|shift\+tab to cycle|esc to interrupt|bypass permissions|context left|add a follow-up|/ commands'
 }
+# Does SCREEN show a bare shell: a prompt on its last line, and no agent's
+# footer words?
+screen_is_shell() { ! screen_shows_agent "$1" && screen_ends_in_shell "$1"; }
 orca_screen_shows_agent() { screen_shows_agent "$(orca_screen "$1")"; }   # the same, for terminal PANE's screen
 runner_name() { echo Orca; }
 runner_ready_hint() { echo "\"\$ORCA_CLI_COMMAND\" agent list --json  shows it waiting or done"; }
@@ -126,7 +134,7 @@ orca_send_seen() {
 orca_send_refused() {
   echo "$1" | jsonq '(lambda d, x: (d["result"]["send"].get("accepted") is False) if d.get("ok") else (x.get("deliveryOutcome") != "unknown" and (x.get("retrySafe") is True or d["error"]["code"] in ("agent_prompt_blocked", "invalid_argument", "selector_not_found", "terminal_not_found", "terminal_handle_stale"))))(d, (d.get("error") or {}).get("data") or {})' 2>/dev/null | grep -qx True
 }
-runner_pane_at_shell() { screen_ends_in_shell "$(orca_screen "$1")"; }   # does PANE's screen end in a shell prompt?
+runner_pane_at_shell() { screen_is_shell "$(orca_screen "$1")"; }   # does PANE's screen end in a shell prompt?
 runner_names_agents() { return 1; }   # Orca reaches an agent only through its terminal handle
 # NAME PANE TEXT: TEXT typed into terminal PANE, then Enter, only to an agent
 # ready for input there: anything else at that address (a shell, a menu)
@@ -139,20 +147,20 @@ runner_names_agents() { return 1; }   # Orca reaches an agent only through its t
 # Orca, it returns 1: nothing was sent; sent without a receipt, or taken with
 # a receipt that does not show it arrive (orca_send_seen), 4.
 runner_send_message() {
-  local s out screen
+  local s out
   s=$(orca_raw "$2")
   case "$s" in
     working|waiting) ;;
     done) orca_screen_shows_agent "$2" \
       || { echo "Orca lists $1 as done, but terminal $2's screen does not show the agent (it may have exited to its shell): check it there" >&2; return 1; } ;;
     unlisted)
-      [ "$(runner_agent_state "$1" "$2")" = "idle True" ] \
-        || { echo "Orca lists no agent in terminal $2, and its screen is not idle: send once  \"\$ORCA_CLI_COMMAND\" agent list --json  shows $1's terminal waiting or done" >&2; return 1; }
-      screen=$(orca_screen "$2")
-      # An agent that exited before its first turn leaves an idle shell.
-      ! screen_ends_in_shell "$screen" \
-        || { echo "Orca lists no agent in terminal $2, and its screen shows a shell: check it there" >&2; return 1; }
-      screen_shows_agent "$screen" \
+      case "$(runner_agent_state "$1" "$2")" in
+        "idle True") ;;
+        # An agent that exited before its first turn leaves an idle shell.
+        "shell False") echo "Orca lists no agent in terminal $2, and its screen shows a shell: check it there" >&2; return 1 ;;
+        *) echo "Orca lists no agent in terminal $2, and its screen is not idle: send once  \"\$ORCA_CLI_COMMAND\" agent list --json  shows $1's terminal waiting or done" >&2; return 1 ;;
+      esac
+      orca_screen_shows_agent "$2" \
         || { echo "Orca lists no agent in terminal $2, and its screen does not show the agent (Orca has no rendered screen of it, or it shows neither the agent nor a shell): check it there" >&2; return 1; } ;;
     *) echo "Orca lists $1's terminal $2 as $s: not ready for input" >&2; return 1 ;;
   esac

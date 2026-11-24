@@ -237,7 +237,12 @@ slot_pane() { echo "$TAB_LINE" | sed -nE "s/.*[(, ]$1 ([^,)]+).*/\\1/p"; }
 # still in the slot and of this call's kind and model, is kept once it accepts
 # input (executor.sh ready_of), waited for while it does not yet; otherwise it
 # is ended as above, then started again. A starting line whose task was
-# worked on is a review that happened: the next one starts fresh.
+# worked on is a review that happened: the next one starts fresh. A start
+# whose launch the runner proves it never sent (executor.sh's 3) ends the line
+# in " unsent": the rerun starts that review in the same pane, once its
+# screen shows a shell. A launch sent without a receipt (4) stays starting,
+# and so does a Reviewer's terminal that shows a bare shell: someone looks
+# before anything is typed there again, and marks it unsent.
 RERUN_ARGS=$(printf ' %q' "$RUN_DIR" "$SLOT" "$LANE_KIND" "$TITLE" "$FINDINGS" ${LANE:+"$LANE"})
 # The map is rewritten through a temp file of this call's own: the other
 # slot's add-reviewer may be rewriting it too.
@@ -248,7 +253,7 @@ slot_line() {
 }
 PREV_LINE=$(grep -E "^reviewer $SLOT: " "$MAP" || true)
 PREV=$(echo "$PREV_LINE" | sed -nE "s/^reviewer $SLOT: +[^ ]+ +\\(agent \"([^\"]+)\".*/\\1/p")
-N=1; RESUME=0; KEEP=0; ENDED=0
+N=1; RESUME=0; KEEP=0; ENDED=0; UNSENT=0
 if [ -n "$PREV" ]; then
   # The previous Reviewer's pane: its line's (a runner may give each Reviewer
   # a pane of its own), else the slot's.
@@ -258,20 +263,26 @@ if [ -n "$PREV" ]; then
   # " ended": this script closed its terminal (runner_end_agent), then failed.
   [[ "$PREV_LINE" != *" ended" ]] || ENDED=1
   case "$PREV_LINE" in
-    *" starting"|*" starting ended")
+    *" starting"|*" starting ended"|*" unsent")
       prev_status=$(tower state --json | jsonq "next((t.get('status', '?') for t in d['tasks'] if t['id'] == '$SLOT-${PREV##*-}'), 'missing')") \
         || die "add-reviewer: tower state failed; rerun once tower answers"
       case "$prev_status" in
         pending|missing) RESUME=1; N=${PREV##*-} ;;
       esac ;;
   esac
+  if [ "$RESUME" = 1 ] && [[ "$PREV_LINE" == *" unsent" ]]; then
+    # A launch is typed only where the screen shows a shell, nothing else.
+    UNSENT=1
+    [ "$(state_of "$PREV" "$PANE")" != working ] && runner_pane_at_shell "$PANE" \
+      || die "Reviewer $PREV's launch was never sent, but terminal $PANE's screen does not show a shell: check it there, then rerun  $KIT/add-reviewer.sh$RERUN_ARGS"
+  fi
   # A resumed review's agent of this call's kind and model is kept once it
   # accepts input, working or not; one that does not yet is still starting,
   # and is waited for as its start waits (executor.sh until_ready, whose own
   # next step is for a fresh start, so not printed here). After a wait that
   # ran out, one more read decides: still starting fails, saying a rerun
   # resumes it; gone, unreadable or any other state goes on below.
-  if [ "$RESUME" = 1 ] && [ "$ENDED" = 0 ] && [[ "$PREV_LINE" == *", kind $R_KIND, model $R_MODEL, review "* ]]; then
+  if [ "$RESUME" = 1 ] && [ "$ENDED" = 0 ] && [ "$UNSENT" = 0 ] && [[ "$PREV_LINE" == *", kind $R_KIND, model $R_MODEL, review "* ]]; then
     case "$(ready_of "$PREV" "$PANE")" in
       ready) KEEP=1 ;;
       *", not ready for input")
@@ -286,8 +297,12 @@ if [ -n "$PREV" ]; then
         fi ;;
     esac
   fi
-  [ "$KEEP" = 1 ] || [ "$ENDED" = 1 ] || case "$(state_of "$PREV" "$PANE")" in
+  [ "$KEEP" = 1 ] || [ "$ENDED" = 1 ] || [ "$UNSENT" = 1 ] || case "$(state_of "$PREV" "$PANE")" in
     gone) ;;
+    shell)
+      # Not a Reviewer: a refused launch, or one that exited, at its shell.
+      [[ "$PREV_LINE" != *" starting" ]] || die "Reviewer $PREV's terminal $PANE shows a shell, not the Reviewer: its launch may not have run. Look at it there; with no Reviewer running, end reviewer $SLOT's line in $MAP with \" unsent\" instead of \" starting\", then rerun  $KIT/add-reviewer.sh$RERUN_ARGS"
+      UNSENT=1 ;;
     working) die "Reviewer $PREV is still working in $SLOT: wait until the slot is free, or use the other slot" ;;
     unreadable)
       rc=0; runner_pane_exists "$PANE" 2>/dev/null || rc=$?
@@ -387,7 +402,8 @@ mkdir -p "$(dirname "$FINDINGS")"
 if [ "$R_KIND" = codex ]; then AGENT_TMP="$RUN_DIR/tmp"; mkdir -p "$AGENT_TMP"; fi
 # The kept Reviewer's pane stays; a fresh one gets the slot's pane, or a new
 # one where the runner closed the last (runner_reviewer_pane).
-if [ "$KEEP" != 1 ]; then
+# An unsent launch, or a bare shell, keeps its pane: the start goes there.
+if [ "$KEEP" != 1 ] && [ "$UNSENT" != 1 ]; then
   PANE=$(slot_pane "$SLOT"); [ "$ENDED" != 1 ] || PANE=""
   PANE=$(runner_reviewer_pane "$SLOT" "$PANE" "$REPO")
 fi
@@ -396,8 +412,14 @@ LINE=$(printf 'reviewer %s:    %s   (agent "%s", kind %s, model %s, review "%s",
 slot_line "$LINE starting"
 if [ "$KEEP" = 1 ]; then echo "resuming $NAME in $PANE: its start failed earlier, and it now accepts input"
 else
-  ( cd "$REPO" && start_agent_with_trust_retry "$NAME" "$PANE" ) \
-    || die "add-reviewer: Reviewer $NAME is not ready in $PANE; its review is in the pane map, starting: rerun  $KIT/add-reviewer.sh$RERUN_ARGS  to resume it"
+  rc=0; ( cd "$REPO" && start_agent_with_trust_retry "$NAME" "$PANE" ) || rc=$?
+  case $rc in
+    0) ;;
+    3) slot_line "$LINE unsent"
+       die "add-reviewer: Reviewer $NAME's launch was never sent: rerun  $KIT/add-reviewer.sh$RERUN_ARGS  to start it in $PANE" ;;
+    4) die "add-reviewer: $(runner_name) cannot say whether Reviewer $NAME's launch reached $PANE (no receipt): look at that terminal before anything is sent again. A Reviewer there: rerun  $KIT/add-reviewer.sh$RERUN_ARGS  to resume it once it accepts input. No Reviewer, a shell: end reviewer $SLOT's line in $MAP with \" unsent\" instead of \" starting\", then rerun" ;;
+    *) die "add-reviewer: Reviewer $NAME is not ready in $PANE; its review is in the pane map, starting: rerun  $KIT/add-reviewer.sh$RERUN_ARGS  to resume it" ;;
+  esac
 fi
 slot_line "$LINE"
 
