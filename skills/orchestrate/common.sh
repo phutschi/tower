@@ -55,7 +55,7 @@ if [ "${DRY_RUN:-0}" = 1 ]; then
   if [ -z "${ORCA_STUB_COUNTER:-}" ] && { [ "${RUNNER:-}" = orca ] || [ -n "${ORCA_CLI_COMMAND:-}" ]; }; then
     # shortcut: the folder is left behind (a few bytes a dry run), remove it at close once dry runs loop.
     case "$(basename "$0"):${1:+run}" in
-      bootstrap.sh:run|add-lane.sh:run|add-reviewer.sh:run|send-brief.sh:run|read-pane.sh:run|watch-lanes.sh:run)
+      bootstrap.sh:run|add-lane.sh:run|add-reviewer.sh:run|send-brief.sh:run|read-pane.sh:run|bind-pane.sh:run|watch-lanes.sh:run)
         # The run dir's real path, its parent made if need be: one folder per run.
         _p=$(cd "$1" 2>/dev/null && pwd -P) \
           || _p=$(mkdir -p "$(dirname "$1")" && cd "$(dirname "$1")" && echo "$(pwd -P)/$(basename "$1")") \

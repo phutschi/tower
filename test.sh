@@ -4274,6 +4274,8 @@ if section fake-orca; then
   echo "Do task 1." > "$DRUN/brief-A.md"
   out=$(cd "$dr" && env -u ORCA_STUB_COUNTER -u ORCA_STUB_STATES_DIR RUNNER=orca "$KIT/send-brief.sh" "$DRUN" bun-vitest-lane-a "$DRUN/brief-A.md" 2>&1; echo "exit=$?")
   assert_match "DRY_RUN, a run's scripts: send-brief finds bootstrap's terminal" "$out" 'sent to bun-vitest-lane-a in term-3'
+  out=$(cd "$dr" && env -u ORCA_STUB_COUNTER -u ORCA_STUB_STATES_DIR RUNNER=orca "$KIT/bind-pane.sh" "$DRUN" bun-vitest-lane-a term-3 2>&1; echo "exit=$?")
+  assert_match "DRY_RUN, a run's scripts: bind-pane finds bootstrap's terminal" "$out" 'recorded bun-vitest-lane-a in term-3'
   sd="$(cd "$(dirname "$DRUN")" && pwd -P)/.$(basename "$DRUN").orca-stub"
   assert_eq "DRY_RUN, a run's scripts: their state folder beside the run dir, private" "$(stat -c %a "$sd" 2>/dev/null || stat -f %Lp "$sd")" 700
   # A run dir in a parent not made yet works; a state folder that is a link
