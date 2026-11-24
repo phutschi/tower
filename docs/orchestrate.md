@@ -235,9 +235,14 @@ fails after it opened the console or the shell, the pane map's `opened:` line
 and the message name what to close; bootstrap has no rerun.
 
 Watching reads Orca's agent status: working and blocked as on herdr; waiting
-and done read as idle. A terminal Orca does not list yet that shows a bare
-shell (a launch refused, or an agent that exited before its first turn) is
-no ready agent: its start fails, and a Reviewer there is not resumed. An Orca that does not answer reads as unreadable, and
+and done read as idle. A terminal Orca does not list yet is a ready agent
+only once its screen is idle and shows the agent's footer words. One that
+shows a bare shell (a launch refused, or an agent that exited before its
+first turn) is no ready agent: its start fails, and a Reviewer there is not
+resumed. Any other screen (one Orca cannot render, one showing neither)
+reads as unknown: the start waits and then fails, saying it is left running,
+and a pending Reviewer there is kept as it is, its rerun stopping at once
+with what it read; so is one blocked on a prompt. An Orca that does not answer reads as unreadable, and
 so does a stale terminal handle: Orca's handles end with its runtime, so the
 terminal may still be open under a new one. A lane never settles on a missing
 answer, and add-lane, add-reviewer and send-brief ask you to put the
@@ -281,8 +286,8 @@ file through the runner: `herdr agent prompt` by the agent's name, or
 agent listed working or waiting; to one listed done only while the screen
 shows the agent (its footer words, which win over a status line shaped like
 a prompt), since an agent that exited stays listed done at its shell;
-and to one not listed yet once its screen is idle, as the start counts it
-ready, and shows the agent: not a shell prompt, not a screen Orca cannot
+and to one not listed yet once the start would count it ready: its screen
+idle and showing the agent, not a shell prompt, not a screen Orca cannot
 render, not one showing neither. Otherwise it holds the brief and says why.
 A brief Orca takes without a receipt, or with one that does not show it
 arrive (an old host, a provider that cannot tell, a permission prompt),

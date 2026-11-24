@@ -188,13 +188,22 @@ start_agent() {
   runner_agent_start "$name" "$EXECUTOR_KIND" "$pane" -- "${AGENT_ARGS[@]}" || rc=$?
   # Anything but the runner's "nothing sent" (3, or 5: not a ready shell yet)
   # may have launched it. A record that cannot be written leaves the agent
-  # running but unreachable by send-brief: said, with the recovery that
-  # starts nothing (bind-pane.sh), and 7.
+  # unreachable by send-brief: said, with the recovery that starts nothing
+  # (bind-pane.sh). A launch that went through is then 7; a runner failure
+  # keeps its own code, so a launch with no receipt (4) is still looked at
+  # first, and a trust prompt (6) still answered (start_answering_trust checks
+  # the record once the agent runs).
   case $rc in
     3|5) ;;
     *) launch_note "$name" "$pane" || {
-         echo "agent start: $name was launched in $pane, but the kit could not record it, so no brief reaches it yet: once you have seen it there, record it with  $KIT/bind-pane.sh $(printf %q "$RUN_DIR") $name $pane  (it starts nothing)" >&2
-         return 7; } ;;
+         local bind; bind="record it with  $KIT/bind-pane.sh $(printf %q "$RUN_DIR") $name $pane  (it starts nothing)"
+         case $rc in
+           0) echo "agent start: $name was launched in $pane, but the kit could not record it, so no brief reaches it yet: once you have seen it there, $bind" >&2
+              return 7 ;;
+           4) echo "agent start: $(runner_name) cannot say whether $name's launch reached $pane (no receipt), and the kit could not record it either: look at that terminal; once you have seen the agent there, $bind" >&2 ;;
+           6) ;;
+           *) echo "agent start: $name's start in $pane failed, and the kit could not record it either: if the agent runs there, $bind" >&2 ;;
+         esac } ;;
   esac
   return "$rc"
 }
@@ -208,6 +217,8 @@ launch_line() { agent_args || return 1; printf '%q ' "$(kind_cli "$EXECUTOR_KIND
 launch_rc() { case "$1" in 3|4) echo "$1" ;; *) echo 1 ;; esac; }
 # The run's launch record (common.sh launch_record) gains NAME in PANE.
 launch_note() { [ -z "${RUN_DIR:-}" ] || launch_append "$RUN_DIR" "$1" "$2"; }
+# Does the run's launch record have NAME in PANE (no run dir: nothing to have)?
+launch_recorded() { [ -z "${RUN_DIR:-}" ] || [ "$(launched "$RUN_DIR" "$1")" = "$1 $2" ]; }
 
 # S as a TOML basic string, for a codex -c value.
 toml_string() { local s=${1//\\/\\\\}; printf '"%s"' "${s//\"/\\\"}"; }
@@ -315,7 +326,9 @@ start_answering_trust() {
       # Only working or idle is an agent running; any other state fails.
       local state; state=$(state_of "$name" "$pane")
       case "$state" in
-        working|idle) return 0 ;;
+        working|idle) launch_recorded "$name" "$pane" || {
+            echo "agent start: $name runs in $pane now its trust prompt is answered, but the kit could not record it, so no brief reaches it yet: record it with  $KIT/bind-pane.sh $(printf %q "$RUN_DIR") $name $pane  (it starts nothing)" >&2; return 1; }
+          return 0 ;;
         gone) start_agent "$name" "$pane" >/dev/null || { rc=$?
           echo "agent start: $name did not start again in pane $pane after its trust prompt; check it there" >&2; return "$(launch_rc "$rc")"; } ;;
         unreadable) echo "agent start: $(runner_name) cannot say whether $name started after its trust prompt; check pane $pane" >&2; return 1 ;;

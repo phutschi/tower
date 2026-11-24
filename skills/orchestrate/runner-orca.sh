@@ -39,10 +39,13 @@ runner_agent_start() {
 # The agent in terminal PANE as Orca reads it, as herdr's: "<status> <ready>"
 # (Orca's waiting and done, a finished turn and its resting state, are idle);
 # an agent Orca does not list yet (a terminal agent reports on its first turn)
-# is idle once its terminal's TUI is, "blocked False" if Orca then gives the
+# is idle once its terminal's TUI is and the screen shows the agent (its
+# footer words, screen_shows_agent): "blocked False" if Orca then gives the
 # workspace-trust wait reason, "shell False" if the screen shows a bare shell
-# (a launch refused, or an agent that exited before its first turn), else
-# "unknown False"; never gone (not when the agent exits, and a stale handle
+# (a launch refused, or an agent that exited before its first turn), and
+# "unknown False" for any other screen (one Orca cannot render, one showing
+# neither) or a TUI not idle: only the agent's own words make it ready; never
+# gone (not when the agent exits, and a stale handle
 # may name a terminal still open under another); unreadable when Orca does
 # not answer, a stale handle and a wait included.
 runner_agent_state() {
@@ -55,10 +58,13 @@ runner_agent_state() {
   out=$(echo "$out" | jsonq '("idle True" if d["result"]["wait"]["satisfied"] else "unknown False") if d.get("ok") else ("unknown False" if d["error"]["code"] == "timeout" else "unreadable")' 2>/dev/null) \
     || out=unreadable
   # A trust menu idles the TUI before the agent reports: blocked, not ready;
-  # so does a bare shell.
+  # so does a bare shell, and a screen that shows no agent says nothing yet.
   if [ "$out" = "idle True" ]; then
+    local screen; screen=$(orca_screen "$2")
     if orca_trust_menu "$2"; then out="blocked False"
-    elif screen_is_shell "$(orca_screen "$2")"; then out="shell False"; fi
+    elif screen_shows_agent "$screen"; then :
+    elif screen_ends_in_shell "$screen"; then out="shell False"
+    else out="unknown False"; fi
   fi
   echo "$out"
 }
@@ -106,9 +112,10 @@ orca_screen() {
     | jsonq '"\n".join(d["result"]["terminal"]["tail"]) if d["result"]["terminal"].get("source") == "screen" else ""' 2>/dev/null \
     | grep -v '^[[:space:]]*$'
 }
-# Does SCREEN end in a shell prompt (bash, zsh, oh-my-zsh, fish)?
+# Does SCREEN end in a shell prompt (bash, zsh, oh-my-zsh, fish), a bare
+# % or $ included?
 screen_ends_in_shell() {
-  echo "$1" | tail -1 | grep -qE '([^0-9]%|[$#>❯➜])[[:space:]]*$|^[[:space:]]*➜'
+  echo "$1" | tail -1 | grep -qE '((^|[^0-9])%|[$#>❯➜])[[:space:]]*$|^[[:space:]]*➜'
 }
 # Does SCREEN show an agent's interface: its footer words in the last 3
 # lines? They win over a last line shaped like a prompt (a status line under
@@ -172,10 +179,8 @@ runner_send_message() {
         "idle True") ;;
         # An agent that exited before its first turn leaves an idle shell.
         "shell False") echo "Orca lists no agent in terminal $2, and its screen shows a shell: check it there" >&2; return 1 ;;
-        *) echo "Orca lists no agent in terminal $2, and its screen is not idle: send once  \"\$ORCA_CLI_COMMAND\" agent list --json  shows $1's terminal waiting or done" >&2; return 1 ;;
-      esac
-      orca_screen_shows_agent "$2" \
-        || { echo "Orca lists no agent in terminal $2, and its screen does not show the agent (Orca has no rendered screen of it, or it shows neither the agent nor a shell): check it there" >&2; return 1; } ;;
+        *) echo "Orca lists no agent in terminal $2, and its screen does not show the agent (not idle yet, no rendered screen of it, or neither the agent nor a shell): check it there, or send once  \"\$ORCA_CLI_COMMAND\" agent list --json  shows $1's terminal waiting or done" >&2; return 1 ;;
+      esac ;;
     *) echo "Orca lists $1's terminal $2 as $s: not ready for input" >&2; return 1 ;;
   esac
   out=$(orca terminal send --terminal "$2" --text "$3" --enter --json) || {

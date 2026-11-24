@@ -296,6 +296,20 @@ if section executor; then
     rm -f "$S"/term-*; reset_stub; echo "${st%%:*}" > "$S/term-1"
     assert_eq "orca: one reading for an unlisted agent (${st%%:*})" "$(bash -c 'set -o pipefail; . "$KIT/common.sh"; need_runner; orca terminal create --json >/dev/null; runner_agent_state acme-lane-a term-1' 2>&1)" "${st#*:}"
   done
+  # Idle and unlisted, it is ready only on positive evidence, the agent's
+  # footer words: a screen Orca cannot render, or one showing neither the
+  # agent nor a shell, is not known yet; a bare % or $ prompt is a shell.
+  ostate() { rm -f "$S"/term-*; reset_stub; echo unlisted-idle > "$S/term-1"; [ -z "$1" ] || printf '%s\n' "$1" > "$S/term-1.tail"; shift
+    env "$@" bash -c 'set -o pipefail; . "$KIT/common.sh"; need_runner; orca terminal create --json >/dev/null; runner_agent_state acme-lane-a term-1' 2>&1; }
+  assert_eq "orca: unlisted and idle, no rendered screen: not known yet" "$(ostate "" ORCA_STUB_SCREEN=unavailable)" "unknown False"
+  assert_eq "orca: unlisted and idle, neither agent nor shell on screen: not known yet" "$(ostate "Loading...")" "unknown False"
+  assert_eq "orca: unlisted and idle, a bare % prompt: a shell" "$(ostate "%")" "shell False"
+  assert_eq "orca: unlisted and idle, a bare \$ prompt: a shell" "$(ostate '$')" "shell False"
+  rm -f "$S"/term-*
+  echo unlisted-idle > "$S/term-1"
+  out=$(ostart claude READY_WAIT_SECONDS=2 START_TRIES=2 ORCA_STUB_SCREEN=unavailable)
+  assert_match "orca: unlisted, idle, no rendered screen: the start stays pending" "$out" 'acme-lane-a does not accept input in pane term-1 after 2 checks \(unknown\)'
+  assert_match "orca: ... and fails" "$out" 'exit=1$'
   # The agent's footer words win over a last line shaped like a prompt (a
   # status line under its input box): an agent, not a shell.
   rm -f "$S"/term-*; reset_stub; echo unlisted-idle > "$S/term-1"
@@ -344,6 +358,21 @@ agent"
   out=$(ostart claude RUN_DIR="$TMP/rec-run")
   assert_match "orca: a launch record that cannot be written: the start fails" "$out" 'exit=1$'
   assert_match "orca: ... saying the agent was launched, and how to record it" "$out" "acme-lane-a was launched in term-1, but the kit could not record it, so no brief reaches it yet: .*bind-pane\\.sh $TMP/rec-run acme-lane-a term-1  \\(it starts nothing\\)"
+  assert_eq "orca: ... launched once" "$(grep -c '^orca terminal send --terminal term-1 --text claude' "$ORCA_STUB_LOG")" 1
+  # The record failing beside a runner failure keeps the runner's code: a
+  # launch with no receipt stays 4 (look first), and says it may not have
+  # arrived; a trust prompt is still answered, and the start then fails,
+  # saying how to record the agent.
+  rm -f "$S"/term-*
+  out=$(ostart claude RUN_DIR="$TMP/rec-run" ORCA_STUB_SEND_FAIL=unknown)
+  assert_match "orca: no receipt and no record: still 4" "$out" 'exit=4$'
+  assert_match "orca: ... saying the launch may not have arrived, and how to record it" "$out" "Orca cannot say whether acme-lane-a's launch reached term-1 \\(no receipt\\), and the kit could not record it either: look at that terminal; once you have seen the agent there, record it with  .*bind-pane\\.sh $TMP/rec-run acme-lane-a term-1  \\(it starts nothing\\)"
+  assert_nomatch "orca: ... never that it was launched" "$out" 'was launched'
+  rm -f "$S"/term-*; printf 'unlisted\nunlisted\ntrust\ntrust\nwaiting\n' > "$S/term-1"
+  out=$(ostart claude RUN_DIR="$TMP/rec-run")
+  assert_match "orca: a trust prompt and no record: the prompt answered" "$(cat "$ORCA_STUB_LOG")" '^orca terminal send --terminal term-1 --enter --json$'
+  assert_match "orca: ... then the start fails" "$out" 'exit=1$'
+  assert_match "orca: ... saying how to record it" "$out" "acme-lane-a runs in term-1 now its trust prompt is answered, but the kit could not record it, so no brief reaches it yet: record it with  .*bind-pane\\.sh $TMP/rec-run acme-lane-a term-1  \\(it starts nothing\\)"
   assert_eq "orca: ... launched once" "$(grep -c '^orca terminal send --terminal term-1 --text claude' "$ORCA_STUB_LOG")" 1
   rmdir "$rec"
   # launch_line prints a start's command for a person: its words split back
@@ -1477,6 +1506,27 @@ if section add-reviewer; then
   out=$(ORCA_STUB_SEND_FAIL=unknown review R1 claude "Lane review A next" "$RUN/findings/lane-a-n.json"; echo "exit=$?")
   assert_match "orca R1, a launch with no receipt: look at the terminal first" "$out" "Orca cannot say whether Reviewer bun-vitest-r1-4's launch reached term-8 \\(no receipt\\): look at that terminal before anything is sent again"
   assert_match "orca R1, a launch with no receipt: its line starting" "$(cat "$RUN/panes.txt")" '^reviewer R1: +term-8 +\(agent "bun-vitest-r1-4", .*\) starting$'
+  # That pending review rerun while its terminal is not known yet (a TUI
+  # still loading, a screen Orca cannot render) or blocked on a prompt: kept
+  # as it is. The rerun stops at once, saying what it read; nothing typed,
+  # nothing closed.
+  for st in unlisted blocked unlisted-idle:unavailable; do
+    echo "${st%%:*}" > "$S/term-8"; scr=""; [ "${st#*:}" = "$st" ] || scr=${st#*:}
+    : > "$ORCA_STUB_LOG"; out=$(ORCA_STUB_SCREEN=$scr review R1 claude "Lane review A next" "$RUN/findings/lane-a-n.json"; echo "exit=$?")
+    assert_match "orca R1 pending, $st: stops" "$out" 'exit=1$'
+    assert_match "orca R1 pending, $st: says what it read, and to look" "$out" "Reviewer bun-vitest-r1-4's review is still pending, and Orca reads its terminal term-8 as (unknown|blocked): nothing was typed into it or closed\\. Look at it there"
+    assert_nomatch "orca R1 pending, $st: nothing typed, nothing closed" "$(cat "$ORCA_STUB_LOG")" '^orca terminal (send|close) '
+    assert_match "orca R1 pending, $st: its line still starting" "$(cat "$RUN/panes.txt")" '^reviewer R1: +term-8 +\(agent "bun-vitest-r1-4", .*\) starting$'
+  done
+  # A bare % prompt is a shell, never a ready Reviewer; the agent's footer
+  # words, under a prompt-shaped status line too, resume it.
+  echo unlisted-idle > "$S/term-8"; printf '%%\n' > "$S/term-8.tail"
+  out=$(review R1 claude "Lane review A next" "$RUN/findings/lane-a-n.json"; echo "exit=$?")
+  assert_match "orca R1 pending at a bare % prompt: a shell, not resumed" "$out" "Reviewer bun-vitest-r1-4's terminal term-8 shows a shell, not the Reviewer"
+  printf '> \n  ? for shortcuts\n  acme git:(main) %%\n' > "$S/term-8.tail"
+  out=$(review R1 claude "Lane review A next" "$RUN/findings/lane-a-n.json"; echo "exit=$?")
+  assert_match "orca R1 pending, footer words on screen: resumed" "$out" 'resuming bun-vitest-r1-4 in term-8'
+  rm -f "$S/term-8.tail"
   rm -f "$RUN/panes.txt.bak"
   rm -f "$S"/*
   # A workspace whose checkout path holds a space: the slots, and a new
@@ -1814,10 +1864,17 @@ if section add-reviewer; then
     out=$(cd "$r" && HERDR_STUB_TRUST_STARTS=1 "$KIT/add-reviewer.sh" "$RUNB" R1 claude "Blocked" "$RUNB/findings/a.json" 2>&1; echo "exit=$?")
     assert_match "blocked after its start: add-reviewer fails" "$out" 'exit=1$'
     assert_match "blocked after its start: its agent is in the pane map" "$(cat "$RUNB/panes.txt")" '^reviewer R1: +pane-4 +\(agent "bun-vitest-r1-1", .*review "Blocked"'
-    printf 'blocked\nblocked\ngone\n' > "$S/bun-vitest-r1-1"; : > "$HERDR_STUB_LOG"   # read for resuming, for ending, then gone
+    # Still blocked, its review pending: kept as it is, the rerun stops at
+    # once, saying what it read (nothing says that review should end).
+    echo blocked > "$S/bun-vitest-r1-1"; : > "$HERDR_STUB_LOG"
+    out=$(cd "$r" && EXIT_WAIT_SECONDS=3 "$KIT/add-reviewer.sh" "$RUNB" R1 claude "Blocked again" "$RUNB/findings/a.json" 2>&1; echo "exit=$?"); log=$(cat "$HERDR_STUB_LOG")
+    assert_match "rerun, still blocked: stops"          "$out" 'exit=1$'
+    assert_match "rerun, still blocked: says what it read, and to look" "$out" "Reviewer bun-vitest-r1-1's review is still pending, and herdr reads its terminal pane-4 as blocked: nothing was typed into it or closed\\. Look at it there"
+    assert_nomatch "rerun, still blocked: nothing sent, nothing started" "$log" '^herdr (pane send-text|pane send-keys|agent start)'
+    # Once the operator has ended it there, the rerun starts the review again.
+    echo gone > "$S/bun-vitest-r1-1"; : > "$HERDR_STUB_LOG"
     out=$(cd "$r" && EXIT_WAIT_SECONDS=3 "$KIT/add-reviewer.sh" "$RUNB" R1 claude "Blocked again" "$RUNB/findings/a.json" 2>&1; echo "exit=$?"); log=$(cat "$HERDR_STUB_LOG")
     assert_match "rerun: finishes"                      "$out" 'exit=0$'
-    assert_match "rerun: the agent left in the slot is sent /exit" "$log" '^herdr pane send-text pane-4 /exit$'
     assert_match "rerun: the review starts again under the same name" "$log" '^herdr agent start bun-vitest-r1-1 '
     assert_nomatch "rerun: no second agent"              "$log" '^herdr agent start bun-vitest-r1-2 '
     assert_eq "rerun: the same task, new title"         "$(reviews "$RUNB")" "R1-1@R1:Blocked again"
@@ -4407,7 +4464,7 @@ if section send-brief; then
     out=$(ORCA_STUB_SEND_FAIL=refused send "$RUN" bun-vitest-lane-a "$RUN/brief-A.md")
     assert_match "send-brief (orca), refused: nothing was sent, send again" "$out" 'nothing was sent, send again'
 
-    for st in unlisted-shell:"Orca lists no agent in terminal $apane, and its screen shows a shell" done-shell:"lists bun-vitest-lane-a as done, but terminal $apane's screen does not show the agent" unlisted:"Orca lists no agent in terminal $apane, and its screen is not idle" blocked:"terminal $apane as blocked: not ready for input"; do
+    for st in unlisted-shell:"Orca lists no agent in terminal $apane, and its screen shows a shell" done-shell:"lists bun-vitest-lane-a as done, but terminal $apane's screen does not show the agent" unlisted:"Orca lists no agent in terminal $apane, and its screen does not show the agent \\(not idle yet" blocked:"terminal $apane as blocked: not ready for input"; do
       echo "${st%%:*}" > "$S/$apane"
       out=$(send "$RUN" bun-vitest-lane-a "$RUN/brief-A.md")
       assert_match "send-brief (orca), agent ${st%%:*}: held, saying why" "$out" "send-brief: Orca did not take the brief for bun-vitest-lane-a in $apane; nothing was sent, send again \\(.*${st#*:}"
