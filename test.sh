@@ -4439,6 +4439,22 @@ if section send-brief; then
   printf 'Fix the caf\xe9\n' > "$RUN/brief-latin1.md"
   out=$(send "$RUN" bun-vitest-lane-a "$RUN/brief-latin1.md")
   assert_match "send-brief, a brief not in UTF-8: refused, saying so" "$out" "is not a regular UTF-8 text file"
+  # Only a file directly in the run dir is a brief, opened by its name there:
+  # a nested path, or one through a directory link, is refused.
+  mkdir -p "$RUN/sub" "$TMP/outside-dir"; cp "$RUN/brief-A.md" "$RUN/sub/brief.md"; cp "$RUN/brief-A.md" "$TMP/outside-dir/brief.md"
+  ln -sfn "$TMP/outside-dir" "$RUN/subl"
+  for b in "$RUN/sub/brief.md" "$RUN/subl/brief.md" "$TMP/outside-dir/brief.md"; do
+    out=$(send "$RUN" bun-vitest-lane-a "$b")
+    assert_match "send-brief, a brief not directly in the run dir ($b): refused" "$out" "send-brief: a brief must be a file directly in $RUN: nothing sent"
+    assert_eq "send-brief, a brief not directly in the run dir ($b): nothing sent" "$(sent)" ""
+  done
+  out=$(send "$RUN" bun-vitest-lane-a brief-A.md)
+  assert_match "send-brief, a brief named by its file name: sent from the run dir" "$out" 'exit=0$'
+  # A NUL byte cannot travel in a prompt: refused, not dropped.
+  printf 'Do task 1.\0Then report.\n' > "$RUN/brief-nul.md"
+  out=$(send "$RUN" bun-vitest-lane-a "$RUN/brief-nul.md")
+  assert_match "send-brief, a brief with a NUL byte: refused, saying so" "$out" "send-brief: $RUN/brief-nul.md holds a NUL byte, which a prompt cannot carry: nothing sent"
+  assert_eq "send-brief, a brief with a NUL byte: nothing sent" "$(sent)" ""
   printf 'Fix it \xe2\x9c\x93\n' > "$RUN/brief-utf8.md"
   out=$(LC_ALL=C send "$RUN" bun-vitest-lane-a "$RUN/brief-utf8.md")
   assert_match "send-brief, a UTF-8 brief under a C locale: sent" "$out" 'exit=0$'

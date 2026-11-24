@@ -261,7 +261,10 @@ Orca terminal has `ORCA_CLI_COMMAND`, the CLI the kit runs too). The briefs
 tell lanes to read the dev pane with it.
 
 The orchestrator sends each brief and fix prompt with
-`send-brief.sh <run-dir> <agent> <file>`. It finds the agent's pane on its
+`send-brief.sh <run-dir> <agent> <file>`. The file must sit directly in the
+run dir (a nested path, or one through a link, is refused); its text goes as
+it is, but for trailing newlines, which are trimmed, and a file holding a NUL
+byte is refused. It finds the agent's pane on its
 one lane or Reviewer line and, on Orca, checks it against the kit's own
 launch record, kept under `$XDG_STATE_HOME/tower/launched/` (named by the run
 dir's path, like the contract pin), outside everything a sandboxed lane may
