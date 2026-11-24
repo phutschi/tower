@@ -94,7 +94,7 @@ OTHER LANES: {{e.g. "Lane B (agent <name>, branch <branch>) owns tasks 5, 7-9; s
 
 MERGE POINTS: {{lane A: "Before task N run  git merge <lane-b-branch> ; if lane B has not finished task M (tower state --json), do your other tasks that do not need it first; when only task N is left,  tower note --lane A 'waiting for task M'  and stop: the orchestrator prompts you once M is done. Never poll. Resolve conflicts keeping both sides, run the check gate, commit the merge, continue."  lane B: "Task M needs X from lane A's task K: before task M run  git merge <integration-branch>  and confirm <file> exists; if not, do your other tasks first, then  tower note --lane B 'waiting for task K'  and stop: the orchestrator prompts you once K is done. Never poll, and never write a local copy."}}
 
-{{only when the run has a dev pane: "PANES you may read ({{the pane map's read a pane: line}}): dev {{id}} — it runs in lane A's checkout on the integration branch, so what it shows is the merged state, not necessarily yours."}}
+{{only when the run has a dev pane: "PANES you may read: the dev pane, with  {{KIT}}/read-pane.sh {{RUN_DIR}} --dev [<lines>]  (at most 120 lines; it finds the pane itself) — it runs in lane A's checkout on the integration branch, so what it shows is the merged state, not necessarily yours."}}
 
 Do not stop between tasks to ask whether to continue. If you cannot proceed: tower block <id> "<exactly what you need>", then stop and wait.
 

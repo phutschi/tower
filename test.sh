@@ -636,6 +636,14 @@ if section bootstrap; then
   assert_match "orca dev: its own tab, in lane A's checkout, running the dev server in its dir" "$log" "^orca terminal create --worktree id:repo-0::$r --title dev --command cd $r/web && make dev --json$"
   assert_match "pane map (orca dev): the dev line" "$map" '^dev: +term-3 +\(make dev in web\)$'
   assert_match "pane map (orca dev): the dev tab" "$map" '^dev tab: +tab-3$'
+  # A lane reads the dev pane with read-pane.sh --dev, which finds it in the
+  # kit's launch record, not in the lane-writable map.
+  printf 'starting\nready on :3000\n' > "$ORCA_STUB_STATES_DIR/term-3.tail"; sed -i.bak '/^dev:/s/term-3/term-1/' "$RUN/panes.txt"
+  out=$( (cd "$r" && "$KIT/read-pane.sh" "$RUN" --dev 1 2>&1; echo "exit=$?") )
+  assert_match "read-pane --dev (orca): the dev pane's last lines, from the kit's record" "$out" '^ready on :3000$'
+  assert_nomatch "read-pane --dev (orca): ... as many as asked" "$out" '^starting$'
+  assert_match "read-pane --dev (orca): ... exit 0" "$out" 'exit=0$'
+  rm -f "$ORCA_STUB_STATES_DIR/term-3.tail"
   else
     boot() { (cd "$1" && shift && "$KIT/bootstrap.sh" "$@" 2>&1); }
     r=$(fixture_repo bun-vitest); RUN="$TMP/run-empty"; reset_stub
@@ -786,6 +794,11 @@ if section bootstrap; then
     assert_match "dev: pane map has dev"                  "$(cat "$RUN/panes.txt")" '^dev: +pane-2 '
     assert_match "dev: console is pane-1"                 "$(cat "$RUN/panes.txt")" '^console: +pane-1 '
     assert_match "dev: shell is pane-3"                   "$(cat "$RUN/panes.txt")" '^shell: +pane-3 '
+    printf 'starting\nready on :3000\n' > "$HERDR_STUB_STATES_DIR/pane-2.tail"; sed -i.bak '/^dev:/s/pane-2/pane-1/' "$RUN/panes.txt"
+    : > "$HERDR_STUB_LOG"; out=$( (cd "$r" && "$KIT/read-pane.sh" "$RUN" --dev 1 2>&1; echo "exit=$?") )
+    assert_match "read-pane --dev (herdr): the dev pane's last line, from the kit's record" "$out" '^ready on :3000$'
+    assert_match "read-pane --dev (herdr): ... read by its pane" "$(cat "$HERDR_STUB_LOG")" '^herdr pane read pane-2 --source recent-unwrapped --lines 1$'
+    rm -f "$HERDR_STUB_STATES_DIR/pane-2.tail"
     assert_match "dev: console runs tower"                "$log" '^herdr pane run pane-1 tower --stale 45$'
     assert_match "dev: lane A in the lanes tab"           "$(cat "$RUN/panes.txt")" '^lane A: +pane-4 '
 
@@ -4419,6 +4432,15 @@ if section send-brief; then
   assert_match "read-pane: ... exit 0" "$out" 'exit=0$'
   assert_nomatch "read-pane: ... as many as asked" "$out" '^line one$'
   assert_eq "read-pane: the map's read line is not run" "$([ -e "$TMP/read-pane-ran" ] && echo ran || echo not)" not
+  # A documented maximum of 120 lines, on both runners.
+  out=$( (cd "$r" && "$KIT/read-pane.sh" "$RUN" bun-vitest-lane-a 120 2>&1; echo "exit=$?") )
+  assert_match "read-pane: 120 lines: read" "$out" 'exit=0$'
+  out=$( (cd "$r" && "$KIT/read-pane.sh" "$RUN" bun-vitest-lane-a 121 2>&1; echo "exit=$?") )
+  assert_match "read-pane: more than 120 lines: refused, saying the maximum" "$out" 'read-pane: at most 120 lines \(asked for 121\)'
+  assert_match "read-pane: more than 120 lines: exit 1" "$out" 'exit=1$'
+  # A run with no dev pane: --dev says so.
+  out=$( (cd "$r" && "$KIT/read-pane.sh" "$RUN" --dev 2>&1; echo "exit=$?") )
+  assert_match "read-pane --dev, a run with no dev pane: says so" "$out" "read-pane: the kit has no dev pane on record for $RUN"
   out=$( (cd "$r" && "$KIT/read-pane.sh" "$RUN" bun-vitest-lane-z 2>&1; echo "exit=$?") )
   assert_match "read-pane, an agent no line names: refused" "$out" "read-pane: no lane or Reviewer line in $RUN/panes.txt names agent bun-vitest-lane-z"
   assert_match "read-pane, an agent no line names: exit 1" "$out" 'exit=1$'

@@ -163,7 +163,7 @@ test("orchestrate checks for herdr or Orca first, and points to /tower:run", () 
   expect(first).toContain("/tower:run");
 });
 
-test("orchestrate sends briefs with send-brief.sh and reads panes with the pane map's line", () => {
+test("orchestrate sends briefs with send-brief.sh and reads panes with read-pane.sh", () => {
   for (const file of [
     "skills/orchestrate/SKILL.md",
     "skills/orchestrate/brief-template.md",
@@ -175,6 +175,9 @@ test("orchestrate sends briefs with send-brief.sh and reads panes with the pane 
     expect(text).not.toContain("message a pane:");
   }
   expect(read("skills/orchestrate/SKILL.md")).toContain("read-pane.sh");
+  const brief = read("skills/orchestrate/brief-template.md");
+  expect(brief).toContain("read-pane.sh {{RUN_DIR}} --dev");
+  expect(brief).not.toContain("read a pane:");
 });
 
 test("orchestrate describes no run without tower", () => {

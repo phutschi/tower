@@ -37,6 +37,7 @@ runner_name() { echo herdr; }
 # How a human sees that NAME accepts input, for a message.
 runner_ready_hint() { echo "herdr agent get $1  shows interactive_ready true"; }
 runner_agent_tail() { herdr agent read "$1" --source recent-unwrapped --lines "$3"; }
+runner_pane_tail()  { herdr pane read "$1" --source recent-unwrapped --lines "$2"; }
 runner_send_text()  { herdr pane send-text "$1" "$2" >/dev/null; }
 runner_names_agents() { :; }   # herdr prompts an agent by its name, whatever its pane
 runner_pane_at_shell() { :; }   # herdr's agent start refuses a pane that is not a ready shell (agent_pane_busy)

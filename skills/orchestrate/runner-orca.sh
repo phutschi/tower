@@ -123,7 +123,8 @@ screen_is_shell() { ! screen_shows_agent "$1" && screen_ends_in_shell "$1"; }
 orca_screen_shows_agent() { screen_shows_agent "$(orca_screen "$1")"; }   # the same, for terminal PANE's screen
 runner_name() { echo Orca; }
 runner_ready_hint() { echo "\"\$ORCA_CLI_COMMAND\" agent list --json  shows it waiting or done"; }
-runner_agent_tail() { orca terminal read --terminal "$2" --json | jsonq '"\n".join(d["result"]["terminal"]["tail"])' | tail -n "$3"; }
+runner_agent_tail() { runner_pane_tail "$2" "$3"; }
+runner_pane_tail()  { orca terminal read --terminal "$1" --json | jsonq '"\n".join(d["result"]["terminal"]["tail"])' | tail -n "$2"; }
 runner_send_text()  { orca terminal send --terminal "$1" --text "$2" --json >/dev/null; }
 # Did a send's answer OUT (exit 0) show its prompt arrive? Orca's receipt says
 # so, unless it names a host or provider that cannot tell (old-host,

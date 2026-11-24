@@ -265,6 +265,10 @@ read -r LANE_A_PANE TAB_REST <<< "$out"
   echo "toolchain:      $PM"
   echo "read a pane:    $(runner_read_cmd)"
 } > "$RUN_DIR/panes.txt"
+# The dev pane goes in the kit's launch record too, for read-pane.sh --dev:
+# lanes read it there, not from the map they can write.
+[ -z "$DEV_PANE" ] || launch_append "$RUN_DIR" @dev "$DEV_PANE" \
+  || echo "bootstrap: lanes cannot read the dev pane with read-pane.sh --dev (no record of it); read it yourself" >&2
 
 # bootstrap has no rerun: an agent left running is briefed once it accepts
 # input; with none there, the run starts over; when the runner cannot answer, a

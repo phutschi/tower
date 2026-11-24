@@ -251,14 +251,17 @@ lines and the same `switches:` line. On herdr it holds pane and tab ids. On
 Orca, the `orchestrator:` line holds the orchestrator's workspace
 (`<repo-id>::<path>`), each pane line an Orca terminal handle, and the
 `lanes tab:`, `tower tab:` and `dev tab:` lines the tabs the run opened; lanes
-B to D also record their worktree. Its `read a pane:` line is how a lane or
-you read a pane back without naming a runner (the orchestrator itself reads
-an agent's pane with `read-pane.sh <run-dir> <agent> [<lines>]`, which finds
-the pane as `send-brief.sh` does and runs nothing from the map):
+B to D also record their worktree. Its `read a pane:` line is how you read a
+pane back by hand without naming a runner:
 `herdr pane read <id> --source recent-unwrapped --lines 60` on herdr,
 `"$ORCA_CLI_COMMAND" terminal read --terminal <id> --json` on Orca (every
-Orca terminal has `ORCA_CLI_COMMAND`, the CLI the kit runs too). The briefs
-tell lanes to read the dev pane with it.
+Orca terminal has `ORCA_CLI_COMMAND`, the CLI the kit runs too). No agent
+runs it: a lane can write the map. The orchestrator reads an agent's pane
+with `read-pane.sh <run-dir> <agent> [<lines>]`, which finds the pane as
+`send-brief.sh` does, and lanes read the dev pane with
+`read-pane.sh <run-dir> --dev [<lines>]`, which finds it in the kit's launch
+record, where bootstrap put it. Either reads at most 120 lines, on both
+runners; more are refused.
 
 The orchestrator sends each brief and fix prompt with
 `send-brief.sh <run-dir> <agent> <file>`. The file must sit directly in the

@@ -37,6 +37,7 @@ need_runner() {
 #                                  gone: herdr, the agent is not found (Orca never says it:
 #                                  a stale handle may name a terminal still open)
 #   runner_agent_tail NAME PANE LINES
+#   runner_pane_tail PANE LINES    the last LINES of any pane (the dev pane)
 #   runner_name                    the runner's name, for a message
 #   runner_ready_hint NAME         how a human sees NAME accept input
 #   runner_send_text PANE TEXT
