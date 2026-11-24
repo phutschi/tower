@@ -316,6 +316,13 @@ if section executor; then
   printf '> \n  ? for shortcuts\n  acme git:(main)  Opus 5.5 ❯\n' > "$S/term-1.tail"
   assert_eq "orca: footer words beat a prompt-shaped last line: ready" "$(bash -c '. "$KIT/common.sh"; need_runner; orca terminal create --json >/dev/null; runner_agent_state acme-lane-a term-1; orca_screen_shows_agent term-1 && echo agent' 2>&1)" "idle True
 agent"
+  # Unlisted at the send's first read, then listed done at a bare shell (an
+  # agent that exited): the screen must show the agent, so nothing is sent.
+  rm -f "$S"/term-*; reset_stub; printf 'unlisted\ndone-shell\n' > "$S/term-1"
+  out=$(bash -c '. "$KIT/common.sh"; need_runner; orca terminal create --json >/dev/null; runner_send_message acme-lane-a term-1 "echo hi"; echo "rc=$?"' 2>&1)
+  assert_match "orca: unlisted, then done at a bare shell: held" "$out" 'rc=1$'
+  assert_match "orca: ... saying its screen does not show the agent" "$out" "terminal term-1's screen does not show the agent"
+  assert_nomatch "orca: ... nothing sent" "$(cat "$ORCA_STUB_LOG")" '^orca terminal send '
   rm -f "$S"/term-*
   # A bare shell is no ready agent: a launch that left one (refused, or an
   # agent that exited) fails the start, saying so.
@@ -1517,6 +1524,17 @@ if section add-reviewer; then
     assert_match "orca R1 pending, $st: says what it read, and to look" "$out" "Reviewer bun-vitest-r1-4's review is still pending, and Orca reads its terminal term-8 as (unknown|blocked): nothing was typed into it or closed\\. Look at it there"
     assert_nomatch "orca R1 pending, $st: nothing typed, nothing closed" "$(cat "$ORCA_STUB_LOG")" '^orca terminal (send|close) '
     assert_match "orca R1 pending, $st: its line still starting" "$(cat "$RUN/panes.txt")" '^reviewer R1: +term-8 +\(agent "bun-vitest-r1-4", .*\) starting$'
+  done
+  # Unknown or blocked at the first read, idle at the next (a Reviewer still
+  # starting, a prompt being answered): it stops on the first read, kept.
+  # (An unlisted read takes two of the fake's lines: the list, then the wait.)
+  for st in unlisted blocked; do
+    if [ "$st" = unlisted ]; then printf 'unlisted\nunlisted\nwaiting\n' > "$S/term-8"; else printf 'blocked\nwaiting\n' > "$S/term-8"; fi
+    : > "$ORCA_STUB_LOG"; out=$(review R1 claude "Lane review A next" "$RUN/findings/lane-a-n.json"; echo "exit=$?")
+    assert_match "orca R1 pending, $st then idle: stops" "$out" 'exit=1$'
+    assert_match "orca R1 pending, $st then idle: says what it read first" "$out" "Reviewer bun-vitest-r1-4's review is still pending, and Orca reads its terminal term-8 as (unknown|blocked): nothing was typed into it or closed"
+    assert_nomatch "orca R1 pending, $st then idle: nothing typed, nothing closed" "$(cat "$ORCA_STUB_LOG")" '^orca terminal (send|close) '
+    assert_match "orca R1 pending, $st then idle: its line still starting" "$(cat "$RUN/panes.txt")" '^reviewer R1: +term-8 +\(agent "bun-vitest-r1-4", .*\) starting$'
   done
   # A bare % prompt is a shell, never a ready Reviewer; the agent's footer
   # words, under a prompt-shaped status line too, resume it.

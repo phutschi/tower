@@ -176,7 +176,11 @@ runner_send_message() {
       || { echo "Orca lists $1 as done, but terminal $2's screen does not show the agent (it may have exited to its shell): check it there" >&2; return 1; } ;;
     unlisted)
       case "$(runner_agent_state "$1" "$2")" in
-        "idle True") ;;
+        # Its second read of the list may say done (an agent that exited
+        # stays listed done at its shell), which reads idle without the
+        # screen: the screen must show the agent here too.
+        "idle True") orca_screen_shows_agent "$2" \
+          || { echo "Orca lists $1 now, but terminal $2's screen does not show the agent (it may have exited to its shell): check it there" >&2; return 1; } ;;
         # An agent that exited before its first turn leaves an idle shell.
         "shell False") echo "Orca lists no agent in terminal $2, and its screen shows a shell: check it there" >&2; return 1 ;;
         *) echo "Orca lists no agent in terminal $2, and its screen does not show the agent (not idle yet, no rendered screen of it, or neither the agent nor a shell): check it there, or send once  \"\$ORCA_CLI_COMMAND\" agent list --json  shows $1's terminal waiting or done" >&2; return 1 ;;

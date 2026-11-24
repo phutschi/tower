@@ -281,15 +281,24 @@ if [ -n "$PREV" ]; then
   # and is waited for as its start waits (executor.sh until_ready, whose own
   # next step is for a fresh start, so not printed here). After a wait that
   # ran out, one more read decides: still starting fails, saying a rerun
-  # resumes it; gone, unreadable or any other state goes on below.
+  # resumes it; gone, unreadable or any other state goes on below. Unknown
+  # or blocked at any read stops at once (pending_stop): a later idle read
+  # does not say that review should end.
+  # The pending Reviewer is kept as it is, for the next rerun: nothing typed,
+  # nothing closed.
+  pending_stop() { die "Reviewer $PREV's review is still pending, and $(runner_name) reads its terminal $PANE as $1: nothing was typed into it or closed. Look at it there: answer a prompt it shows, or wait until it accepts input, then rerun  $KIT/add-reviewer.sh$RERUN_ARGS  to resume it"; }
   if [ "$RESUME" = 1 ] && [ "$ENDED" = 0 ] && [ "$UNSENT" = 0 ] && [[ "$PREV_LINE" == *", kind $R_KIND, model $R_MODEL, review "* ]]; then
-    case "$(ready_of "$PREV" "$PANE")" in
+    ready=$(ready_of "$PREV" "$PANE")
+    case "$ready" in
+      unknown|blocked) pending_stop "$ready" ;;
       ready) KEEP=1 ;;
       *", not ready for input")
         rc=0; until_ready "$PREV" "$PANE" 2>/dev/null || rc=$?
         [ "$rc" != 0 ] || KEEP=1
         if [ "$rc" = 2 ]; then
-          case "$(ready_of "$PREV" "$PANE")" in
+          ready=$(ready_of "$PREV" "$PANE")
+          case "$ready" in
+            unknown|blocked) pending_stop "$ready" ;;
             ready) KEEP=1 ;;
             *", not ready for input")
               die "Reviewer $PREV is still starting in $PANE: rerun  $KIT/add-reviewer.sh$RERUN_ARGS  to resume it once it accepts input" ;;
@@ -314,8 +323,7 @@ if [ -n "$PREV" ]; then
       # loading, or a screen the runner cannot read; blocked on a prompt) is
       # kept as it is: nothing says that review should end. An idle one of
       # another kind or model is replaced, as asked.
-      [ "$RESUME" = 0 ] || [ "$prev_state" = idle ] \
-        || die "Reviewer $PREV's review is still pending, and $(runner_name) reads its terminal $PANE as $prev_state: nothing was typed into it or closed. Look at it there: answer a prompt it shows, or wait until it accepts input, then rerun  $KIT/add-reviewer.sh$RERUN_ARGS  to resume it"
+      [ "$RESUME" = 0 ] || [ "$prev_state" = idle ] || pending_stop "$prev_state"
       runner_send_text "$PANE" "/exit"
       [ "${DRY_RUN:-0}" = 1 ] || sleep 1
       runner_send_keys "$PANE" Enter
