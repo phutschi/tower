@@ -238,8 +238,9 @@ Watching reads Orca's agent status: working and blocked as on herdr; waiting
 and done read as idle. A terminal Orca does not list yet is a ready agent
 only once its screen is idle and shows the agent's footer words. One that
 shows a bare shell (a launch refused, or an agent that exited before its
-first turn) is no ready agent: its start fails, and a Reviewer there is not
-resumed. Any other screen (one Orca cannot render, one showing neither)
+first turn) is no ready agent: its start fails, a Reviewer there is not
+resumed, and watch-lanes reports it as gone, as herdr reports an agent that
+exited. Any other screen (one Orca cannot render, one showing neither)
 reads as unknown: the start waits and then fails, saying it is left running,
 and a pending Reviewer there is kept as it is, its rerun stopping at once
 with what it read; so is one blocked on a prompt. An Orca that does not answer reads as unreadable, and

@@ -2700,6 +2700,12 @@ if section watch; then
   assert_match "orca: a stale handle: unreadable, not gone" "$out" '^attention: a unreadable'
   echo unreadable > "$S/term-1"; out=$(UNREADABLE_POLLS=2 watch a)
   assert_match "orca: Orca not answering: unreadable" "$out" '^attention: a unreadable'
+  # An agent that exited before Orca listed it leaves a bare shell: gone, the
+  # attention kind herdr gives an agent that exited.
+  rm -f "$S/term-1.tail"; echo unlisted-shell > "$S/term-1"; out=$(watch a)
+  assert_match "orca: a bare shell where the agent was: gone" "$out" '^attention: a gone$'
+  assert_match "orca: ... gone in the state table too" "$out" '^a +gone$'
+  assert_nomatch "orca: ... never a kind of its own" "$out" 'shell'
   rm -f "$S"/* "$RUN/panes.txt"
   else
     rm -f "$S"/*

@@ -20,7 +20,9 @@
 #   attention: <agent> blocked | idle-after-final-report | idle-unexplained |
 #              done | gone | unreadable | <any other status>
 # then the state table with the pane tails, then the tower summary. gone is
-# herdr answering agent_not_found. Any other failing herdr call (a server
+# herdr answering agent_not_found, or Orca showing a bare shell where the
+# agent was (one that exited before Orca listed it): the same kind on both
+# runners. Any other failing herdr call (a server
 # restarting, a timeout) or an answer without a status says nothing about the
 # agent: it reads unreadable and counts as working, so it never settles as
 # gone (common.sh state_of). Only UNREADABLE_POLLS consecutive unreadable
@@ -98,6 +100,9 @@ for name in "${NAMES[@]}"; do
   PANES+=("$p")
 done
 pane_of() { local i; for i in "${!NAMES[@]}"; do [ "${NAMES[$i]}" != "$1" ] || { echo "${PANES[$i]}"; return; }; done; }
+# The agent's state (common.sh state_of), Orca's shell read as gone: an agent
+# that exited, the attention kind herdr gives it.
+lane_state() { local s; s=$(state_of "$1" "$(pane_of "$1")"); [ "$s" != shell ] || s=gone; echo "$s"; }
 tail_of()  { runner_agent_tail "$1" "$(pane_of "$1")" 40 2>/dev/null | grep -v '^[[:space:]]*$' | tail -12; }
 # The end line of round $1: round 1 is the brief's report, a later round a fix
 # prompt's, with the round tag r<n> inside the brackets.
@@ -136,7 +141,7 @@ poll() {
   while [ -z "$ROUND" ] || [ $(( $(date +%s) - started )) -lt "$ROUND" ]; do
     settled=0; working=0; i=0
     for name in "${NAMES[@]}"; do
-      state=$(state_of "$name" "$(pane_of "$name")")
+      state=$(lane_state "$name")
       [ "$state" = unreadable ] || UNREADABLE[$i]=0
       case "$state" in
         working|unknown) IDLE_SEEN[$i]=0; working=1 ;;
@@ -165,7 +170,7 @@ resample() {
   local i=0 name
   STATES=()
   for name in "${NAMES[@]}"; do
-    STATES[$i]=$(state_of "$name" "$(pane_of "$name")")
+    STATES[$i]=$(lane_state "$name")
     if [ "${STATES[$i]}" = unreadable ]; then UNREADABLE[$i]=$(( ${UNREADABLE[$i]:-0} + 1 )); else UNREADABLE[$i]=0; fi
     i=$((i+1))
   done
