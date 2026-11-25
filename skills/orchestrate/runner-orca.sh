@@ -52,16 +52,22 @@ runner_agent_state() {
   local out
   out=$(orca_listed "$2")
   [ "$out" = unlisted ] || { echo "$out"; return; }
+  orca_unlisted_state "$2"
+}
+# runner_agent_state for terminal PANE, which Orca's list just gave no agent:
+# by its TUI and screen alone.
+orca_unlisted_state() {
+  local out
   # Satisfied: idle; unsatisfied (or Orca's timeout code): not yet; any other
   # failure says nothing about the agent.
-  out=$(orca terminal wait --terminal "$2" --for tui-idle --timeout-ms 1000 --json 2>/dev/null) || true
+  out=$(orca terminal wait --terminal "$1" --for tui-idle --timeout-ms 1000 --json 2>/dev/null) || true
   out=$(echo "$out" | jsonq '("idle True" if d["result"]["wait"]["satisfied"] else "unknown False") if d.get("ok") else ("unknown False" if d["error"]["code"] == "timeout" else "unreadable")' 2>/dev/null) \
     || out=unreadable
   # A trust menu idles the TUI before the agent reports: blocked, not ready;
   # so does a bare shell, and a screen that shows no agent says nothing yet.
   if [ "$out" = "idle True" ]; then
-    local screen; screen=$(orca_screen "$2")
-    if orca_trust_menu "$2"; then out="blocked False"
+    local screen; screen=$(orca_screen "$1")
+    if orca_trust_menu "$1"; then out="blocked False"
     elif screen_shows_agent "$screen"; then :
     elif screen_ends_in_shell "$screen"; then out="shell False"
     else out="unknown False"; fi
@@ -175,11 +181,14 @@ runner_send_message() {
     done) orca_screen_shows_agent "$2" \
       || { echo "Orca lists $1 as done, but terminal $2's screen does not show the agent (it may have exited to its shell): check it there" >&2; return 1; } ;;
     unlisted)
-      case "$(runner_agent_state "$1" "$2")" in
-        # Its second read of the list may say done (an agent that exited
-        # stays listed done at its shell), which reads idle without the
-        # screen: the screen must show the agent here too.
-        "idle True") orca_screen_shows_agent "$2" \
+      # A second read of the list: waiting now, it goes as above; done, only
+      # while the screen shows the agent (an agent that exited stays listed
+      # done at its shell); still unlisted, by its TUI and screen.
+      s=$(orca_raw "$2")
+      [ "$s" != unlisted ] || s=$(orca_unlisted_state "$2")
+      case "$s" in
+        waiting|"idle True") ;;
+        done) orca_screen_shows_agent "$2" \
           || { echo "Orca lists $1 now, but terminal $2's screen does not show the agent (it may have exited to its shell): check it there" >&2; return 1; } ;;
         # An agent that exited before its first turn leaves an idle shell.
         "shell False") echo "Orca lists no agent in terminal $2, and its screen shows a shell: check it there" >&2; return 1 ;;
