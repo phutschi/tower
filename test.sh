@@ -387,6 +387,12 @@ agent"
   assert_match "orca: ... then the start fails" "$out" 'exit=1$'
   assert_match "orca: ... saying how to record it" "$out" "acme-lane-a runs in term-1 now its trust prompt is answered, but the kit could not record it, so no brief reaches it yet: record it with  .*bind-pane\\.sh $TMP/rec-run acme-lane-a term-1  \\(it starts nothing\\)"
   assert_eq "orca: ... launched once" "$(grep -c '^orca terminal send --terminal term-1 --text claude' "$ORCA_STUB_LOG")" 1
+  # A trust prompt left to the operator (still there once answered) and no
+  # record: on Orca no brief reaches the agent until it is recorded.
+  rm -f "$S"/term-*; printf 'unlisted\nunlisted\ntrust\ntrust\ntrust\n' > "$S/term-1"
+  out=$(ostart claude RUN_DIR="$TMP/rec-run")
+  assert_match "orca: trust left to the operator, no record: fails" "$out" 'exit=1$'
+  assert_match "orca: ... saying no brief reaches it, and how to record it" "$out" "the kit could not record acme-lane-a in term-1 either, so no brief reaches it yet: once it runs there, record it with  .*bind-pane\\.sh $TMP/rec-run acme-lane-a term-1  \\(it starts nothing\\)"
   rmdir "$rec"
   # launch_line prints a start's command for a person: its words split back
   # into the same arguments, TOML quotes and all.
@@ -490,7 +496,8 @@ agent"
     mkdir -p "$TMP/rec-run-h"; rech=$(in_kit "launch_record '$TMP/rec-run-h'"); mkdir -p "$rech"; rm -f "$HERDR_STUB_STATES_DIR"/acme-lane-a*
     out=$(start acme-lane-a HERDR_STUB_TRUST_STARTS=1 HERDR_STUB_SEND_KEYS_FAIL=1 RUN_DIR="$TMP/rec-run-h")
     assert_match "trust left to the operator, no record: says to answer it" "$out" "could not answer acme-lane-a's trust prompt in pane pane-9"
-    assert_match "trust left to the operator, no record: ... and how to record the agent" "$out" "the kit could not record acme-lane-a in pane-9 either, so no brief reaches it yet: once it runs there, record it with  .*bind-pane\\.sh $TMP/rec-run-h acme-lane-a pane-9  \\(it starts nothing\\)"
+    assert_match "trust left to the operator, no record: ... and the record it could not write" "$out" "the kit could not record acme-lane-a in pane-9 either; herdr reaches it by name, so a brief still does"
+    assert_nomatch "trust left to the operator, no record: ... no briefing prerequisite on herdr" "$out" 'no brief reaches it|bind-pane'
     assert_match "trust left to the operator, no record: fails" "$out" 'exit=1$'
     rmdir "$rech"
     # Ready means accepting input: herdr's interactive_ready. Until then the

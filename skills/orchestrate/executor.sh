@@ -220,11 +220,16 @@ launch_note() { [ -z "${RUN_DIR:-}" ] || launch_append "$RUN_DIR" "$1" "$2"; }
 # Does the run's launch record have NAME in PANE (no run dir: nothing to have)?
 launch_recorded() { [ -z "${RUN_DIR:-}" ] || [ "$(launched "$RUN_DIR" "$1")" = "$1 $2" ]; }
 # On a trust prompt left to the operator (the start's 6): the record of NAME
-# in PANE that could not be written, said with how to write it, since
-# answering the prompt alone leaves no brief able to reach the agent.
+# in PANE that could not be written. A runner that reaches agents only
+# through their terminal (Orca) needs it for any brief: said with how to
+# write it; one that reaches them by name (herdr, common.sh bound_pane) not.
 unbound_note() {
-  launch_recorded "$1" "$2" \
-    || echo "agent start: the kit could not record $1 in $2 either, so no brief reaches it yet: once it runs there, record it with  $(bind_cmd "$RUN_DIR" "$1" "$2")  (it starts nothing)" >&2
+  launch_recorded "$1" "$2" && return
+  if runner_names_agents; then
+    echo "agent start: the kit could not record $1 in $2 either; $(runner_name) reaches it by name, so a brief still does" >&2
+  else
+    echo "agent start: the kit could not record $1 in $2 either, so no brief reaches it yet: once it runs there, record it with  $(bind_cmd "$RUN_DIR" "$1" "$2")  (it starts nothing)" >&2
+  fi
 }
 
 # S as a TOML basic string, for a codex -c value.
