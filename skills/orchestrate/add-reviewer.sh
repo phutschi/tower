@@ -282,8 +282,8 @@ if [ -n "$PREV" ]; then
   # next step is for a fresh start, so not printed here). After a wait that
   # ran out, one more read decides: still starting fails, saying a rerun
   # resumes it; gone, unreadable or any other state goes on below. Unknown
-  # or blocked at any read stops at once (pending_stop): a later idle read
-  # does not say that review should end.
+  # or blocked at any read, the wait's own included, stops at once
+  # (pending_stop): a later idle read does not say that review should end.
   # The pending Reviewer is kept as it is, for the next rerun: nothing typed,
   # nothing closed.
   pending_stop() { die "Reviewer $PREV's review is still pending, and $(runner_name) reads its terminal $PANE as $1: nothing was typed into it or closed. Look at it there: answer a prompt it shows, or wait until it accepts input, then rerun  $KIT/add-reviewer.sh$RERUN_ARGS  to resume it"; }
@@ -293,7 +293,8 @@ if [ -n "$PREV" ]; then
       unknown|blocked) pending_stop "$ready" ;;
       ready) KEEP=1 ;;
       *", not ready for input")
-        rc=0; until_ready "$PREV" "$PANE" 2>/dev/null || rc=$?
+        rc=0; ready=$(until_ready "$PREV" "$PANE" held 2>/dev/null) || rc=$?
+        [ "$rc" != 3 ] || pending_stop "$ready"
         [ "$rc" != 0 ] || KEEP=1
         if [ "$rc" = 2 ]; then
           ready=$(ready_of "$PREV" "$PANE")

@@ -1959,6 +1959,19 @@ if section add-reviewer; then
     assert_nomatch "starting, never ready on the rerun: no start's next step" "$out" 'agent start:'
     assert_nomatch "starting, never ready on the rerun: not ended, not started" "$log" '^herdr (pane send-text|agent start)'
     assert_match "starting, never ready on the rerun: its line still starting" "$(cat "$RUNB/panes.txt")" '^reviewer R2: .*review "Stuck".* starting$'
+    # Unknown or blocked inside that wait stops it there: a later read, ready
+    # (wait 3) or done then idle (wait 1), neither resumes nor ends it.
+    for st in blocked unknown; do
+      for seq in "3 unready $st idle" "1 unready $st done idle"; do
+        read -r w states <<< "$seq"; printf '%s\n' $states > "$S/bun-vitest-r2-4"; : > "$HERDR_STUB_LOG"
+        out=$(cd "$r" && READY_WAIT_SECONDS=$w "$KIT/add-reviewer.sh" "$RUNB" R2 claude "Stuck" "$RUNB/findings/s.json" 2>&1; echo "exit=$?"); log=$(cat "$HERDR_STUB_LOG")
+        assert_match "starting, then $states: stops" "$out" 'exit=1$'
+        assert_match "starting, then $states: says what it read" "$out" "Reviewer bun-vitest-r2-4's review is still pending, and herdr reads its terminal pane-5 as $st: nothing was typed into it or closed"
+        assert_nomatch "starting, then $states: not resumed" "$out" 'resuming'
+        assert_nomatch "starting, then $states: nothing typed, nothing closed" "$log" '^herdr (pane send-text|pane send-keys|agent start)'
+        assert_match "starting, then $states: its line still starting" "$(cat "$RUNB/panes.txt")" '^reviewer R2: .*review "Stuck".* starting$'
+      done
+    done
     rm -f "$S"/bun-vitest-r2-3* "$S"/bun-vitest-r2-4*
     # A kept agent must be of the kind and model this call picks: another one
     # is ended and started again.

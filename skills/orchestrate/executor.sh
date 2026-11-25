@@ -271,15 +271,19 @@ start_agent_with_trust_retry() {
 }
 
 # 0 once NAME accepts input; 1 when herdr says it is gone (agent_not_found);
-# 2, saying so, when READY_WAIT_SECONDS checks passed without either.
+# 2, saying so, when READY_WAIT_SECONDS checks passed without either. With
+# a third argument, held (a pending Reviewer's wait, add-reviewer.sh): 3 at
+# the first unknown or blocked read, that state on stdout, so no later read
+# overrides it.
 until_ready() {
-  local name="$1" pane="$2" state checks=0
+  local name="$1" pane="$2" held="${3:-}" state checks=0
   [ "${DRY_RUN:-0}" = 1 ] || sleep "${START_SETTLE_SECONDS:-3}"
   while :; do
     state=$(ready_of "$name" "$pane"); checks=$((checks+1))
     case "$state" in
       ready) return 0 ;;
       gone)  return 1 ;;
+      unknown|blocked) [ -z "$held" ] || { echo "$state"; return 3; } ;;
     esac
     [ "$checks" -lt "${READY_WAIT_SECONDS:-30}" ] || break
     [ "${DRY_RUN:-0}" = 1 ] || sleep 1
