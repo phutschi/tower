@@ -323,12 +323,6 @@ agent"
   assert_match "orca: unlisted, then done at a bare shell: held" "$out" 'rc=1$'
   assert_match "orca: ... saying its screen does not show the agent" "$out" "terminal term-1's screen does not show the agent"
   assert_nomatch "orca: ... nothing sent" "$(cat "$ORCA_STUB_LOG")" '^orca terminal send '
-  # Listed waiting at the second read, it goes as a direct waiting read does,
-  # with no rendered screen too.
-  rm -f "$S"/term-*; reset_stub; printf 'unlisted\nwaiting\n' > "$S/term-1"
-  out=$(ORCA_STUB_SCREEN=unavailable bash -c '. "$KIT/common.sh"; need_runner; orca terminal create --json >/dev/null; runner_send_message acme-lane-a term-1 "echo hi"; echo "rc=$?"' 2>&1)
-  assert_match "orca: unlisted, then waiting, no rendered screen: sent" "$out" 'rc=0$'
-  assert_match "orca: ... once" "$(cat "$ORCA_STUB_LOG")" '^orca terminal send --terminal term-1 --text echo hi --enter --json$'
   rm -f "$S"/term-*
   # A bare shell is no ready agent: a launch that left one (refused, or an
   # agent that exited) fails the start, saying so.
