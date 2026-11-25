@@ -4,7 +4,7 @@
 #   bootstrap.sh <run-dir> "<title>" <branch> [plan.md | tasks.tsv]
 #
 # Run it FROM the orchestrator's pane, inside the repo checkout on the
-# integration branch (the feature branch), with HERDR_ENV=1.
+# integration branch (the feature branch), in a herdr pane or in Orca.
 #
 # With a plan or task file (the planned opening) the task list is loaded and
 # every task goes to lane A unless LANES="A=1-4 B=5,6" is set (<lane>=all
@@ -14,7 +14,8 @@
 # before briefing anyone. LANES without a source is an error.
 #
 # tower is the record and the console. When tower does not run, bootstrap
-# refuses before it creates anything and says how to install it.
+# refuses before it creates anything and says how to install it; so it does
+# when lane A's kind's CLI is not installed, naming it (executor.sh need_kind).
 #
 # The layout, two tabs in the orchestrator pane's workspace (the lane grid
 # grows with add-lane.sh):
@@ -92,7 +93,7 @@ set -euo pipefail
 KIT="$(cd "$(dirname "$0")" && pwd)"
 . "$KIT/common.sh"
 . "$KIT/layout.sh"
-in_herdr; need git python3 node
+need_runner; need git python3 node
 [ $# -ge 3 ] || die 'usage: bootstrap.sh <run-dir> "<title>" <branch> [plan.md | tasks.tsv]'
 RUN_DIR="$1"; TITLE="$2"; BRANCH="$3"; SOURCE="${4:-}"
 [ -z "$SOURCE" ] || [ -f "$SOURCE" ] || die "no such plan or task file: $SOURCE"
@@ -156,6 +157,7 @@ need_tower
 
 . "$KIT/detect-stack.sh"  # PM, CHECK_CMD, PANE_*, INSTALL_CMD, and .orchestrate's EXECUTOR_*/reviewer models
 . "$KIT/executor.sh"      # EXECUTOR_KIND, EXECUTOR_MODEL, agent_name, start_agent*
+need_kind "bootstrap: lane A" "$EXECUTOR_KIND"
 [ -n "${SPEC_REVIEWER_MODEL:-}" ] || SPEC_REVIEWER_MODEL=$(kind_default SPEC_REVIEWER_MODEL "$EXECUTOR_KIND")
 [ -n "${QUALITY_REVIEWER_MODEL:-}" ] || QUALITY_REVIEWER_MODEL=$(kind_default QUALITY_REVIEWER_MODEL "$EXECUTOR_KIND")
 STALE="${STALE:-30}"
@@ -193,6 +195,9 @@ export TOWER_RUN="$RUN_DIR"  # the calls below are about this run
 PIN=$(contract_pin "$RUN_DIR"); mkdir -p "$(dirname "$PIN")"
 { echo "# the repo contract bootstrap.sh read for the run $RUN_DIR"; [ ! -f "$CONTRACT_FILE" ] || cat "$CONTRACT_FILE"; } > "$PIN.$$"
 chmod 444 "$PIN.$$"; mv -f "$PIN.$$" "$PIN"
+# A new run starts with no launch record (common.sh launch_record): one left
+# by an earlier run at the same path binds nothing here.
+rm -f "$(launch_record "$RUN_DIR")"
 # <lane>=all: every task on the board, known once the run exists.
 [ -z "$LANE_ALL" ] || tower assign "$LANE_ALL" "$(tower state --json | jsonq '",".join(t["id"] for t in d["tasks"])')"
 tower note "switches: $(switches_line)"
@@ -213,56 +218,65 @@ tower note "roles: $ROLES_LINE"
 LANE_A_SESSION=""; [ -z "$SESSION_ROLE" ] || LANE_A_SESSION="role $SESSION_ROLE, topic $SESSION_TOPIC, "
 
 # --- the layout --------------------------------------------------------------
-split() { herdr pane split "$@" --cwd "$REPO" --no-focus | pane_id; }
-run_in() { herdr pane run "$1" "cd $(printf %q "$REPO/$2") && $3" >/dev/null; }
-WS=$(herdr pane get "$HERDR_PANE_ID" | jsonq 'd["result"]["pane"]["workspace_id"]') \
-  || die "bootstrap: no workspace for the orchestrator pane $HERDR_PANE_ID (herdr pane get)"
-# The orchestrator's tab: the console right of the orchestrator, half the tab
-# (its 60 columns); under it the shell, and dev left of the shell when declared.
-CONSOLE_PANE=$(split --current --direction right --ratio 0.5)
-SHELL_PANE=$(split --pane "$CONSOLE_PANE" --direction down --ratio 0.6)
-DEV_I=$(pane_index dev); DEV_PANE=""
+SELF=$(runner_self) || die "bootstrap: $(runner_name) cannot say where the orchestrator runs"
+WS=$(runner_workspace "$SELF") \
+  || die "bootstrap: no workspace for the orchestrator pane $SELF ($(runner_name) cannot say)"
+# A layout call that fails after others opened panes records them in the pane
+# map and names them to close: bootstrap has no rerun.
+opened_and_die() {  # the panes opened before the failure
+  local opened; opened=$(echo "$*" | xargs)
+  { echo "run dir:        $RUN_DIR"; echo "orchestrator:   $SELF"
+    [ -z "$opened" ] || printf '%-16s%s   (before a failure: close it)\n' "opened:" "$opened"; } > "$RUN_DIR/panes.txt"
+  die "bootstrap: $(runner_name) could not open the run's panes${opened:+; it opened $opened before it failed: close it}, then rerun bootstrap.sh with a new run dir"
+}
+# The console, the shell, and dev when declared (runner_open_run_panes).
+DEV_I=$(pane_index dev); DEV_PANE=""; rc=0
 if [ -n "$DEV_I" ]; then
-  DEV_PANE=$SHELL_PANE
-  SHELL_PANE=$(split --pane "$DEV_PANE" --direction right --ratio 0.5)
-  run_in "$DEV_PANE" "${PANE_DIRS[$DEV_I]}" "${PANE_CMDS[$DEV_I]}"
+  out=$(runner_open_run_panes "$WS" "$REPO" "tower --stale $STALE" "${PANE_DIRS[$DEV_I]}" "${PANE_CMDS[$DEV_I]}") || rc=$?
+else
+  out=$(runner_open_run_panes "$WS" "$REPO" "tower --stale $STALE") || rc=$?
 fi
-herdr pane run "$CONSOLE_PANE" "tower --stale $STALE" >/dev/null
+[ "$rc" = 0 ] || opened_and_die "$out"
+read -r CONSOLE_PANE SHELL_PANE DEV_PANE <<< "${out%%$'\n'*}"
+RUN_PANES_LINES=$(sed 1d <<< "$out")
 # Lane A's tab, lane A its root: the lanes tab, with the Reviewer column when
 # anything reviews; with roles, the research tab for a lane A of a role other
 # than code or review (layout.sh lane_tab), and the lanes tab waits for its
 # first pane.
 LANE_A_TAB=lanes; [ "$ROLES" != on ] || LANE_A_TAB=$(lane_tab "$LANE_A_ROLE")
-out=$(herdr tab create --workspace "$WS" --cwd "$REPO" --label "$LANE_A_TAB" --no-focus)
-TAB_ID=$(echo "$out" | jsonq 'd["result"]["tab"]["tab_id"]')
-LANE_A_PANE=$(echo "$out" | jsonq 'd["result"]["root_pane"]["pane_id"]')
-COLUMN=""; [ "$LANE_A_TAB" != lanes ] || COLUMN="   $(reviewer_column "$REPO" "$LANE_A_PANE")"
+out=$(runner_open_lane_a "$WS" "$REPO" "$LANE_A_TAB") || opened_and_die "$CONSOLE_PANE $SHELL_PANE $DEV_PANE"
+read -r LANE_A_PANE TAB_REST <<< "$out"
 
 # --- the pane map, before the agent start so add-lane and the brief have it even if that fails
 {
   echo "run dir:        $RUN_DIR"
-  echo "orchestrator:   $HERDR_PANE_ID"
-  printf '%-16s%s%s\n' "$LANE_A_TAB tab:" "$TAB_ID" "$COLUMN"
+  echo "orchestrator:   $SELF"
+  printf '%-16s%s\n' "$LANE_A_TAB tab:" "$TAB_REST"
   echo "lane A:         $LANE_A_PANE   (agent \"$LANE_A\", kind $EXECUTOR_KIND, ${LANE_A_SESSION}branch $BRANCH, checkout $REPO, model $EXECUTOR_MODEL, tab $LANE_A_TAB)"
   [ -z "$DEV_PANE" ] || echo "dev:            $DEV_PANE   (${PANE_CMDS[$DEV_I]} in ${PANE_DIRS[$DEV_I]})"
   echo "shell:          $SHELL_PANE   (a shell in $REPO, for the human)"
   echo "console:        $CONSOLE_PANE   (tower; the record — stays open, the human quits it with q)"
+  [ -z "$RUN_PANES_LINES" ] || echo "$RUN_PANES_LINES"
   echo "check gate:     $CHECK_CMD"
   echo "contract:       $PIN"
   echo "switches:       $(switches_line)"
   echo "reviewer:       $REVIEWER"
   echo "roles:          $ROLES_LINE"
   echo "toolchain:      $PM"
-  echo "read a pane:    herdr pane read <id> --source recent-unwrapped --lines 60"
+  echo "read a pane:    $(runner_read_cmd)"
 } > "$RUN_DIR/panes.txt"
+# The dev pane goes in the kit's launch record too, for read-pane.sh --dev:
+# lanes read it there, not from the map they can write.
+[ -z "$DEV_PANE" ] || launch_append "$RUN_DIR" @dev "$DEV_PANE" \
+  || echo "bootstrap: lanes cannot read the dev pane with read-pane.sh --dev (no record of it); read it yourself" >&2
 
 # bootstrap has no rerun: an agent left running is briefed once it accepts
-# input; with none there, the run starts over; when herdr cannot answer, a
+# input; with none there, the run starts over; when the runner cannot answer, a
 # look at the pane tells which it is.
 if ! start_agent_with_trust_retry "$LANE_A" "$LANE_A_PANE"; then
-  case "$(state_of "$LANE_A")" in
+  case "$(state_of "$LANE_A" "$LANE_A_PANE")" in
     gone) die "bootstrap: lane A's agent $LANE_A is not running in $LANE_A_PANE: see above for why, then rerun bootstrap.sh with a new run dir" ;;
-    unreadable) die "bootstrap: herdr cannot say whether lane A's agent $LANE_A runs in $LANE_A_PANE; the run and its pane map ($RUN_DIR/panes.txt) are set up: check that pane, and with the agent there brief it once  herdr agent get $LANE_A  shows interactive_ready true; with none, rerun bootstrap.sh with a new run dir" ;;
+    unreadable) die "bootstrap: $(runner_name) cannot say whether lane A's agent $LANE_A runs in $LANE_A_PANE; the run and its pane map ($RUN_DIR/panes.txt) are set up: check that pane, and with the agent there brief it once  $(runner_ready_hint "$LANE_A"); with none, rerun bootstrap.sh with a new run dir" ;;
   esac
   die "bootstrap: lane A's agent $LANE_A is not ready in $LANE_A_PANE; the run and its pane map ($RUN_DIR/panes.txt) are set up: see above for the agent, and brief it once it accepts input"
 fi
@@ -276,6 +290,6 @@ else
   echo "       tower add \"<title>\" --area <area> --lane A   per task (lanes B-D: add-lane.sh, then --lane B …)"
   echo "       brief lane A (brief-template.md), then"
 fi
-echo "       herdr agent prompt $LANE_A \"\$(cat $RUN_DIR/brief-A.md)\""
+echo "       $KIT/send-brief.sh $RUN_DIR $LANE_A $RUN_DIR/brief-A.md"
 echo "more lanes:  $KIT/add-lane.sh $RUN_DIR B <branch> $BRANCH <ids>"
 echo "watch:       tower wait --stale $STALE   and   $KIT/watch-lanes.sh $RUN_DIR $LANE_A   (both in the background)"

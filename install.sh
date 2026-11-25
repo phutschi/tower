@@ -11,10 +11,10 @@
 #                        ~/.codex/skills
 #   install.sh --check   only check
 #
-# Needs: herdr (the terminal), tower (the record and the console; it must run,
-# and install.sh fetches the release binary into TOWER_BIN_DIR, default
-# ~/.local/bin, when it is missing), git, bash, python3 (reads herdr's JSON),
-# node (reads package.json in JS repos), curl (fetches tower). Optional: claude
+# Needs: herdr or Orca's CLI (ORCA_CLI_COMMAND, orca-ide or orca), tower (the record
+# and the console; it must run, and install.sh fetches the release binary into
+# TOWER_BIN_DIR, default ~/.local/bin, when it is missing), git, bash, python3
+# (reads the runner's JSON), node (reads package.json in JS repos), curl (fetches tower). Optional: claude
 # (the plugin), codex (EXECUTOR_KIND=codex lanes), cursor-agent
 # (EXECUTOR_KIND=cursor lanes; it reads the skills linked for claude and
 # codex, so nothing more is linked), semgrep and gitleaks (preflight's static
@@ -107,11 +107,16 @@ runs() { if tower_ok; then printf '  ok        tower\n'; else printf '  MISSING 
 # opt TOOL WHAT [PROBE-ARG]: with PROBE-ARG, the tool must also run (`TOOL PROBE-ARG`).
 opt()  { if command -v "$1" >/dev/null && { [ -z "${3:-}" ] || "$1" "$3" </dev/null >/dev/null 2>&1; }; then printf '  ok        %s (optional)\n' "$1"; else printf '  optional  %-12s %s\n' "$1" "$2"; fi; }
 echo "dependencies:"
-have herdr   "the terminal this kit runs in"
+# Orca's CLI as Orca finds it: ORCA_CLI_COMMAND's value, else orca-ide, else
+# orca (on Linux a bare orca can be the GNOME screen reader).
+if [ -n "${ORCA_CLI_COMMAND:-}" ]; then orca_cli=$ORCA_CLI_COMMAND
+elif command -v orca-ide >/dev/null; then orca_cli=orca-ide; else orca_cli=orca; fi
+if command -v herdr >/dev/null; then have herdr; elif command -v "$orca_cli" >/dev/null; then have "$orca_cli"
+else printf '  MISSING   %-12s %s\n' "herdr or $orca_cli" "the terminal this kit runs in"; ok=0; fi
 runs
 have git     "version control"
 have bash    "the scripts"
-have python3 "reads herdr's JSON"
+have python3 "reads the runner's JSON"
 have node    "reads package.json in JS repos"
 opt  claude  "Claude Code, where the plugin is installed"
 opt  codex   "lanes with EXECUTOR_KIND=codex"
@@ -220,7 +225,7 @@ link "$SKILLS/preflight" "$HOME/.codex/skills" preflight
 cat <<'MSG'
 
 Plan, in any session:  /tower:spec-to-plan <spec path or issue URL>
-Run, from a herdr pane in your repo on the feature branch:
+Run, from a herdr pane or an Orca chat in your repo on the feature branch:
   with a plan:   /tower:orchestrate <path to plan.md or tasks.tsv>
   without:       /tower:orchestrate, then say what to build
 MSG

@@ -44,11 +44,13 @@
 # Expects `set -u`; provides agent_name SUFFIX, start_agent NAME PANE,
 # start_agent_with_trust_retry NAME PANE (it returns once the agent accepts
 # input; one that exits right after its start is started once more, then the
-# start fails), kind_installed KIND and
+# start fails: 3 when nothing was sent, 4 when sent without a receipt, else 1), kind_installed KIND, kind_cli KIND (the CLI it runs as),
+# need_kind WHO KIND (dies naming that CLI when it is not installed) and
 # reviewer_for LANE_KIND [LANE_MODEL] (the Reviewer's kind and model; see below),
 # preflight_reviewer LANE_KIND [LANE_MODEL] (the same, for a preflight slot).
 # START_TRIES (default 10) is how often an agent start is tried, a second apart,
-# while herdr answers agent_pane_busy (a new pane's shell is not ready yet).
+# while herdr answers agent_pane_busy (a new pane's shell is not ready yet);
+# with Orca, how often the agent is read for a trust menu once its line is typed.
 # START_SETTLE_SECONDS (default 3) is how long a started agent is given before
 # it is read again; READY_WAIT_SECONDS (default 30) how many reads, about a
 # second apart, it then gets to accept input.
@@ -124,13 +126,14 @@ agent_checkout() {
   printf '%s' "$co"
 }
 
-start_agent() {
-  local name="$1" pane="$2"
+# The harness arguments of an agent of EXECUTOR_KIND, into AGENT_ARGS; 3 when
+# they cannot be built (a git dir that cannot be read).
+agent_args() {
   case "$EXECUTOR_KIND" in
     # SESSION_ROLE and SESSION_TOPIC (roles.sh; set by the caller only when
     # the run has roles) go to the Claude launcher.
-    claude) herdr agent start "$name" --kind claude --pane "$pane" -- --model "$EXECUTOR_MODEL" \
-      ${SESSION_ROLE:+--role "$SESSION_ROLE"} ${SESSION_TOPIC:+--topic "$SESSION_TOPIC"} ;;
+    claude) AGENT_ARGS=(--model "$EXECUTOR_MODEL" \
+      ${SESSION_ROLE:+--role "$SESSION_ROLE"} ${SESSION_TOPIC:+--topic "$SESSION_TOPIC"}) ;;
     cursor)
       # --trust is the only guard against cursor's trust box: herdr reports
       # that box as idle and ready, so a brief would be typed into it, and
@@ -141,14 +144,14 @@ start_agent() {
       # The run dir (tower's record) and the common git dir (commits from a
       # lane worktree) are added dirs.
       local common
-      common=$(git -C "$(agent_checkout)" rev-parse --path-format=absolute --git-common-dir) || return 1
-      herdr agent start "$name" --kind cursor --pane "$pane" -- --model "$EXECUTOR_MODEL" \
-        --trust --force --disable-auto-update ${RUN_DIR:+--add-dir "$RUN_DIR"} --add-dir "$common" ;;
+      common=$(git -C "$(agent_checkout)" rev-parse --path-format=absolute --git-common-dir) || return 3
+      AGENT_ARGS=(--model "$EXECUTOR_MODEL" \
+        --trust --force --disable-auto-update ${RUN_DIR:+--add-dir "$RUN_DIR"} --add-dir "$common") ;;
     codex)
       local extra=() common gitdir roots="" p co
       co=$(agent_checkout)
-      common=$(git -C "$co" rev-parse --path-format=absolute --git-common-dir) || return 1
-      gitdir=$(git -C "$co" rev-parse --path-format=absolute --git-dir) || return 1
+      common=$(git -C "$co" rev-parse --path-format=absolute --git-common-dir) || return 3
+      gitdir=$(git -C "$co" rev-parse --path-format=absolute --git-dir) || return 3
       [ -n "${RUN_DIR:-}" ] && extra+=(--add-dir "$RUN_DIR")
       if [ "$gitdir" = "$common" ]; then
         extra+=(--add-dir "$common")
@@ -174,21 +177,74 @@ start_agent() {
           extra+=(-c "shell_environment_policy.set.$v=$q")
         done
       fi
-      herdr agent start "$name" --kind codex --pane "$pane" -- -m "$EXECUTOR_MODEL" \
+      AGENT_ARGS=(-m "$EXECUTOR_MODEL" \
         -a never -s workspace-write -c sandbox_workspace_write.network_access=true \
-        -c check_for_update_on_startup=false "${extra[@]}" ;;
+        -c check_for_update_on_startup=false "${extra[@]}") ;;
   esac
+}
+start_agent() {
+  local name="$1" pane="$2" rc=0
+  agent_args || return 3
+  runner_agent_start "$name" "$EXECUTOR_KIND" "$pane" -- "${AGENT_ARGS[@]}" || rc=$?
+  # Anything but the runner's "nothing sent" (3, or 5: not a ready shell yet)
+  # may have launched it. A record that cannot be written leaves the agent
+  # unreachable by send-brief: said, with the recovery that starts nothing
+  # (bind-pane.sh). A launch that went through is then 7; a runner failure
+  # keeps its own code, so a launch with no receipt (4) is still looked at
+  # first, and a trust prompt (6) still answered (start_answering_trust checks
+  # the record once the agent runs).
+  case $rc in
+    3|5) ;;
+    *) launch_note "$name" "$pane" || {
+         local bind; bind="record it with  $(bind_cmd "$RUN_DIR" "$name" "$pane")  (it starts nothing)"
+         case $rc in
+           0) echo "agent start: $name was launched in $pane, but the kit could not record it, so no brief reaches it yet: once you have seen it there, $bind" >&2
+              return 7 ;;
+           4) echo "agent start: $(runner_name) cannot say whether $name's launch reached $pane (no receipt), and the kit could not record it either: look at that terminal; once you have seen the agent there, $bind" >&2 ;;
+           6) ;;
+           *) echo "agent start: $name's start in $pane failed, and the kit could not record it either: if the agent runs there, $bind" >&2 ;;
+         esac } ;;
+  esac
+  return "$rc"
+}
+# The command a person runs to start this agent by hand, in its checkout: its
+# CLI with the model and grants start_agent gives it.
+launch_line() { agent_args || return 1; printf '%q ' "$(kind_cli "$EXECUTOR_KIND")" "${AGENT_ARGS[@]}"; }
+# A start's failure code for its caller: the runner's 3 (nothing sent) and 4
+# (sent without a receipt) pass through; any other failure (5 and 6
+# included, which start_answering_trust handles, and 7: launched, its record
+# not written) is 1.
+launch_rc() { case "$1" in 3|4) echo "$1" ;; *) echo 1 ;; esac; }
+# The run's launch record (common.sh launch_record) gains NAME in PANE.
+launch_note() { [ -z "${RUN_DIR:-}" ] || launch_append "$RUN_DIR" "$1" "$2"; }
+# Does the run's launch record have NAME in PANE (no run dir: nothing to have)?
+launch_recorded() { [ -z "${RUN_DIR:-}" ] || [ "$(launched "$RUN_DIR" "$1")" = "$1 $2" ]; }
+# On a trust prompt left to the operator (the start's 6): the record of NAME
+# in PANE that could not be written. A runner that reaches agents only
+# through their terminal (Orca) needs it for any brief: said with how to
+# write it; one that reaches them by name (herdr, common.sh bound_pane) not.
+unbound_note() {
+  launch_recorded "$1" "$2" && return
+  if runner_names_agents; then
+    echo "agent start: the kit could not record $1 in $2 either; $(runner_name) reaches it by name, so a brief still does" >&2
+  else
+    echo "agent start: the kit could not record $1 in $2 either, so no brief reaches it yet: once it runs there, record it with  $(bind_cmd "$RUN_DIR" "$1" "$2")  (it starts nothing)" >&2
+  fi
 }
 
 # S as a TOML basic string, for a codex -c value.
 toml_string() { local s=${1//\\/\\\\}; printf '"%s"' "${s//\"/\\\"}"; }
 
-# A new pane's shell may not be ready yet when the agent starts: herdr answers
-# agent_pane_busy. Try again once a second, START_TRIES times in all (default 10).
-# A fresh checkout shows the agent's trust prompt, which herdr reports as
-# "blocked during startup". Claude's prompt wants Down Enter ("Yes, I trust this
-# folder" is the second option); codex's wants Enter ("Yes, continue" is the
-# first). Answer it, and try once more if herdr then says the agent is gone.
+# A new pane's shell may not be ready yet when the agent starts: the runner's
+# start returns 5 (herdr's agent_pane_busy). Try again once a second,
+# START_TRIES times in all (default 10). A fresh checkout shows the agent's
+# trust prompt: the start returns 6 (herdr's "blocked during startup";
+# runner-orca.sh only on Orca's workspace-trust wait reason, and any other
+# prompt fails the start). Only the return code decides: the runner's words
+# are for people. Claude's
+# prompt wants Down Enter ("Yes, I trust this folder" is the second option);
+# codex's wants Enter ("Yes, continue" is the first). Answer it, and try once
+# more if herdr then says the agent is gone.
 # cursor's is never answered: it starts with --trust, and one still blocked
 # fails the start, saying to check the pane.
 # It returns 1, saying why, when the answer cannot be sent or the agent is
@@ -202,14 +258,14 @@ toml_string() { local s=${1//\\/\\\\}; printf '"%s"' "${s//\"/\\\"}"; }
 # left running in its pane.
 start_agent_with_trust_retry() {
   local name="$1" pane="$2" rc
-  start_answering_trust "$name" "$pane" || return 1
+  start_answering_trust "$name" "$pane" || return $?
   rc=0; until_ready "$name" "$pane" || rc=$?
   case $rc in
     0) return 0 ;;
     2) return 1 ;;
   esac
   echo "agent start: $name exited right after its start in pane $pane; starting it once more" >&2
-  start_answering_trust "$name" "$pane" || return 1
+  start_answering_trust "$name" "$pane" || return $?
   rc=0; until_ready "$name" "$pane" || rc=$?
   case $rc in
     0) return 0 ;;
@@ -220,23 +276,29 @@ start_agent_with_trust_retry() {
 }
 
 # 0 once NAME accepts input; 1 when herdr says it is gone (agent_not_found);
-# 2, saying so, when READY_WAIT_SECONDS checks passed without either.
+# 2, saying so, when READY_WAIT_SECONDS checks passed without either. With
+# a third argument, held (a pending Reviewer's wait, add-reviewer.sh): 3 at
+# the first unknown or blocked read, that state on stdout, so no later read
+# overrides it.
 until_ready() {
-  local name="$1" pane="$2" state checks=0
+  local name="$1" pane="$2" held="${3:-}" state checks=0
   [ "${DRY_RUN:-0}" = 1 ] || sleep "${START_SETTLE_SECONDS:-3}"
   while :; do
-    state=$(ready_of "$name"); checks=$((checks+1))
+    state=$(ready_of "$name" "$pane"); checks=$((checks+1))
     case "$state" in
       ready) return 0 ;;
       gone)  return 1 ;;
+      unknown|blocked) [ -z "$held" ] || { echo "$state"; return 3; } ;;
     esac
     [ "$checks" -lt "${READY_WAIT_SECONDS:-30}" ] || break
     [ "${DRY_RUN:-0}" = 1 ] || sleep 1
   done
   if [ "$state" = unreadable ]; then
-    echo "agent start: herdr cannot say whether $name runs in $pane after $checks checks" >&2
+    echo "agent start: $(runner_name) cannot say whether $name runs in $pane after $checks checks" >&2
+  elif [ "$state" = shell ]; then
+    echo "agent start: $name's terminal $pane shows a shell, not the agent, after $checks checks: its launch did not run, or it exited; read the terminal for why, then start it again" >&2
   else
-    echo "agent start: $name does not accept input in pane $pane after $checks checks ($state); it is left running in $pane: brief it once  herdr agent get $name  shows interactive_ready true, or end it and start it again" >&2
+    echo "agent start: $name does not accept input in pane $pane after $checks checks ($state); it is left running in $pane: brief it once  $(runner_ready_hint "$name"), or end it and start it again" >&2
   fi
   return 2
 }
@@ -245,7 +307,7 @@ until_ready() {
 # unreadable (common.sh agent_of), or its state when it does not accept input
 # yet ("idle, not ready for input" when herdr says idle but not ready).
 ready_of() {
-  local a; a=$(agent_of "$1")
+  local a; a=$(agent_of "$1" "${2:-}")
   case "$a" in
     "idle True"|"working True")   echo ready ;;
     "idle False"|"working False") echo "${a%% *}, not ready for input" ;;
@@ -254,42 +316,48 @@ ready_of() {
 }
 
 start_answering_trust() {
-  local name="$1" pane="$2" out tries=1
-  until out=$(start_agent "$name" "$pane" 2>&1); do
-    if echo "$out" | grep -q agent_pane_busy && [ "$tries" -lt "${START_TRIES:-10}" ]; then
+  local name="$1" pane="$2" out tries=1 rc
+  while :; do
+    rc=0; out=$(start_agent "$name" "$pane" 2>&1) || rc=$?
+    if [ "$rc" = 0 ]; then
+      return 0
+    elif [ "$rc" = 5 ] && [ "$tries" -lt "${START_TRIES:-10}" ]; then
       tries=$((tries+1))
       [ "${DRY_RUN:-0}" = 1 ] || sleep 1
-    elif echo "$out" | grep -q "blocked during startup" && [ "$EXECUTOR_KIND" = cursor ]; then
+    elif [ "$rc" = 6 ] && [ "$EXECUTOR_KIND" = cursor ]; then
       # cursor starts with --trust, and its box is never answered with keys
       # (start_agent). herdr usually reports that box as idle and ready;
       # this covers a herdr that reports it as blocked.
       echo "agent start: $name is blocked during startup in pane $pane although it started with --trust; check the pane" >&2
-      return 1
-    elif echo "$out" | grep -q "blocked during startup"; then
+      unbound_note "$name" "$pane"; return 1
+    elif [ "$rc" = 6 ]; then
       # Every failure returns 1 itself: callers run this under || too, where
       # errexit is off.
       local keys=(Enter); [ "$EXECUTOR_KIND" = codex ] || keys=(Down Enter)
-      herdr pane send-keys "$pane" "${keys[@]}" >/dev/null || {
-        echo "agent start: could not answer $name's trust prompt in pane $pane (herdr pane send-keys failed); answer it there, and the agent runs" >&2; return 1; }
+      runner_send_keys "$pane" "${keys[@]}" || {
+        echo "agent start: could not answer $name's trust prompt in pane $pane ($(runner_name) could not send the keys); answer it there, and the agent runs" >&2
+        unbound_note "$name" "$pane"; return 1; }
       [ "${DRY_RUN:-0}" = 1 ] || sleep 3
       # Started again only when herdr says the agent is not there (common.sh
       # state_of): a failing herdr call must not put a second agent beside it.
       # Only working or idle is an agent running; any other state fails.
-      local state; state=$(state_of "$name")
+      local state; state=$(state_of "$name" "$pane")
       case "$state" in
-        working|idle) return 0 ;;
-        gone) start_agent "$name" "$pane" >/dev/null || {
-          echo "agent start: $name did not start again in pane $pane after its trust prompt; check it there" >&2; return 1; } ;;
-        unreadable) echo "agent start: herdr cannot say whether $name started after its trust prompt; check pane $pane" >&2; return 1 ;;
-        *) echo "agent start: $name is still $state in pane $pane after its trust prompt was answered; answer it there, and the agent runs" >&2; return 1 ;;
+        working|idle) launch_recorded "$name" "$pane" || {
+            echo "agent start: $name runs in $pane now its trust prompt is answered, but the kit could not record it, so no brief reaches it yet: record it with  $(bind_cmd "$RUN_DIR" "$name" "$pane")  (it starts nothing)" >&2; return 1; }
+          return 0 ;;
+        gone) start_agent "$name" "$pane" >/dev/null || { rc=$?
+          echo "agent start: $name did not start again in pane $pane after its trust prompt; check it there" >&2; return "$(launch_rc "$rc")"; } ;;
+        unreadable) echo "agent start: $(runner_name) cannot say whether $name started after its trust prompt; check pane $pane" >&2; unbound_note "$name" "$pane"; return 1 ;;
+        *) echo "agent start: $name is still $state in pane $pane after its trust prompt was answered; answer it there, and the agent runs" >&2; unbound_note "$name" "$pane"; return 1 ;;
       esac
       return 0
     else
       echo "$out" >&2
-      if echo "$out" | grep -q agent_pane_busy; then
+      if [ "$rc" = 5 ]; then
         echo "agent start: pane $pane is still not a ready shell after $tries tries; check it, or raise START_TRIES" >&2
       fi
-      return 1
+      return "$(launch_rc "$rc")"
     fi
   done
 }
@@ -298,8 +366,13 @@ start_answering_trust() {
 # under a second; keep the probe that cheap (macOS has no timeout(1)). cursor's
 # CLI is cursor-agent (a plain cursor may be the editor).
 kind_installed() {
-  local c=$1; [ "$c" != cursor ] || c=cursor-agent
+  local c; c=$(kind_cli "$1")
   command -v "$c" >/dev/null && "$c" --version </dev/null >/dev/null 2>&1
+}
+kind_cli() { case "$1" in cursor) echo cursor-agent ;; *) echo "$1" ;; esac; }   # the CLI KIND runs as
+# Dies saying which CLI is missing when WHO's kind KIND is not installed.
+need_kind() {  # WHO KIND [HINT: what else to do, after "install it"]
+  kind_installed "$2" || die "$1's kind $2 runs as $(kind_cli "$2"), which is not installed: install it${3:-, or set EXECUTOR_KIND to another kind}"
 }
 
 # The kinds that may review a lane of LANE_KIND, in order, one per line:

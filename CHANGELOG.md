@@ -6,8 +6,21 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-11-23
+
 ### Added
 
+- `/tower:orchestrate` runs in Orca as well as herdr. Started from an Orca
+  chat, it opens terminals through Orca's CLI (`ORCA_CLI_COMMAND`; install.sh
+  looks for it there, else as `orca-ide`, else `orca`): lane A in your
+  checkout, lanes B to D as child worktrees of the orchestrator's workspace, a
+  `tower` tab with the console over a shell, the dev pane and each Reviewer in
+  a tab of their own. herdr wins when both are present, and outside both it
+  still points to `/tower:run`. The pane map's `read a pane:` line names the
+  runner's command, and the orchestrator sends every brief with the new
+  `send-brief.sh`, which runs nothing from the pane map (a lane can write
+  it). A run can live on a paired Orca server, started there by hand. herdr
+  runs are unchanged.
 - Session roles for a Claude launcher: when `CLAUDE_ROUTER_ROLE` is set or
   `claude` takes `--role`, `/tower:orchestrate` runs only in an orchestrator
   session (`claude --role orchestrator`), and every claude session it starts
@@ -28,8 +41,8 @@ All notable changes to this project are documented here. The format follows
   thread. A comment there becomes a fix for the lane that wrote the line; a
   session without the tool skips it with a tower note.
 - `NOTIFY`, a one-line command only the environment or the user contract
-  sets: preflight runs
-  it once at its end with the PR link and the number of open decisions.
+  sets: preflight runs it once at its end with the PR link and the number of
+  open decisions.
 - A Reviewer marks a choice with a finding's `decision` options; triage
   writes `decided_by`, and the PR's findings tables show it.
 
@@ -244,7 +257,8 @@ tower's first run was its own build.
 - Themes as JSON with `theme rules|new|check|preview`.
 - The orchestrator skill (`skills/run/SKILL.md`), experimental.
 
-[Unreleased]: https://github.com/phutschi/tower/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/phutschi/tower/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/phutschi/tower/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/phutschi/tower/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/phutschi/tower/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/phutschi/tower/compare/v0.2.0...v0.3.0

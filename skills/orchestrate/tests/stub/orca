@@ -1,0 +1,205 @@
+#!/usr/bin/env bash
+# Stand-in for Orca's CLI under DRY_RUN=1 and test.sh, as tests/stub/herdr is
+# for herdr. Logs argv to ORCA_STUB_LOG and answers with the JSON shapes of
+# `orca … --json`: {"ok":true,"result":…}, or {"ok":false,"error":{"code":…}}
+# on stdout with exit 1 (an ok answer exits 1 where Orca's does: a refused
+# send, an unsatisfied wait). Terminal handles (term-<n>, in tab-<n>, leaf-<n>) and
+# worktree ids (repo-0::<root>/wt-<n>, root ORCA_STUB_WORKTREES, default
+# /orca-stub/worktrees) count up per process tree
+# through ORCA_STUB_COUNTER (common.sh gives a DRY_RUN script a private one);
+# a split stays in the tab it splits. The caller's workspace (`worktree
+# current`, `--parent-worktree active|current`) is repo-0::<cwd>. `worktree
+# create` records its --name, --branch and its parent; `worktree show` reports
+# them back (parentWorktreeId), and answers selector_not_found for a worktree
+# it did not create.
+# Agent states, one per terminal, come from ORCA_STUB_STATES_DIR/<handle>: a
+# state word (working, waiting, blocked, done), "gone" (the terminal is
+# closed: terminal_handle_stale, and the agent is not listed), "unlisted"
+# (the terminal is open but its agent has not reported to Orca yet, so it is
+# not listed; its TUI is busy), "unlisted-idle" (the same, its TUI idle),
+# "unlisted-waitfail" and "unlisted-waittimeout" (the same, its wait failing),
+# "unlisted-trust" (the same, a trust menu on screen, its TUI idle: an Enter
+# sent alone answers it, dropping the line), "done-shell" (listed done, its
+# agent exited: the screen shows a shell prompt), "unlisted-shell" (not
+# listed, an idle shell on screen), "unlisted-shell-launch" (the same, until
+# a text-and-Enter send starts an agent there: waiting),
+# "unreadable" (Orca does not answer: runtime_unavailable) or "trust" (a trust
+# menu: the agent shows blocked, a text-plus-Enter send is refused with
+# agent_prompt_blocked, and an Enter sent alone answers the menu, dropping
+# the line). With no file, the agent is working. With several lines, each call
+# that reports the state answers the first and drops it; the last one stays.
+# `terminal show` gives a trust menu Orca's agentWait reason
+# agent-trust-workspace, blocked agent-hooks-review-prompt, any other null.
+# `terminal read` answers ORCA_STUB_STATES_DIR/<handle>.tail as its tail
+# (with --screen, source "screen" and, without a .tail, a screen by state).
+# `terminal wait --for tui-idle` is satisfied by waiting, done or
+# unlisted-idle, fails for "unlisted-waitfail" (an unlisted agent whose wait
+# Orca cannot answer: runtime_unavailable) and "unlisted-waittimeout" (Orca's
+# timeout code), and otherwise answers satisfied false with exit 1, as Orca
+# does. `terminal close` makes the terminal gone.
+# ORCA_STUB_WORKTREE_FAIL=1: every `worktree create` fails
+# (runtime_unavailable); =garbled: it succeeds with an answer that has no
+# worktree in it; =suffix: it makes the worktree on <branch>-2, as Orca does
+# when the branch is taken (`worktree show` says so); =nobranch: `worktree
+# show` names no branch for it.
+# ORCA_STUB_PEEK=<pane map>: each `terminal create` logs that map's tab
+# lines, as "peek: <line>", after its own log line.
+# ORCA_STUB_CREATE_FAIL=<title>: a `terminal create` with that --title fails
+# (runtime_unavailable).
+# ORCA_STUB_SEND_FAIL: every `terminal send` with text fails: =1 with
+# runtime_unavailable (a lost reply), =refused as Orca refuses input
+# (accepted false, exit 1), =unknown as input taken with no receipt
+# (deliveryOutcome unknown, retrySafe false), =echo as that, its message and
+# its echoed command (data.originalCommand) holding busy and trust words.
+# ORCA_STUB_SEND_WARN: every `terminal send` with text and Enter is taken
+# (exit 0), its prompt receipt saying Orca could not see it arrive: =old-host
+# (a host with no receipts), =unsupported (a provider that cannot report),
+# =permission or =incarnation (incarnation_replaced). Without it, a text and
+# Enter send carries an ordinary receipt.
+# ORCA_STUB_SCREEN=unavailable: `terminal read --screen` has no rendered
+# screen to give (source screen-unavailable, an empty tail).
+# ORCA_STUB_STATUS=fail: `status` answers runtime_unavailable; =offline: it
+# succeeds, saying the runtime is not reachable (both: Orca not reachable).
+# ORCA_STUB=absent refuses to run, so orca counts as not installed; it logs
+# each refused call as "orca-absent <argv>".
+[ "${ORCA_STUB:-}" = absent ] && { printf 'orca-absent %s\n' "$*" >> "${ORCA_STUB_LOG:-/dev/null}"; echo "orca: not installed (stub)" >&2; exit 127; }
+ok()  { printf '{"id":"stub","ok":true,"result":%s}\n' "$1"; exit 0; }
+err() { printf '{"id":"stub","ok":false,"error":{"code":"%s","message":"%s"}}\n' "$1" "$1"; exit 1; }
+# status is runner_detect's probe (runner.sh); it acts on nothing, so it is not
+# logged.
+if [ "${1:-}" = status ]; then
+  [ "${ORCA_STUB_STATUS:-}" != fail ] || err runtime_unavailable
+  [ "${ORCA_STUB_STATUS:-}" != offline ] || ok '{"runtime":{"state":"not_running","reachable":false}}'
+  ok '{"runtime":{"state":"ready","reachable":true}}'
+fi
+printf 'orca %s\n' "$*" >> "${ORCA_STUB_LOG:-/dev/null}"
+# Without ORCA_STUB_COUNTER, this call's state lives in a dir of its own,
+# removed when it exits: nothing counts up across calls then.
+counter="${ORCA_STUB_COUNTER:-}"
+[ -n "$counter" ] || { _own=$(mktemp -d) || exit 1; trap 'rm -rf "$_own"' EXIT; counter="$_own/counter"; }
+states="${ORCA_STUB_STATES_DIR:-}"
+next_n() { local n; n=$(cat "$counter" 2>/dev/null || echo 0); n=$((n+1)); echo "$n" > "$counter"; echo "$n"; }
+# flag NAME: the value after --NAME in the call, empty when absent.
+flag() { local a prev=""; for a in "${ARGS[@]}"; do [ "$prev" != "--$1" ] || { printf '%s' "$a"; return; }; prev=$a; done; }
+has()  { local a; for a in "${ARGS[@]}"; do [ "$a" != "--$1" ] || return 0; done; return 1; }
+ARGS=("$@")
+current="repo-0::$(pwd -P)"
+# js TEXT: TEXT as a JSON string; js "" is null.
+js() { if [ -z "$1" ]; then echo null; else python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$1"; fi; }
+# A selector as a worktree id: id:<id> and active/current resolved.
+wt_id() { case "$1" in active|current) echo "$current" ;; id:*) echo "${1#id:}" ;; *) echo "$1" ;; esac; }
+# peek HANDLE: the state word without dropping it; take HANDLE: dropping it.
+peek() { if [ -n "$states" ] && [ -f "$states/$1" ]; then head -1 "$states/$1"; else echo working; fi; }
+take() {
+  local f="$states/$1"; peek "$1"
+  [ -n "$states" ] && [ -f "$f" ] && [ "$(wc -l < "$f")" -gt 1 ] && { tail -n +2 "$f" > "$f.next"; mv "$f.next" "$f"; }
+  return 0
+}
+# A terminal's own errors: gone or unreadable.
+live() { case "$(peek "$1")" in gone) err terminal_handle_stale ;; unreadable) err runtime_unavailable ;; esac; }
+reported() { case "$1" in trust) echo blocked ;; done-shell) echo done ;; *) echo "$1" ;; esac; }
+trusty() { case "$(peek "$1")" in trust|unlisted-trust) return 0 ;; esac; return 1; }
+row() { awk -v h="$1" '$1 == h' "$counter.terminals" 2>/dev/null; }
+case "${1:-} ${2:-}" in
+  "worktree current") ok "{\"worktree\":{\"id\":$(js "$current"),\"path\":$(js "$(pwd -P)"),\"parentWorktreeId\":null}}" ;;
+  "worktree create")
+    case "${ORCA_STUB_WORKTREE_FAIL:-}" in
+      1)       err runtime_unavailable ;;
+      garbled) ok '{}' ;;
+    esac
+    n=$(next_n); path="${ORCA_STUB_WORKTREES:-/orca-stub/worktrees}/wt-$n"; parent=$(flag parent-worktree); [ -z "$parent" ] || parent=$(wt_id "$parent")
+    b=$(flag branch); [ "${ORCA_STUB_WORKTREE_FAIL:-}" != suffix ] || b="$b-2"; [ "${ORCA_STUB_WORKTREE_FAIL:-}" != nobranch ] || b=""
+    printf '%s|%s|%s|%s|%s\n' "repo-0::$path" "$path" "$(flag name)" "$b" "$parent" >> "$counter.worktrees"
+    ok "{\"worktree\":{\"id\":\"repo-0::$path\",\"path\":\"$path\"}}" ;;
+  "worktree show")
+    id=$(wt_id "$(flag worktree)")
+    [ "$id" != "$current" ] || ok "{\"worktree\":{\"id\":$(js "$current"),\"path\":$(js "$(pwd -P)"),\"parentWorktreeId\":null}}"
+    IFS='|' read -r id path name branch parent < <(awk -F'|' -v i="$id" '$1 == i' "$counter.worktrees" 2>/dev/null) || err selector_not_found
+    ok "{\"worktree\":{\"id\":\"$id\",\"path\":\"$path\",\"displayName\":$(js "$name"),\"branch\":$(js "$branch"),\"parentWorktreeId\":$(js "$parent")}}" ;;
+  "terminal create")
+    [ -z "${ORCA_STUB_PEEK:-}" ] || grep -E '^(review|lanes) tab:' "$ORCA_STUB_PEEK" | sed 's/^/peek: /' >> "${ORCA_STUB_LOG:-/dev/null}"
+    [ -z "${ORCA_STUB_CREATE_FAIL:-}" ] || [ "$(flag title)" != "$ORCA_STUB_CREATE_FAIL" ] || err runtime_unavailable
+    n=$(next_n); wt=$(flag worktree); wt=$(wt_id "${wt:-current}")
+    echo "term-$n tab-$n leaf-$n $wt" >> "$counter.terminals"
+    ok "{\"terminal\":{\"handle\":\"term-$n\",\"tabId\":\"tab-$n\",\"worktreeId\":\"$wt\",\"title\":$(js "$(flag title)")}}" ;;
+  "terminal split")
+    h=$(flag terminal); live "$h"; read -r _ tab _ wt < <(row "$h") || err terminal_handle_stale
+    n=$(next_n); echo "term-$n $tab leaf-$n $wt" >> "$counter.terminals"
+    ok "{\"split\":{\"handle\":\"term-$n\",\"tabId\":\"$tab\"}}" ;;
+  "terminal show")
+    h=$(flag terminal); live "$h"; read -r _ tab leaf wt < <(row "$h") || err terminal_handle_stale
+    # agentWait: Orca's reason an agent waits on a prompt.
+    aw=',"agentWait":null'
+    if trusty "$h"; then aw=',"agentWait":{"source":"prompt-text","reason":"agent-trust-workspace"}'
+    elif [ "$(peek "$h")" = blocked ]; then aw=',"agentWait":{"source":"prompt-text","reason":"agent-hooks-review-prompt"}'; fi
+    ok "{\"terminal\":{\"handle\":\"$h\",\"tabId\":\"$tab\",\"leafId\":\"$leaf\",\"worktreeId\":\"$wt\"$aw}}" ;;
+  "terminal send")
+    h=$(flag terminal); live "$h"
+    if has text; then
+      case "${ORCA_STUB_SEND_FAIL:-}" in
+        1)       err runtime_unavailable ;;
+        refused) printf '{"id":"stub","ok":true,"result":{"send":{"handle":"%s","accepted":false,"refusedReason":"stub"}}}\n' "$h"; exit 1 ;;
+        unknown) printf '{"id":"stub","ok":false,"error":{"code":"incompatible_runtime","message":"no receipt","data":{"deliveryOutcome":"unknown","retrySafe":false}}}\n'; exit 1 ;;
+        echo)    printf '{"id":"stub","ok":false,"error":{"code":"incompatible_runtime","message":"agent blocked during startup","data":{"deliveryOutcome":"unknown","retrySafe":false,"originalCommand":"orca terminal send --text agent_pane_busy"}}}\n'; exit 1 ;;
+      esac
+    fi
+    if [ "$(peek "$h")" = unlisted-shell-launch ] && has text && has enter; then echo waiting > "$states/$h"; fi
+    if trusty "$h"; then
+      if [ "$(peek "$h")" = trust ] && has text && has enter; then err agent_prompt_blocked; fi
+      if has enter && ! has text; then
+        if [ "$(wc -l < "$states/$h")" -gt 1 ]; then tail -n +2 "$states/$h" > "$states/$h.next"; mv "$states/$h.next" "$states/$h"; else rm -f "$states/$h"; fi
+      fi
+    fi
+    receipt=""
+    if has text && has enter; then
+      case "${ORCA_STUB_SEND_WARN:-}" in
+        old-host)    receipt='"provider":"old-host","observation":"unsupported"' ;;
+        unsupported) receipt='"provider":"unsupported","observation":"unsupported"' ;;
+        permission)  receipt='"provider":"claude","observation":"permission"' ;;
+        incarnation) receipt='"provider":"claude","observation":"incarnation_replaced"' ;;
+        *)           receipt='"provider":"claude"' ;;
+      esac
+      receipt=",\"prompt\":{\"requestId\":\"stub-req\",\"stages\":[\"input_accepted\"],$receipt}"
+    fi
+    ok "{\"send\":{\"handle\":\"$h\",\"accepted\":true$receipt}}" ;;
+  "terminal read")
+    h=$(flag terminal); live "$h"
+    tail=$([ -n "$states" ] && [ -f "$states/$h.tail" ] && python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().splitlines()))' < "$states/$h.tail") || tail='[]'
+    # --screen: the rendered screen, an agent's interface or, done-shell, a
+    # shell prompt.
+    src=""
+    if has screen && [ "${ORCA_STUB_SCREEN:-}" = unavailable ]; then
+      src=',"source":"screen-unavailable"'; tail='[]'
+    elif has screen; then
+      src=',"source":"screen"'
+      [ "$tail" != '[]' ] || case "$(peek "$h")" in
+        done-shell|unlisted-shell*) tail='["Bye!", "acme $ "]' ;;
+        *)          tail='["> ", "  ? for shortcuts"]' ;;
+      esac
+    fi
+    ok "{\"terminal\":{\"handle\":\"$h\",\"status\":\"running\"$src,\"tail\":$tail}}" ;;
+  "terminal wait")
+    h=$(flag terminal); live "$h"
+    case "$(reported "$(take "$h")")" in
+      waiting|done|unlisted-idle|unlisted-trust|unlisted-shell*) ok "{\"wait\":{\"handle\":\"$h\",\"condition\":\"$(flag for)\",\"satisfied\":true}}" ;;
+      unlisted-waitfail) err runtime_unavailable ;;
+      unlisted-waittimeout) err timeout ;;
+      *) printf '{"id":"stub","ok":true,"result":{"wait":{"handle":"%s","condition":"%s","satisfied":false}}}\n' "$h" "$(flag for)"; exit 1 ;;
+    esac ;;
+  "terminal close")
+    h=$(flag terminal); [ -z "$states" ] || echo gone > "$states/$h"
+    ok "{\"close\":{\"handle\":\"$h\"}}" ;;
+  "agent list")
+    rows=""
+    while read -r h tab leaf wt; do [ "$(peek "$h")" != unreadable ] || err runtime_unavailable; done < <(cat "$counter.terminals" 2>/dev/null)
+    while read -r h tab leaf wt; do
+      s=$(reported "$(take "$h")"); case "$s" in gone|unlisted*) continue ;; esac
+      rows="$rows${rows:+,}{\"orcaSessionId\":\"session-${h#term-}\",\"kind\":\"terminal\",\"state\":\"$s\",\"worktreeId\":\"$wt\",\"paneKey\":\"$tab:$leaf\"}"
+    done < <(cat "$counter.terminals" 2>/dev/null)
+    ok "{\"agents\":[$rows]}" ;;
+  "agent show")
+    id=${3#orca_session_id:}; h="term-${id#session-}"; live "$h"; read -r _ tab leaf wt < <(row "$h") || err agent_not_found
+    s=$(reported "$(take "$h")")
+    ok "{\"agent\":{\"orcaSessionId\":\"$id\",\"kind\":\"terminal\",\"state\":\"$s\",\"worktreeId\":\"$wt\",\"paneKey\":\"$tab:$leaf\",\"terminal\":\"$h\"}}" ;;
+  *) ok '{}' ;;
+esac

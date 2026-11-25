@@ -39,6 +39,10 @@ test("the plugin carries the package's version", () => {
   const version = json("package.json").version;
   expect(json(".claude-plugin/plugin.json").version).toBe(version);
   expect(json(".cursor-plugin/plugin.json").version).toBe(version);
+  // release.yml publishes the tag's release with this body.
+  const heading = read(".github/release-body.md").split("\n")[0] ?? "";
+  expect(heading).toStartWith(`## [${version}]`);
+  expect(read("CHANGELOG.md")).toContain(heading);
 });
 
 test("the plugin and its marketplace entry name the four skills", () => {
@@ -150,12 +154,30 @@ test("the example tasks and fixtures are neutral", () => {
   expect(read("skills/orchestrate/example-tasks.tsv")).toMatch(/^# .*acme/);
 });
 
-test("orchestrate checks for herdr first, and points to /tower:run", () => {
+test("orchestrate checks for herdr or Orca first, and points to /tower:run", () => {
   const body = read("skills/orchestrate/SKILL.md").split("\n## ");
   const first = body[1] ?? "";
-  expect(first).toMatch(/^First: /);
+  expect(first).toMatch(/^First: herdr or Orca\n/);
   expect(first).toContain("HERDR_ENV");
+  expect(first).toContain("ORCA_CLI_COMMAND");
   expect(first).toContain("/tower:run");
+});
+
+test("orchestrate sends briefs with send-brief.sh and reads panes with read-pane.sh", () => {
+  for (const file of [
+    "skills/orchestrate/SKILL.md",
+    "skills/orchestrate/brief-template.md",
+  ]) {
+    const text = read(file);
+    expect(text).not.toMatch(/herdr (agent|pane|tab|worktree) [a-z-]+ /);
+    expect(text).not.toMatch(/orca (agent|terminal|worktree) [a-z-]+ /);
+    expect(text).toContain("send-brief.sh");
+    expect(text).not.toContain("message a pane:");
+  }
+  expect(read("skills/orchestrate/SKILL.md")).toContain("read-pane.sh");
+  const brief = read("skills/orchestrate/brief-template.md");
+  expect(brief).toContain("read-pane.sh {{RUN_DIR}} --dev");
+  expect(brief).not.toContain("read a pane:");
 });
 
 test("orchestrate describes no run without tower", () => {

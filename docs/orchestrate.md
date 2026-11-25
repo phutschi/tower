@@ -1,15 +1,17 @@
-# orchestrate: tower's herdr runner
+# orchestrate: tower's runner kit
 
 The `tower` plugin's skills for planning and running a multi-task
-implementation inside [herdr](https://herdr.dev): one orchestrating session
-and one to four executing lanes. [tower](https://github.com/phutschi/tower)
-keeps the record: every run has its board and transcript.
+implementation inside [herdr](https://herdr.dev) or Orca (a desktop app that
+runs coding agents in worktrees, each with its own terminals and chats): one
+orchestrating session and one to four executing lanes.
+[tower](https://github.com/phutschi/tower) keeps the record: every run has its
+board and transcript.
 
-| Skill                 | What it does                                                                            |
-| --------------------- | --------------------------------------------------------------------------------------- |
-| `/tower:spec-to-plan` | Turns a spec into `plan.md`: tasks, lanes, merge points. Any session.                   |
-| `/tower:orchestrate`  | Runs a plan (or a request) with lanes, reviews, merge, preflight and a PR. Needs herdr. |
-| `/tower:preflight`    | Checks a whole branch before its PR. Also on its own, without herdr.                    |
+| Skill                 | What it does                                                                                    |
+| --------------------- | ----------------------------------------------------------------------------------------------- |
+| `/tower:spec-to-plan` | Turns a spec into `plan.md`: tasks, lanes, merge points. Any session.                           |
+| `/tower:orchestrate`  | Runs a plan (or a request) with lanes, reviews, merge, preflight and a PR. Needs herdr or Orca. |
+| `/tower:preflight`    | Checks a whole branch before its PR. Also on its own, in any session.                           |
 
 Planning and running are separate sessions, and the plan is the only thing
 between them.
@@ -45,7 +47,8 @@ them, and writes `plan.md` to `$TOWER_PLANS_DIR/<repo>_<branch>/`, outside
 the repo (`TOWER_PLANS_DIR` defaults to
 `${XDG_STATE_HOME:-$HOME/.local/state}/tower/plans`). It writes no code.
 
-**3. Run.** In a new session, from a herdr pane, same repo and branch:
+**3. Run.** In a new session, from a herdr pane or an Orca chat, same repo
+and branch:
 
 ```
 /tower:orchestrate <path to plan.md>
@@ -65,9 +68,12 @@ git clone git@github.com:phutschi/tower.git ~/tools/tower
 ~/tools/tower/install.sh
 ```
 
-That checks the dependencies (herdr, tower, git, bash, python3, node; claude,
-codex, cursor-agent, semgrep and gitleaks optional). tower is required and
-must run: a missing tower shows up here, not at the start of a run.
+That checks the dependencies (herdr or Orca's CLI, tower, git, bash,
+python3, node; claude, codex, cursor-agent, semgrep and gitleaks optional). tower is required and
+must run: a missing tower shows up here, not at the start of a run. Orca's
+CLI is found as Orca finds it: the value of `ORCA_CLI_COMMAND` when it is set,
+else `orca-ide`, else `orca` (on Linux a bare `orca` can be the GNOME screen
+reader).
 
 When tower is missing, install.sh fetches it. The primary path is the release
 binary for macOS or Linux (arm64 or x64) of this checkout's version, into
@@ -93,7 +99,7 @@ Claude Code installs a copy of the plugin. After a `git pull`, run
 
 ## Two openings
 
-From a herdr pane, in your repo, on the feature branch:
+From a herdr pane or an Orca chat, in your repo, on the feature branch:
 
 - **With a plan.** `/tower:orchestrate <path>`. The path is a markdown
   plan with `### Task <id>: <title>` headings (what
@@ -111,7 +117,33 @@ From a herdr pane, in your repo, on the feature branch:
 Either way, the orchestrator briefs nobody until the task list is on the
 board — the gate.
 
+## herdr or Orca
+
+orchestrate runs in the runner it was started in, the program that opens its
+panes and starts its agents. It decides before it creates anything:
+
+- **herdr** when the orchestrator runs in a herdr pane (`HERDR_ENV=1`) and
+  herdr answers, even inside an Orca terminal.
+- **Orca** otherwise, when it runs in an Orca chat or terminal
+  (`ORCA_CLI_COMMAND` is set) and `"$ORCA_CLI_COMMAND" status --json` says
+  its runtime is reachable.
+
+Outside both it refuses, names herdr, Orca and `/tower:run`, and creates no
+run. In an Orca whose runtime does not answer, or answers that it is not
+reachable, it refuses too, and says Orca is not reachable.
+
+The run is the same in both: the same briefs, the same reviews, the same
+record. In Orca the kit drives terminals through Orca's CLI, the command
+`ORCA_CLI_COMMAND` names, the way it drives herdr panes: it starts each agent
+CLI in a terminal it opens, types the brief in once the agent accepts input,
+reads the terminal back and watches the agent's status. Orca's own orchestration (its runs, tasks and mailbox) is not
+used: tower's board stays the only record (ADR 0005, ADR 0011).
+
 ## The layout
+
+Nothing is closed until you say so.
+
+### On herdr
 
 Up to three tabs in the orchestrator's workspace, each opened without
 moving your focus: the orchestrator's own, `lanes`, and `research` (and
@@ -164,7 +196,122 @@ or review lane, or Reviewer. Without roles, every lane is in the lanes tab.
   Console is tower's minimum width, 60
   columns; it takes half the orchestrator's tab so it always gets them.
 
-Nothing is closed until you say so.
+### On Orca
+
+An Orca chat cannot be split, so each pane gets a tab of its own.
+
+```
+the orchestrator's workspace (your checkout)
+  tabs:  orchestrator │ lane A │ tower │ dev │ R1 │ R2
+
+  tower tab
+  ┌──────────────┐
+  │ console      │
+  ├──────────────┤
+  │ shell        │
+  └──────────────┘
+
+lanes B to D: child worktrees of that workspace, each with its lane's terminal
+```
+
+- **Lane A** works in your checkout, in a terminal of the orchestrator's
+  workspace, so its work lands on the integration branch without a merge, as
+  on herdr.
+- **Lanes B to D** each get a child worktree of the orchestrator's workspace,
+  named for the run and the lane, with their executor in a terminal there.
+  Each worktree shows its agent's status in Orca's sidebar.
+- **tower** is a tab in the orchestrator's workspace: the console on top and
+  an empty shell below, in your checkout.
+- **dev**, when the run has one, is a tab of its own, in lane A's checkout.
+- **R1 and R2**, the Reviewer slots, are terminal tabs in the orchestrator's
+  workspace. A new Reviewer in a busy slot ends the one before it with
+  `/exit`, as on herdr. About 2 seconds later the kit closes the old
+  Reviewer's terminal, and the new Reviewer starts in a new terminal tab
+  named for the slot.
+
+Each tab goes into the pane map as soon as it opens. When R2's tab fails
+after R1's opened, the rerun of add-reviewer opens R2 alone. When bootstrap
+fails after it opened the console or the shell, the pane map's `opened:` line
+and the message name what to close; bootstrap has no rerun.
+
+Watching reads Orca's agent status: working and blocked as on herdr; waiting
+and done read as idle. A terminal Orca does not list yet is a ready agent
+only once its screen is idle and shows the agent's footer words. One that
+shows a bare shell (a launch refused, or an agent that exited before its
+first turn) is no ready agent: its start fails, a Reviewer there is not
+resumed, and watch-lanes reports it as gone, as herdr reports an agent that
+exited. Any other screen (one Orca cannot render, one showing neither)
+reads as unknown: the start waits and then fails, saying it is left running,
+and a pending Reviewer there is kept as it is, its rerun stopping at once
+with what it read; so is one blocked on a prompt. An Orca that does not answer reads as unreadable, and
+so does a stale terminal handle: Orca's handles end with its runtime, so the
+terminal may still be open under a new one. A lane never settles on a missing
+answer, and add-lane, add-reviewer and send-brief ask you to put the
+terminal's new handle into the pane map, and record it with `bind-pane.sh`,
+rather than remove anything.
+
+### The pane map
+
+Both runners write the pane map, `panes.txt` in the run dir, with the same
+lines and the same `switches:` line. On herdr it holds pane and tab ids. On
+Orca, the `orchestrator:` line holds the orchestrator's workspace
+(`<repo-id>::<path>`), each pane line an Orca terminal handle, and the
+`lanes tab:`, `tower tab:` and `dev tab:` lines the tabs the run opened; lanes
+B to D also record their worktree. Its `read a pane:` line is how you read a
+pane back by hand without naming a runner:
+`herdr pane read <id> --source recent-unwrapped --lines 60` on herdr,
+`"$ORCA_CLI_COMMAND" terminal read --terminal <id> --json` on Orca (every
+Orca terminal has `ORCA_CLI_COMMAND`, the CLI the kit runs too). No agent
+runs it: a lane can write the map. The orchestrator reads an agent's pane
+with `read-pane.sh <run-dir> <agent> [<lines>]`, which finds the pane as
+`send-brief.sh` does, and lanes read the dev pane with
+`read-pane.sh <run-dir> --dev [<lines>]`, which finds it in the kit's launch
+record, where bootstrap put it. Either reads at most 120 lines, on both
+runners; more are refused.
+
+The orchestrator sends each brief and fix prompt with
+`send-brief.sh <run-dir> <agent> <file>`. The file must sit directly in the
+run dir (a nested path, or one through a link, is refused); its text goes as
+it is, but for trailing newlines, which are trimmed, and a file holding a NUL
+byte is refused. It finds the agent's pane on its
+one lane or Reviewer line and, on Orca, checks it against the kit's own
+launch record, kept under `$XDG_STATE_HOME/tower/launched/` (named by the run
+dir's path, like the contract pin), outside everything a sandboxed lane may
+write: an agent the kit never launched is refused, and so is a map line that
+gives another pane than the record. When you rebind a stale handle, or a
+start could not write the record, record the terminal yourself, once you
+have seen the agent there: `bind-pane.sh <run-dir> <agent> <pane>` (the
+agent's line must give that pane; it starts nothing). It checks that the pane is open, and sends the
+file through the runner: `herdr agent prompt` by the agent's name, or
+`orca terminal send` with Enter to its terminal. On Orca the brief goes to an
+agent listed working or waiting; to one listed done only while the screen
+shows the agent (its footer words, which win over a status line shaped like
+a prompt), since an agent that exited stays listed done at its shell;
+and to one not listed yet once the start would count it ready: its screen
+idle and showing the agent, not a shell prompt, not a screen Orca cannot
+render, not one showing neither. Otherwise it holds the brief and says why.
+A brief Orca takes without a receipt, or with one that does not show it
+arrive (an old host, a provider that cannot tell, a permission prompt),
+counts as pending: look at the terminal before you send anything again. It
+runs nothing from the pane map, which a lane can write.
+
+## A run on a paired Orca server
+
+A whole run lives on one machine: the orchestrator, its lanes and the record.
+To run on another machine, pair it with your Orca as an Orca server (Orca on
+that machine, which your Orca opens workspaces on), then:
+
+1. Install tower, the plugin and the agent CLIs your plan needs on that
+   server, as under [Install](#install).
+2. In your Orca, open the server's workspace for the repo, on the feature
+   branch.
+3. Start a chat there and run `/tower:orchestrate`, with or without a plan.
+
+The kit and Orca's CLI run on the server and address the server's own Orca, so
+nothing names it. Its tower check runs there, and a missing tower stops the
+run before it starts. You watch from your Mac's Orca, with no second window
+and no SSH session. One run spread over several machines, plain SSH hosts and
+handing a running run to another machine are not supported.
 
 ## Reviews, preflight and the PR
 
@@ -200,9 +347,10 @@ by preflight on the strongest model. In this order:
    still on the screen never reads as done. A fix loop stops after the
    second re-review and comes to you. With `TRIAGE=auto` the open finding is
    deferred to preflight instead, and the lane merges.
-2. **The Reviewer slots.** R1 and R2 are the lanes tab's right column
-   (`add-reviewer.sh`); a run whose lanes tab is not open yet gets it from
-   the first review, the column alone. Every review starts a new agent in
+2. **The Reviewer slots.** On herdr, R1 and R2 are the lanes tab's right
+   column (`add-reviewer.sh`). A run whose lanes tab is not open yet gets it
+   from the first review, the column alone. On Orca they are terminal tabs
+   (see [On Orca](#on-orca)). Every review starts a new agent in
    a slot and becomes a task on the board owned by that slot. The slots
    stay open after the run.
 3. **Merge.** The orchestrator merges each lane as it reports ready (with
@@ -216,7 +364,7 @@ by preflight on the strongest model. In this order:
    probed here: below `REVIEWER_CREDITS_MIN` % another installed kind with
    credits reviews on its Reviewer model (codex, then cursor), and with
    none, claude on `REVIEWER_MODEL_CLAUDE` (claude-opus-5-5). `/tower:preflight` is also a skill of
-   its own: run it on any branch, without herdr.
+   its own: run it on any branch, in any session.
 5. **One table, one reply.** The orchestrator shows you every finding in
    one table with a suggested outcome: fix, accept, follow-up or reject.
    Fixes go back, in parallel, to the lanes that wrote the code, and the
@@ -467,11 +615,11 @@ made without probes; each review probes when it starts.
 
 ## Testing the kit
 
-`./test.sh` runs without herdr, claude, codex, cursor-agent, semgrep or
+`./test.sh` runs without herdr, Orca, claude, codex, cursor-agent, semgrep or
 gitleaks, and never reads the keychain or calls the network: stubs under
-`skills/orchestrate/tests/stub/` log what would be called, and the credit
-probes run against per-section fakes of `security` and `curl`
-(`CREDITS_FAKES`; under `DRY_RUN=1` without it, no probe runs). tower is the
+`skills/orchestrate/tests/stub/` log what would be called (a fake herdr and a
+fake orca among them), and the credit probes run against per-section fakes of
+`security` and `curl` (`CREDITS_FAKES`; under `DRY_RUN=1` without it, no probe runs). tower is the
 real CLI from this checkout, run with bun, so a change to tower's commands or
 to `tower state --json` breaks the kit's tests in the same change.
 `DRY_RUN=1 skills/orchestrate/bootstrap.sh …` shows the same for a real repo,
@@ -482,6 +630,9 @@ run `bun install` in the checkout first.
 `shellcheck -S warning *.sh skills/*/*.sh skills/orchestrate/tests/stub/*` lints
 (`.shellcheckrc` holds the deliberate exceptions). CI runs both on Linux and
 macOS.
+A section shared by both runners runs once per runner: `./test.sh executor`
+runs it against the fake herdr, `./test.sh executor:orca` against the fake
+orca, and the full run does both (`PER_RUNNER` in `test.sh` lists them).
 `./test.sh --fast` skips the slow sections (preflight's look and the whole
 run) and is part of the check gate in tower's `.orchestrate`; the full
 `./test.sh` is one of its suite steps.
@@ -500,7 +651,8 @@ install.sh, test.sh    install and test the kit
 
 ## Design
 
-`CONTEXT.md` is the glossary. `docs/adr/` holds the decisions: lanes never
+`CONTEXT.md` is the glossary. `docs/adr/` holds the decisions: orchestrate
+is the one skill that names a runner, herdr or Orca (0005), lanes never
 change the task list (0008), orchestrate requires tower (0011, which
 supersedes 0009), Reviewers report and the orchestrator decides (0010),
 model defaults are data and a user contract holds them (0012), and credits

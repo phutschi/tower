@@ -7,7 +7,8 @@ read docs/agents.md instead.
   it names no harness and no runner (ADR 0005). `skills/` is the plugin:
   `run` (neutral; `skills/run/SKILL.test.ts` guards it) and the orchestrate
   kit, `orchestrate`, `spec-to-plan` and `preflight`. `orchestrate` is the one
-  herdr-only skill; no other skill and nothing in `src/` names herdr.
+  skill that names a runner (herdr, Orca); no other skill and nothing in
+  `src/` names either.
 - Runtime: `src/` uses `node:*` APIs only. No `Bun.*` (ESLint enforces it).
   Node ≥ 22.12 and Bun must both run the built CLI. Users never need Bun.
 - Toolchain: Bun. `bun run check` = format + lint + typecheck + test, and is

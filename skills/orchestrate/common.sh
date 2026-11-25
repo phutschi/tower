@@ -42,43 +42,140 @@ SWITCHES="TASK_REVIEW LANE_REVIEW PREFLIGHT STATIC_BASELINE PR METHOD REVIEWER_K
 if [ "${DRY_RUN:-0}" = 1 ]; then
   # A broken or non-executable stub would otherwise fall through silently to
   # whatever herdr/tower is next on PATH — the real ones. Refuse instead.
-  [ -x "$KIT/tests/stub/herdr" ] || die "DRY_RUN=1 but $KIT/tests/stub/herdr is missing or not executable — refusing to fall through to the real herdr"
+  for _stub in herdr orca; do
+    [ -x "$KIT/tests/stub/$_stub" ] || die "DRY_RUN=1 but $KIT/tests/stub/$_stub is missing or not executable — refusing to fall through to the real $_stub"
+  done; unset _stub
   export PATH="$KIT/tests/stub:$PATH"
   export HERDR_STUB_LOG="${HERDR_STUB_LOG:-/dev/stderr}"
-  # Inside herdr unless the caller says otherwise (HERDR_ENV=0 tests the refusal).
+  export ORCA_STUB_LOG="${ORCA_STUB_LOG:-$HERDR_STUB_LOG}"
+  # The fake orca's state, in a dir only this user owns: one per run, beside
+  # its run dir (a run script's first argument), so every script of a dry run
+  # sees the same terminals; any other script gets one of its own. Only a dry
+  # run that can reach the fake (RUNNER=orca, or an Orca session) needs it.
+  if [ -z "${ORCA_STUB_COUNTER:-}" ] && { [ "${RUNNER:-}" = orca ] || [ -n "${ORCA_CLI_COMMAND:-}" ]; }; then
+    # shortcut: the folder is left behind (a few bytes a dry run), remove it at close once dry runs loop.
+    case "$(basename "$0"):${1:+run}" in
+      bootstrap.sh:run|add-lane.sh:run|add-reviewer.sh:run|send-brief.sh:run|read-pane.sh:run|bind-pane.sh:run|watch-lanes.sh:run)
+        # The run dir's real path, its parent made if need be: one folder per run.
+        _p=$(cd "$1" 2>/dev/null && pwd -P) \
+          || _p=$(mkdir -p "$(dirname "$1")" && cd "$(dirname "$1")" && echo "$(pwd -P)/$(basename "$1")") \
+          || die "DRY_RUN: cannot reach the run dir $1's parent"
+        _own="$(dirname "$_p")/.$(basename "$_p").orca-stub"; unset _p
+        { mkdir -m 700 "$_own" || [ -d "$_own" ]; } 2>/dev/null && [ ! -L "$_own" ] && [ -O "$_own" ] && chmod 700 "$_own" \
+          || die "DRY_RUN: the fake orca's state folder $_own is not a private dir of yours" ;;
+      *) _own=$(mktemp -d) || die "DRY_RUN: mktemp -d failed, so the fake orca has nowhere to keep its state" ;;
+    esac
+    export ORCA_STUB_COUNTER="$_own/orca-counter"; unset _own
+  fi
+  # Inside herdr unless the caller says otherwise (HERDR_ENV=0 tests the
+  # refusal); RUNNER=orca: inside Orca instead, with the fake orca as the
+  # session's CLI.
   export HERDR_ENV="${HERDR_ENV:-1}" HERDR_PANE_ID="${HERDR_PANE_ID:-pane-0}" HERDR_TAB_ID="${HERDR_TAB_ID:-tab-0}"
+  [ "${RUNNER:-}" != orca ] || export HERDR_ENV=0
+  # The fake orca, whatever CLI an Orca session named: a dry run reaches no Orca.
+  if [ "${RUNNER:-}" = orca ] || [ -n "${ORCA_CLI_COMMAND:-}" ]; then export ORCA_CLI_COMMAND="$KIT/tests/stub/orca"; fi
 fi
 
-# The orchestrate skill is herdr-only: it runs from a herdr pane with herdr
-# runnable, or it refuses before touching anything.
-in_herdr() {
-  [ "${HERDR_ENV:-}" = 1 ] && herdr --version >/dev/null 2>&1 && return 0
-  local hint=" DRY_RUN=1 shows what this script would do."
-  [ "${DRY_RUN:-0}" = 1 ] && hint=""
-  die "not inside herdr: the orchestrate skill needs herdr (https://herdr.dev) and runs from a herdr pane (HERDR_ENV=1). Without herdr, use /tower:run, which works with any runner.$hint"
-}
+. "$KIT/runner.sh"
 need()     { local c; for c in "$@"; do command -v "$c" >/dev/null || die "missing dependency: $c"; done; }
 jsonq()    { python3 -c "import json,sys; d=json.load(sys.stdin); print($1)"; }
 pane_id()  { jsonq 'd["result"]["pane"]["pane_id"]'; }
-# An agent as herdr reads it, one line: "<agent_status> <interactive_ready>"
-# (True or False; True when herdr leaves the field out, as an older herdr
-# does); gone only when herdr answers agent_not_found; unreadable when herdr
-# fails for any other reason (a server restarting, a timeout) or answers
-# without a status, which says nothing about the agent. herdr's errors are on
-# stderr, read only when the call fails.
-agent_of() {
-  local out err r
-  err=$(mktemp)
-  if out=$(herdr agent get "$1" 2>"$err"); then
-    r=$(echo "$out" | jsonq '(lambda a: "%s %s" % (a["agent_status"], a.get("interactive_ready", True)) if a.get("agent_status") else "unreadable")((d.get("result") or {}).get("agent") or {})' 2>/dev/null) || r=unreadable
-  elif grep -q '"agent_not_found"' "$err"; then r=gone
-  else r=unreadable
-  fi
-  rm -f "$err"; echo "$r"
+# An agent as the runner reads it (runner_agent_state): "<status> <ready>",
+# gone or unreadable. PANE is the agent's pane, when the caller knows it.
+agent_of() { runner_agent_state "$1" "${2:-}"; }
+# An agent's state: the runner's status (herdr's own unknown included: an
+# agent herdr cannot classify), gone or unreadable (agent_of).
+state_of() { local a; a=$(agent_of "$1" "${2:-}"); echo "${a%% *}"; }
+# The message for a stale handle (runner_pane_exists 3) on stderr: WHO's
+# terminal may still be open, so it is rebound by hand, never removed. CLOSED
+# says what to do when it was closed instead (default: open a terminal where
+# it worked and put that handle there). AGENT, when WHO is one the kit
+# launched, is recorded at the new handle with bind-pane.sh, by the operator.
+# The command that records AGENT in PANE for run RUN_DIR (bind-pane.sh), for
+# the operator to copy: each argument one literal shell word, whatever the
+# pane map spelled. An empty RUN_DIR, or no PANE, prints its placeholder.
+bind_cmd() {  # RUN_DIR AGENT [PANE]
+  local c; c=$(printf '%q ' "$KIT/bind-pane.sh")
+  if [ -n "$1" ]; then c+=$(printf '%q ' "$1"); else c+="<run-dir> "; fi
+  c+=$(printf '%q' "$2")
+  if [ -n "${3:-}" ]; then c+=" $(printf '%q' "$3")"; else c+=" <its handle>"; fi
+  echo "$c"
 }
-# An agent's state: herdr's agent_status (its own unknown included: an agent
-# herdr cannot classify), gone or unreadable (agent_of).
-state_of() { local a; a=$(agent_of "$1"); echo "${a%% *}"; }
+stale_handle() {  # WHO PANE LINE [CLOSED [AGENT]]
+  local bind=""
+  [ -z "${5:-}" ] || bind=" and record it with  $(bind_cmd "${RUN_DIR:-}" "$5")"
+  echo "$(runner_name) says $1's terminal handle $2 is stale: it may still be open under a new handle. Find $1's terminal in $(runner_name), put its handle on $3 in ${MAP:-the pane map}$bind, then rerun; if $(runner_name) has no such terminal, it was closed: ${4:-open one where it worked and put that handle there}" >&2
+}
+# The kit's record of the agents it launched for run RUN_DIR: "<agent> <pane>"
+# per launch or rebind (bind-pane.sh), the last line for an agent standing.
+# It lives under $XDG_STATE_HOME (~/.local/state)/tower/launched/, named by
+# the run dir's path, as the contract pin does (detect-stack.sh contract_pin):
+# outside everything a codex lane may write, so it binds an agent to its pane
+# where the pane map, in the lane-writable run dir, cannot. Fails when there
+# is no run dir.
+launch_record() {
+  local d; d=$(cd -- "$1" >/dev/null 2>&1 && pwd -P) || return 1
+  echo "${XDG_STATE_HOME:-$HOME/.local/state}/tower/launched/$(printf '%s' "$d" | git hash-object --stdin)"
+}
+# RUN_DIR NAME: NAME's last line in the record; nothing when the record is
+# missing, or not a regular file of yours.
+launched() {
+  local f; f=$(launch_record "$1") || return 0
+  [ -f "$f" ] && [ ! -L "$f" ] && [ -O "$f" ] || return 0
+  awk -v n="$2" '$1 == n { l = $0 } END { if (l != "") print l }' "$f"
+}
+# RUN_DIR NAME PANE: "NAME PANE" appended to the record, a file of yours (mode
+# 600) in a dir of yours, opened without following a link. Fails, saying why.
+launch_append() {
+  local f; f=$(launch_record "$1") || { echo "no run dir at $1, so no launch record" >&2; return 1; }
+  python3 -I -c 'import os, stat, sys
+f, line = sys.argv[1], sys.argv[2]
+os.makedirs(os.path.dirname(f), mode=0o700, exist_ok=True)
+d = os.lstat(os.path.dirname(f))
+if not stat.S_ISDIR(d.st_mode) or d.st_uid != os.getuid(): sys.exit(1)
+fd = os.open(f, os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW | getattr(os, "O_NONBLOCK", 0), 0o600)
+st = os.fstat(fd)
+if not stat.S_ISREG(st.st_mode) or st.st_uid != os.getuid(): sys.exit(1)
+os.write(fd, (line + "\n").encode())' "$f" "$2 $3" 2>/dev/null \
+    || { echo "cannot write the launch record $f (it must be a regular file of yours, not a link)" >&2; return 1; }
+}
+# The pane of agent NAME in run RUN_DIR, for a kit script to send to or read
+# (send-brief.sh, read-pane.sh): its one lane or Reviewer line's (agent_pane),
+# bound to the kit's launch record (launched), since a lane can rewrite the
+# pane map. A runner that reaches agents by name (herdr) needs no record. The
+# map and the record must agree: a handle rebound (stale_handle) counts once
+# the operator records it with bind-pane.sh. Fails, saying why.
+bound_pane() {  # RUN_DIR NAME
+  local pane launched
+  pane=$(agent_pane "$1/panes.txt" "$2") || return 1
+  if ! runner_names_agents; then
+    read -r _ launched <<< "$(launched "$1" "$2")"
+    [ -n "$launched" ] || { echo "the kit has no record of launching $2 ($(launch_record "$1")): once you have seen $2 in $pane, record it with  $(bind_cmd "$1" "$2" "$pane")" >&2; return 1; }
+    [ "$launched" = "$pane" ] \
+      || { echo "the pane map gives $2 pane $pane, but the kit's record has it in $launched; check its line in $1/panes.txt (a handle you rebound: once you have seen $2 in $pane, record it with  $(bind_cmd "$1" "$2" "$pane"))" >&2; return 1; }
+  fi
+  echo "$pane"
+}
+# The orchestrator's pane or workspace in pane map MAP: its whole line after
+# the label (an Orca workspace id holds its checkout's path, spaces and all).
+orchestrator_of() { sed -nE 's/^orchestrator: +//p' "$1" | head -1; }
+# The pane of agent NAME in pane map MAP: the one lane or Reviewer line whose
+# agent field (the first in its parenthesis, before any free-text title) is
+# NAME, read literally (the agent name is no pattern). Fails, saying why,
+# when no line names it or more than one does.
+agent_pane() {  # MAP NAME
+  local lines n
+  lines=$(NAME=$2 awk '/^(lane [A-D]|reviewer [^:]+): / {
+    i = index($0, "(agent \""); if (!i) next
+    s = substr($0, i + 8); if (substr(s, 1, index(s, "\"") - 1) == ENVIRON["NAME"]) print
+  }' "$1")
+  n=$(printf '%s' "$lines" | grep -c '^' || true)
+  case $n in
+    1) echo "$lines" | awk '{print $3}' ;;
+    0) echo "no lane or Reviewer line in $1 names agent $2" >&2; return 1 ;;
+    *) echo "$n lines in $1 name agent $2: keep the one that is the agent's" >&2; return 1 ;;
+  esac
+}
 # The main checkout's root, from any worktree of it.
 repo_root() { git rev-parse --path-format=absolute --git-common-dir | sed 's#/\.git$##'; }
 

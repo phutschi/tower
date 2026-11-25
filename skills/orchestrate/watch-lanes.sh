@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Process-level watching until a lane needs the orchestrator. Run it in the
-# background from the orchestrator right after `herdr agent prompt`, and re-run
+# background from the orchestrator right after send-brief.sh, and re-run
 # it after each exit.
 #
 #   watch-lanes.sh <run-dir> <agent>[:<round>]...   lane and Reviewer agents alike
@@ -20,7 +20,9 @@
 #   attention: <agent> blocked | idle-after-final-report | idle-unexplained |
 #              done | gone | unreadable | <any other status>
 # then the state table with the pane tails, then the tower summary. gone is
-# herdr answering agent_not_found. Any other failing herdr call (a server
+# herdr answering agent_not_found, or Orca showing a bare shell where the
+# agent was (one that exited before Orca listed it): the same kind on both
+# runners. Any other failing herdr call (a server
 # restarting, a timeout) or an answer without a status says nothing about the
 # agent: it reads unreadable and counts as working, so it never settles as
 # gone (common.sh state_of). Only UNREADABLE_POLLS consecutive unreadable
@@ -33,6 +35,9 @@
 # attention too (`tower: run closed`), and so is a complete board once no watched agent
 # is working (`tower: run complete`): a complete board alone is not, since a
 # lane's check gate and report, preflight and the PR come after its last task.
+# Exit 1 before the first poll when <run-dir>/panes.txt is missing, or when no
+# lane or Reviewer line names an agent literally, or two do (common.sh
+# agent_pane): drop that agent, or fix the map.
 #
 # Idle is ambiguous: a lane that was just prompted, or is waiting on its own
 # review subagent, reads idle for a moment. So idle counts only after
@@ -65,7 +70,7 @@
 set -uo pipefail
 KIT="$(cd "$(dirname "$0")" && pwd)"
 . "$KIT/common.sh"
-in_herdr; need python3
+need_runner; need python3
 need_tower
 USAGE='usage: watch-lanes.sh <run-dir> <agent>[:<round>]...   round: an integer >= 1, default 1'
 [ $# -ge 2 ] || die "$USAGE"
@@ -85,7 +90,20 @@ ROUND=${ROUND_SECONDS:-}; GRACE=${GRACE_SECONDS:-45}; POLL=${POLL_SECONDS:-15}
 UNREADABLE_MAX=${UNREADABLE_POLLS:-12}
 [[ "$UNREADABLE_MAX" =~ ^[1-9][0-9]*$ ]] || die "UNREADABLE_POLLS: a whole number of polls >= 1; got '$UNREADABLE_MAX'"
 
-tail_of()  { herdr agent read "$1" --source recent-unwrapped --lines 40 2>/dev/null | grep -v '^[[:space:]]*$' | tail -12; }
+# Each agent's pane: the one lane or Reviewer line naming it literally
+# (common.sh agent_pane), read once here; a name no line names, or two do, is
+# refused before the first poll.
+[ -f "$RUN_DIR/panes.txt" ] || die "watch-lanes: no pane map at $RUN_DIR/panes.txt"
+PANES=()
+for name in "${NAMES[@]}"; do
+  p=$(agent_pane "$RUN_DIR/panes.txt" "$name" 2>&1) || die "watch-lanes: $p"
+  PANES+=("$p")
+done
+pane_of() { local i; for i in "${!NAMES[@]}"; do [ "${NAMES[$i]}" != "$1" ] || { echo "${PANES[$i]}"; return; }; done; }
+# The agent's state (common.sh state_of), Orca's shell read as gone: an agent
+# that exited, the attention kind herdr gives it.
+lane_state() { local s; s=$(state_of "$1" "$(pane_of "$1")"); [ "$s" != shell ] || s=gone; echo "$s"; }
+tail_of()  { runner_agent_tail "$1" "$(pane_of "$1")" 40 2>/dev/null | grep -v '^[[:space:]]*$' | tail -12; }
 # The end line of round $1: round 1 is the brief's report, a later round a fix
 # prompt's, with the round tag r<n> inside the brackets.
 end_line() {
@@ -123,7 +141,7 @@ poll() {
   while [ -z "$ROUND" ] || [ $(( $(date +%s) - started )) -lt "$ROUND" ]; do
     settled=0; working=0; i=0
     for name in "${NAMES[@]}"; do
-      state=$(state_of "$name")
+      state=$(lane_state "$name")
       [ "$state" = unreadable ] || UNREADABLE[$i]=0
       case "$state" in
         working|unknown) IDLE_SEEN[$i]=0; working=1 ;;
@@ -152,7 +170,7 @@ resample() {
   local i=0 name
   STATES=()
   for name in "${NAMES[@]}"; do
-    STATES[$i]=$(state_of "$name")
+    STATES[$i]=$(lane_state "$name")
     if [ "${STATES[$i]}" = unreadable ]; then UNREADABLE[$i]=$(( ${UNREADABLE[$i]:-0} + 1 )); else UNREADABLE[$i]=0; fi
     i=$((i+1))
   done

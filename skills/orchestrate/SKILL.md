@@ -1,6 +1,6 @@
 ---
 name: orchestrate
-description: 'Use when asked to implement a plan or a piece of work with separate executor agents inside herdr ("/tower:orchestrate <plan>", "implement this plan with orchestrate", "spin up orchestrate", "orchestrate this", "run this with lanes"). The plan usually comes from /tower:spec-to-plan. The session becomes the orchestrator: it opens the run, derives or loads the task list, briefs one to four lanes, watches, reviews, merges, runs preflight, opens the PR, closes. Requires HERDR_ENV=1; without herdr, use /tower:run. Not for single-task changes you can make yourself.'
+description: 'Use when asked to implement a plan or a piece of work with separate executor agents inside herdr or Orca ("/tower:orchestrate <plan>", "implement this plan with orchestrate", "spin up orchestrate", "orchestrate this", "run this with lanes"). The plan usually comes from /tower:spec-to-plan. The session becomes the orchestrator: it opens the run, derives or loads the task list, briefs one to four lanes, watches, reviews, merges, runs preflight, opens the PR, closes. Requires a herdr pane (HERDR_ENV=1) or an Orca terminal or chat (ORCA_CLI_COMMAND); outside both, use /tower:run. Not for single-task changes you can make yourself.'
 ---
 
 # Orchestrating a run
@@ -16,12 +16,16 @@ tower is the record and the console: its board and transcript are the only
 record of a run. Every script refuses to start when tower does not run, and
 says how to install it.
 
-## First: herdr
+## First: herdr or Orca
 
-This skill is herdr-only. Before anything else, check that this session runs
-in a herdr pane (`HERDR_ENV=1`) and that `herdr` runs. If not, stop: tell the
-user the skill needs herdr, and that `/tower:run` does the same job with any
-runner. Every script refuses the same way, before it creates anything.
+This skill drives herdr or Orca, whichever runner it was started in. Before
+anything else, check that this session runs in a herdr pane (`HERDR_ENV=1`)
+with `herdr` runnable, or in an Orca terminal or chat (`ORCA_CLI_COMMAND` is
+set) with `"$ORCA_CLI_COMMAND" status --json` saying its runtime is
+reachable; herdr wins when both are there. If neither, stop: tell the user
+the skill needs herdr or Orca, and that `/tower:run` does the same job with
+any runner. If Orca is there but not reachable, say Orca is not reachable.
+Every script refuses the same way, before it creates anything (`runner.sh`).
 
 ## Then: an orchestrator session
 
@@ -91,7 +95,9 @@ and do it in a lane anyway or suggest doing it without the kit.
    of the first, the third under the first, the fourth under the second),
    left of the Reviewer column. With session roles, a lane whose tasks name
    a role other than `code` or `review` goes to the `research` tab's grid
-   instead; a tab opens with its first lane. When the pane's move into the
+   instead; a tab opens with its first lane. In Orca the lane is a child
+   worktree of your workspace, where Orca puts it, with its own terminal and
+   no grid; a branch that already exists is refused. When the pane's move into the
    grid or its agent's start fails, rerun the same call: it moves the
    pane, starts the agent again, or takes the agent left running once it
    accepts input, and creates nothing again. Any other failure prints what
@@ -99,7 +105,10 @@ and do it in a lane anyway or suggest doing it without the kit.
 5. **Brief.** Per lane: `tower brief <X> > <run-dir>/brief-<X>.md`, then add
    the judgement from `brief-template.md` above it (method, other lanes,
    merge points, the boundary sentence, the review tail for the lane's kind).
-   Send with `herdr agent prompt <agent> "$(cat <run-dir>/brief-<X>.md)"`.
+   Send it with `<kit>/send-brief.sh <run-dir> <agent> <run-dir>/brief-<X>.md`,
+   which finds the agent's pane in the pane map and sends through the
+   runner; bootstrap.sh and add-lane.sh print it filled in for the lane.
+   Never send one with a command copied from the pane map: a lane can write it.
    In every brief and prompt, describe the final report's marker in words,
    its round tag included, as the template does: `watch-lanes.sh` reads the
    marker itself as the report, so a prompt that spells it makes an idle lane
@@ -115,9 +124,16 @@ and do it in a lane anyway or suggest doing it without the kit.
    in a loop.
 7. **Act on attention.** `blocked` → decide, then re-brief with what the lane
    asked for (a discovered task: you add it, then tell the lane). `stale` or
-   `idle-unexplained` → read the pane tail, then re-brief or wait. `unreadable`
-   → herdr did not answer for that agent on `UNREADABLE_POLLS` polls in a
-   row: check herdr, and never start a second agent beside it. A re-brief
+   `idle-unexplained` → read the pane's tail with
+   `<kit>/read-pane.sh <run-dir> <agent>`, then re-brief or wait (the pane
+   map's `read a pane:` line is for people; never run it: a lane can write
+   it). `unreadable`
+   → the runner did not answer for that agent on `UNREADABLE_POLLS` polls in
+   a row: check the runner, and never start a second agent beside it. A
+   stale Orca handle (the kit's message says so): put the terminal's new
+   handle on the agent's line, then record it with
+   `<kit>/bind-pane.sh <run-dir> <agent> <pane>` once you have seen the agent
+   there; send-brief and read-pane trust only that record. A re-brief
    asks for no new end line, so it keeps the lane's report round: watch it
    as before. tower
    wait's `complete` → keep `watch-lanes.sh` running: a lane's check gate
@@ -420,7 +436,7 @@ is still working. The next `FINDINGS WRITTEN` frees a slot.
 
 | Mistake                                                          | Instead                                                                                                   |
 | ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| Hand-rolling `herdr pane split` and `herdr agent start`          | Run `bootstrap.sh`; the layout and pane map are its job                                                   |
+| Opening panes or starting agents with the runner's own commands  | Run `bootstrap.sh`; the layout and pane map are its job                                                   |
 | Briefing before the task list exists                             | Load or derive it first; the board is the plan                                                            |
 | Drip-feeding one task per prompt                                 | One brief per lane with all its tasks; "do not stop between tasks" is in the template                     |
 | Briefing with the plan alone                                     | Brief = template judgement + derived part; method, other lanes, merge points, reporting                   |
